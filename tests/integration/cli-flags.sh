@@ -953,6 +953,94 @@ drive_rows() {
     expect "control: the same remove --for deletes the tree"         test ! -e "${R}/for3"
     expect "control: and drops the target's entry"                    st_for_is "${R}/for3" absent
     expect "control: and its safe.directory entry"                    cli_called ai-tools-safedir "^--remove${T}${R}/for3$"
+    # A deletion that leaves paths behind names the target as the account to finish it, with one deletion command,
+    # the path in `%q`. A tree the owner cannot write is refused by the pre-flight before the registry step, so
+    # the deletion is failed by an `rm` first on the CLI's PATH, matching its arguments as whole words, that refuses
+    # the one path its target file names and runs the real `rm` for every other call. The path carries a space and its
+    # line is written quoted.
+    local rm_stub="${R}/rm-stub-bin"
+    mkdir -p "${rm_stub}" "${R}/for 5/keep"; : > "${R}/for 5/keep/held"
+    cat > "${rm_stub}/rm" <<EOF
+#!/bin/bash
+[[ "\$1" == -rf && "\$2" == -- && "\$3" == "\$(< "${rm_stub}/target")" ]] && exit 1
+exec $(type -P rm) "\$@"
+EOF
+    chmod 0755 "${rm_stub}" "${rm_stub}/rm"
+    printf '%s' "${R}/for 5" > "${rm_stub}/target"; chmod 0644 "${rm_stub}/target"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/for 5"
+    printf '@ "%s"\n' "${R}/for 5" >> "${FOR_AL}"
+    seed_gc "${R}/for 5"
+    RUN_EXTRA_ENV=(PATH="${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for 5"
+    RUN_EXTRA_ENV=()
+    expect "remove --for whose deletion leaves paths behind exits non-zero" rc_not0
+    expect "the target's entry was dropped ahead of the deletion"     st_for_is "${R}/for 5" absent
+    expect "and its safe.directory entry"                             cli_called ai-tools-safedir "^--remove${T}${R}/for 5$"
+    expect "and the entry is gone from the gitconfig"                 gc_lacks "${R}/for 5"
+    expect "the paths the deletion left are still there"              test -e "${R}/for 5/keep/held"
+    expect "the remedy names the target as the account to run it"     out_has_text "As ${FOR_USER}, run:"
+    expect "the remedy is one deletion, the path in %q"               out_has_text "rm -rf $(LC_ALL=C printf '%q' "${R}/for 5")"
+    expect "the report does not call the tree out of the agent's reach" out_lacks_text "out of the agent's reach"
+    expect "and names no entry it is still under, there being none"   out_lacks_text "still authorizes"
+    # The same report states what the label step did. A getenforce reporting SELinux enforcing puts the CLI
+    # on the label step on any host; the stubbed relabel helper fails it, and the same removal with the helper
+    # succeeding is the control. A failed reversal asks whether to go on, which no terminal declines, so
+    # the safe.directory step is skipped and its entry stays. The path carries a space, so the relabel command printed
+    # with the failure is the quoted one.
+    local label_dir="${R}/lb 1" label_al_saved
+    label_al_saved="$(cat "${AL}")"
+    mkdir -p "${label_dir}/keep"; : > "${label_dir}/keep/held"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${label_dir}"
+    printf '%s' "${label_dir}" > "${rm_stub}/target"
+    RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ \"${label_dir}\""; seed_gc "${label_dir}"; cli_stub_fail ai-tools-relabel
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${label_dir}"
+    expect "a removal whose label reversal and deletion both failed exits non-zero" rc_not0
+    expect "the label reversal reached the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${label_dir}$"
+    expect "the entry was dropped ahead of the deletion"              st_is "${label_dir}" absent
+    expect "the paths the deletion left are still there"              test -e "${label_dir}/keep/held"
+    expect "the report says the label step did not complete"          out_has_text "SELinux label step did not complete"
+    expect "and does not say it completed"                            out_lacks_text "label step completed"
+    expect "the relabel command printed with the failure is quoted"   out_has_text "--remove $(LC_ALL=C printf '%q' "${label_dir}")"
+    expect "no terminal declines going on, so safe.directory stays"   gc_has "${label_dir}"
+    seed "@ \"${label_dir}\""; seed_gc "${label_dir}"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${label_dir}"
+    expect "control: the relabel succeeding, the removal still exits non-zero" rc_not0
+    expect "control: the report says the label step completed"        out_has_text "SELinux label step completed"
+    expect "control: and does not say it did not complete"            out_lacks_text "label step did not complete"
+    # A project nested in an enabled project: the tree its failed deletion leaves stays launchable under the parent's
+    # entry, and the report names that entry. With a disabled or excluded line covering the nested project from
+    # an ancestor, the launch gate refuses there whatever entry encloses it, so the report names none.
+    mkdir -p "${R}/nest/app/keep"; : > "${R}/nest/app/keep/held"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/nest"
+    printf '%s' "${R}/nest/app" > "${rm_stub}/target"
+    RUN_EXTRA_ENV=(PATH="${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ ${R}/nest" "@ ${R}/nest/app"; seed_gc "${R}/nest" "${R}/nest/app"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/nest/app"
+    expect "a nested removal whose deletion fails exits non-zero"     rc_not0
+    expect "the nested project's entry was dropped"                   st_is "${R}/nest/app" absent
+    expect "the enclosing project's entry stays"                      st_is "${R}/nest" enabled
+    expect "the report names the entry the tree is still under"       out_has_text "the entry for ${R}/nest still authorizes a launch there"
+    mkdir -p "${R}/nest/private/app/keep"; : > "${R}/nest/private/app/keep/held"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/nest"
+    printf '%s' "${R}/nest/private/app" > "${rm_stub}/target"
+    seed "@ ${R}/nest" "! ${R}/nest/private" "@ ${R}/nest/private/app"; seed_gc "${R}/nest" "${R}/nest/private/app"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/nest/private/app"
+    expect "a removal under an excluded line whose deletion fails exits non-zero" rc_not0
+    expect "its entry was dropped"                                    st_is "${R}/nest/private/app" absent
+    expect "the report says its own entry no longer authorizes a launch" out_has_text "no longer authorizes a launch there"
+    expect "and names no entry that still does, the excluded line refusing it" out_lacks_text "still authorizes"
+    mkdir -p "${R}/top/mid/app/keep"; : > "${R}/top/mid/app/keep/held"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/top"
+    printf '%s' "${R}/top/mid/app" > "${rm_stub}/target"
+    seed "% ${R}/top" "@ ${R}/top/mid" "@ ${R}/top/mid/app"; seed_gc "${R}/top/mid" "${R}/top/mid/app"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/top/mid/app"
+    expect "a removal under a disabled project whose deletion fails exits non-zero" rc_not0
+    expect "its entry was dropped"                                    st_is "${R}/top/mid/app" absent
+    expect "the report says its own entry no longer authorizes a launch" out_has_text "no longer authorizes a launch there"
+    expect "and names no entry that still does, the disabled line refusing it" out_lacks_text "still authorizes"
+    RUN_EXTRA_ENV=()
+    printf '%s\n' "${label_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"; cli_stub_reset
     # A hand-back that did not run disables the target's entry through the helper; a disable the helper refuses then
     # ends the unclaim non-zero with the entry still enabled, after the hand-back was attempted. The control fails
     # the hand-back alone: the entry is disabled, and the unclaim still ends non-zero, its reversal incomplete.
@@ -1212,6 +1300,29 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f yes)" "${R}/pa"
     expect "the clone kind is decided by the path: a project in place takes the registry gate" rc_not0
     expect "that refusal leaves the tree"                             test -d "${R}/pa"
+    # A clone removal whose deletion fails reports the entry the clone had and the one that still covers it, read
+    # from the registry record ahead of the registry step. The `rm` stub of the `--for` group fails the clone's path;
+    # an enabled entry over the clone area is the covering one, and a clone no line names had no entry of its own,
+    # since a recognized clone is removed on being one.
+    local clone_al_saved; clone_al_saved="$(cat "${AL}")"
+    printf '%s' "${SBROOT}/${N_SRC}" > "${rm_stub}/target"
+    RUN_EXTRA_ENV=(PATH="${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ ${SBROOT}" "@ ${SBROOT}/${N_SRC}"; seed_gc "${SBROOT}/${N_SRC}"
+    drive cli ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_SRC}"
+    expect "a clone removal whose deletion fails exits non-zero"      rc_not0
+    expect "the clone is left on disk"                                test -d "${SBROOT}/${N_SRC}"
+    expect "its entry was dropped ahead of the deletion"              st_is "${SBROOT}/${N_SRC}" absent
+    expect "the report says the clone's own entry is removed"         out_has_text "clone's own registry entry is removed"
+    expect "and names the entry over the clone area that still covers it" out_has_text "the entry for ${SBROOT} still authorizes a launch there"
+    seed "@ ${R}/pa"; seed_gc "${SBROOT}/${N_SRC}"
+    drive cli ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_SRC}"
+    expect "a removal of a clone no line names, its deletion failing, exits non-zero" rc_not0
+    expect "the report says the clone had no entry of its own"        out_has_text "clone had no registry entry of its own"
+    expect "and does not say an entry of its own was removed"         out_lacks_text "own registry entry is removed"
+    expect "and names no entry that covers it, there being none"      out_lacks_text "still authorizes"
+    RUN_EXTRA_ENV=()
+    printf '%s\n' "${clone_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"; cli_stub_reset
+    rm -rf "${SBROOT:?}/${N_SRC}"
     fi
 
     # ── J. Lockdown and reclaim ───────────────────────────────────────────────────────

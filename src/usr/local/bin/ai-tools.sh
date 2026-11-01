@@ -4053,13 +4053,46 @@ list_unregistered_unclaim_remedy() {
     printf '       %s\n' "atr projects unclaim --force ${p}"
 }
 
-# die_remove_incomplete <dir> <kind>  -- report a removal whose deletion left paths under <dir>, and die. The warning
-# states what the run verified: <kind>'s own registry entry is removed, a session already running keeps what it holds
-# until it ends, and the files left keep the agent's group access, since a removal does not hand them back.
+# get_covering_entry  -- print the enabled project the path read_path_class last read is nested in, where no disabled
+# or excluded line covers that path, and an empty result otherwise. The launch gate checks the disabled and excluded
+# lines ahead of the allow lines, and CLASS_BLOCKED leaves out the path's own line, the one a removal deletes, so this
+# is the entry that authorizes a launch in a tree whose deletion fails (is_class_reachable's reading).
+get_covering_entry() {
+    [[ "${CLASS_ENCLOSING_STATE}" != enabled || "${CLASS_BLOCKED}" != - ]] || printf '%s' "${CLASS_ENCLOSING}"
+}
+
+# die_remove_incomplete <dir> <kind> <own-entry> <label-outcome> [<covering-entry>]  -- report a removal whose deletion
+# left paths under <dir>, and die. The warning states what the run verified: what became of <kind>'s own registry
+# entry, a session already running keeps what it holds until it ends, and the files left keep their group grant, since
+# a removal does not hand them back. <own-entry> is `removed`, the entry is removed and no longer authorizes a launch
+# there, or `none`, <dir> had no entry of its own: a clone is authorized by being a recognized one
+# (require_sandbox_clone), so one a failed gate left private and unregistered reaches this arm, and unreg_allow returns
+# 0 over a path no line names. Any other value is a caller error. <covering-entry> is get_covering_entry's result,
+# and the warning names it. <label-outcome> is what the label step ahead
+# of the deletion did: `completed` says the step ran and its helper returned success, which does not read the type
+# the tree carries, since a rule on an ancestor of the project keeps the project type through the step; `failed` says
+# it did not complete, and that the relabel command the failed step printed still applies, since
+# `ai-tools-relabel --remove` does not read the registry the removal has already changed; `skipped` (SELinux off,
+# no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name a label. Any other
+# value is a caller error.
 # The remedy is the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
 die_remove_incomplete() {
-    local d="$1" kind="$2"
-    warn "the deletion did not complete -- the ${kind}'s registry entry is removed and no new session starts from it -- a session already running keeps its access until it ends, and the files left keep the agent's group access, which a removal does not hand back -- remove what is left by hand:"
+    local d="$1" kind="$2" own_entry="$3" label_outcome="$4" covering_entry="${5-}" entry_clause label_clause
+    local covering_clause=""
+    case "${own_entry}" in
+        removed) entry_clause="the ${kind}'s own registry entry is removed and no longer authorizes a launch there" ;;
+        none)    entry_clause="the ${kind} had no registry entry of its own" ;;
+        *)       die "die_remove_incomplete: unknown own-entry state: ${own_entry}" ;;
+    esac
+    case "${label_outcome}" in
+        completed) label_clause="; the SELinux label step completed" ;;
+        failed)    label_clause="; the SELinux label step did not complete, and the relabel command printed above still applies" ;;
+        skipped)   label_clause="" ;;
+        *)         die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
+    esac
+    [[ -z "${covering_entry}" ]] \
+        || covering_clause=" -- the entry for ${covering_entry} still authorizes a launch there"
+    warn "the deletion did not complete -- ${entry_clause}${covering_clause} -- a session already running keeps its access until it ends, and the files left keep their group grant, which a removal does not hand back${label_clause} -- remove what is left by hand:"
     [[ -z "${FOR_OPERATOR}" ]] || say "    As ${FOR_OPERATOR}, run:"
     say  "      ${C_BOLD}rm -rf $(_quote_path "${d}")${C_RST}"
     die "project remove incomplete -- paths were left behind"
@@ -4127,6 +4160,9 @@ cmd_project_remove() {
                 "${remedy[@]}" ;;
     esac
     local removing_state="${CLASS_STATE}"
+    # The entry a tree whose deletion fails stays launchable under, read from the one record before the registry
+    # changes.
+    local covering_entry; covering_entry="$(get_covering_entry)"
 
     # An entry containing other claimed projects is refused (cli.rule.md); the check sees the registry THIS run reads
     # alone, so another operator's nested project is not visible here.
@@ -4206,7 +4242,7 @@ cmd_project_remove() {
     # membership from the entry, so a de-list that does not apply (MSG-K8S2) leaves a registered project whose label is
     # reverted, which the listing reports and `projects claim` restores. The registry step precedes
     # the safe.directory step, so that refusal leaves the trust entry in place.
-    local cleanup_stopped=false
+    local cleanup_stopped=false label_outcome=skipped
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
@@ -4217,16 +4253,19 @@ cmd_project_remove() {
             say  "    with ${C_BOLD}atr stop${C_RST}, then re-run the removal; the project is left as it was"
             die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running"
         elif (( relabel_status != 0 )); then
+            label_outcome=failed
             warn "could not revert the SELinux label -- run it by hand:"
-            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
             note_root_failure || cleanup_stopped=true
+        else
+            label_outcome=completed
         fi
     fi
     unreg_allow "${d}"
     ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
 
     if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then
-        die_remove_incomplete "${d}" project
+        die_remove_incomplete "${d}" project removed "${label_outcome}" "${covering_entry}"
     fi
 
     say ""
@@ -4577,10 +4616,14 @@ cmd_project_push() {
 # a deletion that does not complete leaves an unregistered tree.
 # <assume-yes> true pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made
 # over the clone (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets
-# instead of counting them.
+# instead of counting them. The registry record is read for what a failed deletion's warning names alone: whether
+# the clone had an entry of its own and which entry still covers it; the authorization stays require_sandbox_clone.
 remove_clone() {
-    local d="$1" assume_yes="$2"
+    local d="$1" assume_yes="$2" own_entry=none covering_entry
     require_sandbox_clone "${d}"
+    read_path_class "${d}"
+    [[ "${CLASS_STATE}" != enabled && "${CLASS_STATE}" != disabled ]] || own_entry=removed
+    covering_entry="$(get_covering_entry)"
     section "Remove sandbox project"
     say "  ${d}"
     say "  a commit not yet pushed is deleted with the clone; already-pushed work stays on the remote"
@@ -4594,7 +4637,7 @@ remove_clone() {
     # As the owner: a clone claimed for another operator belongs to that operator, and the run's `--for` is what names
     # them.
     if ! run_as_owner rm -rf -- "${d}"; then
-        die_remove_incomplete "${d}" clone
+        die_remove_incomplete "${d}" clone "${own_entry}" skipped "${covering_entry}"
     fi
     ok "removed ${d} and unregistered it"
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \

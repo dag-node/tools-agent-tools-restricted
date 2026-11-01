@@ -357,11 +357,12 @@ status of the operation whose outcome they report.
 - **`launch-wrapper.lib.sh`**, the gates every agent's wrapper runs, routes `ai_tools_launch_wrapper__die`
   through `ai_tools_msg__error`, so every fatal refusal of a launch is framed at one chokepoint (an agent's launch hook
   refuses through that function, and the one refusal ahead of the load, `ai-tools-launch`'s `refuse_early`, prints its
-  one fixed code in the plain form); it frames its `safe.directory` NOTICE and **both** guidance screens
-  with `ai_tools_msg__block`. Titles name the action, not the refusal ("Set up this project for the sandboxed agent",
-  "Finish setting up this project for the agent"), and commands print as bare names
-  through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default to the current
-  directory.
+  one fixed code in the plain form). That chokepoint and the wrapper's warning apply the CLI's indented-line rule
+  ([Quirks](#quirks)), printing a command line, its path in `%q`, under the frame. It frames its `safe.directory`
+  NOTICE and **both** guidance screens with `ai_tools_msg__block`. Titles name the action, not the refusal ("Set up
+  this project for the sandboxed agent", "Finish setting up this project for the agent"), and commands print as bare
+  names through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default
+  to the current directory.
 
   The **setup** screen carries one line of prose and **no commands**; its options live in the `ai_tools_msg__pick none`
   menu under it, each with the consequence that distinguishes it — **1)** Create sandbox (*the session runs in the copy,
@@ -410,7 +411,9 @@ one box per option.
   command across lines, so a command handed to one stays on a separate plain line outside the frame (the session
   NOTICE's reconcile command). `ai-tools.sh`'s `die`, `die_usage` and `warn` apply this rule themselves (`emit_alert`):
   a line that opens with whitespace is printed under the frame, verbatim, so the CLI's indented command line reads
-  the same way to the alert and to `ai_tools_msg__block`, which keeps it verbatim inside its frame. A multi-line screen
+  the same way to the alert and to `ai_tools_msg__block`, which keeps it verbatim inside its frame. Such a line holds
+  one command or one path, and prose stays flush, one argument per paragraph, so the frame wraps it; plain output
+  prints the flush lines first, so a call puts each indented line after them. A multi-line screen
   whose commands belong *inside* the frame uses `ai_tools_msg__block` instead, which keeps indented command lines
   verbatim and overflows the long ones.
 - **Short prompts stay inline.** Yes/no prompts keep the inline hint form with the cursor on the same line; framing

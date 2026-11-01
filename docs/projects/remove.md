@@ -75,12 +75,18 @@ and the typed name has no default.
 
 The label and the registry entry go first, then the `safe.directory`
 entry, and the tree is deleted last. A deletion that then fails leaves a tree
-whose registry entry is gone, so no new session starts there from it.
+whose own registry entry is gone and no longer authorizes a launch there.
+Where the project is nested in an enabled project and no disabled or excluded
+line covers it, that project's entry still authorizes a launch there, and the
+warning names it.
 A session already running keeps its access until it ends, and the files left
-keep the agent's group access, since the command does not hand them back before
-deleting them. Remove what is left by hand: the command prints the `rm -rf`
-to run, and under `--for` the account to run it as. The reverse order would
-leave a half-deleted tree the agent still reaches.
+keep their group grant, since the command does not hand them back before
+deleting them. The warning says whether the label step completed; where it
+did not, the relabel command printed with the failure still applies to the
+tree. A host with SELinux disabled has no label step. Remove what is left by
+hand: the command prints the `rm -rf` to run, and under `--for` the account to
+run it as. The reverse order would leave a half-deleted tree the agent still
+reaches.
 The registry step is the one that has to complete: where the entry cannot be
 removed, the command stops and prints the line to delete by hand.
 
@@ -95,8 +101,9 @@ Pointed at a clone under the sandbox area, the command removes it when it is
 a git clone directly inside that area, and asks one default-No confirm. It then
 takes the order [Registries first, the tree
 last](#registries-first-the-tree-last) states, the clone's own lines going
-with it. A commit not yet pushed goes with it, and the command does not count
-them: run `atr projects push` first to keep your work ([Push](push.md)).
+with it; a clone no line names is reported as having had no entry when its
+deletion fails. A commit not yet pushed goes with it, and the command does not
+count them: run `atr projects push` first to keep your work ([Push](push.md)).
 The remote branch stays for others to merge. `-y` answers that one confirm,
 on the same terms ([Clone](clone.md)).
 
