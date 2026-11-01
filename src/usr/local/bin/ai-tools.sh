@@ -6002,9 +6002,10 @@ cmd_project_list() {
         fi
     fi
     if (( unattributed )); then
-        local entries_word="entries are"
+        local entries_word="entries are" reader_word="${INVOKING_USER} "
         (( unattributed == 1 )) && entries_word="entry is"
-        say "  ${C_DIM}${unattributed} git safe.directory ${entries_word} in trees ${OWNER_USER} does not hold or ${INVOKING_USER} cannot read, and not listed; each operator's own atr projects reports theirs. The whole list: git config --file ${GITCONFIG} --get-all safe.directory${C_RST}"
+        [[ "${INVOKING_USER}" != "${OWNER_USER}" ]] || reader_word=""
+        say "  ${C_DIM}${unattributed} git safe.directory ${entries_word} in trees ${OWNER_USER} does not hold or ${reader_word}cannot read, and not listed; each operator's own atr projects reports theirs. The whole list: git config --file ${GITCONFIG} --get-all safe.directory${C_RST}"
     fi
     list_maintenance_note
 }
