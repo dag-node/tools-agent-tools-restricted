@@ -901,8 +901,8 @@ if command -v runuser >/dev/null 2>&1; then
     fi
 
     # A deletion that does not complete reports what the run verified and no more: the entry is removed, a session
-    # already running keeps its access, and the files left keep the agent's group access, which the removal did not
-    # hand back. `rm` is a stub first on the CLI's PATH, in a directory where a 0755 file is executable, that fails
+    # already running keeps its access, and the files left keep their group grant, which the removal did not hand
+    # back. `rm` is a stub first on the CLI's PATH, in a directory where a 0755 file is executable, that fails
     # the deletion of the one path its target file names and runs the real `rm` for every other call. The path carries
     # a space, so the printed remedy is the quoted one.
     rmstub=""
@@ -933,11 +933,21 @@ EOF
             else
                 fail "${key} over a failed deletion: rc=${rc}, on disk $([[ -d "${p}" ]] && echo yes || echo no): $(brief "${out}")"
             fi
-            if grep -qF "registry entry is removed" <<<"${out}" && grep -qF "keep the agent's group access" <<<"${out}" \
+            if grep -qF "registry entry is removed" <<<"${out}" && grep -qF "keep their group grant, which a removal does not hand back" <<<"${out}" \
                     && ! grep -qF "out of the agent's reach" <<<"${out}"; then
                 pass "${key} reports the entry removed and the access left, and does not claim the tree is out of reach"
             else
                 fail "${key}'s failed-deletion report: $(brief "${out}" 'deletion|reach')"
+            fi
+            # A project's label step runs ahead of its deletion and a clone has none, so the in-place kind alone names
+            # the reverted label.
+            local label_wanted=no label_named=no
+            [[ "${key}" != *.inplace ]] || label_wanted=yes
+            grep -qF -- "the project label is already reverted" <<<"${out}" && label_named=yes
+            if [[ "${label_named}" == "${label_wanted}" ]]; then
+                pass "${key} names the reverted label only where the kind has a label step (${label_wanted})"
+            else
+                fail "${key} names the reverted label: ${label_named}, wanted ${label_wanted}: $(brief "${out}" 'label')"
             fi
             if grep -qF -- "rm -rf $(printf '%q' "${p}")" <<<"${out}"; then
                 pass "${key} prints the deletion to finish with the path quoted"

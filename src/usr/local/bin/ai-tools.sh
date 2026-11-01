@@ -4055,11 +4055,14 @@ list_unregistered_unclaim_remedy() {
 
 # die_remove_incomplete <dir> <kind>  -- report a removal whose deletion left paths under <dir>, and die. The warning
 # states what the run verified: <kind>'s own registry entry is removed, a session already running keeps what it holds
-# until it ends, and the files left keep the agent's group access, since a removal does not hand them back.
+# until it ends, and the files left keep their group grant, since a removal does not hand them back. A project's label
+# step runs ahead of the deletion, so where it ran the project label is already reverted; a clone takes its type from
+# the policy's file contexts and has no label step, so its warning does not name one.
 # The remedy is the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
 die_remove_incomplete() {
-    local d="$1" kind="$2"
-    warn "the deletion did not complete -- the ${kind}'s registry entry is removed and no new session starts from it -- a session already running keeps its access until it ends, and the files left keep the agent's group access, which a removal does not hand back -- remove what is left by hand:"
+    local d="$1" kind="$2" label=""
+    [[ "${kind}" != project ]] || label="; where the label step ran, the project label is already reverted"
+    warn "the deletion did not complete -- the ${kind}'s registry entry is removed and no new session starts from it -- a session already running keeps its access until it ends, and the files left keep their group grant, which a removal does not hand back${label} -- remove what is left by hand:"
     [[ -z "${FOR_OPERATOR}" ]] || say "    As ${FOR_OPERATOR}, run:"
     say  "      ${C_BOLD}rm -rf $(_quote_path "${d}")${C_RST}"
     die "project remove incomplete -- paths were left behind"
