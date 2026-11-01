@@ -4057,11 +4057,12 @@ list_unregistered_unclaim_remedy() {
 # paths under <dir>, and die. The warning states what the run verified: <kind>'s own registry entry is removed and no
 # longer authorizes a launch there, a session already running keeps what it holds until it ends, and the files left
 # keep their group grant, since a removal does not hand them back. <covering-entry> is the enabled project <dir> is
-# nested in, which the launch gate still approves a session under, and the warning names it. <label-outcome> is what
-# the label step ahead of the deletion did: `completed` says the step ran and its helper returned success, which does
-# not read the type the tree carries, since a rule on an ancestor of the project keeps the project type through
-# the step; `failed` says it did not complete, and that the relabel command the failed step printed still applies,
-# since `ai-tools-relabel --remove` does not read the registry the removal has already changed; `skipped` (SELinux off,
+# nested in where no disabled or excluded line covers <dir>, the state in which that entry authorizes a launch there,
+# and the warning names it; the caller passes none otherwise. <label-outcome> is what the label step ahead
+# of the deletion did: `completed` says the step ran and its helper returned success, which does not read the type
+# the tree carries, since a rule on an ancestor of the project keeps the project type through the step; `failed` says
+# it did not complete, and that the relabel command the failed step printed still applies, since
+# `ai-tools-relabel --remove` does not read the registry the removal has already changed; `skipped` (SELinux off,
 # no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name a label. Any other
 # value is a caller error.
 # The remedy is the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
@@ -4074,7 +4075,7 @@ die_remove_incomplete() {
         *)         die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
     esac
     [[ -z "${covering_entry}" ]] \
-        || covering_clause=" -- a session can still start there under the entry for ${covering_entry}"
+        || covering_clause=" -- the entry for ${covering_entry} still authorizes a launch there"
     warn "the deletion did not complete -- the ${kind}'s own registry entry is removed and no longer authorizes a launch there${covering_clause} -- a session already running keeps its access until it ends, and the files left keep their group grant, which a removal does not hand back${label_clause} -- remove what is left by hand:"
     [[ -z "${FOR_OPERATOR}" ]] || say "    As ${FOR_OPERATOR}, run:"
     say  "      ${C_BOLD}rm -rf $(_quote_path "${d}")${C_RST}"
@@ -4143,11 +4144,13 @@ cmd_project_remove() {
                 "${remedy[@]}" ;;
     esac
     local removing_state="${CLASS_STATE}"
-    # The enabled project this one is nested in, read from the one record before the registry changes: a tree whose
-    # deletion fails stays launchable under it, since the launch gate approves a directory under any enabled entry and
-    # a removal past the state table is not blocked by a covering line.
+    # The enabled project this one is nested in, read from the one record before the registry changes, where no other
+    # line covers the path: the launch gate checks the disabled and excluded lines ahead of the allow lines,
+    # and CLASS_BLOCKED leaves out the target's own line, the one the removal deletes, so the enclosing entry authorizes
+    # a launch in a tree whose deletion fails exactly when the record does not show a blocking line
+    # (is_class_reachable's reading).
     local covering_entry=""
-    [[ "${CLASS_ENCLOSING_STATE}" != enabled ]] || covering_entry="${CLASS_ENCLOSING}"
+    [[ "${CLASS_ENCLOSING_STATE}" != enabled || "${CLASS_BLOCKED}" != - ]] || covering_entry="${CLASS_ENCLOSING}"
 
     # An entry containing other claimed projects is refused (cli.rule.md); the check sees the registry THIS run reads
     # alone, so another operator's nested project is not visible here.
