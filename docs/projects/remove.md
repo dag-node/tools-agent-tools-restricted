@@ -78,8 +78,10 @@ entry, and the tree is deleted last. A deletion that then fails leaves a tree
 whose registry entry is gone, so no new session starts there from it.
 A session already running keeps its access until it ends, and the files left
 keep their group grant, since the command does not hand them back before
-deleting them. Where the label step ran, the project's SELinux label is
-already reverted. Remove what is left by hand: the command prints the `rm -rf`
+deleting them. The warning says what the label step did: the project's
+SELinux label is reverted, or it is not and the relabel command printed with
+the failure still applies to the tree. A host with SELinux disabled has no
+label step. Remove what is left by hand: the command prints the `rm -rf`
 to run, and under `--for` the account to run it as. The reverse order would
 leave a half-deleted tree the agent still reaches.
 The registry step is the one that has to complete: where the entry cannot be

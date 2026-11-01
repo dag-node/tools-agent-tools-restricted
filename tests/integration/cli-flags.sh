@@ -981,6 +981,34 @@ EOF
     expect "the remedy names the target as the account to run it"     out_has_text "As ${FOR_USER}, run:"
     expect "the remedy is one deletion, the path in %q"               out_has_text "rm -rf $(LC_ALL=C printf '%q' "${R}/for 5")"
     expect "the report does not call the tree out of the agent's reach" out_lacks_text "out of the agent's reach"
+    # The same report states what the label step did. A getenforce reporting SELinux enforcing puts the CLI
+    # on the label step on any host; the stubbed relabel helper fails it, and the same removal with the helper
+    # succeeding is the control. A failed reversal asks whether to go on, which no terminal declines, so
+    # the safe.directory step is skipped and its entry stays. The path carries a space, so the relabel command printed
+    # with the failure is the quoted one.
+    local label_dir="${R}/lb 1" label_al_saved
+    label_al_saved="$(cat "${AL}")"
+    mkdir -p "${label_dir}/keep"; : > "${label_dir}/keep/held"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${label_dir}"
+    printf '%s' "${label_dir}" > "${rm_stub}/target"
+    RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ \"${label_dir}\""; seed_gc "${label_dir}"; cli_stub_fail ai-tools-relabel
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${label_dir}"
+    expect "a removal whose label reversal and deletion both failed exits non-zero" rc_not0
+    expect "the label reversal reached the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${label_dir}$"
+    expect "the entry was dropped ahead of the deletion"              st_is "${label_dir}" absent
+    expect "the paths the deletion left are still there"              test -e "${label_dir}/keep/held"
+    expect "the report says the label is not reverted"                out_has_text "SELinux label is not reverted"
+    expect "and does not say it is reverted"                          out_lacks_text "SELinux label is reverted"
+    expect "the relabel command printed with the failure is quoted"   out_has_text "--remove $(LC_ALL=C printf '%q' "${label_dir}")"
+    expect "no terminal declines going on, so safe.directory stays"   gc_has "${label_dir}"
+    seed "@ \"${label_dir}\""; seed_gc "${label_dir}"
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${label_dir}"
+    expect "control: the relabel succeeding, the removal still exits non-zero" rc_not0
+    expect "control: the report says the label is reverted"           out_has_text "SELinux label is reverted"
+    expect "control: and does not say it is not reverted"             out_lacks_text "not reverted"
+    RUN_EXTRA_ENV=()
+    printf '%s\n' "${label_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"; cli_stub_reset
     # A hand-back that did not run disables the target's entry through the helper; a disable the helper refuses then
     # ends the unclaim non-zero with the entry still enabled, after the hand-back was attempted. The control fails
     # the hand-back alone: the entry is disabled, and the unclaim still ends non-zero, its reversal incomplete.

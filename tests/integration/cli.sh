@@ -939,15 +939,21 @@ EOF
             else
                 fail "${key}'s failed-deletion report: $(brief "${out}" 'deletion|reach')"
             fi
-            # A project's label step runs ahead of its deletion and a clone has none, so the in-place kind alone names
-            # the reverted label.
-            local label_wanted=no label_named=no
-            [[ "${key}" != *.inplace ]] || label_wanted=yes
-            grep -qF -- "the project label is already reverted" <<<"${out}" && label_named=yes
-            if [[ "${label_named}" == "${label_wanted}" ]]; then
-                pass "${key} names the reverted label only where the kind has a label step (${label_wanted})"
+            # The report names the label step's outcome where the step ran. A clone has none; an in-place project's
+            # runs where getenforce is on the removal's PATH, which leaves /usr/sbin out, and does not report Disabled,
+            # which a usr-merged host meets. Its outcome there depends on the host's sudo, so the row asserts that one
+            # outcome is named where the step ran and none elsewhere; cli-flags.sh drives each outcome.
+            local label_step=no label_outcomes_named
+            if [[ "${key}" == *.inplace ]] && ( PATH="${rmstub}:/usr/local/bin:/usr/bin:/bin"
+                    command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != Disabled ]] ); then
+                label_step=yes
+            fi
+            label_outcomes_named="$(grep -cE -- 'SELinux label is (not )?reverted' <<<"${out}" || true)"
+            if [[ "${label_step}" == yes && "${label_outcomes_named}" == 1 ]] \
+                    || [[ "${label_step}" == no && "${label_outcomes_named}" == 0 ]]; then
+                pass "${key} names the label step's outcome only where the step ran (${label_step})"
             else
-                fail "${key} names the reverted label: ${label_named}, wanted ${label_wanted}: $(brief "${out}" 'label')"
+                fail "${key} names ${label_outcomes_named} label outcome(s), label step ${label_step}: $(brief "${out}" 'label')"
             fi
             if grep -qF -- "rm -rf $(printf '%q' "${p}")" <<<"${out}"; then
                 pass "${key} prints the deletion to finish with the path quoted"

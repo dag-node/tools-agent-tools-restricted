@@ -4053,16 +4053,24 @@ list_unregistered_unclaim_remedy() {
     printf '       %s\n' "atr projects unclaim --force ${p}"
 }
 
-# die_remove_incomplete <dir> <kind>  -- report a removal whose deletion left paths under <dir>, and die. The warning
-# states what the run verified: <kind>'s own registry entry is removed, a session already running keeps what it holds
-# until it ends, and the files left keep their group grant, since a removal does not hand them back. A project's label
-# step runs ahead of the deletion, so where it ran the project label is already reverted; a clone takes its type from
-# the policy's file contexts and has no label step, so its warning does not name one.
+# die_remove_incomplete <dir> <kind> <label-outcome>  -- report a removal whose deletion left paths under <dir>,
+# and die. The warning states what the run verified: <kind>'s own registry entry is removed, a session already running
+# keeps what it holds until it ends, and the files left keep their group grant, since a removal does not hand them
+# back. <label-outcome> is what the label step ahead of the deletion did: `reverted` says the label is reverted;
+# `failed` says it is not, and that the relabel command the failed step printed still applies, since
+# `ai-tools-relabel --remove` does not read the registry the removal has already changed; `skipped` (SELinux off,
+# no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name a label. Any other
+# value is a caller error.
 # The remedy is the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
 die_remove_incomplete() {
-    local d="$1" kind="$2" label=""
-    [[ "${kind}" != project ]] || label="; where the label step ran, the project label is already reverted"
-    warn "the deletion did not complete -- the ${kind}'s registry entry is removed and no new session starts from it -- a session already running keeps its access until it ends, and the files left keep their group grant, which a removal does not hand back${label} -- remove what is left by hand:"
+    local d="$1" kind="$2" label_outcome="$3" label_clause
+    case "${label_outcome}" in
+        reverted) label_clause="; the project's SELinux label is reverted" ;;
+        failed)   label_clause="; the SELinux label is not reverted, and the relabel command printed above still applies" ;;
+        skipped)  label_clause="" ;;
+        *)        die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
+    esac
+    warn "the deletion did not complete -- the ${kind}'s registry entry is removed and no new session starts from it -- a session already running keeps its access until it ends, and the files left keep their group grant, which a removal does not hand back${label_clause} -- remove what is left by hand:"
     [[ -z "${FOR_OPERATOR}" ]] || say "    As ${FOR_OPERATOR}, run:"
     say  "      ${C_BOLD}rm -rf $(_quote_path "${d}")${C_RST}"
     die "project remove incomplete -- paths were left behind"
@@ -4209,7 +4217,7 @@ cmd_project_remove() {
     # membership from the entry, so a de-list that does not apply (MSG-K8S2) leaves a registered project whose label is
     # reverted, which the listing reports and `projects claim` restores. The registry step precedes
     # the safe.directory step, so that refusal leaves the trust entry in place.
-    local cleanup_stopped=false
+    local cleanup_stopped=false label_outcome=skipped
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
@@ -4220,16 +4228,19 @@ cmd_project_remove() {
             say  "    with ${C_BOLD}atr stop${C_RST}, then re-run the removal; the project is left as it was"
             die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running"
         elif (( relabel_status != 0 )); then
+            label_outcome=failed
             warn "could not revert the SELinux label -- run it by hand:"
-            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
             note_root_failure || cleanup_stopped=true
+        else
+            label_outcome=reverted
         fi
     fi
     unreg_allow "${d}"
     ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
 
     if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then
-        die_remove_incomplete "${d}" project
+        die_remove_incomplete "${d}" project "${label_outcome}"
     fi
 
     say ""
@@ -4597,7 +4608,7 @@ remove_clone() {
     # As the owner: a clone claimed for another operator belongs to that operator, and the run's `--for` is what names
     # them.
     if ! run_as_owner rm -rf -- "${d}"; then
-        die_remove_incomplete "${d}" clone
+        die_remove_incomplete "${d}" clone skipped
     fi
     ok "removed ${d} and unregistered it"
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
