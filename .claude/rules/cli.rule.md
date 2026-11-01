@@ -509,10 +509,9 @@ an ordinary account read it — a partial view, the file sink being the authorit
 or `sudo` runs** — an unknown option, a second path for a verb taking one, an argument to a report taking none, a path
 for `stop`, an option that has no effect beside another, and an unknown command, which prints one line naming the help
 command for the deepest part of the path the help holds (`MSG-S2H5`). Each refusal carries its own message code,
-so a script tells a rejected command line from an operation that failed (exit 1) by the status alone. The one refusal
-this ordering does not yet cover is a `--for` run, whose registry snapshot — the run's first `sudo` — precedes
-the verb's own parser ([Acting for another operator](#acting-for-another-operator---for)); a help request exits ahead
-of the snapshot.
+so a script tells a rejected command line from an operation that failed (exit 1) by the status alone. A `--for` run
+follows the same order, since each verb takes the target's registry snapshot — the run's first `sudo` — after its own
+checks ([Acting for another operator](#acting-for-another-operator---for)); a help request exits ahead of the snapshot.
 
 **`--relabel` prints the new command and exits 2.** The entrypoint reconcile is `atr admin system entrypoints relabel`
 ([updater](updater.rule.md) owns what it does, [cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs
@@ -606,12 +605,17 @@ registry coverage (`operator.lib.sh`), not from either global.
 that way by `ai-tools-admin`), so one operator cannot read another's at all — and every decision the CLI makes from it
 (the path's state, which disabled and excluded lines apply, what `projects list` reports) would read an unreadable file
 as an empty one. A `--for` run therefore takes a root-side **snapshot** through `ai-tools-allowlist --print`
-into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The helper prints only a migrated
-registry the loader accepts over the target's own file, the link rule taken from that file's owner
-(`require_migrated_registry`), so the run's own gate reads the snapshot's grammar alone: the snapshot belongs
-to the invoker, and the loader's owner rule would read the target's own links as foreign. The snapshot is read-only
-input for that run: mutations go back through the helper, which re-reads the real file and applies its own idempotency,
-and `reg_allow`/`unreg_allow` refresh the snapshot after theirs — so a stale copy is never what a write is based on.
+into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The verb takes it, through
+`load_target_registry_snapshot`, once its own command line and path have passed; until then `ALLOWLIST` names a path
+under `/dev/null`, where no file can exist, so every reader finds no registry there and a verb that forgot the call
+reads every path as unregistered — the less-access answer for each verb but the claim, whose add then goes through
+the helper, which re-reads the real file. `tests/unit/cli-verbs.sh` holds each verb `FOR_ALLOWED_VERBS` names
+to the call. The helper prints only a migrated registry the loader accepts over the target's own file, the link rule
+taken from that file's owner (`require_migrated_registry`), so the run's loader validates the snapshot under its grammar
+alone: the snapshot belongs to the invoker, and the loader's owner rule would read the target's own links as foreign.
+The snapshot is read-only input for that run: mutations go back through the helper, which re-reads the real file
+and applies its own idempotency, and `reg_allow`/`unreg_allow` refresh the snapshot after theirs — so a stale copy
+is never what a write is based on.
 
 **What a `--for` run prints names the target's file and carries the flag.** The snapshot is a temporary file the run
 removes, so a message naming `ALLOWLIST` would send the operator to a path that is gone. Every message that names
@@ -640,12 +644,12 @@ so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk t
 the guard that stops one operator rewriting another's files. Honouring `--for` there would have the CLI name one
 operator while the helper acted as another.
 
-**Every refusal in the gate precedes the snapshot**, which is a `--for` run's first `sudo`: a command that is going
-to be refused must not first prompt for a password. That ordering is what places the `--force` check in the gate —
-reading the verb's own arguments — rather than where `--force` is parsed in `cmd_project_unclaim`, which runs
-after the gate and so would prompt first. The target's group is likewise resolved only *after* enrollment is confirmed,
-so a name that is neither an operator nor a user on this host is refused with the enrolment command rather than
-a `getent` failure naming the wrong problem.
+**Every refusal precedes the snapshot**, which is a `--for` run's first `sudo`: a command that is going to be refused
+must not first prompt for a password. The gate's refusals run ahead of the dispatch, and each verb takes the snapshot
+after its own checks, so a command line or a path the verb refuses is refused before the prompt, and the `--force` check
+sits with the verb that parses it. The target's group is likewise resolved only *after* enrollment is confirmed,
+so a name that is neither an operator nor a user on this host is refused with the enrolment command rather
+than a `getent` failure naming the wrong problem.
 
 Sandbox clones stay invoker-only: `projects clone` clones as the invoking user with that user's git credentials,
 so pointing it at another owner is more than a registry redirect and is not attempted here.
@@ -725,14 +729,15 @@ when one does. Reporting a project "enabled" that no session can enter is the mi
 ### The registry gate
 
 `registry_gate` runs before every verb classifies a path. A registry the grammar refuses, or one whose exclusion crosses
-a link the sandbox account can change, refuses every verb under `MSG-Y7K5` after the library's line, read
-through `ai_tools_conf__check_registry`, the loader the launch gate reads with. A legacy `allowed-projects` refuses
-every verb but `projects list` under `MSG-J6S8`, naming `atr admin system post-upgrade`: an edit would mix two grammars
-in one file, and a `!` there may be a project an earlier release disabled, which this grammar reads as an excluded path.
+a link the sandbox account can change, refuses every verb under `MSG-Y7K5` after the library's line, read through
+`ai_tools_conf__check_registry`, the loader the launch gate reads with. A legacy `allowed-projects` refuses every verb
+but `projects list` under `MSG-J6S8`, naming `atr admin system post-upgrade`: an edit would mix two grammars in one
+file, and a `!` there may be a project an earlier release disabled, which this grammar reads as an excluded path.
 The migration is `system post-upgrade`'s, unattended, each entry keeping its kind and its written path
 ([providers](providers.rule.md)). A run with no registry passes the gate, and each verb meets its own refusal. `status`
-reads the file through the same check, so the report and the gate cannot disagree about it; a `--for` run's gate reads
-the snapshot's grammar alone ([Acting for another operator](#acting-for-another-operator---for)).
+reads the file through the same check, so the report and the gate cannot disagree about it; a `--for` run passes
+the gate before the verb loads the snapshot, and the loader validates the snapshot under its grammar alone ([Acting
+for another operator](#acting-for-another-operator---for)).
 
 ### What each verb does with a state
 

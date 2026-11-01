@@ -210,6 +210,46 @@ else
     fail "verb(s) in the help that the dispatcher does not accept: $(tr '\n' '/' <<<"${extra_help}")"
 fi
 
+# ── (3b) Every `--for` verb loads the target's registry itself ────────────────────
+# A `--for` run reads the target's registry once the verb has checked its own command line, through
+# load_target_registry_snapshot, so a refusal of that line precedes the password prompt. A verb that forgot the call
+# would read every path as unregistered -- the less-access answer for each verb but the claim -- so each function
+# the dispatch maps a FOR_ALLOWED_VERBS path to is read for the call. The control is a dispatched function that does
+# not take `--for`, which the reader must report as not calling it.
+dispatch_function() {  # dispatch_function <verb>: the function projects_dispatch runs for `projects <verb>`
+    awk -v verb="$1" '
+        /^projects_dispatch\(\) \{/ { on=1; next }
+        on && /^}/ { exit }
+        on && $0 ~ "^[ \t]*" verb "\\)" { sub(/^[^)]*\)[ \t]*/, ""); split($0, words, /[ \t]+/); print words[1]; exit }
+    ' "${CLI}"
+}
+calls_loader() {  # calls_loader <function>: the function's body in the CLI source calls load_target_registry_snapshot
+    # The body is captured before it is matched: `grep -q` exits on the match, and the writer it leaves would die of
+    # SIGPIPE, which pipefail reports as a failure.
+    local body
+    body="$(awk -v fn="$1" '$0 ~ "^" fn "\\(\\) \\{" { on=1; next } on && /^}/ { exit } on' "${CLI}" | sed 's/#.*//')"
+    grep -qw load_target_registry_snapshot <<< "${body}"
+}
+loader_missing=""
+loader_checked=0
+while IFS= read -r for_path; do
+    [[ "${for_path}" == "projects "* ]] || continue
+    fn="$(dispatch_function "${for_path#projects }")"
+    if [[ -z "${fn}" ]]; then loader_missing+=" ${for_path}(no dispatch arm)"; continue; fi
+    loader_checked=$(( loader_checked + 1 ))
+    calls_loader "${fn}" || loader_missing+=" ${fn}"
+done <<< "${FORALLOWED}"
+control_fn="$(dispatch_function clone)"
+if [[ -z "${control_fn}" ]] || calls_loader "${control_fn}"; then
+    fail "control: the reader did not find projects clone's function, or read it as calling the loader (${control_fn:-none})"
+elif (( loader_checked == 0 )); then
+    fail "no FOR_ALLOWED_VERBS function was read -- the reader stopped matching"
+elif [[ -n "${loader_missing}" ]]; then
+    fail "--for verb function(s) that do not call load_target_registry_snapshot:${loader_missing}"
+else
+    pass "each of the ${loader_checked} --for verb functions calls load_target_registry_snapshot, and ${control_fn} does not"
+fi
+
 # ── (4b) The help's `for` flag names the verbs FOR_ALLOWED_VERBS names ──────────
 # The flag decides which hints carry `[--for OPERATOR]`, and FOR_ALLOWED_VERBS decides what the flag does; the two are
 # one set, held equal here so the flag does not become a second home for that table.
@@ -307,7 +347,7 @@ check_spelling_keys() {
     fi
     # shellcheck source=../lib/cli-spelling.sh
     source "${lib}"
-    local drivers='cli|cli_in|cli_flag_first|cli_cmd|cli_cmd_text|cli_cmd_option|spell|pd_cli|run_for'
+    local drivers='cli|cli_in|cli_flag_first|cli_for_first|cli_cmd|cli_cmd_text|cli_cmd_option|spell|pd_cli|run_for'
     local -a keys
     mapfile -t keys < <(sed -E 's/"[^"]*"//g; s/'\''[^'\'']*'\''//g; s/#.*//' "${ROOT}"/tests/*/*.sh \
                         | grep -hoE "\b(${drivers})[[:space:]]+[A-Za-z][A-Za-z0-9.-]*" \

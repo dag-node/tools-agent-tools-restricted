@@ -968,9 +968,9 @@ report_unrenderable_registry_line() {
 # migrated is read under the grammar it was written in: `projects list` reports it under a banner, and every other verb
 # refuses, since an edit would mix two grammars in one file and a `!` there may be a disabled project this release
 # reads as an excluded path. A registry no reader accepts refuses every verb. A run with no registry passes, and each
-# verb meets its own no-registry refusal. A `--for` run reads the helper's snapshot, which the helper has validated
-# as the current format; the link check is the loader's, made over the operator's own file alone, since a snapshot is
-# not owned by the account whose links it names.
+# verb meets its own no-registry refusal. A `--for` run has not read the target's registry when the dispatch reaches
+# this gate (REGISTRY_STATE is `none`), so it passes, and load_target_registry_snapshot validates the snapshot once
+# the verb has checked its own command line.
 registry_gate() {
     local verb="$1" rc=0
     case "${REGISTRY_STATE}" in
@@ -982,11 +982,6 @@ registry_gate() {
                     "       atr admin system post-upgrade"
             fi ;;
     esac
-    if [[ -n "${FOR_OPERATOR}" ]]; then
-        ai_tools_conf__validate_registry "${ALLOWLIST}" "$(ai_tools_conf__read_registry_grammar "${ALLOWLIST}")" \
-            || die_registry_refused
-        return 0
-    fi
     ai_tools_conf__check_registry "${ALLOWLIST}" || rc=$?
     case "${rc}" in
         0)   ;;
@@ -3166,6 +3161,7 @@ cmd_project_claim() {
     # it whatever its own entry says, and up front (offer_reenable), after the owner-side read and ahead of the proceed
     # confirm a run with no terminal answers first; declining aborts the claim before any write, and accepting re-reads
     # the path.
+    load_target_registry_snapshot
     read_path_class "${d}"
     [[ "${CLASS_STATE}" != excluded ]] || die_excluded "${d}" claim
     [[ "${CLASS_BLOCKED}" == - ]] || die_blocked "${d}" claim
@@ -3793,6 +3789,9 @@ cmd_project_create() {
     # a project nested INSIDE a protected tree -- descendants pass by design here exactly as they do for a claim, or no
     # project under a home would work.
     ai_tools_safe_paths__assert_safe_target "${d}" "project create" || exit 3
+    # The target's registry is read once the create's own refusals have run (load_target_registry_snapshot), and
+    # the claim it runs finds the snapshot loaded.
+    load_target_registry_snapshot
 
     # A line may already name the path, or cover it, though the directory does not exist. A `!` line on the path
     # would be claimed over, and a covered path would be created and then claimed where the helpers resolve
@@ -4390,6 +4389,17 @@ cmd_project_unclaim() {
     [[ -n "${path}" ]] || die_path_required unclaim
     local d; d="$(resolve_existing_path "${path}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    # --force reaches a tree NO registry names, so ai-tools-unclaim cannot resolve its owner from an entry and binds
+    # the walk to the INVOKING uid instead -- the guard that stops one operator rewriting another's files. Honouring
+    # --for there would have the CLI name one operator while the helper acted as another. Refused ahead of the target's
+    # registry snapshot, the run's first sudo.
+    if ${force} && [[ -n "${FOR_OPERATOR}" ]]; then
+        die MSG-B5K3 "--for cannot be combined with --force" \
+            "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
+            "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
+            "       project without --force"
+    fi
+    load_target_registry_snapshot
 
     # The path's state decides the mode (cli.rule.md): a project of its own, an ancestor of registered projects (all
     # of them, outermost first), or a tree no entry names, which takes the residue predicate. An excluded path is not
@@ -4612,6 +4622,8 @@ cmd_project_remove() {
 
     local d; d="$(resolve_existing_path "${path}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    # Ahead of the clone branch, whose removal reaches the registry too.
+    load_target_registry_snapshot
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
         remove_clone "${d}" "${assume_yes}"
         return
@@ -5144,6 +5156,8 @@ cmd_project_lockdown() {
     if ${dry} && ${assume_yes}; then
         die_usage MSG-P5P8 "--yes has no effect with --dry-run, which neither changes a path nor asks"
     fi
+    # Discovery reads the registry, so the target's is loaded first.
+    load_target_registry_snapshot
     d="$(resolve_verb_target lockdown "${d}")" || exit "$?"
     require_reachable_target "${d}" lockdown
     # No pre-check of the helper's path: the libexec directory is root-only (cli.rule.md), so a missing helper is
@@ -5201,6 +5215,7 @@ cmd_project_disable() {
     [[ -n "${d}" ]] || die_path_required disable
     d="$(resolve_existing_path "${d}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    load_target_registry_snapshot
 
     read_path_class "${d}"
     case "${CLASS_STATE}" in
@@ -5240,6 +5255,7 @@ cmd_project_enable() {
     [[ -n "${d}" ]] || die_path_required enable
     d="$(resolve_existing_path "${d}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    load_target_registry_snapshot
 
     read_path_class "${d}"
     case "${CLASS_STATE}" in
@@ -5293,6 +5309,8 @@ cmd_project_handback() {
             *)      if [[ -z "${d}" ]]; then d="${a}"; else die_usage MSG-D9C7 "projects handback takes a single path"; fi ;;
         esac
     done
+    # Discovery reads the registry, so the target's is loaded first.
+    load_target_registry_snapshot
     d="$(resolve_verb_target handback "${d}")" || exit "$?"
     require_reachable_target "${d}" handback
     section "Reclaim agent-written files"
@@ -6337,6 +6355,7 @@ status_services() {
 # instead.
 cmd_project_list() {
     [[ "$#" -eq 0 ]] || die_usage MSG-E2A5 "projects list takes no arguments"
+    load_target_registry_snapshot
     [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || { say "no registry at ${ALLOWLIST}"; return 0; }
     # Name the operator on a --for run: the listed entries are that account's launch gate, not the invoker's,
     # and an unlabelled listing of someone else's projects reads as your own.
@@ -6922,13 +6941,14 @@ require_runas_target() {
         "This is a separate sudoers question from the ai-tools helpers: a host can grant every one of those and still restrict which accounts you may act as."
 }
 
-# refresh_target_allowlist_snapshot -- point ALLOWLIST at a private copy of the --for target's registry, read
-# through the root helper. The copy is read-only input for THIS run: every mutation goes back through the helper,
-# which re-reads the real file, so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow
-# refresh it after theirs. The helper refuses a target with no allowlist file, and its refusal reaches the terminal
-# on stderr, so a failed read ends the run with a line naming the target under the helper's own text and code. The file
-# exists only once the helper has answered: mktemp creates it 0600, and the EXIT trap removes it, so another operator's
-# project list does not outlive the command.
+# refresh_target_allowlist_snapshot -- point ALLOWLIST at a private copy of the --for target's registry, read through
+# the root helper: first by load_target_registry_snapshot, once the verb's own checks have passed, and again after each
+# write. The copy is read-only input for THIS run: every mutation goes back through the helper, which re-reads the real
+# file, so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow refresh it after theirs.
+# The helper refuses a target with no allowlist file, and its refusal reaches the terminal on stderr, so a failed read
+# ends the run with a line naming the target under the helper's own text and code. The file exists only once the helper
+# has answered: mktemp creates it 0600, and the EXIT trap removes it, so another operator's project list does
+# not outlive the command.
 ALLOWLIST_SNAPSHOT=""
 refresh_target_allowlist_snapshot() {
     local entries
@@ -6962,13 +6982,12 @@ remove_run_files() {
     return 0
 }
 
-# require_for_target [verb-args...] -- validate a --for run of COMMAND, resolve the target's group, and re-point
-# ALLOWLIST at the target's registry. A no-op without the flag, so no other code changes for an ordinary run.
+# require_for_target -- validate a `--for` run of COMMAND, resolve the target's group, and point ALLOWLIST at a name
+# where no file can exist until the verb loads the target's registry (load_target_registry_snapshot). A no-op without
+# the flag, so no other code changes for an ordinary run.
 #
-# EVERY refusal here precedes refresh_target_allowlist_snapshot, which is the run's first sudo: a command that is going
-# to be refused must not first prompt the operator for a password. That ordering is why the --force incompatibility is
-# checked HERE, on the verb's own arguments, rather than where --force is parsed in cmd_project_unclaim -- that runs
-# after this gate, so the prompt would come first.
+# Every refusal here, like every refusal a verb makes of its own command line, precedes the snapshot, which is
+# the run's first sudo: a command that is going to be refused must not first prompt the operator for a password.
 #
 # --for is accepted only on the verbs whose whole effect is decided by WHICH operator's allowlist covers the path:
 # the registry pair, the two per-project root helpers that gate on allowlist coverage, and the listing. Elsewhere it is
@@ -6989,17 +7008,6 @@ require_for_target() {
     verb_in "${COMMAND}" "${FOR_ALLOWED_VERBS[@]}" \
         || die MSG-U7R7 "--for is not accepted on ${COMMAND}" \
                "it applies to: $(join_paths "${FOR_ALLOWED_VERBS[@]}")"
-    # --force reaches a tree NO allowlist names, so ai-tools-unclaim cannot resolve its owner from an entry and binds
-    # the walk to the INVOKING uid instead -- the guard that stops one operator rewriting another's files. Honouring
-    # --for there would have the CLI name one operator while the helper acted as another.
-    local a
-    for a in "$@"; do
-        [[ "${a}" == "--force" ]] || continue
-        die MSG-B5K3 "--for cannot be combined with --force" \
-            "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
-            "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
-            "       project without --force"
-    done
     [[ "${FOR_OPERATOR}" != "${SANDBOX_USER}" ]] \
         || die MSG-M3Z3 "the sandbox account is not an operator and must not own projects"
     [[ "${FOR_OPERATOR}" != "root" ]] || die MSG-C4Y4 "root is not an operator"
@@ -7020,16 +7028,38 @@ require_for_target() {
                "       atr admin operators add ${FOR_OPERATOR}"
     OWNER_GROUP="$(id -gn "${FOR_OPERATOR}" 2>/dev/null)" \
         || die "cannot resolve the primary group of ${FOR_OPERATOR}"
+    # Until the verb loads the snapshot, every reader finds no registry there: /dev/null is not a directory, so no file
+    # can exist under it and a write there fails.
+    ALLOWLIST="${FOR_REGISTRY_NOT_LOADED}"
+    REGISTRY_STATE=none
+    # shellcheck disable=SC2088  # the tilde is printed for the reader, not expanded here
+    REGISTRY_DISPLAY_PATH="~${FOR_OPERATOR}/.config/ai-tools/project-registry"
+}
+
+# load_target_registry_snapshot  -- read a --for target's registry into this run's snapshot and validate it,
+# the run's first sudo; a no-op without --for and once the snapshot exists. Each verb FOR_ALLOWED_VERBS names calls it
+# after its own command-line checks and before its first registry read, after its path resolution too where the path
+# does not come from discovery (`projects lockdown` and `projects handback` load first, since discovery reads
+# the registry), so a command line, and a path the verb refuses, are refused before the password prompt. A verb that
+# forgot the call would read ALLOWLIST at FOR_REGISTRY_NOT_LOADED, which reads as no registry: every path unregistered,
+# the less-access answer for each verb but the claim, whose first-claim path then writes through the helper, which
+# re-reads the real file and is idempotent. tests/unit/cli-verbs.sh holds every such verb to the call. The snapshot
+# carries the grammar the helper validated against the target's own file, so the run reads it under that grammar
+# alone; the link check is the helper's, made over the file whose owner the links belong to.
+readonly FOR_REGISTRY_NOT_LOADED="/dev/null/ai-tools-for-registry-not-loaded"
+load_target_registry_snapshot() {
+    [[ -n "${FOR_OPERATOR}" && -z "${ALLOWLIST_SNAPSHOT}" ]] || return 0
     refresh_target_allowlist_snapshot
+    ai_tools_conf__validate_registry "${ALLOWLIST}" "$(ai_tools_conf__read_registry_grammar "${ALLOWLIST}")" \
+        || die_registry_refused
 }
 
 # Gate the operator-acting commands up front; the informational ones (`--help`, `--version`, `projects list`,
 # `providers list`) stay open so an unenrolled user can still read usage and inspect the host.
 if verb_in "${COMMAND}" "${OPERATOR_VERBS[@]}"; then require_operator; fi
 
-# Refuse a verb whose root helper this caller has no sudo grant for, before require_for_target -- whose snapshot is
-# a --for run's first sudo. Both gates keep the same ordering rule: a command that is going to be refused must not
-# prompt for a password first.
+# Refuse a verb whose root helper this caller has no sudo grant for, ahead of a --for run's snapshot, its first sudo.
+# Every gate keeps the same ordering rule: a command that is going to be refused must not prompt for a password first.
 require_sudo_access "$@"
 
 # And refuse a --for run that cannot perform its filesystem steps AS the target -- a separate sudoers question
@@ -7037,9 +7067,10 @@ require_sudo_access "$@"
 # ahead of the snapshot, which is the first sudo that can prompt.
 require_runas_target "$@"
 
-# Validate a --for run and re-point the registry at the target, after require_operator: acting for another operator is
-# an operator action, so the invoker must be enrolled before the target is even looked up.
-require_for_target "$@"
+# Validate a --for run, after require_operator: acting for another operator is an operator action, so the invoker must
+# be enrolled before the target is even looked up. The target's registry is read by the verb, once its own command
+# line has passed (load_target_registry_snapshot).
+require_for_target
 
 # One dispatch per collection, nested under the top-level one on the first token of COMMAND -- the shape ai-tools-admin
 # takes, and the one tests/unit/man.sh and tests/integration/cli-flags.sh read the arms from.

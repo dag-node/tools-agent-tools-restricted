@@ -1327,14 +1327,14 @@ if command -v runuser >/dev/null 2>&1; then
     fal="${TESTDIR}/for-allowlist"; printf '%s\n' "${REG_MARKER}" > "${fal}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fal}"
 
-    # setsid: every assertion in this section expects a refusal, and each must land BEFORE the gate's snapshot step,
-    # which is a --for run's only sudo. Without a controlling terminal sudo cannot open /dev/tty to prompt (a stdin
-    # redirect does not stop it) and fails at once, so a regression that let a refusal fall past the snapshot FAILS here
-    # instead of hanging on a developer's password prompt -- the asymmetry being that a container with no tty would fail
-    # while an interactive run stalls indefinitely. -w because setsid FORKS when it is already a process-group leader,
-    # and the bare form then returns 0 rather than the command's status, which would quietly pass every rc-based
-    # assertion in it. run_for <key> <args...>: the command the key names, as the operator, against the fixture
-    # registry.
+    # setsid: every assertion in this section expects a refusal, and each must land BEFORE the target's registry
+    # snapshot, which is a --for run's only sudo. Without a controlling terminal sudo cannot open /dev/tty to prompt
+    # (a stdin redirect does not stop it) and fails at once, so a regression that let a refusal fall past the snapshot
+    # FAILS here instead of hanging on a developer's password prompt -- the asymmetry being that a container with no tty
+    # would fail while an interactive run stalls indefinitely. -w because setsid FORKS when it is already
+    # a process-group leader, and the bare form then returns 0 rather than the command's status, which would quietly
+    # pass every rc-based assertion in it. run_for <key> <args...>: the command the key names, as the operator, against
+    # the fixture registry.
     run_for() {
         local -a argv
         cli_cmd "$1" || exit 2
@@ -1367,7 +1367,7 @@ if command -v runuser >/dev/null 2>&1; then
     # (4) --force binds an unlisted tree to the INVOKING uid inside ai-tools-unclaim, so honouring --for there would
     # have the CLI name one operator while the helper acted as another.
     out="$(run_for ai-tools.projects.unclaim --force --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
-    # By code: --for's own --force refusal (MSG-B5K3), raised by the gate ahead of the verb's own parser.
+    # By code: --for's own --force refusal (MSG-B5K3), raised by the unclaim ahead of the target's registry snapshot.
     refused "--for refuses to combine with ai-tools.projects.unclaim --force" MSG-B5K3
 
     # (5) A bare --for with no name is a parse error, not an empty operator silently meaning "me".

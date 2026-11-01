@@ -194,6 +194,8 @@ cli_in() { local cwd="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; run_i
 # cli_tty <answers> <key> <args...>: cli on a pseudo-terminal, <answers> typed at its questions.
 cli_tty() { local answers="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; RUN_TTY_ANSWERS="${answers}" run_in "${R}" "${CLI_ARGV[@]}" "$@"; }
 cli_flag_first() { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "$@" "${CLI_ARGV[@]}"; }
+# cli_for_first <key> [args...]: `--for` and the target ahead of the command, the command's own arguments after it.
+cli_for_first() { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "$(f for)" "${FOR_USER}" "${CLI_ARGV[@]}" "$@"; }
 f() { cli_flag "$1"; }
 
 # seed and seed_for write a registry in the format this release reads: the marker, then one line per argument.
@@ -337,6 +339,7 @@ drive() {
         cli_in)         label="in $2: ${*:3}" ;;
         cli_tty)        label="tty ${*:3}" ;;
         cli_flag_first) label="flag-first ${*:2}" ;;
+        cli_for_first)  label="for-first ${*:2}" ;;
         cli_stdout)     label="stdout-only ${*:2}" ;;
         *)              label="$*" ;;
     esac
@@ -1293,7 +1296,8 @@ EOF
     expect "that refusal reaches no helper"                           cli_log_empty
     # A target in OPERATORS and outside ai-ops, the state a name written into operator.conf by hand leaves: the create
     # is refused before the snapshot, so it reaches no helper and makes no directory. The control puts the target back
-    # in the group and drives the same create into the refusal that follows the snapshot, a missing parent.
+    # in the group and drives the same create into its own refusal of a missing parent, which also precedes
+    # the snapshot.
     cli_stub_ai_ops
     cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"
     expect "create --for refuses a target outside ai-ops with exit 1" rc_is 1
@@ -1311,8 +1315,8 @@ EOF
     expect "that one call is the snapshot"                            cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
     expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
     cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-none/new"
-    expect "control: a target in ai-ops reaches the snapshot"         cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
-    expect "control: the create then refuses the missing parent"      out_has_text MSG-J3R8
+    expect "control: a target in ai-ops passes the gate to the create's own refusal" out_has_text MSG-J3R8
+    expect "control: and that refusal precedes the snapshot"          cli_log_empty
     # The same refusal over the target's snapshot: the run's one helper call is the snapshot, and no directory is made.
     local for_create_saved; for_create_saved="$(cat "${FOR_AL}")"
     seed_for "@ ${R}/fcq\"q'q"
@@ -1337,6 +1341,27 @@ EOF
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f force)" "${R}/unreg"
     expect "--for with --force is refused"                            rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
+
+    # A command line the verb refuses is refused before the target's registry is read, the run's first sudo, in either
+    # order of the flag: each verb FOR_ALLOWED_VERBS names with an unknown option exits 2 with an empty call log, and so
+    # do a claim and a remove without a path. A create over a path that exists is refused the same way.
+    local for_key
+    for for_key in ai-tools.projects.claim ai-tools.projects.create ai-tools.projects.unclaim \
+            ai-tools.projects.remove.inplace ai-tools.projects.enable ai-tools.projects.disable \
+            ai-tools.projects.lockdown ai-tools.projects.handback ai-tools.projects.list; do
+        cli_stub_reset; drive cli "${for_key}" "$(f for)" "${FOR_USER}" --bogus "${R}/for1"
+        expect "${for_key} --for refuses an unknown option with exit 2, before the snapshot" quiet_rc 2
+        cli_stub_reset; drive cli_for_first "${for_key}" --bogus "${R}/for1"
+        expect "${for_key} with --for ahead of it refuses the same, before the snapshot" quiet_rc 2
+    done
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}"
+    expect "claim --for without a path exits 2 before the snapshot"   quiet_rc 2
+    cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)"
+    expect "remove --for without a path exits 2 before the snapshot"  quiet_rc 2
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for1"
+    expect "create --for over an existing path is refused before the snapshot" quiet_rc 1
+    expect "under its code, naming the claim with --for"              out_has_text MSG-T4B9
+    expect "and the claim it names carries --for" out_has_text "atr projects claim --for ${FOR_USER} ${R}/for1"
 
     # ── H. Clone ──────────────────────────────────────────────────────────────────────
     # The clone rows run only against an installed CLI that honours the clone-area override; an older deployment would

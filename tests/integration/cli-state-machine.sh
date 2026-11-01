@@ -325,7 +325,8 @@ enable_close "enable of a disabled project" "${R}/P" reachable
 
 # ── A `--for` removal of an unregistered tree ──────────────────────────────────────────────────────────
 # `--force` binds the hand-back to the account running it, so the remedy names the target as that account and no line
-# carries both flags; `--force` beside `--for` is the gate's refusal, ahead of the verb's own.
+# carries both flags. A removal does not take `--force`, and refuses it itself beside `--for` as without it, ahead of
+# the target's registry snapshot.
 section "ai-tools: a --for removal of an unregistered tree"
 DIGEST_FILE="${FOR_AL}"
 reset; before="$(digest)"; cli_cmd ai-tools.projects.remove.inplace
@@ -339,7 +340,7 @@ else
 fi
 reset; before="$(digest)"
 rc=0; out="$(run_in "${R}" --for "${FOR_USER}" "${CLI_ARGV[@]}" --force "${R}/U")" || rc=$?
-check "remove --for --force" MSG-B5K3 1 same -
+check "remove --for --force" MSG-S6Q5 1 same -
 if ! grep -qE -- '--for.*--force|--force.*--for' <<<"$(grep -F 'atr ' <<<"${out}")"; then
     pass "the refusal prints no command holding --for beside --force"
 else

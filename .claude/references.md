@@ -236,7 +236,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | projects create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | g7d3 | [MSG-G7D3](../src/usr/local/bin/ai-tools.sh) | cannot create at a symbolic link: $(ai_tools_log__sanitize "${typed}") -- projects create makes a new directory and does not follow a link there | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | k7d9 | [MSG-K7D9](../src/usr/local/bin/ai-tools.sh) | projects $1 needs the directory it acts on; it does not take the current directory | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die_usage |
 | k8r8 | [MSG-K8R8](../src/usr/local/bin/ai-tools.sh) | projects ${verb} without a directory acts on the project the current directory is in, and $(pwd -P) is in none | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh | die_usage |
 | w3s4 | [MSG-W3S4](../src/usr/local/bin/ai-tools.sh) | this project is disabled: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh | die |
@@ -245,7 +245,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | f7j9 | [MSG-F7J9](../src/usr/local/bin/ai-tools.sh) | unknown projects unclaim option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_usage |
 | c8p8 | [MSG-C8P8](../src/usr/local/bin/ai-tools.sh) | projects unclaim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | p4d2 | [MSG-P4D2](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh |  | die_usage |
-| s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a project is deleted on its registry entry and a clone on being a recognized clone, and no flag stands in for either. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| b5k3 | [MSG-B5K3](../src/usr/local/bin/ai-tools.sh) | --for cannot be combined with --force | src/usr/local/bin/ai-tools.sh | src/usr/local/bin/ai-tools.sh, tests/integration/cli.sh | die |
+| s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a project is deleted on its registry entry and a clone on being a recognized clone, and no flag stands in for either. | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
 | m3y5 | [MSG-M3Y5](../src/usr/local/bin/ai-tools.sh) | unknown projects remove option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_usage |
 | m2u9 | [MSG-M2U9](../src/usr/local/bin/ai-tools.sh) | projects remove takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | f4d8 | [MSG-F4D8](../src/usr/local/bin/ai-tools.sh) | this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
@@ -291,7 +292,6 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | e8w4 | [MSG-E8W4](../src/usr/local/bin/ai-tools.sh) | could not read ${FOR_OPERATOR}'s project registry -- nothing changed | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | die |
 | s3u5 | [MSG-S3U5](../src/usr/local/bin/ai-tools.sh) | the directory $(ai_tools_log__sanitize "${CREATE_LEFT_TREE}") was created and its claim did not finish -- the directory stays; finish the claim with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
 | u7r7 | [MSG-U7R7](../src/usr/local/bin/ai-tools.sh) | --for is not accepted on ${COMMAND} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| b5k3 | [MSG-B5K3](../src/usr/local/bin/ai-tools.sh) | --for cannot be combined with --force | src/usr/local/bin/ai-tools.sh | src/usr/local/bin/ai-tools.sh, tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
 | m3z3 | [MSG-M3Z3](../src/usr/local/bin/ai-tools.sh) | the sandbox account is not an operator and must not own projects | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | c4y4 | [MSG-C4Y4](../src/usr/local/bin/ai-tools.sh) | root is not an operator | src/usr/local/bin/ai-tools.sh |  | die |
 | e3d2 | [MSG-E3D2](../src/usr/local/bin/ai-tools.sh) | not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
