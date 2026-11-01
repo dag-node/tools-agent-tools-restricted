@@ -338,7 +338,7 @@ binds a throwaway socket in its testdir instead of writing the host's journal; w
 field** lands, which does not feed any authorization decision (see [handback-bridge](handback-bridge.rule.md)).
 
 `AI_TOOLS_LAYOUT_ROOT` (`layout.lib.sh`) prefixes every row path and every package sentinel of the installed layout,
-so `unit/layout.sh` builds a tree from the table itself in its testdir and drives the real reconcile over it,
+so `unit/layout-reconcile-*.sh` build a tree from the table itself in the testdir and drive the real reconcile over it,
 with `AI_TOOLS_AGENTS_DIR` and `AI_TOOLS_OPERATOR_CONF` pointed at the rows under that root. It is the widest
 of the family in what it moves — the reconcile rewrites owners, modes and ACLs as root — and reaches the consumer
 the same way `AI_TOOLS_POSTUPGRADE_ROOT` does, through `ai-tools-admin` run as root with the name set.

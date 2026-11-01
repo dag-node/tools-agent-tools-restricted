@@ -31,7 +31,8 @@
 # Every function that takes a caller's variable name prefixes its own locals `_layout_`, the helpers it calls while
 # the nameref is live included, since bash resolves a nameref through the dynamic scope; the output-name check refuses
 # that prefix and this module's globals. AI_TOOLS_LAYOUT_ROOT, a root-only test hook (tests.rule.md), prefixes every row
-# path and every sentinel, so tests/unit/layout.sh drives the real library over a fixture tree. Unset in production.
+# path and every sentinel, so tests/unit/layout-reconcile-*.sh drive the real library over a fixture tree. Unset
+# in production.
 
 # shellcheck disable=SC2034  # include guard, read on the next source of this lib
 if [[ -n "${_AI_TOOLS_LAYOUT__LOADED:-}" ]]; then return 0; fi
