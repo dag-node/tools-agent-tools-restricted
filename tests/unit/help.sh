@@ -228,6 +228,12 @@ resolves ai-tools 2 "projects bogus" projects bogus --help
 resolves ai-tools 2 "projects bogus" help projects bogus
 resolves ai-tools 2 bogus bogus --help
 resolves ai-tools 2 bogus help bogus
+# The claim's owner-side read is dispatched and has no help row, so a help request on it is an unknown path, and a line
+# without a help flag reaches the dispatch; the claim puts `--` ahead of the path, so a path spelled `-h` stays a path.
+resolves ai-tools 2 "projects inspect" projects inspect --help
+resolves ai-tools 2 "projects inspect" help projects inspect
+resolves ai-tools 1 "" projects inspect --verify -- /p
+resolves ai-tools 1 "" projects inspect -- -h
 resolves ai-tools-admin 0 -
 resolves ai-tools-admin 0 "operators add" operators add --help
 resolves ai-tools-admin 1 "" operators add help

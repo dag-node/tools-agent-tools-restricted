@@ -238,7 +238,7 @@ refused by the name given, since the create does not follow a link to place the
 directory where it points. Every filesystem step runs as the operator the run acts for, so
 a create under
 .B \-\-for
-produces a tree that operator owns. The tree is still read as you, so a location
+produces a tree that operator owns. The path is resolved as you, so a location
 under a directory you cannot enter is refused, naming that directory; under
 .B \-\-for
 the refusal names a location both accounts reach, the clone area as the
@@ -247,16 +247,26 @@ example, and then the traverse-only
 that lets you enter the directory, where it belongs to the other operator
 and is not a protected system directory.
 Every refusal fires before the directory
-is made; a step that fails after it leaves the directory in place, and
+is made; a step that fails after it leaves the directory in place, and the run
+names the directory and the
 .B "projects claim"
-on it finishes the claim.
+that finishes the claim.
 .IP
 It does not take options, and asks for no confirmation of its own: the tree it makes is empty,
-so the claim that follows infers the answers its prompts would otherwise ask for \(em
-there are no pre-existing permissions to warn about, no secret-named files to scan a
-brand-new directory for, and no git history to expose in a repository with no commits.
-The one question that can still appear is the traverse grant on a parent directory,
-which widens access on the project's ancestors and is answered only by a person at a terminal.
+so the claim that follows does not show its proceed confirm or run the secret scan \(em
+there are no pre-existing permissions to warn about, and no secret-named files to scan a
+brand-new directory for. Where
+.B "git init"
+made a repository, it asks whether the agent may read
+.B .git
+(default yes): a new repository has no history, so yes shares the commits made there
+from now on, and no keeps
+.B .git
+out of the agent's reach, in the owner's group with no access for other accounts;
+.B AI_TOOLS_ASSUME_YES
+and a run without a terminal answer yes.
+The traverse grant on a parent directory can also appear; it widens access on the project's
+ancestors and is answered only by a person at a terminal.
 .TP
 .B projects claim \fR[\fB\-y\fR] [\fB\-\-format tsv\fR] \fIDIRECTORY\fR
 Claim a real project in place so the agent works your actual tree: register it
@@ -300,11 +310,20 @@ Access to the
 repository's git history
 .RB ( .git )
 is a separate opt-in prompt.
-The claim reads the project as you. Where you cannot read its
-.B .git
-\(em another operator's repository under
+The claim resolves the path as you and reads the tree as the operator it acts
+for \(em under
 .BR \-\-for ,
-which git's ownership check refuses \(em the history share and the
+through
+.BR "sudo \-u" ,
+the probe for which runs before the first prompt. A tree that read could not
+describe is not claimed over: the claim prints an
+.B error
+line naming the read and exits 5 before it changes anything. Where that operator
+cannot read the project's
+.B .git
+\(em a repository git's ownership check refuses, or a
+.B .git
+closed to that account \(em the history share and the
 .B core.filemode
 pin are not checked: each is printed as an
 .B error
@@ -393,7 +412,9 @@ neither is answered by a run with no terminal, so a delete needs an operator at 
 without
 .BR \-y .
 .IP
-A sandbox clone \(em a direct child of the sandbox area that is a git worktree \(em
+A sandbox clone \(em a direct child of the sandbox area that the invoker or the acting operator owns,
+holding a .git directory with a HEAD file, read without running git, which does not check that it is
+a repository \(em
 is unregistered and then deleted behind one default-NO confirm, after a warning about
 any commit not yet pushed. The remote branch stays for others to merge, and
 .B \-y
@@ -532,6 +553,8 @@ Without
 it pushes the clone the current directory is in.
 It does not take options: one given is refused with exit 2 before anything is
 pushed, since the confirmation defaults to yes.
+When git cannot count the commits ahead of the remote branch, the push is
+refused with exit 1 and prints the git command that shows git's error.
 .TP
 .B projects lockdown \fR[\fIDIRECTORY\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to
@@ -1015,13 +1038,6 @@ or a
 .B \-\-format
 value other than
 .BR tsv .
-A
-.B \-\-for
-run is the one exception to the ordering: its registry snapshot is the run's
-first
-.BR sudo ,
-and it precedes the verb's own parser, so a command line that verb rejects is
-refused after that prompt.
 .TP
 .B 3
 The target is a protected path \(em a system directory or a home root \(em and
@@ -1041,7 +1057,8 @@ states for every report in this project.
 A report could not make a reading it promises, so its findings are incomplete
 .RB ( status ": a library the package ships did not load; " audit ": a log file,
 the journal or the audit log could not be read, or the caller is not root;
-.BR "projects claim" ": a drifted file's state, or a scan of the tree, could not be read).
+.BR "projects claim" ": the tree could not be read as its owner, the git safe.directory list
+could not be read, or a drifted file's state, or a scan of the tree, could not be read).
 The page names the reading it could not make.
 .B stop
 returns the same code for its own case: it could not run at all, because it was

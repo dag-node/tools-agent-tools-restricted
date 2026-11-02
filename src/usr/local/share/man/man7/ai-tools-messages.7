@@ -118,6 +118,10 @@ group\-unverified
 ERROR.
 cannot enter ${blocked_ancestor} as ${INVOKING_USER}, so ${path} cannot be reached from this account
 .TP
+.B MSG-D6T2
+ERROR.
+projects inspect takes one directory, the project root the claim resolved
+.TP
 .B MSG-D9C7
 ERROR.
 projects handback takes a single path
@@ -166,6 +170,10 @@ providers list takes no arguments
 ERROR.
 the parent directory is not writable by ${OWNER_USER}: ${rm_parent}
 .TP
+.B MSG-H6R3
+ERROR.
+could not count the commits ahead of ${up} in ${d} \-\- the push did not run, and git's own error names the cause:
+.TP
 .B MSG-H6W7
 ERROR.
 ai\-tools: do not run as root \-\- run as the projects user, without sudo
@@ -213,6 +221,10 @@ no agent is enabled or resolved, so there is no agent to provision a project for
 .B MSG-K7D9
 ERROR.
 projects $1 needs the directory it acts on; it does not take the current directory
+.TP
+.B MSG-K7K4
+ERROR.
+unknown projects inspect option: $(ai_tools_log__sanitize "${a}")
 .TP
 .B MSG-K8R8
 ERROR.
@@ -298,9 +310,17 @@ unknown command: ${path} \-\- run '${help_command}'
 ERROR.
 project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running
 .TP
+.B MSG-S3F4
+WARNING.
+the git safe.directory list ${GITCONFIG} could not be read \-\- the claim did not apply any step
+.TP
+.B MSG-S3U5
+WARNING.
+the directory $(ai_tools_log__sanitize "${CREATE_LEFT_TREE}") was created and its claim did not finish \-\- the directory stays; finish the claim with:
+.TP
 .B MSG-S6Q5
 ERROR.
-projects remove has no \-\-force: a project is deleted on its registry entry and a clone on being a recognized clone, and no flag stands in for either.
+projects remove has no \-\-force: a project is deleted on its registry entry and a clone on its place, its owner and its shape, and no flag stands in for either.
 .TP
 .B MSG-S6V2
 WARNING.
@@ -400,6 +420,10 @@ service registry unavailable (${SERVICES_LIB}) \-\- cannot report service health
 ERROR.
 you (${INVOKING_USER}) are not a configured ai\-tools operator \-\- add your name to OPERATORS in ${conf} with:
 .TP
+.B MSG-X7N2
+WARNING.
+the project's tree was not read as ${OWNER_USER} (${INSPECT_FAILURE}) \-\- the claim did not apply any step
+.TP
 .B MSG-X9H7
 ERROR.
 the sandbox is not provisioned for any enabled agent: ${joined%, } \-\- provision it with:
@@ -431,6 +455,10 @@ a \-\-for run acts on the filesystem AS the target: ${COMMAND} \-\-for ${FOR_OPE
 .B MSG-Z7B9
 ERROR.
 sandbox create stopped \-\- the clone could not be labelled ai_tools_project_t
+.TP
+.B MSG-Z7U6
+ERROR.
+not a git clone: ${d} \-\- ${refusal_reason}; if it is a stray directory, remove it by hand
 .TP
 .B MSG-Z9R2
 ERROR.
@@ -1399,7 +1427,7 @@ target is not a versioned launcher path: ${TARGET}
 .TP
 .B MSG-D5F4
 ERROR.
-cannot resolve ${target}
+cannot resolve $(ai_tools_log__sanitize "${target}")
 .TP
 .B MSG-E9A3
 ERROR.
@@ -1413,6 +1441,10 @@ cannot source ${LOG_LIB}
 ERROR.
 unknown argument: $1
 .TP
+.B MSG-G3M8
+ERROR.
+takes one project directory \-\- a second was given: $(ai_tools_log__sanitize "$1")
+.TP
 .B MSG-G3R5
 ERROR.
 no TTY for confirmation; re\-run with \-\-yes to apply non\-interactively
@@ -1420,6 +1452,10 @@ no TTY for confirmation; re\-run with \-\-yes to apply non\-interactively
 .B MSG-G8S6
 ERROR.
 \-\-gate and \-\-dry\-run do not combine \-\- \-\-gate locks what it lists
+.TP
+.B MSG-H3X3
+ERROR.
+not a directory: $(ai_tools_log__sanitize "${target}")
 .TP
 .B MSG-J3F9
 ERROR.
@@ -1702,6 +1738,10 @@ ERROR.
 the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than a file this host wrote \-\- refusing to launch
 .SS ai-tools-safedir
 .TP
+.B MSG-E7T5
+WARNING.
+cannot read the safe.directory list in ${GITCONFIG} (git exit ${status}) \-\- not editing safe.directory
+.TP
 .B MSG-F4Y6
 WARNING.
 not a directory: ${canonical} \-\- not registering safe.directory
@@ -1725,6 +1765,10 @@ cannot load ${CONTROL_PLANE_LIB} \-\- not editing safe.directory; reinstall ai\-
 .B MSG-V7J8
 WARNING.
 unknown option: ${arg}
+.TP
+.B MSG-X8T6
+WARNING.
+safe.directory still lists ${stored_value} after the removal \-\- ${GITCONFIG} was not changed
 .SS ai-tools-setfacl
 .TP
 .B MSG-C3V2

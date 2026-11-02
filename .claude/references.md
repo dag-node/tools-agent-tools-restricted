@@ -203,7 +203,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | d4z6 | [MSG-D4Z6](../src/usr/local/bin/ai-tools.sh) | cannot enter ${blocked_ancestor} as ${INVOKING_USER}, so ${path} cannot be reached from this account | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | v8z5 | [MSG-V8Z5](../src/usr/local/bin/ai-tools.sh) | project path holds a control character: $(ai_tools_log__sanitize "$1") -- rename it first | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | t4z6 | [MSG-T4Z6](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (must be a clone under ${SANDBOX_ROOT}): ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh | die |
-| w3h3 | [MSG-W3H3](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d} | src/usr/local/bin/ai-tools.sh |  | die |
+| w3h3 | [MSG-W3H3](../src/usr/local/bin/ai-tools.sh) | not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/unit/cli-verbs.sh | die |
+| z7u6 | [MSG-Z7U6](../src/usr/local/bin/ai-tools.sh) | not a git clone: ${d} -- ${refusal_reason}; if it is a stray directory, remove it by hand | src/usr/local/bin/ai-tools.sh | tests/unit/cli-verbs.sh | die |
 | y7k5 | [MSG-Y7K5](../src/usr/local/bin/ai-tools.sh) | the project registry ${REGISTRY_DISPLAY_PATH} holds a line named above that no reader accepts -- nothing changed | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh, tests/integration/cli-state-machine.sh, tests/integration/cli.sh, tests/unit/allowlist-helper.sh | die |
 | a5y2 | [MSG-A5Y2](../src/usr/local/bin/ai-tools.sh) | a line of ${REGISTRY_DISPLAY_PATH} names a path the registry cannot write back -- the line is shown above | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
 | j6s8 | [MSG-J6S8](../src/usr/local/bin/ai-tools.sh) | your project registry is ${REGISTRY_DISPLAY_PATH}, the allowed-projects an earlier release wrote, and it is not migrated -- nothing changed | src/usr/local/bin/ai-tools.sh | install.sh, src/usr/local/lib/ai-tools/launch-wrapper.lib.sh, src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh, tests/integration/cli-state-machine.sh, tests/unit/allowlist-helper.sh, tests/unit/launch-wrapper.sh | die |
@@ -223,17 +224,21 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | d3k4 | [MSG-D3K4](../src/usr/local/bin/ai-tools.sh) | group-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
 | b6s7 | [MSG-B6S7](../src/usr/local/bin/ai-tools.sh) | group-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
 | b7p8 | [MSG-B7P8](../src/usr/local/bin/ai-tools.sh) | scan-capped | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
-| q6x2 | [MSG-Q6X2](../src/usr/local/bin/ai-tools.sh) | error | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
+| q6x2 | [MSG-Q6X2](../src/usr/local/bin/ai-tools.sh) | error | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | _claim_unreadable |
 | u8g4 | [MSG-U8G4](../src/usr/local/bin/ai-tools.sh) | this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| k7k4 | [MSG-K7K4](../src/usr/local/bin/ai-tools.sh) | unknown projects inspect option: $(ai_tools_log__sanitize "${a}") | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| d6t2 | [MSG-D6T2](../src/usr/local/bin/ai-tools.sh) | projects inspect takes one directory, the project root the claim resolved | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | j2a7 | [MSG-J2A7](../src/usr/local/bin/ai-tools.sh) | unknown projects claim option: ${a} (allowed: -y/--yes, --format tsv) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | f8g9 | [MSG-F8G9](../src/usr/local/bin/ai-tools.sh) | projects claim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | s9a3 | [MSG-S9A3](../src/usr/local/bin/ai-tools.sh) | projects claim --format takes one value, tsv | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| x7n2 | [MSG-X7N2](../src/usr/local/bin/ai-tools.sh) | the project's tree was not read as ${OWNER_USER} (${INSPECT_FAILURE}) -- the claim did not apply any step | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
+| s3f4 | [MSG-S3F4](../src/usr/local/bin/ai-tools.sh) | the git safe.directory list ${GITCONFIG} could not be read -- the claim did not apply any step | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
 | j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | cannot resolve the parent directory: $(ai_tools_log__sanitize "${parent}") -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | c5t8 | [MSG-C5T8](../src/usr/local/bin/ai-tools.sh) | unknown projects create option: ${a} | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | a7d3 | [MSG-A7D3](../src/usr/local/bin/ai-tools.sh) | projects create needs a path: it creates a NEW project directory. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | g7d3 | [MSG-G7D3](../src/usr/local/bin/ai-tools.sh) | cannot create at a symbolic link: $(ai_tools_log__sanitize "${typed}") -- projects create makes a new directory and does not follow a link there | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| t4b9 | [MSG-T4B9](../src/usr/local/bin/ai-tools.sh) | this path already exists: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | k7d9 | [MSG-K7D9](../src/usr/local/bin/ai-tools.sh) | projects $1 needs the directory it acts on; it does not take the current directory | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die_usage |
 | k8r8 | [MSG-K8R8](../src/usr/local/bin/ai-tools.sh) | projects ${verb} without a directory acts on the project the current directory is in, and $(pwd -P) is in none | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh | die_usage |
 | w3s4 | [MSG-W3S4](../src/usr/local/bin/ai-tools.sh) | this project is disabled: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh | die |
@@ -242,7 +247,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | f7j9 | [MSG-F7J9](../src/usr/local/bin/ai-tools.sh) | unknown projects unclaim option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_usage |
 | c8p8 | [MSG-C8P8](../src/usr/local/bin/ai-tools.sh) | projects unclaim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | p4d2 | [MSG-P4D2](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh |  | die_usage |
-| s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a project is deleted on its registry entry and a clone on being a recognized clone, and no flag stands in for either. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| b5k3 | [MSG-B5K3](../src/usr/local/bin/ai-tools.sh) | --for cannot be combined with --force | src/usr/local/bin/ai-tools.sh | src/usr/local/bin/ai-tools.sh, tests/integration/cli.sh | die |
+| s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a project is deleted on its registry entry and a clone on its place, its owner and its shape, and no flag stands in for either. | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
 | m3y5 | [MSG-M3Y5](../src/usr/local/bin/ai-tools.sh) | unknown projects remove option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_usage |
 | m2u9 | [MSG-M2U9](../src/usr/local/bin/ai-tools.sh) | projects remove takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | f4d8 | [MSG-F4D8](../src/usr/local/bin/ai-tools.sh) | this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
@@ -260,6 +266,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | h2d4 | [MSG-H2D4](../src/usr/local/bin/ai-tools.sh) | destination already exists: ${dst} | src/usr/local/bin/ai-tools.sh |  | die |
 | c2u5 | [MSG-C2U5](../src/usr/local/bin/ai-tools.sh) | unknown projects push option: ${a} (projects push takes no options) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | k4r8 | [MSG-K4R8](../src/usr/local/bin/ai-tools.sh) | projects push takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| h6r3 | [MSG-H6R3](../src/usr/local/bin/ai-tools.sh) | could not count the commits ahead of ${up} in ${d} -- the push did not run, and git's own error names the cause: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | r3h8 | [MSG-R3H8](../src/usr/local/bin/ai-tools.sh) | unknown projects lockdown option: ${a} (allowed: --dry-run, --yes) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | y6v3 | [MSG-Y6V3](../src/usr/local/bin/ai-tools.sh) | projects lockdown takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | p5p8 | [MSG-P5P8](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh, tests/unit/lockdown.sh | die_usage |
@@ -286,8 +293,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | r4j2 | [MSG-R4J2](../src/usr/local/bin/ai-tools.sh) | this run needs root: ${what} goes through ${bin##*/}, and ${INVOKING_USER} holds no sudo grant for it. | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | z6q6 | [MSG-Z6Q6](../src/usr/local/bin/ai-tools.sh) | a --for run acts on the filesystem AS the target: ${COMMAND} --for ${FOR_OPERATOR} runs ${blocked##*/} as ${FOR_OPERATOR}, and ${INVOKING_USER} holds no sudo grant to do that. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | e8w4 | [MSG-E8W4](../src/usr/local/bin/ai-tools.sh) | could not read ${FOR_OPERATOR}'s project registry -- nothing changed | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | die |
+| s3u5 | [MSG-S3U5](../src/usr/local/bin/ai-tools.sh) | the directory $(ai_tools_log__sanitize "${CREATE_LEFT_TREE}") was created and its claim did not finish -- the directory stays; finish the claim with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
 | u7r7 | [MSG-U7R7](../src/usr/local/bin/ai-tools.sh) | --for is not accepted on ${COMMAND} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
-| b5k3 | [MSG-B5K3](../src/usr/local/bin/ai-tools.sh) | --for cannot be combined with --force | src/usr/local/bin/ai-tools.sh | src/usr/local/bin/ai-tools.sh, tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
 | m3z3 | [MSG-M3Z3](../src/usr/local/bin/ai-tools.sh) | the sandbox account is not an operator and must not own projects | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | c4y4 | [MSG-C4Y4](../src/usr/local/bin/ai-tools.sh) | root is not an operator | src/usr/local/bin/ai-tools.sh |  | die |
 | e3d2 | [MSG-E3D2](../src/usr/local/bin/ai-tools.sh) | not a configured ai-tools operator: ${FOR_OPERATOR} -- enrol it first with: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
@@ -632,11 +639,13 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q9m3 | [MSG-Q9M3](../src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh) | the launcher directory is missing: ${BIN_DIR} | src/usr/local/libexec/ai-tools/ai-tools-launcher-symlink.sh |  | err |
 | f6d9 | [MSG-F6D9](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot source ${LOG_LIB} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | g2t3 | [MSG-G2T3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | unknown argument: $1 | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| g3m8 | [MSG-G3M8](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | takes one project directory -- a second was given: $(ai_tools_log__sanitize "$1") | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die_usage |
 | g8s6 | [MSG-G8S6](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | --gate and --dry-run do not combine -- --gate locks what it lists | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die_usage |
 | e9a3 | [MSG-E9A3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | run with sudo | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | m8a8 | [MSG-M8A8](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | must be run by you, not ai-tools | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die |
 | v7y3 | [MSG-V7Y3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot determine current directory | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
-| d5f4 | [MSG-D5F4](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot resolve ${target} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| d5f4 | [MSG-D5F4](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | cannot resolve $(ai_tools_log__sanitize "${target}") | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
+| h3x3 | [MSG-H3X3](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | not a directory: $(ai_tools_log__sanitize "${target}") | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die |
 | k8z6 | [MSG-K8Z6](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | this directory is not in allowed projects for current operator: ${target} | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh | tests/unit/lockdown.sh | die |
 | v7y7 | [MSG-V7Y7](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | not an allowed project: ${target} (see ${ALLOWLIST}) | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
 | j3f9 | [MSG-J3F9](../src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh) | excluded in the allowlist: ${target}; nothing to do | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh |  | die |
@@ -694,6 +703,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | v7j8 | [MSG-V7J8](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | f6q4 | [MSG-F6Q4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | t6r4 | [MSG-T6R4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | cannot load ${CONTROL_PLANE_LIB} -- not editing safe.directory; reinstall ai-tools-base | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
+| e7t5 | [MSG-E7T5](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | cannot read the safe.directory list in ${GITCONFIG} (git exit ${status}) -- not editing safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh | tests/unit/safedir.sh | warn |
+| x8t6 | [MSG-X8T6](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | safe.directory still lists ${stored_value} after the removal -- ${GITCONFIG} was not changed | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh | tests/unit/safedir.sh | warn |
 | n4d4 | [MSG-N4D4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | no such directory ${TARGET} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | f4y6 | [MSG-F4Y6](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | not a directory: ${canonical} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | p5b5 | [MSG-P5B5](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | no operator covers ${canonical} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh | tests/unit/safedir.sh | warn |

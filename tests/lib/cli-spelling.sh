@@ -55,6 +55,7 @@ cli_cmd() {
         ai-tools.projects.push)           CLI_ARGV=(projects push) ;;
         ai-tools.projects.lockdown)       CLI_ARGV=(projects lockdown) ;;
         ai-tools.projects.handback)       CLI_ARGV=(projects handback) ;;
+        ai-tools.projects.inspect)        CLI_ARGV=(projects inspect) ;;
         ai-tools.status)                  CLI_ARGV=(status) ;;
         ai-tools.providers)               CLI_ARGV=(providers) ;;
         ai-tools.audit)                   CLI_ARGV=(audit) ;;
@@ -65,7 +66,8 @@ cli_cmd() {
 
 # cli_cmd_option <key>: the same keys in the option spelling, one token each. `ai-tools.help` has no option spelling
 # of its own: `--help` and `-h` are the command in either form. The `help` word after a collection has no option
-# spelling either, so its two keys take the collection form in both.
+# spelling either, so its two keys take the collection form in both, and so does the claim's owner-side read, a verb
+# the CLI added after the option spellings.
 cli_cmd_option() {
     case "$1" in
         ai-tools.help)                    CLI_ARGV=(--help) ;;
@@ -85,6 +87,7 @@ cli_cmd_option() {
         ai-tools.projects.push)           CLI_ARGV=(--sandbox-push) ;;
         ai-tools.projects.lockdown)       CLI_ARGV=(--lockdown) ;;
         ai-tools.projects.handback)       CLI_ARGV=(--reclaim) ;;
+        ai-tools.projects.inspect)        CLI_ARGV=(projects inspect) ;;
         ai-tools.status)                  CLI_ARGV=(--status) ;;
         ai-tools.providers)               CLI_ARGV=(--providers) ;;
         ai-tools.audit)                   CLI_ARGV=(--audit) ;;

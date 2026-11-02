@@ -110,12 +110,12 @@ make_fixtures() {
     # token.
     N_SRC="$(ai_test_name src)"; N_C2="$(ai_test_name c2)"; N_C3="$(ai_test_name c3)"
     N_C4="$(ai_test_name c4)"; N_C5="$(ai_test_name c5)"
-    declare -gA N_CL=([077]="$(ai_test_name clone-077)" [027]="$(ai_test_name clone-027)")
+    declare -gA N_CL=([077]="$(ai_test_name clone-077)" [027]="$(ai_test_name clone-027)" [002]="$(ai_test_name clone-002)")
     SRC="${R}/${N_SRC}"
     mk_operator_conf "${CONF}" "${PROJECTS_USER}" "${FOR_USER}"
     printf '%s\n' "${REG_MARKER}" > "${AL}"; printf '%s\n' "${REG_MARKER}" > "${FOR_AL}"; : > "${GC}"
     mkdir -p "${SBROOT}"
-    for d in pa pb pc pd pe pf pg psd plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
+    for d in pa pb pc pd pe pf pg psd psu plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
         mkdir -p "${R}/${d}"; printf '# %s\n' "${d}" > "${R}/${d}/README.md"
     done
     mkdir -p "${R}/unreg/node_modules/dep"; : > "${R}/unreg/node_modules/dep/index.js"
@@ -194,6 +194,8 @@ cli_in() { local cwd="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; run_i
 # cli_tty <answers> <key> <args...>: cli on a pseudo-terminal, <answers> typed at its questions.
 cli_tty() { local answers="$1" key="$2"; shift 2; cli_cmd "${key}" || return 2; RUN_TTY_ANSWERS="${answers}" run_in "${R}" "${CLI_ARGV[@]}" "$@"; }
 cli_flag_first() { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "$@" "${CLI_ARGV[@]}"; }
+# cli_for_first <key> [args...]: `--for` and the target ahead of the command, the command's own arguments after it.
+cli_for_first() { local key="$1"; shift; cli_cmd "${key}" || return 2; run_in "${R}" "$(f for)" "${FOR_USER}" "${CLI_ARGV[@]}" "$@"; }
 f() { cli_flag "$1"; }
 
 # seed and seed_for write a registry in the format this release reads: the marker, then one line per argument.
@@ -228,7 +230,7 @@ norm() {
         -e "s#\\b${PROJECTS_GROUP}\\b#\$OPGRP#g" -e "s#\\b${FOR_GROUP}\\b#\$FORGRP#g" \
         -e "s#\\b${SANDBOX_GROUP}\\b#\$SBGRP#g" \
         -e "s#${N_SRC}#\$SRC#g" -e "s#${N_C2}#\$C2#g" -e "s#${N_C3}#\$C3#g" -e "s#${N_C4}#\$C4#g" \
-        -e "s#${N_C5}#\$C5#g" -e "s#${N_CL[077]}#\$CL077#g" -e "s#${N_CL[027]}#\$CL027#g"
+        -e "s#${N_C5}#\$C5#g" -e "s#${N_CL[077]}#\$CL077#g" -e "s#${N_CL[027]}#\$CL027#g" -e "s#${N_CL[002]}#\$CL002#g"
 }
 # state_digest: the registries and the fixture tree (type, mode, path), less the shim, the log and git's internals,
 # hashed. Commit ids and times are left out, since they differ per run.
@@ -337,6 +339,7 @@ drive() {
         cli_in)         label="in $2: ${*:3}" ;;
         cli_tty)        label="tty ${*:3}" ;;
         cli_flag_first) label="flag-first ${*:2}" ;;
+        cli_for_first)  label="for-first ${*:2}" ;;
         cli_stdout)     label="stdout-only ${*:2}" ;;
         *)              label="$*" ;;
     esac
@@ -392,8 +395,6 @@ before() {
     local a b; a="$(cli_call_index "$1" "$2")"; b="$(cli_call_index "$3" "$4")"
     [[ -n "${a}" && -n "${b}" && "${a}" -lt "${b}" ]]
 }
-# cwd_of <helper>: the directory the first call to <helper> was made from.
-cwd_of() { awk -F'\t' -v h="$1" '$1==h {print $2; exit}' "${CLI_STUB_LOG}"; }
 T=$'\t'
 
 # drive_rows <spelling>: every row, against the fixtures make_fixtures built, in the spelling cli_cmd is set to.
@@ -464,12 +465,12 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pa"
     expect "claim --yes exits 0"                                      rc_is 0
     expect "claim --yes registers the project"                        st_is "${R}/pa" enabled
-    expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^--gate$"
+    expect "claim --yes scans for secrets in the project"             cli_called ai-tools-lockdown "^--gate${T}--${T}"
     expect "claim --yes registers safe.directory"                     cli_called ai-tools-safedir "^${R}/pa$"
     expect "claim --yes sets the group and setgid"                    cli_called ai-tools-setgid "^${R}/pa$"
     expect "claim --yes applies the ACL"                              cli_called ai-tools-setfacl "${R}/pa$"
     expect "the safe.directory entry is on record"                    gc_has "${R}/pa"
-    expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
+    expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setgid "."
 
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes.short)" "${R}/pc"
     expect "claim -y is the short form of --yes"                      st_is "${R}/pc" enabled
@@ -482,7 +483,7 @@ drive_rows() {
     expect "the claim of . names that directory"                      cli_called ai-tools-safedir "^${R}/pd$"
 
     cli_stub_reset; cli_stub_secrets "${R}/pe/.env"; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pe"
-    expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^--gate$" ai-tools-setgid "."
+    expect "a found secret is locked down before access is granted"  before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setgid "."
     expect "the secret gate is one helper call"                       test "$(cli_calls ai-tools-lockdown | wc -l)" = 1
     expect "the claim with a secret still registers the project"     st_is "${R}/pe" enabled
     # A declined lockdown (the helper's exit 6) fails the claim closed: no access granted, the new entry rolled back.
@@ -491,6 +492,21 @@ drive_rows() {
     expect "a declined secret lockdown stops the claim"               rc_not0
     expect "the declined claim grants no access"                      cli_log_lacks ai-tools-setgid
     expect "the declined claim rolls back its allowlist entry"        st_is "${R}/psd" absent
+    cli_stub_reset
+
+    # A safe.directory list git cannot read stops the claim ahead of its Review block: an error row and exit 5, with no
+    # registry line written and no helper called. The same claim over the readable list is the control.
+    local gc_saved; gc_saved="$(cat "${GC}")"
+    printf '[safe\n' > "${GC}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/psu"
+    expect "a claim over a safe.directory list git cannot read exits 5" rc_is 5
+    expect "that stop is read by its code"                            out_has_text MSG-S3F4
+    expect "the stopped claim registers nothing"                      st_is "${R}/psu" absent
+    expect "the stopped claim reaches no helper"                      cli_log_empty
+    printf '%s\n' "${gc_saved}" > "${GC}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/psu"
+    expect "control: the same claim over the readable list exits 0"   rc_is 0
+    expect "control: and registers the project"                       st_is "${R}/psu" enabled
     cli_stub_reset
 
     drive cli ai-tools.projects.claim --bogus "${R}/pa"
@@ -662,7 +678,7 @@ drive_rows() {
         expect "the declined grant leaves the parent as it was"           not_granted
         cli_stub_reset; drive cli_tty 'y\n' ai-tools.projects.claim "${reach_proj}"
         expect "the accepted grant exits 0"                               rc_is 0
-        expect "the accepted grant runs the secret scan"                  cli_called ai-tools-lockdown "^--gate$"
+        expect "the accepted grant runs the secret scan"                  cli_called ai-tools-lockdown "^--gate${T}--${T}"
         expect "the accepted grant is applied once the scan passed"       granted
         setfacl -x "u:${SANDBOX_USER}" "${reach_fx}"
         cli_stub_reset; cli_stub_secrets "${reach_proj}/.env"; cli_stub_decline_lockdown
@@ -688,6 +704,77 @@ drive_rows() {
     expect "create sets the group and setgid"                         cli_called ai-tools-setgid "^${R}/new$"
     expect "create applies the ACL"                                   cli_called ai-tools-setfacl "${R}/new$"
     expect "create skips the secret scan on the tree it just made"   not_called ai-tools-lockdown
+    # The `.git` question is asked on a new tree too, default yes: without a terminal the default shares `.git`,
+    # and at a pseudo-terminal an `n` keeps it out of the ACL step.
+    expect "without a terminal the .git question takes its default, --with-git" cli_called ai-tools-setfacl "^--with-git${T}${R}/new$"
+    cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${R}/new-nogit"
+    expect "create at a terminal answered n exits 0"                  rc_is 0
+    expect "the ACL step runs without --with-git"                     cli_called ai-tools-setfacl "^${R}/new-nogit$"
+    expect "and is not asked for .git"                                cli_log_lacks ai-tools-setfacl "--with-git"
+    # A declined share leaves .git as the create set it, which the stubbed helpers do not change: no access for other
+    # accounts, the owner's primary group, no group write, and no ACL entry naming the sandbox account or its group --
+    # under a 022 umask, under 002 (the default a user-private-group login takes on RHEL and Fedora) and 000, where git
+    # builds .git group-writable, under a 077 one, and under a setgid parent in the sandbox group, where git builds .git
+    # in that group.
+    git_withheld() {  # git_withheld <dir>: .git carries no other bit, the projects group, no sandbox ACL entry
+        [[ -z "$(find "$1/.git" -perm /o=rwx -print -quit)" ]] \
+            && [[ "$(stat -c %G -- "$1/.git")" == "${PROJECTS_GROUP}" ]] \
+            && [[ -z "$(find "$1/.git" ! -group "${PROJECTS_GROUP}" -print -quit)" ]] \
+            && ! getfacl -R -p -- "$1/.git" 2>/dev/null | grep -qE "^(default:)?(user:${SANDBOX_USER}|group:${SANDBOX_GROUP}):"
+    }
+    git_modes_withheld() {  # git_modes_withheld <dir>: directories 2750 or 750, no path with group write or other bits
+        [[ -z "$(find "$1/.git" -type d ! -perm 2750 ! -perm 750 -print -quit)" ]] \
+            && [[ -z "$(find "$1/.git" -perm /g=w,o=rwx -print -quit)" ]]
+    }
+    expect "the declined .git is withheld from the agent"            git_withheld "${R}/new-nogit"
+    # The file runs under 022 (its header); runuser hands the CLI this shell's umask.
+    cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${R}/new-nogit-022"
+    expect "under a 022 umask the declined create exits 0"           rc_is 0
+    expect "and its .git is withheld from the agent"                 git_withheld "${R}/new-nogit-022"
+    expect "and the mode bits under .git hold no group write or other bits" git_modes_withheld "${R}/new-nogit-022"
+    local um
+    for um in 002 000 077; do
+        umask "${um}"; cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${R}/new-nogit-${um}"; umask 022
+        expect "under a ${um} umask the declined create exits 0"     rc_is 0
+        expect "and its .git is withheld from the agent"             git_withheld "${R}/new-nogit-${um}"
+        expect "and the mode bits under .git hold no group write or other bits" git_modes_withheld "${R}/new-nogit-${um}"
+    done
+    expect "and .git stays readable to its group, for a later share" test -z "$(find "${R}/new-nogit-077/.git" ! -perm -g=r -print -quit)"
+    # The parent's default ACL also names a third account and a second group, the shape of the clone area's
+    # `group:ai-ops` entry: the create strips every extended entry and the default ACL under .git, so the mode bits
+    # alone decide who reads it.
+    local sg_parent="${R}/sg-parent" third_group
+    third_group="$(id -gn nobody)"
+    mkdir -p "${sg_parent}"; chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${sg_parent}"; chmod 2770 "${sg_parent}"
+    setfacl -m "d:g:${SANDBOX_GROUP}:rwx,d:u:nobody:rwx,d:g:${third_group}:rwx" "${sg_parent}"
+    git_acl_stripped() {  # git_acl_stripped <dir>: no named entry and no default entry under .git
+        ! getfacl -R -p -- "$1/.git" 2>/dev/null | grep -qE '^(default:|(user|group):[^:])'
+    }
+    cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${sg_parent}/new"
+    expect "under a setgid parent in the sandbox group the declined create exits 0" rc_is 0
+    expect "control: the new tree takes the parent's group"          test "$(stat -c %G -- "${sg_parent}/new")" = "${SANDBOX_GROUP}"
+    expect "control: the new tree inherits the parent's named entries" \
+        bash -c 'getfacl -p -- "$1" 2>/dev/null | grep -q "^user:nobody:"' _ "${sg_parent}/new"
+    expect "and its .git is withheld from the agent"                 git_withheld "${sg_parent}/new"
+    expect "and .git carries no named or default ACL entry"         git_acl_stripped "${sg_parent}/new"
+    expect "and the mode bits under .git hold no group write or other bits" git_modes_withheld "${sg_parent}/new"
+    # The boundary half, read by the kernel as the sandbox account: it reads the README in the tree it can enter, and
+    # is refused the declined .git.
+    sandbox_reads() { runuser -u "${SANDBOX_USER}" -- cat -- "$1" >/dev/null 2>&1; }
+    sandbox_refused() { ! sandbox_reads "$1"; }
+    expect "control: the sandbox account reads the new tree's README" sandbox_reads "${sg_parent}/new/README.md"
+    expect "the sandbox account is refused the declined .git"        sandbox_refused "${sg_parent}/new/.git/HEAD"
+    rm -rf "${sg_parent}" "${R}"/new-nogit-{022,002,000,077}
+    # A claim that stops after the create's mkdir: a failed safe.directory step, which no terminal declines to go
+    # past, ends the run 1 with the directory in place, and the run names it and the claim that finishes it.
+    cli_stub_reset; cli_stub_fail ai-tools-safedir
+    drive cli ai-tools.projects.create "${R}/new-stopped"
+    expect "a create whose claim stops after the mkdir exits 1"       rc_is 1
+    expect "the directory stays"                                      test -d "${R}/new-stopped"
+    expect "the run names the tree it left under its code"            out_has_text MSG-S3U5
+    expect "and the claim that finishes it"                           out_has_text "atr projects claim ${R}/new-stopped"
+    cli_stub_reset; drive cli ai-tools.projects.create "${R}/new-done"
+    expect "control: a create that completes does not name a tree left" out_lacks_text MSG-S3U5
     cli_stub_reset; drive cli ai-tools.projects.create "${R}/pa"
     expect "create refuses an existing path"                          rc_not0
     expect "the refused create reaches no helper"                     cli_log_empty
@@ -918,11 +1005,84 @@ drive_rows() {
     expect "enable --for restores the target's entry"                 st_for_is "${R}/for1" enabled
     expect "--for leaves the invoker's registry byte-identical"       test "$(sha "${AL}")" = "${inv_before}"
 
+    # The claim reads the tree as the target, through `sudo -u` (the shim logs it as `runas`). An owner-side read that
+    # does not complete ends the claim 5 before any write: an `error` row naming the read, the registry byte-identical,
+    # and no helper past the snapshot. The control is the same claim with the read answering.
+    local for_sha; for_sha="$(sha "${FOR_AL}")"
+    cli_stub_reset; cli_stub_fail runas:ai-tools
+    drive cli_stdout ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f format)" tsv "$(f yes)" "${R}/for2"
+    expect "a --for claim whose owner-side read fails exits 5"        rc_is 5
+    expect "its error row names the read as its item"                 out_has_finding_item error inspect
+    expect "that row carries the error code"                          out_has_text MSG-Q6X2
+    expect "the failed read is noticed under its code"                err_has MSG-X7N2
+    expect "the target's registry is byte-identical"                  test "$(sha "${FOR_AL}")" = "${for_sha}"
+    expect "no helper is called past the snapshot" test -z "$(awk -F'\t' '$1 != "runas" && !($1 == "ai-tools-allowlist" && $NF == "--print")' "${CLI_STUB_LOG}")"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
+    expect "claim --for asks for the owner-side read as the target"   cli_called runas "^${FOR_USER}${T}${CLI}${T}projects${T}inspect${T}(.*${T})?--${T}${R}/for2$"
+    expect "the owner-side read precedes the first helper the claim calls" before runas "${T}projects${T}inspect${T}" ai-tools-allowlist "--add"
     expect "claim --for writes the target's registry"                 cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--add${T}${R}/for2$"
     expect "the target's registry lists the project"                  st_for_is "${R}/for2" enabled
     expect "claim --for grants access through the helpers"            cli_called ai-tools-setgid "^${R}/for2$"
     expect "--for leaves the invoker's registry byte-identical"       test "$(sha "${AL}")" = "${inv_before}"
+    # A project that is a subdirectory of an enclosing repository, with no .git of its own: the claim does not pin
+    # core.filemode in that repository, plain or with `--for`. A project with a repository of its own is the control
+    # that the pin is written. Each repository starts at core.filemode false, so a pin changes its config; the git calls
+    # run as root over root-owned trees before the chown, and the read back is `--file`, as data.
+    local encl="${R}/enclosing" encl_sha
+    git init -q "${encl}"; git -C "${encl}" config core.filemode false
+    git init -q "${encl}/sub-own"; git -C "${encl}/sub-own" config core.filemode false
+    mkdir -p "${encl}/sub-plain" "${encl}/sub-for"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${encl}"; chown "${FOR_USER}:${FOR_GROUP}" "${encl}/sub-for"
+    encl_sha="$(sha "${encl}/.git/config")"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-plain"
+    expect "a claim of a subdirectory of an enclosing repository exits 0" rc_is 0
+    expect "and leaves the enclosing .git/config byte-identical"     test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}" "$(f yes)" "${encl}/sub-for"
+    expect "claim --for of such a subdirectory exits 0"              rc_is 0
+    expect "and leaves the enclosing .git/config byte-identical"     test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-own"
+    expect "control: a project with its own repository takes the core.filemode pin" \
+        test "$(git config --file "${encl}/sub-own/.git/config" --get core.filemode)" = true
+    expect "and the enclosing .git/config stays byte-identical"      test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    # The reading a 0700 root refuses one account and allows its owner, made by the owner-side read itself: run as the
+    # target over its own tree, and as the projects user over the same tree. Each run does not read a registry or reach
+    # a helper, so it is the installed command alone, with a copy of the fixture operator.conf naming both accounts.
+    # Both sit in the /tmp testdir, which both accounts traverse: on a host whose /tmp is noexec the other fixtures live
+    # beside the projects user's home, which the target cannot enter. Neither needs an exec mount.
+    local two="${TESTDIR}/two-account"
+    not_as_projects_user() { ! runuser -u "${PROJECTS_USER}" -- "$@"; }
+    chmod 0755 "${TESTDIR}"; mkdir -p "${two}"; chmod 0755 "${two}"
+    install -m 0644 -o root -g root "${CONF}" "${two}/operator.conf"
+    mkdir -p "${two}/closed"; git init -q "${two}/closed"; git -C "${two}/closed" config core.filemode false
+    chown -R "${FOR_USER}:${FOR_GROUP}" "${two}/closed"; chmod 0700 "${two}/closed"
+    inspect_as() {  # inspect_as <account> <dir> [option...]: the record stream ai-tools.projects.inspect prints as <account>
+        local account="$1" dir="$2"; shift 2
+        AI_TOOLS_CLI_SPELLING=collection cli_cmd ai-tools.projects.inspect || return 2
+        runuser -u "${account}" -- env -i HOME=/ PATH=/usr/local/bin:/usr/bin:/bin \
+            AI_TOOLS_OPERATOR_CONF="${two}/operator.conf" "${CLI}" "${CLI_ARGV[@]}" "$@" -- "${dir}" \
+            < /dev/null 2> "${two}/stderr.${account}"
+    }
+    out="$(inspect_as "${FOR_USER}" "${two}/closed")" && rc=0 || rc=$?
+    # A failed run names its refusal in the result line, so the reason is on the page.
+    [[ "${rc}" -eq 0 ]] || out+=$'\n'"$(tail -n 3 "${two}/stderr.${FOR_USER}" 2>/dev/null)"
+    expect "projects inspect as the target reads its 0700 tree's filemode" out_has_text "state${T}filemode${T}false"
+    expect "and its .git, which is not normalized"                    out_has_text "state${T}git${T}true"
+    expect "and completes the sealed-setgid scan, exit 0" test "${rc}" -eq 0 -a -n "$(grep -xF "scan${T}sealed-setgid${T}complete${T}" <<< "${out}")"
+    out="$(inspect_as "${PROJECTS_USER}" "${two}/closed")" && rc=0 || rc=$?
+    expect "as the projects user the same tree's filemode reads unknown" out_has_text "state${T}filemode${T}unknown"
+    expect "and its .git reads unknown"                               out_has_text "state${T}git${T}unknown"
+    expect "and the sealed-setgid scan is not made, exit 0" test "${rc}" -eq 0 -a -n "$(grep -xF "scan${T}sealed-setgid${T}not-made${T}" <<< "${out}")"
+    # A drifted file in a tree whose root the sandbox group traverses and the projects user cannot: the drift record
+    # carries the owner and mode as the target reads them, the reading the claim's listing prints.
+    mkdir -p "${two}/drifted"; : > "${two}/drifted/shared"
+    chown -R "${FOR_USER}:${FOR_GROUP}" "${two}/drifted"; chmod 0664 "${two}/drifted/shared"
+    chgrp "${SANDBOX_GROUP}" "${two}/drifted"; chmod 2710 "${two}/drifted"
+    out="$(inspect_as "${FOR_USER}" "${two}/drifted" --scan-group)" && rc=0 || rc=$?
+    [[ "${rc}" -eq 0 ]] || out+=$'\n'"$(tail -n 3 "${two}/stderr.${FOR_USER}" 2>/dev/null)"
+    expect "control: the projects user cannot enter that tree"       not_as_projects_user test -x "${two}/drifted"
+    expect "projects inspect --scan-group as the target records the drift with the target's reading" \
+        out_has_text "group-drift${T}${two}/drifted/shared${T}${FOR_USER}:${FOR_GROUP} 664${T}"
+    rm -rf "${two}"
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f yes)" "${R}/for2"
     expect "unclaim --for drops the target's entry through the helper" cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${R}/for2$"
     expect "the target's entry is gone"                               st_for_is "${R}/for2" absent
@@ -1151,7 +1311,8 @@ EOF
     expect "that refusal reaches no helper"                           cli_log_empty
     # A target in OPERATORS and outside ai-ops, the state a name written into operator.conf by hand leaves: the create
     # is refused before the snapshot, so it reaches no helper and makes no directory. The control puts the target back
-    # in the group and drives the same create into the refusal that follows the snapshot, a missing parent.
+    # in the group and drives the same create into its own refusal of a missing parent, which also precedes
+    # the snapshot.
     cli_stub_ai_ops
     cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-new"
     expect "create --for refuses a target outside ai-ops with exit 1" rc_is 1
@@ -1169,8 +1330,8 @@ EOF
     expect "that one call is the snapshot"                            cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
     expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
     cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-none/new"
-    expect "control: a target in ai-ops reaches the snapshot"         cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--print$"
-    expect "control: the create then refuses the missing parent"      out_has_text MSG-J3R8
+    expect "control: a target in ai-ops passes the gate to the create's own refusal" out_has_text MSG-J3R8
+    expect "control: and that refusal precedes the snapshot"          cli_log_empty
     # The same refusal over the target's snapshot: the run's one helper call is the snapshot, and no directory is made.
     local for_create_saved; for_create_saved="$(cat "${FOR_AL}")"
     seed_for "@ ${R}/fcq\"q'q"
@@ -1180,6 +1341,13 @@ EOF
     expect "that run called the helper once, for the snapshot"        test "$(cli_call_count ai-tools-allowlist)" = 1
     expect "that refusal creates no directory"                        test ! -e "${R}/for-new"
     printf '%s\n' "${for_create_saved}" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"
+    # A `--for` create whose claim stops after the mkdir names the claim with `--for`: the shim makes the directory
+    # as the projects user, so the claim's owner rule refuses it once it exists.
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for-made"
+    expect "a create --for whose claim stops after the mkdir exits 1" rc_is 1
+    expect "the run names the tree it left under its code"            out_has_text MSG-S3U5
+    expect "and the claim with --for that finishes it" out_has_text "atr projects claim --for ${FOR_USER} ${R}/for-made"
+    rm -rf "${R}/for-made"
     for who in root "${SANDBOX_USER}"; do
         cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${who}" "$(f yes)" "${R}/for1"
         expect "--for refuses ${who}"                                 rc_not0
@@ -1188,6 +1356,27 @@ EOF
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f for)" "${FOR_USER}" "$(f force)" "${R}/unreg"
     expect "--for with --force is refused"                            rc_not0
     expect "that refusal reaches no helper"                           cli_log_empty
+
+    # A command line the verb refuses is refused before the target's registry is read, the run's first sudo, in either
+    # order of the flag: each verb FOR_ALLOWED_VERBS names with an unknown option exits 2 with an empty call log, and so
+    # do a claim and a remove without a path. A create over a path that exists is refused the same way.
+    local for_key
+    for for_key in ai-tools.projects.claim ai-tools.projects.create ai-tools.projects.unclaim \
+            ai-tools.projects.remove.inplace ai-tools.projects.enable ai-tools.projects.disable \
+            ai-tools.projects.lockdown ai-tools.projects.handback ai-tools.projects.list; do
+        cli_stub_reset; drive cli "${for_key}" "$(f for)" "${FOR_USER}" --bogus "${R}/for1"
+        expect "${for_key} --for refuses an unknown option with exit 2, before the snapshot" quiet_rc 2
+        cli_stub_reset; drive cli_for_first "${for_key}" --bogus "${R}/for1"
+        expect "${for_key} with --for ahead of it refuses the same, before the snapshot" quiet_rc 2
+    done
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f for)" "${FOR_USER}"
+    expect "claim --for without a path exits 2 before the snapshot"   quiet_rc 2
+    cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f for)" "${FOR_USER}" "$(f yes)"
+    expect "remove --for without a path exits 2 before the snapshot"  quiet_rc 2
+    cli_stub_reset; drive cli ai-tools.projects.create "$(f for)" "${FOR_USER}" "${R}/for1"
+    expect "create --for over an existing path is refused before the snapshot" quiet_rc 1
+    expect "under its code, naming the claim with --for"              out_has_text MSG-T4B9
+    expect "and the claim it names carries --for" out_has_text "atr projects claim --for ${FOR_USER} ${R}/for1"
 
     # ── H. Clone ──────────────────────────────────────────────────────────────────────
     # The clone rows run only against an installed CLI that honours the clone-area override; an older deployment would
@@ -1213,8 +1402,8 @@ EOF
     expect "clone lands under the sandbox area, named after the source" test -d "${SBROOT}/${N_SRC}/.git"
     expect "clone pushes the default branch, sandbox/<base>"          test -n "$(remote_tip sandbox/main)"
     expect "clone registers the clone"                                st_is "${SBROOT}/${N_SRC}" enabled
-    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate$"
-    expect "the scan runs inside the clone"                           test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_SRC}"
+    expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate${T}--${T}"
+    expect "the scan is given the clone's path"                       cli_called ai-tools-lockdown "${T}--${T}${SBROOT}/${N_SRC}$"
     expect "clone registers safe.directory for the clone"             cli_called ai-tools-safedir "^${SBROOT}/${N_SRC}$"
     expect "the clone is shallow"                                     test "$(gitr -C "${SBROOT}/${N_SRC}" rev-list --count HEAD)" -eq 1
 
@@ -1238,8 +1427,8 @@ EOF
     printf '%s\n' "${clone_al_saved}" > "${AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${AL}"
 
     cli_stub_reset; drive cli ai-tools.projects.clone "${SBROOT}/${N_C4}"
-    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate$"
-    expect "the resume runs inside that clone"                        test "$(cwd_of ai-tools-lockdown)" = "${SBROOT}/${N_C4}"
+    expect "clone on an existing clone path resumes its finalization" cli_called ai-tools-lockdown "^--gate${T}--${T}"
+    expect "the resume is given that clone's path"                    cli_called ai-tools-lockdown "${T}--${T}${SBROOT}/${N_C4}$"
     expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
     expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" enabled
     # A resume on a clone already opened leaves the tree as it is: a directory the operator sealed inside it since keeps
@@ -1301,10 +1490,38 @@ EOF
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f yes)" "${R}/pa"
     expect "the clone kind is decided by the path: a project in place takes the registry gate" rc_not0
     expect "that refusal leaves the tree"                             test -d "${R}/pa"
+    # A clone the `--for` target holds, the shape a create for that account in the clone area leaves: read with one
+    # `stat` as the target, accepted on its root's owner, deleted, and its entry dropped from the target's registry
+    # through the helper. The shim runs the owner's commands as the projects user, so the fixture is opened to it.
+    # The clone's safe.directory entry is added beside the ones the file holds, since the removal drops only an entry it
+    # finds listed.
+    local for_clone="${SBROOT}/for-clone" for_clone_saved
+    for_clone_saved="$(cat "${FOR_AL}")"
+    mkdir -p "${for_clone}/.git"; : > "${for_clone}/.git/HEAD"
+    chown -R "${FOR_USER}:${FOR_GROUP}" "${for_clone}"; chmod -R a+rwX "${for_clone}"
+    seed_for "@ ${for_clone}"
+    git config --file "${GC}" --add safe.directory "${for_clone}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"
+    expect "control: the clone's safe.directory entry is listed"     gc_has "${for_clone}"
+    # A path nested under a clone is refused by the path check, ahead of the snapshot that is a `--for` run's first
+    # sudo.
+    cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f for)" "${FOR_USER}" "$(f yes)" "${for_clone}/.git"
+    expect "remove --for of a path nested in the clone area is refused"   rc_not0
+    expect "that refusal is the one-level path check"                 out_has_text MSG-W3H3
+    expect "and comes ahead of the registry snapshot"                 not_called ai-tools-allowlist
+    expect "and leaves the clone"                                     test -d "${for_clone}/.git"
+    cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f for)" "${FOR_USER}" "$(f yes)" "${for_clone}"
+    expect "remove --for of a clone the target holds exits 0"         rc_is 0
+    expect "the clone is read with one stat as the target"            cli_called runas "^${FOR_USER}${T}stat${T}"
+    expect "and is deleted"                                           test ! -e "${for_clone}"
+    expect "its entry is dropped through the helper" \
+        cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${for_clone}$"
+    expect "and its safe.directory entry is dropped"                  cli_called ai-tools-safedir "^--remove${T}${for_clone}$"
+    rm -rf "${for_clone}"
+    printf '%s\n' "${for_clone_saved}" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"
     # A clone removal whose deletion fails reports the entry the clone had and the one that still covers it, read
     # from the registry record ahead of the registry step. The `rm` stub of the `--for` group fails the clone's path;
-    # an enabled entry over the clone area is the covering one, and a clone no line names had no entry of its own,
-    # since a recognized clone is removed on being one.
+    # an enabled entry over the clone area is the covering one, and a clone no line names had no entry of its own, since
+    # a clone is removed on its place, its owner and its shape.
     local clone_al_saved; clone_al_saved="$(cat "${AL}")"
     printf '%s' "${SBROOT}/${N_SRC}" > "${rm_stub}/target"
     RUN_EXTRA_ENV=(PATH="${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
@@ -1330,15 +1547,15 @@ EOF
     section "ai-tools.projects.lockdown / ai-tools.projects.handback"
     seed "@ ${R}/pa"
     cli_stub_reset; drive cli ai-tools.projects.lockdown "${R}/pa"
-    expect "lockdown runs the helper inside the project"              test "$(cwd_of ai-tools-lockdown)" = "${R}/pa"
-    expect "lockdown passes no flag by default"                       test -z "$(cli_calls ai-tools-lockdown)"
+    expect "lockdown gives the helper the project's path"             cli_called ai-tools-lockdown "^--${T}${R}/pa$"
+    expect "lockdown passes no flag by default"                       test "$(cli_calls ai-tools-lockdown)" = "--${T}${R}/pa"
     cli_stub_reset; cli_stub_secrets "${R}/pa/.env"; cli_stub_decline_lockdown
     drive cli ai-tools.projects.lockdown "${R}/pa"
     expect "a declined lockdown exits 6, the decline code"            rc_is 6
     cli_stub_reset
     for k in dry-run yes yes.short; do
         cli_stub_reset; drive cli ai-tools.projects.lockdown "$(f "${k}")" "${R}/pa"
-        expect "lockdown passes $(f "${k}") through to the helper"     cli_called ai-tools-lockdown "^$(f "${k}")$"
+        expect "lockdown passes $(f "${k}") through to the helper"     cli_called ai-tools-lockdown "^$(f "${k}")${T}--${T}${R}/pa$"
     done
     cli_stub_reset; drive cli ai-tools.projects.lockdown -n "${R}/pa"
     expect "lockdown has no -n short form, no helper"                 quiet_refusal
@@ -1452,13 +1669,15 @@ EOF
 
     section "umask independence"
     has_bits() { (( ( 8#$(stat -c '%a' "$1") & 8#$2 ) == 8#$2 )); }
-    for u in 077 027; do
+    for u in 077 027 002; do
         umask "${u}"
         seed; drive cli ai-tools.projects.create "${R}/new-${u}"
         expect "create under umask ${u} exits 0"                        rc_is 0
         expect "create under umask ${u}: the directory is 750"          test "$(perm "${R}/new-${u}")" = 750
         expect "create under umask ${u}: the README is 640"             test "$(perm "${R}/new-${u}/README.md")" = 640
         expect "create under umask ${u}: .git is group r-x"             has_bits "${R}/new-${u}/.git" 050
+        expect "create under umask ${u}: .git holds no group write or other bits" \
+            test -z "$(find "${R}/new-${u}/.git" -perm /g=w,o=rwx -print -quit)"
         if ${HAVE_SBROOT}; then
             RUN_EXTRA_ENV=(PATH="${R}/selinux-off-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
             seed; drive cli ai-tools.projects.clone "$(f dir)" "${N_CL[${u}]}" "${SRC}"

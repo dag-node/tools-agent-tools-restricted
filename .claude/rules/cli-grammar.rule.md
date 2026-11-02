@@ -304,9 +304,9 @@ rather than on one token, and `tests/unit/cli-verbs.sh` holds each dispatched pa
 **One registry carries those nouns.** `~/.config/ai-tools/project-registry` has one entry format and every claimed
 directory is a line in it, so a clone is a **kind** of project derived from the path prefix rather than a collection
 of its own: `projects clone` makes one, and `projects remove` reads the kind from the path (`ai-tools.sh` computes
-`kind="sandbox"` for a path under `SANDBOX_ROOT`, and `require_sandbox_clone` agrees). On the REST side that projects
-as `GET /projects?kind=sandbox`. The listing stays one command for the same reason, so the cross-cutting *Suggested
-cleanup* findings `projects list` reports have one home.
+`kind="sandbox"` for a path under `SANDBOX_ROOT`, and `require_sandbox_clone_shape` agrees). On the REST side
+that projects as `GET /projects?kind=sandbox`. The listing stays one command for the same reason, so the cross-cutting
+*Suggested cleanup* findings `projects list` reports have one home.
 
 **The option spelling of each command is kept**, because the typed command surface is the one interface an operator's
 own scripts bind to. `OPTION_SPELLINGS` maps each key to its command path, and `rewrite_option_spelling` applies

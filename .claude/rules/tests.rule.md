@@ -1417,8 +1417,8 @@ The file pins its own umask. A umask is process state the CLI inherits through `
 `pam_umask`), so the rows and the trace run under 022 whatever the host's login default, which is what makes a trace
 comparable across hosts and keeps a fixture readable by the account a row runs as. The verbs whose result a umask could
 change — a create, which sets its modes outright, and a clone, born private and then opened — are then re-driven
-under 077 and 027 and held to the modes `ai-tools(1)` states, so the guarantee that the operator's shell umask does not
-decide what the agent can read is asserted rather than assumed, and on one host. The pass does not read or write
+under 077, 027 and 002 and held to the modes `ai-tools(1)` states, so the guarantee that the operator's shell umask does
+not decide what the agent can read is asserted rather than assumed, and on one host. The pass does not read or write
 the host's umask configuration: it sets the builtin in the test's shell, which dies with it.
 
 `entrypoint-pin.sh` drives the observed tier's reconciliation through the deployed `ai-tools-relabel-agent`, which is

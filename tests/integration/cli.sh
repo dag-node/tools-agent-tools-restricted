@@ -1158,6 +1158,39 @@ EOF
     list_has "ai-tools-safedir --remove ${lst}/stale-safedir" "and names its safe.directory removal"
     list_has "ai-tools-safedir --remove ${lst}/stale"'\ with\ space' "and prints a stale path carrying a space as one word"
     list_lacks "ai-tools-relabel --remove ${lst}/stale-safedir" "and no label removal, there being no tree to read a label from"
+    # git exits 128 when its working directory was deleted, where a shell stands after `atr projects remove .`,
+    # so the listing reads the list from /: the same run from a deleted directory reports the same stale entry. A list
+    # git cannot read is named as such, and its rows read `?`, beside `lout`, the listing over the readable list,
+    # which reads them `yes`. The projects user removes the directory it stands in, which takes write on the parent,
+    # and TESTDIR is root's.
+    lgone_parent="${TESTDIR}/list-cwd"
+    lgone="${lgone_parent}/gone"
+    mkdir -p "${lgone}"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${lgone_parent}"
+    gone_rc=0
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    gone_out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal}" AI_TOOLS_GITCONFIG="${lgc}" bash -c \
+        'dir="$1"; shift; cd "${dir}" && rmdir "${dir}" || exit 97
+         git config --file "${AI_TOOLS_GITCONFIG}" --get-all safe.directory >/dev/null 2>&1 && exit 98
+         "$@"' _ "${lgone}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || gone_rc=$?
+    if [[ "${gone_rc}" -eq 97 || "${gone_rc}" -eq 98 ]]; then
+        fail "fixture: the run did not stand in a deleted directory git's plain read fails in (status ${gone_rc}) -- $(brief "${gone_out}")"
+    elif grep -qF "ai-tools-safedir --remove ${lst}/stale-safedir" <<<"${gone_out}"; then
+        pass "ai-tools.projects.list run from a deleted directory reports the stale safe.directory"
+    else
+        fail "ai-tools.projects.list run from a deleted directory: $(brief "${gone_out}")"
+    fi
+    lgc_bad="${TESTDIR}/list-gitconfig-unreadable"
+    printf '[safe\n' > "${lgc_bad}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lgc_bad}"
+    bad_out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal}" \
+            AI_TOOLS_GITCONFIG="${lgc_bad}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || true
+    if grep -qF "safe.dir:?" <<<"${bad_out}" && ! grep -qE 'safe\.dir:(yes|NO)' <<<"${bad_out}" \
+            && grep -qF "could not be read" <<<"${bad_out}"; then
+        pass "ai-tools.projects.list over a safe.directory list git cannot read names the file and reads no row yes or NO"
+    else
+        fail "ai-tools.projects.list over an unreadable safe.directory list: $(brief "${bad_out}")"
+    fi
     # A value ai-tools-safedir does not write is named by its form with the command that lists the file, and does not
     # take a removal: the exact-value removal of a trust rule deletes the rule, and git does not read an expanded path
     # as the directory this listing would read it as.
@@ -1177,7 +1210,7 @@ EOF
     fi
     list_has "not an absolute path" "ai-tools.projects.list names a relative safe.directory value as such"
     list_lacks "--remove relative/repo" "and offers no removal for it"
-    list_has "git config --file ${lgc} --get-all safe.directory" "each names the command that lists the file"
+    list_has "git -C / config --file ${lgc} --get-all safe.directory" "each names the command that lists the file"
     # The disabled row carries the safe.dir column the project rows carry, and stays out of the cleanup.
     if grep -qE "disabled +${lst}/disabled-proj +safe\.dir:yes" <<<"${lout}"; then
         pass "ai-tools.projects.list shows safe.dir:yes on a disabled row whose path is in git safe.directory"
@@ -1267,6 +1300,82 @@ EOF
         else
             fail "the control clone removal (rc=${rc}, on disk $([[ -e "${rclone}" ]] && echo yes || echo no)): $(brief "${out}")"
         fi
+        # The clone kind reads .git as data and does not run git over the tree: a partial clone whose HEAD object is
+        # gone and whose core.sshCommand writes a marker, the in-place kind's fixture, is accepted as a clone
+        # and removed, and the marker stays absent. The control is a direct rev-list as the projects user, which runs
+        # the transport. The stub and its marker sit in a directory the projects user owns, outside the clone area,
+        # since the transport runs as that user and the testdir is root's.
+        rpart="${sroot}/clone-partial"; rpart_work="${TESTDIR}/clone-partial-work"
+        mkdir -p "${rpart_work}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rpart_work}"
+        rpart_marker="${rpart_work}/git-ran"
+        printf 'touch %s\nexit 1\n' "${rpart_marker}" > "${rpart_work}/ssh-stub"
+        if git -C "${sroot}" init -q clone-partial 2>/dev/null \
+                && git -C "${rpart}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m one 2>/dev/null; then
+            rpart_head="$(git -C "${rpart}" rev-parse HEAD)"
+            git -C "${rpart}" update-ref refs/remotes/origin/main "${rpart_head}"
+            git -C "${rpart}" config remote.origin.url ssh://nowhere.invalid/up
+            git -C "${rpart}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+            git -C "${rpart}" config remote.origin.promisor true
+            git -C "${rpart}" config remote.origin.partialclonefilter blob:none
+            git -C "${rpart}" config extensions.partialClone origin
+            git -C "${rpart}" config core.sshCommand "bash ${rpart_work}/ssh-stub"
+            git -C "${rpart}" branch --set-upstream-to=origin/main >/dev/null 2>&1
+            rm -f "${rpart}/.git/objects/${rpart_head:0:2}/${rpart_head:2}"
+            chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rpart}" "${rpart_work}/ssh-stub"
+            runuser -u "${PROJECTS_USER}" -- git -C "${rpart}" rev-list --count '@{u}..HEAD' >/dev/null 2>&1 || true
+            if [[ -e "${rpart_marker}" ]]; then
+                pass "control: a rev-list over the armed clone runs the configured transport"
+                rm -f "${rpart_marker}"
+                printf '%s\n' "${REG_MARKER}" "@ ${rpart}" > "${creg}"
+                rclone="${rpart}"; out="$(remove_clone_run)" && rc=0 || rc=$?
+                if [[ ${rc} -eq 0 && ! -e "${rpart}" && ! -e "${rpart_marker}" ]]; then
+                    pass "ai-tools.projects.remove.clone removes the armed clone and runs no git over it"
+                else
+                    fail "ai-tools.projects.remove.clone over the armed clone (rc=${rc}, on disk $([[ -e "${rpart}" ]] && echo yes || echo no), marker $([[ -e "${rpart_marker}" ]] && echo yes || echo no)): $(brief "${out}")"
+                fi
+            else
+                fail "control: the armed clone did not run the configured transport, so the case proves nothing"
+            fi
+        else
+            skip "ai-tools.projects.remove.clone runs no git over the tree" "git unavailable"
+        fi
+        rm -rf "${rpart}" "${rpart_work}"
+        # The push counts the commits ahead of the upstream before it lists or pushes them: a clone whose upstream
+        # resolves and whose walk git cannot make, the upstream ref naming an object the store does not hold, is refused
+        # under MSG-H6R3 and not reported up to date. The same clone with its upstream at HEAD, the control, has nothing
+        # to push. The remote's URL does not resolve, so a push that ran anyway would fail on the host.
+        rpush="${sroot}/clone-push"
+        if git -C "${sroot}" init -q clone-push 2>/dev/null \
+                && git -C "${rpush}" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m one 2>/dev/null; then
+            git -C "${rpush}" config remote.origin.url ssh://nowhere.invalid/up
+            git -C "${rpush}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+            git -C "${rpush}" update-ref refs/remotes/origin/main HEAD
+            git -C "${rpush}" branch -q --set-upstream-to=origin/main
+            chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rpush}"
+            spell ai-tools.projects.push
+            push_run() {
+                runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                    AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
+                    setsid "${CLI}" "${CLI_ARGV[@]}" "${rpush}" 2>&1
+            }
+            out="$(push_run)" && rc=0 || rc=$?
+            if [[ ${rc} -eq 0 ]] && grep -qF "nothing to push" <<<"${out}"; then
+                pass "control: ai-tools.projects.push over a clone with its upstream at HEAD has nothing to push"
+            else
+                fail "control: ai-tools.projects.push over the clone at its upstream (rc=${rc}): $(brief "${out}")"
+            fi
+            printf '%040d\n' 1 > "${rpush}/.git/refs/remotes/origin/main"
+            out="$(push_run)" && rc=0 || rc=$?
+            refused "ai-tools.projects.push whose commit count git cannot make is refused" MSG-H6R3 1
+            if grep -qF "nothing to push" <<<"${out}"; then
+                fail "the refused push still reports the clone up to date: $(brief "${out}")"
+            else
+                pass "the refused push does not report the clone up to date"
+            fi
+        else
+            skip "ai-tools.projects.push refuses a count it cannot make" "git unavailable"
+        fi
+        rm -rf "${rpush}"
         if [[ -n "${rmstub}" ]]; then
             rleft="${sroot}/clone left"; mkdir -p "${rleft}"; git init -q "${rleft}"
             chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rleft}"
@@ -1327,14 +1436,14 @@ if command -v runuser >/dev/null 2>&1; then
     fal="${TESTDIR}/for-allowlist"; printf '%s\n' "${REG_MARKER}" > "${fal}"
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${fal}"
 
-    # setsid: every assertion in this section expects a refusal, and each must land BEFORE the gate's snapshot step,
-    # which is a --for run's only sudo. Without a controlling terminal sudo cannot open /dev/tty to prompt (a stdin
-    # redirect does not stop it) and fails at once, so a regression that let a refusal fall past the snapshot FAILS here
-    # instead of hanging on a developer's password prompt -- the asymmetry being that a container with no tty would fail
-    # while an interactive run stalls indefinitely. -w because setsid FORKS when it is already a process-group leader,
-    # and the bare form then returns 0 rather than the command's status, which would quietly pass every rc-based
-    # assertion in it. run_for <key> <args...>: the command the key names, as the operator, against the fixture
-    # registry.
+    # setsid: every assertion in this section expects a refusal, and each must land BEFORE the target's registry
+    # snapshot, which is a --for run's only sudo. Without a controlling terminal sudo cannot open /dev/tty to prompt
+    # (a stdin redirect does not stop it) and fails at once, so a regression that let a refusal fall past the snapshot
+    # FAILS here instead of hanging on a developer's password prompt -- the asymmetry being that a container with no tty
+    # would fail while an interactive run stalls indefinitely. -w because setsid FORKS when it is already
+    # a process-group leader, and the bare form then returns 0 rather than the command's status, which would quietly
+    # pass every rc-based assertion in it. run_for <key> <args...>: the command the key names, as the operator, against
+    # the fixture registry.
     run_for() {
         local -a argv
         cli_cmd "$1" || exit 2
@@ -1367,7 +1476,7 @@ if command -v runuser >/dev/null 2>&1; then
     # (4) --force binds an unlisted tree to the INVOKING uid inside ai-tools-unclaim, so honouring --for there would
     # have the CLI name one operator while the helper acted as another.
     out="$(run_for ai-tools.projects.unclaim --force --for "${PROJECTS_USER}" "${fproj}")" && rc=0 || rc=$?
-    # By code: --for's own --force refusal (MSG-B5K3), raised by the gate ahead of the verb's own parser.
+    # By code: --for's own --force refusal (MSG-B5K3), raised by the unclaim ahead of the target's registry snapshot.
     refused "--for refuses to combine with ai-tools.projects.unclaim --force" MSG-B5K3
 
     # (5) A bare --for with no name is a parse error, not an empty operator silently meaning "me".

@@ -192,6 +192,36 @@ fi
 if ! g "${proj}/.git/.env.local"; then pass "a secret-named path inside .git stays skipped under --with-git"
 else fail "a secret inside .git was ACL'd under --with-git"; fi
 
+# (D2) The share a `projects create` accepts: a project root carrying the clone area's inherited entries (a named group
+# standing in for `ai-ops`, on the root's access and default ACL) over a `.git` the create stripped to its mode bits.
+# `--with-git` gives `.git` the sandbox group's entry and does not carry the root's named group into it, so after
+# the share an operator's access to another account's `.git` stays that owner's to grant.
+if id nobody >/dev/null 2>&1; then
+    share="${TESTDIR}/share"; third_group="$(id -gn nobody)"
+    mkdir -p "${share}/.git/objects"; : > "${share}/.git/HEAD"; : > "${share}/.git/objects/o"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${share}"
+    chmod 0750 "${share}"; chmod 2750 "${share}/.git" "${share}/.git/objects"
+    chmod 0640 "${share}/.git/HEAD" "${share}/.git/objects/o"
+    setfacl -m "g:${third_group}:rwx,d:g:${third_group}:rwx" "${share}"
+    mk_allowlist "@ ${share}"
+    third() { getfacl -R -p "$1" 2>/dev/null | grep -qE "^(default:)?group:${third_group}:"; }
+    if third "${share}" && ! third "${share}/.git"; then
+        pass "control: the root carries the named group and the stripped .git does not"
+    else
+        fail "fixture: the root's named group or the .git strip is not as set"
+    fi
+    setsid "${HELPER}" --with-git "${share}" < /dev/null > /dev/null 2>&1 || true
+    if getfacl -p "${share}/.git/HEAD" 2>/dev/null | grep -qE "^group:${SANDBOX_GROUP}:rw"; then
+        pass "the accepted share gives .git the sandbox group's entry"
+    else
+        fail "the accepted share did not give .git/HEAD the sandbox group's entry: $(getfacl -p "${share}/.git/HEAD" 2>/dev/null | tr '\n' ' ')"
+    fi
+    if ! third "${share}/.git"; then pass "and does not carry the root's named group into .git"
+    else fail "the accepted share carried group:${third_group} into .git"; fi
+else
+    skip "the accepted share's named-group row" "user 'nobody' not present"
+fi
+
 # (E) the project ROOT owned by a third party: every path under it is then unreachable through it, so this is the whole
 # outcome of the claim rather than one skipped path, and it says so.
 p2="${TESTDIR}/proj2"

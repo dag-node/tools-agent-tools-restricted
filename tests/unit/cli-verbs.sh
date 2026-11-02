@@ -22,8 +22,9 @@
 # dispatch function, and a bare collection in the help is its `list`, the CLI's own rule.
 #
 # Pure text comparison of the CLI source -- no root, no install dependency, no CLI execution (its bootstrap gate
-# fail-closes on an unprovisioned host). Validates the repo source, falling back to the installed copy outside
-# a checkout, exactly like man.sh.
+# fail-closes on an unprovisioned host); section (6) runs one function read out of the source as text, with its
+# collaborators stubbed. Validates the repo source, falling back to the installed copy outside a checkout, exactly like
+# man.sh.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -41,6 +42,10 @@ fi
 # that requires root anyway and does not take operator-owned state. This list is the test's half of the contract,
 # so a verb added to neither this nor OPERATOR_VERBS fails with the choice spelled out.
 readonly INFORMATIONAL=(--help --version "projects list" "providers list" status audit stop)
+# INTERNAL -- the dispatched verbs that are the CLI's own calling contract: another verb runs each one and parses
+# what it prints, so the help, the man page and the completion leave it out. A verb qualifies when no person is meant
+# to type it; the gating tables still classify it like every other.
+readonly INTERNAL=("projects inspect")
 
 # array_items <NAME> : the elements of a `readonly NAME=(...)` declaration, one per line. An element is a quoted command
 # path or a bare word; the declarations span lines, so the extraction runs from the name to the closing paren.
@@ -181,17 +186,69 @@ done
 # man.sh pins the help rows against ai-tools(1); this pins them against the CODE, so the three surfaces agree
 # transitively. A verb that works but is documented nowhere is as much a defect as the reverse -- an operator cannot run
 # what they cannot find.
-missing_help="$(comm -23 <(printf '%s\n' "${DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
-extra_help="$(comm -13 <(printf '%s\n' "${DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
+# An INTERNAL verb is the one dispatched path the help leaves out, so it is held to that from both sides: it is
+# dispatched, and the help does not list it.
+PUBLIC_DISPATCH="$(comm -23 <(printf '%s\n' "${DISPATCH}") <(printf '%s\n' "${INTERNAL[@]}" | sort -u))"
+missing_help="$(comm -23 <(printf '%s\n' "${PUBLIC_DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
+extra_help="$(comm -13 <(printf '%s\n' "${PUBLIC_DISPATCH}") <(printf '%s\n' "$(usage_paths)"))"
 if [[ -z "${missing_help}" ]]; then
-    pass "every dispatched verb appears in the CLI help"
+    pass "every dispatched verb but the internal ones appears in the CLI help"
 else
     fail "verb(s) the CLI dispatches but the help omits: $(tr '\n' '/' <<<"${missing_help}")"
 fi
+for internal in "${INTERNAL[@]}"; do
+    if ! grep -qxF -- "${internal}" <<<"${DISPATCH}"; then
+        fail "INTERNAL names '${internal}', which the CLI does not dispatch"
+    elif grep -qxF -- "${internal}" <<<"$(usage_paths)"; then
+        fail "the internal verb '${internal}' is listed in the CLI help"
+    else
+        pass "the internal verb '${internal}' is dispatched and left out of the help"
+    fi
+done
 if [[ -z "${extra_help}" ]]; then
     pass "the CLI help lists no verb the dispatcher rejects"
 else
     fail "verb(s) in the help that the dispatcher does not accept: $(tr '\n' '/' <<<"${extra_help}")"
+fi
+
+# ── (3b) Every `--for` verb loads the target's registry itself ────────────────────
+# A `--for` run reads the target's registry once the verb has checked its own command line, through
+# load_target_registry_snapshot, so a refusal of that line precedes the password prompt. A verb that forgot the call
+# would read every path as unregistered -- the less-access answer for each verb but the claim -- so each function
+# the dispatch maps a FOR_ALLOWED_VERBS path to is read for the call. The control is a dispatched function that does
+# not take `--for`, which the reader must report as not calling it.
+dispatch_function() {  # dispatch_function <verb>: the function projects_dispatch runs for `projects <verb>`
+    awk -v verb="$1" '
+        /^projects_dispatch\(\) \{/ { on=1; next }
+        on && /^}/ { exit }
+        on && $0 ~ "^[ \t]*" verb "\\)" { sub(/^[^)]*\)[ \t]*/, ""); split($0, words, /[ \t]+/); print words[1]; exit }
+    ' "${CLI}"
+}
+calls_loader() {  # calls_loader <function>: the function's body in the CLI source calls load_target_registry_snapshot
+    # The body is captured before it is matched: `grep -q` exits on the match, and the writer it leaves would die of
+    # SIGPIPE, which pipefail reports as a failure.
+    local body
+    body="$(awk -v fn="$1" '$0 ~ "^" fn "\\(\\) \\{" { on=1; next } on && /^}/ { exit } on' "${CLI}" | sed 's/#.*//')"
+    grep -qw load_target_registry_snapshot <<< "${body}"
+}
+loader_missing=""
+loader_checked=0
+while IFS= read -r for_path; do
+    [[ "${for_path}" == "projects "* ]] || continue
+    fn="$(dispatch_function "${for_path#projects }")"
+    if [[ -z "${fn}" ]]; then loader_missing+=" ${for_path}(no dispatch arm)"; continue; fi
+    loader_checked=$(( loader_checked + 1 ))
+    calls_loader "${fn}" || loader_missing+=" ${fn}"
+done <<< "${FORALLOWED}"
+control_fn="$(dispatch_function clone)"
+if [[ -z "${control_fn}" ]] || calls_loader "${control_fn}"; then
+    fail "control: the reader did not find projects clone's function, or read it as calling the loader (${control_fn:-none})"
+elif (( loader_checked == 0 )); then
+    fail "no FOR_ALLOWED_VERBS function was read -- the reader stopped matching"
+elif [[ -n "${loader_missing}" ]]; then
+    fail "--for verb function(s) that do not call load_target_registry_snapshot:${loader_missing}"
+else
+    pass "each of the ${loader_checked} --for verb functions calls load_target_registry_snapshot, and ${control_fn} does not"
 fi
 
 # ── (4b) The help's `for` flag names the verbs FOR_ALLOWED_VERBS names ──────────
@@ -291,7 +348,7 @@ check_spelling_keys() {
     fi
     # shellcheck source=../lib/cli-spelling.sh
     source "${lib}"
-    local drivers='cli|cli_in|cli_flag_first|cli_cmd|cli_cmd_text|cli_cmd_option|spell|pd_cli|run_for'
+    local drivers='cli|cli_in|cli_flag_first|cli_for_first|cli_cmd|cli_cmd_text|cli_cmd_option|spell|pd_cli|run_for'
     local -a keys
     mapfile -t keys < <(sed -E 's/"[^"]*"//g; s/'\''[^'\'']*'\''//g; s/#.*//' "${ROOT}"/tests/*/*.sh \
                         | grep -hoE "\b(${drivers})[[:space:]]+[A-Za-z][A-Za-z0-9.-]*" \
@@ -311,5 +368,71 @@ check_spelling_keys() {
     fi
 }
 check_spelling_keys
+
+# ── (6) The clone kind reads .git as data ────────────────────────────────────────
+# require_sandbox_clone_shape and the require_sandbox_clone_path it calls, read out of the CLI source as text and run
+# with their collaborators stubbed: the backstop passes, die prints its code and exits 1, and run_as_owner runs
+# the `stat` it is handed or, for a root another account holds, prints canned readings. The refusals each carry
+# MSG-Z7U6; the accepted shapes are a root the invoker holds and, under `--for`, a root the acting owner holds. git is
+# not on the path the function runs, so a read that ran it fails.
+section "cli: the clone kind's .git read, as data (unit)"
+mktestdir
+clone_area="${TESTDIR}/clones"
+mkdir -p "${clone_area}/ok/.git" "${clone_area}/no-head/.git" "${clone_area}/linked" "${clone_area}/target-git"
+: > "${clone_area}/ok/.git/HEAD"; : > "${clone_area}/target-git/HEAD"
+ln -s "${clone_area}/target-git" "${clone_area}/linked/.git"
+clone_read_function="$(extract_function "${CLI}" require_sandbox_clone_path)"$'\n'"$(extract_function "${CLI}" require_sandbox_clone_shape)"
+# clone_read <dir> <owner-user> [<canned-readings-file>]: run require_sandbox_clone_shape over <dir> with OWNER_USER
+# set, and print its output, then rc=<status>.
+clone_read() {
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    env -i PATH=/usr/bin:/bin bash -c '
+        eval "$1"; d="$2"; OWNER_USER="$3"; canned="$4"; SANDBOX_ROOT="$5"; INVOKING_USER=invoker
+        git() { echo "git ran"; return 0; }
+        die() { [[ "$1" == MSG-* ]] && { printf "%s\n" "$1"; shift; }; printf "%s\n" "$*"; exit 1; }
+        ai_tools_safe_paths__assert_safe_target() { return 0; }
+        if [[ -n "${canned}" ]]; then run_as_owner() { sed "s|@D@|${d}|" "${canned}"; }
+        else run_as_owner() { "$@"; }; fi
+        rc=0; ( require_sandbox_clone_shape "${d}" ) || rc=$?
+        printf "rc=%s\n" "${rc}"' _ "${clone_read_function}" "$1" "$2" "${3:-}" "${clone_area}" 2>&1
+}
+clone_refused() {  # clone_refused <what> <output> <reason-text>
+    if [[ "$2" == *"rc=1"* ]] && grep -qxF MSG-Z7U6 <<< "$2" && grep -qF -- "$3" <<< "$2"; then
+        pass "$1 is refused under MSG-Z7U6, naming that ${3}"
+    else
+        fail "$1: $(tr '\n' '~' <<<"$2")"
+    fi
+}
+invoker="$(id -un)"
+if [[ "${clone_read_function}" != *"require_sandbox_clone_path()"*"require_sandbox_clone_shape()"* ]]; then
+    fail "require_sandbox_clone_path or require_sandbox_clone_shape is not in ${CLI} where this reads it"
+else
+    clone_out="$(clone_read "${clone_area}/ok" "${invoker}")"
+    if [[ "${clone_out}" == "rc=0" ]]; then pass "control: a clone root the invoker holds, with .git/HEAD, is accepted"
+    else fail "the invoker's clone was refused: $(tr '\n' '~' <<<"${clone_out}")"; fi
+    clone_out="$(clone_read "${clone_area}/ok/.git" "${invoker}")"
+    if [[ "${clone_out}" == *"rc=1"* ]] && grep -qxF MSG-W3H3 <<< "${clone_out}" && [[ "${clone_out}" != *"git ran"* ]]; then
+        pass "a path two levels under the clone area is refused under MSG-W3H3 by the path check"
+    else
+        fail "the nested path: $(tr '\n' '~' <<<"${clone_out}")"
+    fi
+    clone_refused "a .git symlink" "$(clone_read "${clone_area}/linked" "${invoker}")" ".git is not a directory"
+    clone_refused "a .git without HEAD" "$(clone_read "${clone_area}/no-head" "${invoker}")" ".git/HEAD is missing"
+    # A third account: a uid neither the invoker nor the owner holds.
+    printf '%s\n' "2147483646 41ed @D@" "2147483646 41e8 @D@/.git" "2147483646 81a4 @D@/.git/HEAD" \
+        > "${TESTDIR}/third.readings"
+    clone_refused "a root a third account holds" \
+        "$(clone_read "${clone_area}/ok" "${invoker}" "${TESTDIR}/third.readings")" "belongs to uid 2147483646"
+    # Under `--for`, the acting owner's root: the canned readings carry that account's uid, as `stat` run as it would.
+    if for_uid="$(id -u nobody 2>/dev/null)" && [[ "${for_uid}" != "${EUID}" ]]; then
+        printf '%s\n' "${for_uid} 41e8 @D@" "${for_uid} 45e8 @D@/.git" "${for_uid} 81a0 @D@/.git/HEAD" \
+            > "${TESTDIR}/for.readings"
+        clone_out="$(clone_read "${clone_area}/ok" nobody "${TESTDIR}/for.readings")"
+        if [[ "${clone_out}" == "rc=0" ]]; then pass "a root the --for owner holds, its .git 2750 in that owner's group, is accepted"
+        else fail "the --for owner's clone was refused: $(tr '\n' '~' <<<"${clone_out}")"; fi
+    else
+        skip "the --for owner's clone root" "no account 'nobody' distinct from the invoker"
+    fi
+fi
 
 finish

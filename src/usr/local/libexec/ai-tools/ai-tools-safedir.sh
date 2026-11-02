@@ -16,8 +16,9 @@
 #
 # ADD requires the path to be an allowlisted project (resolve_owner); `--remove` does not take a registry gate,
 # so an entry is removable whatever the registry holds for the path, before or after its de-list, and it removes
-# the value as git holds it where the argument is that spelling, the canonical path of the directory otherwise. Both
-# are idempotent; the path defaults to cwd.
+# the value as git holds it where the argument is that spelling, the canonical path of the directory otherwise. Both are
+# idempotent; the path defaults to cwd. A list git cannot read, and an entry the list still holds after its removal,
+# exit 1, so a caller does not report a trust entry gone that is still there.
 #
 # Usage:  ai-tools-safedir [--remove] [<absolute-project-path>]
 #
@@ -120,11 +121,24 @@ _reassert_mode() {
     done
 }
 
-# _listed <path>: 0 when <path> is already a safe.directory entry. The read works for any principal (644), so the CLI's
-# own pre-check and this one agree.
+# _read_entries: set SAFEDIR_ENTRIES to the safe.directory values GITCONFIG holds, one per line, empty when the file
+# or the key is absent (git's exit 1); refuse with exit 1 when git cannot read the file, since every decision this
+# helper makes reads the list and an unread list would read as one without the path. git runs from /: it reads its
+# working directory at startup and exits 128 when that directory was deleted, and sudo hands the helper the caller's
+# directory. The read works for any principal (644), so the CLI's own pre-check and this one agree.
+SAFEDIR_ENTRIES=""
+_read_entries() {
+    local status=0
+    SAFEDIR_ENTRIES="$(git -C / config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null)" || status=$?
+    (( status <= 1 )) && return 0
+    warn MSG-E7T5 "cannot read the safe.directory list in ${GITCONFIG} (git exit ${status}) -- not editing safe.directory"
+    ai_tools_log__coded error "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"
+    exit 1
+}
+
+# _listed <path>: 0 when <path> is a safe.directory entry in the list _read_entries last read.
 _listed() {
-    git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
-        | grep -qxF "$1"
+    grep -qxF -- "$1" <<< "${SAFEDIR_ENTRIES}"
 }
 
 # _confirm_cwd <question>: a shared-confirm gate (default yes -- registering safe.directory is an additive change
@@ -146,6 +160,7 @@ if ${REMOVE}; then
     # and remove a sibling spelling where one exists. The canonical form, the spelling ADD writes, is removed otherwise.
     canonical="$(realpath -m -- "${TARGET}" 2>/dev/null || printf '%s' "${TARGET}")"
     stored_value="${canonical}"
+    _read_entries
     _listed "${TARGET}" && stored_value="${TARGET}"
     # The project is the subject of every record this run writes, so it rides as per-run log context (logging.rule.md)
     # instead of being named at each site.
@@ -159,8 +174,16 @@ if ${REMOVE}; then
         # expansions, so SC2016 is expected.
         # shellcheck disable=SC2016
         esc="$(printf '%s' "${stored_value}" | sed 's/[.[\*^$()+?{|\\]/\\&/g')"
-        git config --file "${GITCONFIG}" --unset-all safe.directory "^${esc}$" 2>/dev/null || true
+        # The removal is read back rather than taken from git's status: the CLI reports this exit as the entry gone,
+        # and the entry is the agent's git trust in the tree.
+        git -C / config --file "${GITCONFIG}" --unset-all safe.directory "^${esc}$" 2>/dev/null || true
         _reassert_mode
+        _read_entries
+        if _listed "${stored_value}"; then
+            warn MSG-X8T6 "safe.directory still lists ${stored_value} after the removal -- ${GITCONFIG} was not changed"
+            ai_tools_log__coded error "${_warn_code}" "${_warn_text}" "AI_TOOLS_RESULT=failed"
+            exit 1
+        fi
         ai_tools_log__structured info "removed safe.directory ${stored_value}" "AI_TOOLS_RESULT=ok"
     else
         ai_tools_log__debug "safe.directory ${stored_value} not listed -- nothing to remove"
@@ -196,11 +219,12 @@ _confirm_cwd "Add ${canonical} to git safe.directory?" \
     || { ai_tools_log__structured info "declined adding safe.directory ${canonical}" \
              "AI_TOOLS_RESULT=refused"; exit 0; }
 
+_read_entries
 if _listed "${canonical}"; then
     ai_tools_log__debug "safe.directory ${canonical} already listed"
     exit 0
 fi
-git config --file "${GITCONFIG}" --add safe.directory "${canonical}"
+git -C / config --file "${GITCONFIG}" --add safe.directory "${canonical}"
 _reassert_mode
 ai_tools_log__structured info "added safe.directory ${canonical}" "AI_TOOLS_RESULT=ok"
 exit 0

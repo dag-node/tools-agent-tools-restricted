@@ -175,8 +175,8 @@ an ordinary account read it — a partial view, the file sink being the authorit
   the secret gate before any access-granting step, and offer the traverse and `.git` opt-ins. The model, the blocks
   in run order and what answers each question are under [Claim in place](#claim-in-place); `-y/--yes`, `--format tsv`
   and the exit codes are there and in `ai-tools(1)`. A usage error exits 2.
-- `projects create <path>` — create a **new** project directory and claim it, asking about the traverse grant alone
-  ([Create](#create)).
+- `projects create <path>` — create a **new** project directory and claim it, asking about the traverse grant
+  and the `.git` share ([Create](#create)).
 - `projects remove <path>` — unclaim a project **and delete its directory**; `projects unclaim` stays
   the non-destructive reversal its refusals point at ([Remove](#remove)).
 - `projects unclaim <path>` — unclaim a real project, directory left on disk: revert the label, drop both registries,
@@ -188,13 +188,20 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and only past that gate label, open and register the clone; fail-closed otherwise, and resumable by re-running
   on the clone path ([Sandbox clone](#sandbox-clone)).
 - `projects push [path]` — push the clone's commits to its branch; without a path it discovers the clone the current
-  directory is in ([Discovery](#discovery)). It and the clone kind of `projects remove`, which unregisters the clone
-  and then removes it, gate the target through `require_sandbox_clone`: it must be a **real clone** — a direct child
-  of `SANDBOX_ROOT` (exactly one level deep, so never the shared area root and never a nested or system path) that is
-  a git worktree, and it passes the protected-paths backstop. This scopes `projects remove`'s `rm -rf` to one recognized
-  clone; a stray non-git directory is refused ("remove it by hand"). `projects clone` scopes its own destination
+  directory is in ([Discovery](#discovery)). A commit count git cannot make (`rev-list @{u}..HEAD`) refuses the push
+  under `MSG-H6R3`, so a damaged clone is not reported up to date. It and the clone kind of `projects remove`,
+  which unregisters the clone and then removes it, gate the target through `require_sandbox_clone_shape`: the path must
+  be a direct child of `SANDBOX_ROOT` (exactly one level deep, so never the shared area root and never a nested
+  or system path) that passes the protected-paths backstop (`require_sandbox_clone_path`, which `projects remove` runs
+  ahead of a `--for` snapshot), and its tree must have a clone's shape, read as data with one `stat` as the acting
+  owner: the root held by that owner or by the invoker, `.git` a directory and `.git/HEAD` a regular file, so git is not
+  run over the tree. The read does not establish that the tree is a repository or that `projects clone` made it,
+  so an unregistered tree of that shape is deleted on the operator's confirm, or `-y`; a directory the sandbox account
+  creates in the area is born that account's, and the owner rule refuses it. Any other reading is refused
+  under `MSG-Z7U6`, naming which read failed ("remove it by hand"). `projects clone` scopes its own destination
   (`<name>` with no `/`, under `SANDBOX_ROOT`), so it does not need that guard.
-- `projects lockdown [path]` — wrapper over `ai-tools-lockdown` (see [secret-handling](secret-handling.rule.md)).
+- `projects lockdown [path]` — wrapper over `ai-tools-lockdown`, which takes the project as its argument
+  (see [secret-handling](secret-handling.rule.md)).
   Refuses, before the sudo prompt, every path a session cannot reach (`require_reachable_target`), the same front-line
   the helper's own `_is_allowed` enforces; without a path it discovers the project ([Discovery](#discovery)).
 - `projects handback [--full] [path]` — hand agent-written files under the project back to the operator
@@ -469,29 +476,31 @@ an ordinary account read it — a partial view, the file sink being the authorit
   directions: a protected system path the tools refuse to touch; a stale enabled or disabled line, or a stale non-glob
   excluded line, whose path no longer exists; a project listed but not fully claimed; and — the reverse direction —
   a git `safe.directory` with **no** registry entry, skipping the deliberately-registered control-plane paths
-  the protected-paths backstop already covers. `safe.directory` is one list every operator's claims write into
-  and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is attributed before a removal
-  is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted unclaim); one whose
-  tree the sandbox account holds is named with its removal, to run only if the tree is the reader's, since
-  `require_claimable_owner` accepts that owner for any operator and no registry attributes it; one whose path is gone
-  is stale; one under a directory the invoker cannot enter, in a tree another account holds, or whose owner cannot be
-  read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not write — git's `*`
-  and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not
-  absolute — is named by its form with the command that lists the file, and does not take a removal or count, since
+  the protected-paths backstop already covers. `safe.directory` is one list every operator's claims write
+  into and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is attributed
+  before a removal is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted
+  unclaim); one whose tree the sandbox account holds is named with its removal, to run only if the tree is the reader's,
+  since `require_claimable_owner` accepts that owner for any operator and no registry attributes it; one whose path is
+  gone is stale; one under a directory the invoker cannot enter, in a tree another account holds, or whose owner cannot
+  be read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not write — git's `*`
+  and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not absolute
+  — is named by its form with the command that lists the file, and does not take a removal or count, since
   the exact-value removal deletes a live rule. Each printed path is one bash word, and `ai-tools-safedir --remove`
-  removes a value as git holds it, so a stored spelling is removed as stored. A registry line under a directory
-  the invoker cannot enter is reported as one it cannot read, without a removal, and on a `--for` run names
-  the target's own listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all,
-  from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed through
-  `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
-  standing, and a protected path, which the helper's backstop refuses, read in the form that backstop reads,
-  `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry through
-  the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line
-  among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
+  removes a value as git holds it, so a stored spelling is removed as stored. The list is read once, with git run
+  from `/`, since git exits on a working directory that was deleted, the one a shell keeps
+  after `atr projects remove .`; a list git cannot read is named under the cleanup, and each row's status reads `?`.
+  A registry line under a directory the invoker cannot enter is reported as one it cannot read, without a removal,
+  and on a `--for` run names the target's own listing as the one that reads it. The `sed` line deletes the verbatim
+  line, comment and all, from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line
+  is removed through `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line,
+  which that removal leaves standing, and a protected path, which the helper's backstop refuses, read in the form
+  that backstop reads, `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry
+  through the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow
+  line among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
   under a banner naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing
   predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command, never
-  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational,
-  so it stays open to a non-operator.
+  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational, so it
+  stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree).
 - `--help`, `-h` and the bare word `help` — a **help request**, answered after the principal guards and ahead of every
   gate from the bootstrap gate on, so it does not run the command, call `sudo` or take a `--for` snapshot: the top help,
@@ -508,10 +517,9 @@ an ordinary account read it — a partial view, the file sink being the authorit
 or `sudo` runs** — an unknown option, a second path for a verb taking one, an argument to a report taking none, a path
 for `stop`, an option that has no effect beside another, and an unknown command, which prints one line naming the help
 command for the deepest part of the path the help holds (`MSG-S2H5`). Each refusal carries its own message code,
-so a script tells a rejected command line from an operation that failed (exit 1) by the status alone. The one refusal
-this ordering does not yet cover is a `--for` run, whose registry snapshot — the run's first `sudo` — precedes
-the verb's own parser ([Acting for another operator](#acting-for-another-operator---for)); a help request exits ahead
-of the snapshot.
+so a script tells a rejected command line from an operation that failed (exit 1) by the status alone. A `--for` run
+follows the same order, since each verb takes the target's registry snapshot — the run's first `sudo` — after its own
+checks ([Acting for another operator](#acting-for-another-operator---for)); a help request exits ahead of the snapshot.
 
 **`--relabel` prints the new command and exits 2.** The entrypoint reconcile is `atr admin system entrypoints relabel`
 ([updater](updater.rule.md) owns what it does, [cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs
@@ -605,12 +613,17 @@ registry coverage (`operator.lib.sh`), not from either global.
 that way by `ai-tools-admin`), so one operator cannot read another's at all — and every decision the CLI makes from it
 (the path's state, which disabled and excluded lines apply, what `projects list` reports) would read an unreadable file
 as an empty one. A `--for` run therefore takes a root-side **snapshot** through `ai-tools-allowlist --print`
-into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The helper prints only a migrated
-registry the loader accepts over the target's own file, the link rule taken from that file's owner
-(`require_migrated_registry`), so the run's own gate reads the snapshot's grammar alone: the snapshot belongs
-to the invoker, and the loader's owner rule would read the target's own links as foreign. The snapshot is read-only
-input for that run: mutations go back through the helper, which re-reads the real file and applies its own idempotency,
-and `reg_allow`/`unreg_allow` refresh the snapshot after theirs — so a stale copy is never what a write is based on.
+into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The verb takes it, through
+`load_target_registry_snapshot`, once its own command line and path have passed; until then `ALLOWLIST` names a path
+under `/dev/null`, where no file can exist, so every reader finds no registry there and a verb that forgot the call
+reads every path as unregistered — the less-access answer for each verb but the claim, whose add then goes through
+the helper, which re-reads the real file. `tests/unit/cli-verbs.sh` holds each verb `FOR_ALLOWED_VERBS` names
+to the call. The helper prints only a migrated registry the loader accepts over the target's own file, the link rule
+taken from that file's owner (`require_migrated_registry`), so the run's loader validates the snapshot under its grammar
+alone: the snapshot belongs to the invoker, and the loader's owner rule would read the target's own links as foreign.
+The snapshot is read-only input for that run: mutations go back through the helper, which re-reads the real file
+and applies its own idempotency, and `reg_allow`/`unreg_allow` refresh the snapshot after theirs — so a stale copy
+is never what a write is based on.
 
 **What a `--for` run prints names the target's file and carries the flag.** The snapshot is a temporary file the run
 removes, so a message naming `ALLOWLIST` would send the operator to a path that is gone. Every message that names
@@ -639,12 +652,12 @@ so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk t
 the guard that stops one operator rewriting another's files. Honouring `--for` there would have the CLI name one
 operator while the helper acted as another.
 
-**Every refusal in the gate precedes the snapshot**, which is a `--for` run's first `sudo`: a command that is going
-to be refused must not first prompt for a password. That ordering is what places the `--force` check in the gate —
-reading the verb's own arguments — rather than where `--force` is parsed in `cmd_project_unclaim`, which runs
-after the gate and so would prompt first. The target's group is likewise resolved only *after* enrollment is confirmed,
-so a name that is neither an operator nor a user on this host is refused with the enrolment command rather than
-a `getent` failure naming the wrong problem.
+**Every refusal precedes the snapshot**, which is a `--for` run's first `sudo`: a command that is going to be refused
+must not first prompt for a password. The gate's refusals run ahead of the dispatch, and each verb takes the snapshot
+after its own checks, so a command line or a path the verb refuses is refused before the prompt, and the `--force` check
+sits with the verb that parses it. The target's group is likewise resolved only *after* enrollment is confirmed,
+so a name that is neither an operator nor a user on this host is refused with the enrolment command rather
+than a `getent` failure naming the wrong problem.
 
 Sandbox clones stay invoker-only: `projects clone` clones as the invoking user with that user's git credentials,
 so pointing it at another owner is more than a registry redirect and is not attempted here.
@@ -655,20 +668,21 @@ Most `--for` verbs redirect a **registry**: the entry lands in the target's regi
 the owner from it. Two do not. `projects create` and `projects remove` write the **filesystem** as an owner — a tree
 the target must own for the claim's helpers to act on it, and a tree only its owner can delete — so both go
 through `run_as_owner`, which prefixes `sudo -u <target> -H` when `--for` is set and runs the command directly
-otherwise. Two claim steps use the same seam: `grant_ancestor_traversal` for the traverse ACL, whose ancestors belong
-to the target on a `--for` run, and `reg_filemode` for the `core.filemode` pin it writes into the target's
-`.git/config`.
+otherwise. The claim uses the same seam three times: its owner-side read of the tree (`projects inspect`, [Claim
+in place](#claim-in-place)), `grant_ancestor_traversal` for the traverse ACL, whose ancestors belong to the target
+on a `--for` run, and `reg_filemode` for the `core.filemode` pin it writes into the target's `.git/config`.
 
 `-H` is load-bearing rather than tidiness: without it (and without sudoers' `always_set_home`) sudo leaves `HOME`
 pointing at the **invoker's** home, so the `git init` inside a create would configure the target's repository
 from the invoker's `~/.gitconfig`.
 
-**The seam covers what a `--for` run writes, and the run still reads as the invoker.** Resolving the path, reading
-the project's state and every scan run unprivileged as the invoking operator, with the refusals and the `unknown`
-readings [Claim in place](#claim-in-place) states. A `create --for` into the target's private home therefore needs
-the invoker to hold traverse on that home, so its refusal names a location both accounts reach first, the clone area
-as the example, and then the traverse-only grant that opens the directory, where the predicate the claim's own traverse
-grant passes permits one ([safe-paths](safe-paths.rule.md)).
+**The path is resolved as the invoker, and the tree is read as its owner.** The invoker names the path, so resolving
+it, the ancestors' readings for the traverse grant, and every read of the registry run as the invoking operator;
+every read of the tree's interior runs through the seam, in the claim's owner-side read. A `create --for` into
+the target's private home therefore needs the invoker to hold traverse on that home, so its refusal names a location
+both accounts reach first, the clone area as the example, and then the traverse-only grant that opens the directory,
+where the predicate the claim's own traverse grant passes permits one ([safe-paths](safe-paths.rule.md)); with that
+grant the claim completes.
 
 **It uses a grant the caller already holds.** `sudo -u <target>` rides the caller's **general** sudo grant, the axis
 [CLAUDE.md](../../CLAUDE.md) names, so an operator who reaches it could already act as that account; the sandbox account
@@ -682,9 +696,10 @@ failing at the worst moment: a create after making the directory and before clai
 the project and before deleting it. Like every refusal in this family it precedes the `--for` snapshot, which is
 the run's first sudo.
 
-`projects claim` stays out of that probe even though it uses the seam. Each of its owner-run steps warns and continues
-on its own, so a claim on a `Runas`-restricted host loses those steps individually and leaves the tree whole. Probing
-would refuse the whole claim over one step the rest does not need.
+`projects claim` and `projects create` are probed on the CLI's own file, which the owner-side read executes as
+the target: without that read the claim ends with no step applied, so a `Runas` grant the host withholds is refused
+before the first prompt. The claim's other owner-run steps, the traverse ACL and the `core.filemode` pin, each warn
+and continue on their own.
 
 **What this widens, stated plainly.** A registry is an operator's own launch gate, and `--for` lets one operator write
 into another's. That sits inside the model's standing "`ai-ops` operators are trusted" boundary — an operator could
@@ -722,14 +737,15 @@ when one does. Reporting a project "enabled" that no session can enter is the mi
 ### The registry gate
 
 `registry_gate` runs before every verb classifies a path. A registry the grammar refuses, or one whose exclusion crosses
-a link the sandbox account can change, refuses every verb under `MSG-Y7K5` after the library's line, read
-through `ai_tools_conf__check_registry`, the loader the launch gate reads with. A legacy `allowed-projects` refuses
-every verb but `projects list` under `MSG-J6S8`, naming `atr admin system post-upgrade`: an edit would mix two grammars
-in one file, and a `!` there may be a project an earlier release disabled, which this grammar reads as an excluded path.
+a link the sandbox account can change, refuses every verb under `MSG-Y7K5` after the library's line, read through
+`ai_tools_conf__check_registry`, the loader the launch gate reads with. A legacy `allowed-projects` refuses every verb
+but `projects list` under `MSG-J6S8`, naming `atr admin system post-upgrade`: an edit would mix two grammars in one
+file, and a `!` there may be a project an earlier release disabled, which this grammar reads as an excluded path.
 The migration is `system post-upgrade`'s, unattended, each entry keeping its kind and its written path
 ([providers](providers.rule.md)). A run with no registry passes the gate, and each verb meets its own refusal. `status`
-reads the file through the same check, so the report and the gate cannot disagree about it; a `--for` run's gate reads
-the snapshot's grammar alone ([Acting for another operator](#acting-for-another-operator---for)).
+reads the file through the same check, so the report and the gate cannot disagree about it; a `--for` run passes
+the gate before the verb loads the snapshot, and the loader validates the snapshot under its grammar alone ([Acting
+for another operator](#acting-for-another-operator---for)).
 
 ### What each verb does with a state
 
@@ -859,7 +875,8 @@ reverses either and deletes the tree. Each verb has a section here; the operator
 `projects claim` refuses a path whose canonical form holds a control character before any verb acts on it
 (`resolve_existing_path`): the registry holds one entry per line, and the path is printed on the claim's page. It then
 registers the tree — the registry entry, the `safe.directory` entry through `ai-tools-safedir`, and repo-local
-`core.filemode=true` through `run_as_owner`, since under `--for` the `.git/config` it writes belongs to the target —
+`core.filemode=true` through `run_as_owner`, since under `--for` the `.git/config` it writes belongs to the target,
+written only into a repository whose toplevel is the project, so a subdirectory of an enclosing repository takes none —
 and grants access: group `SANDBOX_GROUP` with the setgid bit on every directory (`ai-tools-setgid`), the two ACL grants
 built by `project-permissions.lib.sh` (`ai-tools-setfacl`), and the `ai_tools_project_t` label
 through `ai-tools-relabel` with `restorecon -FR`, so a file carrying a foreign context is reset to the type the confined
@@ -919,16 +936,32 @@ the Apply block counts that, and a non-zero count closes the flow with a warning
 instead of the `claimed` ✓. The registries stand either way, and the claim is idempotent, so a re-run applies exactly
 what is missing.
 
-**A step whose state the invoker cannot read is neither applied nor reported done.** `projects claim` refuses a path
-under a directory the invoker cannot enter, naming that directory (`resolve_existing_path`,
+**The path is resolved as the invoker, and the tree is read as its owner.** `projects claim` refuses a path under
+a directory the invoker cannot enter, naming that directory (`resolve_existing_path`,
 through `find_invoker_traversal_blocker`), since `realpath` fails alike for an absent path and an unreachable one.
-Inside a tree it can enter, `read_project_state` reads the `.git` and `core.filemode` steps as `unknown`
-where the invoker cannot make the reading — a root it cannot enter, a `.git` its git refuses as another account's
-repository, or a `.git` whose repository is not the one its git opens, or one it cannot list and enter — and the claim
-announces each in the Review block, writes it as an `error` row naming the step, prints the command that finishes it,
-and ends with exit 5. Each such step is the opt-in history share or a registry pin, so it is not applied, and the agent
-has less access to the project until the operator runs the printed command. That command, and the traverse grant
-the unreachable-location refusal prints, carry the path in bash's `%q` encoding, so each pastes as one word.
+It then reads the tree in one owner-side invocation: the CLI runs its own file again as the owner,
+through `run_as_owner`, as `projects inspect`, which takes the path as its argument and the registry's exclusions
+on stdin and prints the tree's readings, the drift lists and the notices' paths in the internal framing
+[records](records.rule.md) states. The registry and the `safe.directory` list stay the parent's reads, so a `--for`
+target's snapshot remains the one read of that registry. A plain claim takes the same path with the invoker as
+the owner. The verb is the claim's calling contract and prints a stream the claim parses, so the help, the man page
+and the completion leave it out, and a help request on it is the unknown-command refusal. A child that exits non-zero,
+a record that does not decode, a state token missing, repeated or outside its set, and a scan the child runs
+on that read missing or repeated end the claim before any write, with
+an `error` row naming the read, a notice under `MSG-X7N2` and exit 5: a tree the owner-side read did not describe is
+not claimed over. Where drift was listed, a second invocation after the Apply block checks each path
+([Interior drift](#interior-drift)).
+
+**A step whose state the owner cannot read is neither applied nor reported done.** The owner-side read reads the `.git`
+and `core.filemode` steps as `unknown` where the owner cannot make the reading — a root it cannot enter, a `.git` its
+git refuses as another account's repository, or a `.git` whose repository is not the one its git opens, or one it cannot
+list and enter — and the claim announces each in the Review block, writes it as an `error` row naming the step, prints
+the command that finishes it, and ends with exit 5. Each such step is the opt-in history share or a registry pin, so it
+is not applied, and the agent has less access to the project until the operator runs the printed command. That command,
+and the traverse grant the unreachable-location refusal prints, carry the path in bash's `%q` encoding, so each pastes
+as one word. A `safe.directory` list git cannot read stops the claim ahead of the Review block and of its first write,
+the re-enable offer, under `MSG-S3F4` with an `error` row and exit 5, since a pending step it would list there is one
+the claim cannot decide; the notice names the `git -C /` read that shows git's own error.
 
 **A failed step asks once before attempting the next.** Every root step authenticates separately and no step can be
 pre-authenticated (a sudoers `timestamp_timeout=0` prompts on every invocation), so a mistyped password would cost
@@ -955,7 +988,7 @@ The second notice (`find_sealed_setgid_directories`) is a setgid bit on an owner
 `SANDBOX_GROUP` nor the group of that directory's owner, compared per path against the resolved owner's primary group:
 the claim walks keep such a bit, since they cannot ask whether it was deliberate, so the claim names the paths
 and the `chmod g-s` that clears one, ahead of the confirm rather than from a helper's stderr under Apply.
-Where the invoker cannot list the project root, the Review block says the scan was not made, rather than showing no
+Where the owner cannot list the project root, the Review block says the scan was not made, rather than showing no
 notice, and where the walk could not read a directory inside the tree, that the scan is incomplete, beside the paths it
 did reach.
 
@@ -963,7 +996,8 @@ did reach.
 
 Root-level state cannot see a path inside a claimed tree that lacks what the claim gave the rest of it, and a rename is
 how one arrives: `mv` keeps a file's group, its ACL-less mode and its SELinux type, where creation under the setgid,
-default-ACL, labelled parents inherits all three. A re-claim therefore runs two read-only, unprivileged scans, each
+default-ACL, labelled parents inherits all three. A re-claim therefore runs two read-only, unprivileged scans in its
+owner-side read, as the tree's owner, each
 leaving out owner-only paths ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) and `!`-excluded
 subtrees as out of reach by intent:
 
@@ -997,15 +1031,17 @@ the operator these paths. A path on both lists reaches the agent only once both 
 and its type each refuse the agent on their own; so on an enforcing host the group question is not asked
 when the relabel did not run and every path on its list is also on the relabel list, and where exactly one repair took
 the claim adds one line counting those paths. A path in either list whose name, or a directory containing it inside
-the project, matches the invoker's secret patterns is marked `[secret]`, with one line saying the gate makes it
-owner-only before a repair runs; the mark reads `secret-patterns.lib.sh` and is advisory, so where the library does not
-load, or under `--for`, whose target's patterns file the invoker cannot read, no path is marked. Either repair answered
+the project, matches the owner's secret patterns is marked `[secret]` by the owner-side read, with one line saying
+the gate makes it owner-only before a repair runs; the mark reads `secret-patterns.lib.sh` and is advisory, so where
+the library does not load no path is marked. Either repair answered
 yes joins the secret gate like any other access-granting step, which is why the gate follows both questions. A declined
 repair does not stop the claim.
 
-**After the Apply block the claim checks each drifted path on its own** against the postconditions its repair
-establishes (`claim_verify_label`, `claim_verify_group`; the contracts are the doc comments
-in `project-permissions.lib.sh`). A re-scan does not decide `fixed`, since a path can be missing from one because
+**After the Apply block the claim checks each drifted path on its own**, as the owner, in the owner-side read's
+`--verify` pass, against the postconditions its repair establishes (`claim_verify_label`, `claim_verify_group`;
+the contracts are the doc comments in `project-permissions.lib.sh`). A pass that exits non-zero, a record that does not
+decode, and a path it does not answer leave each path without an outcome `unverified`, under one `error` row naming
+the pass. A re-scan does not decide `fixed`, since a path can be missing from one because
 the scan was capped, failed, or excludes it; a check that cannot be read yields `unverified` and never `fixed`,
 a confirmed absence yields `gone`, and the group check reads owner, group, mode and ACL from one pinned object, so its
 result is an observation of that object rather than a guarantee against a later change.
@@ -1059,10 +1095,11 @@ idempotent. On a `--for` run the ancestors belong to the target, so the grant ru
 
 ## Create <a id="ref-section-x8s5"></a>
 
-`projects create <path>` makes one directory (`mkdir -m 0750`), runs an empty `git init`, writes a `README.md` naming
-the directory, then runs `cmd_project_claim` unchanged on the result, so there is one implementation of what claiming
-means. Every filesystem step goes through `run_as_owner`, so a create under `--for` produces a target-owned tree —
-the one the claim then accepts under the owner rule. `<path>` is required, since the cwd always exists.
+`projects create <path>` makes one directory (`mkdir -m 0700`, opened to `0750` last), runs an empty `git init`,
+writes a `README.md` naming the directory, then runs `cmd_project_claim` unchanged on the result, so there is one
+implementation of what claiming means. Every filesystem step goes through `run_as_owner`, so a create under `--for`
+produces a target-owned tree — the one the claim then accepts under the owner rule. `<path>` is required, since the cwd
+always exists.
 
 Its refusals keep a create from being a claim in disguise. A path that **already exists** is refused naming
 `projects claim`: the operation that grants an agent access to an existing tree must not be reachable by a typo,
@@ -1078,13 +1115,21 @@ names, and the directory the unreachable-location refusal names is one the looku
 the sandbox account could never enter before anything exists, and names an alternative only after checking it on this
 host, the invoker's own reach included.
 
-The tree is empty by construction, so the claim infers three answers without asking, gated
-on `is_project_tree_pristine`, which the claim re-derives from the tree (no file outside `.git` but `README.md`,
-and an empty object store, since a commit no reference names is still history) rather than trusting the caller's hint,
-since what it gates is the secret scan. The proceed confirm and its warnings are not shown, being false for a directory
-that did not exist a moment ago; the secret gate is skipped, since the tree holds one file this command wrote
-and the scan would cost a sudo password; the `.git` question is inferred yes, since there is no history to expose
-and normalizing keeps later commits readable. The traverse grant still asks: it widens access on ancestors, which exist.
+The tree is empty by construction, so the claim infers two answers without asking, gated on `is_project_tree_pristine`,
+which the owner-side read makes as the tree's owner (no file outside `.git` but `README.md`, and an empty object store,
+since a commit no reference names is still history) rather than trusting the caller's hint, since what it gates
+is the secret scan. The proceed confirm and its warnings are not shown, being false for a directory that did not exist
+a moment ago; the secret gate is skipped, since the tree holds one file this command wrote and the scan would cost
+a sudo password. The `.git` question is asked, under a headline for a repository with no history, with the default
+and the pre-answers the table under [Claim in place](#claim-in-place) gives it: whether the agent reads the commits made
+there later is the owner's choice either way, a service account's operator keeping `.git` their own among them,
+so a create without a terminal ends as a re-claim does. The traverse grant still asks: it widens access on ancestors,
+which exist.
+
+A claim that stops after the `mkdir` — a root step that failed, a gate or an owner-side read that did not complete —
+leaves the directory in place, and the run's EXIT trap names it under `MSG-S3U5` with the claim that finishes it,
+composed by `format_projects_command`, so a `--for` create's line carries the flag. The create sets the name after
+its `mkdir` and the claim clears it where it closes with its line.
 
 No path it seeds is left owner-only: under an `077` umask (the `/etc/login.defs` default on many hosts, which a PAM
 session hands the command) the directory, `.git` and the README would come out `0700`/`0600`, the seal `ai-tools-setgid`
@@ -1093,6 +1138,18 @@ and traverse only, since write comes from the claim's ACL, `0770` would open the
 shared on some hosts, and those are the modes an unclaim normalizes back to. This is a statement, not a prompt: a umask
 is a blanket default, not a seal placed on this directory, so where the umask would have sealed it the create says
 so in a line.
+
+**`.git` stays out of the agent's reach until the `.git` question shares it.** `git init` builds `.git`
+under the owner's umask, so under `022` it carries other bits, and under a setgid parent — the clone area among them —
+in that parent's group, the sandbox group there, with any default ACL the parent carries, the clone area's
+`group:ai-ops` entry among them. The create therefore strips every extended entry and the default ACL under `.git`
+(`setfacl -R -b`), regroups it to the owner's primary group, and clears group write and the other bits, all as the owner
+and before the root opens to `0750`, so the mode bits alone decide who reads `.git` and an operator's access to another
+account's `.git` is that owner's to grant. Group write is cleared explicitly, because `-b` turns the mask it strips
+into the group bits, and a `002` umask, the default a user-private-group login takes, has git build `.git`
+group-writable. The setgid and ACL walks skip `.git`, so a declined share leaves it so, and only
+`ai-tools-setfacl --with-git` opens it. If one of those steps fails, the create warns, and the claim's headline
+for the question says a decline leaves `.git` as git made it, which the agent may be able to read.
 
 ## Remove <a id="ref-section-k3v7"></a>
 
@@ -1106,8 +1163,8 @@ a tree no entry names, and deleting such a tree is an unclaim plus an `rm` the o
 inside a project, an unregistered path, and an entry that **contains another claimed project** (which `rm -rf` would
 take with it and leave registered at a path that no longer exists) are each refused with the command that applies;
 the nested check sees only the registry this run can read. The verb reads the kind from the path, so a clone
-under `SANDBOX_ROOT` is removed through `require_sandbox_clone`, which authorizes it as a recognized clone with its own
-lines going with it, and every other entry as a project.
+under `SANDBOX_ROOT` is removed through `require_sandbox_clone_shape`, which authorizes it by its place, its owner
+and its shape ([Commands](#commands)) with its own lines going with it, and every other entry as a project.
 
 A registry line the writer cannot write back, other than the project's own, refuses the removal before any change
 (`MSG-A5Y2`), since the registry step follows the label reversal. A read-only deletability pre-flight runs as the acting
@@ -1209,8 +1266,9 @@ is the last component of the ref the clone was forked from (`sandbox_default_bra
 only the projects user can push, since the sandbox account does not hold git credentials, and anyone with repository
 access merges that branch back. Clones are labelled statically by `ai_tools.fc` and a plain `restorecon`, not
 by `ai-tools-relabel`. `projects push` and the clone kind of `projects remove` gate the target
-through `require_sandbox_clone`: a direct child of `SANDBOX_ROOT` that is a git worktree and passes the protected-paths
-backstop, which scopes the `rm -rf` to one recognized clone.
+through `require_sandbox_clone_shape`: a direct child of `SANDBOX_ROOT` that passes the protected-paths backstop, held
+by the acting owner or the invoker, with a `.git` directory holding a `HEAD` file, read as data ([Commands](#commands)),
+which scopes the `rm -rf` to one tree of that shape.
 
 The create is **lock-before-grant**, by construction. `clone_privately` creates the clone root `0700` with its inherited
 ACL stripped before git writes into it, and git creates every path inside under `umask 077`. A umask alone does not make
