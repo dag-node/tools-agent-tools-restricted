@@ -1579,7 +1579,7 @@ narrow_acl_entry_scan() {
     sandbox_gid="$(getent group "${SANDBOX_GROUP}" 2>/dev/null | cut -d: -f3)" || sandbox_gid=""
     if ! claim_write_list "${work}/entries.list" "${candidates[@]}" \
             || ! ai_tools_project_permissions__find_paths_with_narrow_acl_entries "${work}/entries.list" "${work}" \
-                "${operator_uid}" "${sandbox_gid}" narrow reader_detail; then
+                "${dir}" "${operator_uid}" "${sandbox_gid}" narrow reader_detail; then
         [[ -n "${_narrow_acl_scan_detail}" ]] \
             || _narrow_acl_scan_detail="$(ai_tools_log__sanitize "${reader_detail:-the path list for the ACL reader could not be written}")"
     fi

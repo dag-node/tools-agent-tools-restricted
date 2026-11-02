@@ -569,14 +569,15 @@ section "project-permissions: the entries an earlier claim wrote (unit, live)"
 # one written rwx under a rw- mask (the walk's state), one without an ACL, one carrying a narrow entry for another
 # group, or a path removed after the listing. The reader decides from the object it opens, so a file another account
 # holds is not a hit (driven with an operator id other than the file's owner), and neither is a listed name replaced
-# by a symlink to a narrow file. This run's account and group stand in for the operator and the sandbox group.
+# by a symlink to a narrow file; a directory on the way swapped for a symlink, and a path outside the root, are reads
+# the scan could not make. This run's account and group stand in for the operator and the sandbox group.
 assert_narrow_acl_entry_paths() {  # assert_narrow_acl_entry_paths <what> <want-status> <want-hits> <operator-uid> <path...>
     local what="$1" want_status="$2" want_hits="$3" operator="$4" narrow_status=0 narrow_detail=""
     local -a narrow_hits=()
     shift 4
     printf '%s\0' "$@" > "${work}/narrow.list"
-    ai_tools_project_permissions__find_paths_with_narrow_acl_entries "${work}/narrow.list" "${work}" "${operator}" "${my_gid}" \
-        narrow_hits narrow_detail || narrow_status=$?
+    ai_tools_project_permissions__find_paths_with_narrow_acl_entries "${work}/narrow.list" "${work}" "${ne}" \
+        "${operator}" "${my_gid}" narrow_hits narrow_detail || narrow_status=$?
     local got_hits=""
     (( ${#narrow_hits[@]} == 0 )) || got_hits="$(printf '%q ' "${narrow_hits[@]}")"
     if (( narrow_status == want_status )) && [[ "${got_hits}" == "${want_hits}" ]]; then
@@ -610,6 +611,18 @@ feed"
         mv "${ne}/plain" "${ne}/plain.aside"; ln -s user-narrow "${ne}/plain"
         assert_narrow_acl_entry_paths "a listed name replaced by a symlink to a narrow file" 0 "" "${my_uid}" "${ne}/plain"
         rm -f "${ne}/plain"; mv "${ne}/plain.aside" "${ne}/plain"
+        # A directory on the way swapped for a symlink after the listing: the reader does not follow it to the narrow
+        # file it points at, and reads the path as changed. The same path through the real directory is the control.
+        mkdir -p "${ne}/sub" "${ne}/elsewhere"; : > "${ne}/sub/item"; : > "${ne}/elsewhere/item"
+        chmod 0660 "${ne}/sub/item" "${ne}/elsewhere/item"
+        setfacl -m "g:${my_gid}:rw-" "${ne}/sub/item" "${ne}/elsewhere/item"
+        assert_narrow_acl_entry_paths "control: a narrow file reached through a real directory" 0 \
+            "$(printf '%q ' "${ne}/sub/item")" "${my_uid}" "${ne}/sub/item"
+        mv "${ne}/sub" "${ne}/sub.aside"; ln -s elsewhere "${ne}/sub"
+        assert_narrow_acl_entry_paths "a directory on the way swapped for a symlink to a narrow file" 1 "" \
+            "${my_uid}" "${ne}/sub/item"
+        rm -f "${ne}/sub"; mv "${ne}/sub.aside" "${ne}/sub"
+        assert_narrow_acl_entry_paths "a path outside the root" 1 "" "${my_uid}" "${TESTDIR}/outside-the-root"
         if (( EUID != 0 )); then
             mkdir -p "${ne}/closed"; : > "${ne}/closed/inside"; chmod 0000 "${ne}/closed"
             assert_narrow_acl_entry_paths "a path whose ACL cannot be read, after a hit" 1 "$(printf '%q ' "${ne}/user-narrow")" \

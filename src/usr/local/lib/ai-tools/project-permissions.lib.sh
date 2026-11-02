@@ -461,24 +461,26 @@ ai_tools_project_permissions__check_group() {
     _group_outcome=match _group_detail=""
 }
 
-# ai_tools_project_permissions__find_paths_with_narrow_acl_entries <list-file> <work-dir> <operator-uid> <sandbox-gid>
-# <paths-array> <detail-var>  -- read the access ACL of each NUL-separated path in <list-file> and fill <paths-array>,
-# in list order, with the paths carrying a `user:<operator-uid>` or `group:<sandbox-gid>` entry written narrower than
-# `rwx`: the entries a claim before the owner-permissions mask wrote (`rw-` on a file without an execute bit),
-# which a mask hides in effect and which keep the owner's later `chmod g+x` from reaching the agent. Each path is opened
-# once, `O_PATH | O_NOFOLLOW`, and every fact the answer rests on is read from that one object: it is a hit only while
-# it is a regular file held by <operator-uid> in <sandbox-gid>, so a file swapped in under the name after the caller
-# listed it, a symlink among them, is read as the object it is and not as the one listed. The ACL is the kernel's
-# `system.posix_acl_access` value, read through `/proc/self/fd` (an `O_PATH` descriptor does not need read permission)
-# and decoded from its binary form (a version-2 header, then 8-byte tag, permission and id entries, acl(5)), so a path
-# is read as bytes and no tool's escaping of a name is parsed. A path without an access ACL, on a filesystem without
-# ACLs, or no longer present is not a hit. Returns 0 when every path was read. Returns 1 with <detail-var> naming why --
-# a path that could not be opened or read, an ACL that does not decode, python3 failing, an identity that is not
-# a number -- and <paths-array> holding the hits read before it: an unread path is not one without the entries. `-I`
-# as for the lstat reader.
+# ai_tools_project_permissions__find_paths_with_narrow_acl_entries <list-file> <work-dir> <root> <operator-uid>
+# <sandbox-gid> <paths-array> <detail-var>  -- read the access ACL of each NUL-separated path in <list-file>, each one
+# under the directory <root>, and fill <paths-array>, in list order, with the paths carrying a `user:<operator-uid>`
+# or `group:<sandbox-gid>` entry written narrower than `rwx`: the entries a claim before the owner-permissions mask
+# wrote (`rw-` on a file without an execute bit), which a mask hides in effect and which keep the owner's later
+# `chmod g+x` from reaching the agent. <root> is opened once, and each path is reached from it one component at a time,
+# every component opened `O_PATH | O_NOFOLLOW` relative to the one before, so a directory on the way swapped
+# for a symlink after the caller listed the path is not followed; every fact the answer rests on is then read
+# from the final object, which is a hit only while it is a regular file held by <operator-uid> in <sandbox-gid>. The ACL
+# is the kernel's `system.posix_acl_access` value, read through `/proc/self/fd` (an `O_PATH` descriptor does not need
+# read permission) and decoded from its binary form (a version-2 header, then 8-byte tag, permission and id entries,
+# acl(5)), so a path is read as bytes and no tool's escaping of a name is parsed. A path without an access ACL,
+# on a filesystem without ACLs, or no longer present is not a hit. Returns 0 when every path was read. Returns 1
+# with <detail-var> naming why -- a path outside <root>, a directory on its way that is no longer one (a symlink swapped
+# in among them), a path that could not be opened or read, an ACL that does not decode, python3 failing, an identity
+# that is not a number -- and <paths-array> holding the hits read before it: an unread path is not one without
+# the entries. `-I` as for the lstat reader.
 ai_tools_project_permissions__find_paths_with_narrow_acl_entries() {
-    local _list="$1" _work="$2" _operator_uid="$3" _sandbox_gid="$4" _status=0 _first=""
-    local -n _narrow_paths="$5" _narrow_detail="$6"
+    local _list="$1" _work="$2" _root="$3" _operator_uid="$4" _sandbox_gid="$5" _status=0 _first=""
+    local -n _narrow_paths="$6" _narrow_detail="$7"
     _narrow_paths=() _narrow_detail=""
     if [[ ! "${_operator_uid}" =~ ^[0-9]+$ || ! "${_sandbox_gid}" =~ ^[0-9]+$ ]]; then
         _narrow_detail="the operator or the sandbox group did not resolve to an id"
@@ -486,16 +488,29 @@ ai_tools_project_permissions__find_paths_with_narrow_acl_entries() {
     fi
     { /usr/bin/python3 -I -c '
 import errno, os, stat, struct, sys
-uid, gid = int(sys.argv[1]), int(sys.argv[2])
+root, uid, gid = os.fsencode(sys.argv[1]).rstrip(b"/"), int(sys.argv[2]), int(sys.argv[3])
 paths = sys.stdin.buffer.read().split(b"\0")
 if paths and paths[-1] == b"":
     paths.pop()
-not_a_hit = {errno.ENODATA, errno.EOPNOTSUPP, errno.ENOENT, errno.ENOTDIR}
+not_a_hit = {errno.ENODATA, errno.EOPNOTSUPP, errno.ENOENT}
 unread = None
+root_fd = os.open(root, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
 for path in paths:
-    fd = None
+    if not path.startswith(root + b"/"):
+        unread = unread or "%s: not under the project root" % os.fsdecode(path)
+        continue
+    parts = path[len(root) + 1:].split(b"/")
+    if b"" in parts or b"." in parts or b".." in parts:
+        unread = unread or "%s: not a plain path under the project root" % os.fsdecode(path)
+        continue
+    held = []
     try:
-        fd = os.open(path, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+        fd = root_fd
+        for part in parts[:-1]:
+            fd = os.open(part, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            held.append(fd)
+        fd = os.open(parts[-1], os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+        held.append(fd)
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_gid != gid:
             continue
@@ -503,11 +518,12 @@ for path in paths:
     except OSError as error:
         if error.errno in not_a_hit:
             continue
+        # ENOTDIR on the way: a directory the listing named is now a symlink or a file.
         unread = unread or "%s: %s" % (os.fsdecode(path), errno.errorcode.get(error.errno, error.errno))
         continue
     finally:
-        if fd is not None:
-            os.close(fd)
+        for held_fd in held:
+            os.close(held_fd)
     if len(data) < 4 or (len(data) - 4) % 8 or struct.unpack_from("<I", data, 0)[0] != 2:
         unread = unread or "%s: the ACL does not decode" % os.fsdecode(path)
         continue
@@ -519,7 +535,7 @@ for path in paths:
 if unread:
     sys.stderr.write(unread + "\n")
     sys.exit(4)
-' "${_operator_uid}" "${_sandbox_gid}" < "${_list}" > "${_work}/narrow.out" 2> "${_work}/narrow.err"; } 2>/dev/null \
+' "${_root}" "${_operator_uid}" "${_sandbox_gid}" < "${_list}" > "${_work}/narrow.out" 2> "${_work}/narrow.err"; } 2>/dev/null \
         || _status=$?
     mapfile -d '' -t _narrow_paths 2>/dev/null < "${_work}/narrow.out" || _narrow_paths=()
     (( _status == 0 )) && [[ -f "${_work}/narrow.err" && ! -s "${_work}/narrow.err" ]] && return 0

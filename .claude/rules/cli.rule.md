@@ -1014,14 +1014,16 @@ by intent:
   and a secret-named one is left out, since the walk skips it. A file the sandbox account holds is left out too: its
   owner sets its ACL, so the account could plant narrow entries and have every re-claim offer a walk that resets
   the operator's own `chmod g-x` across the tree, while an operator-owned file's ACL is the operator's to set. Each
-  candidate's owner, group, type and ACL are read from one no-follow descriptor, so a file swapped in under the name is
-  read as the object it is. A hit under an excluded or disabled line, by the registry's own covering match (a glob
-  whose text starts outside the root among them), and one with a secret-named component, split on `/` alone, are
-  dropped, since the walk skips both and listing either would put the step on every re-claim. The scan reads entries
-  and not modes: a `670` file is the state a deliberate `chmod g+x` leaves, and is not reported. Unlike the drift kinds
-  this is a **pending step**, under the proceed confirm, since its repair is the ACL step's walk, which only narrows
-  or follows the owner's own permissions on a file in the sandbox group; it takes the secret gate as that step does,
-  and the walk it runs over the tree also settles the mode states an earlier walk left (`670`, `460`, `570`).
+  candidate is reached from the project root one component at a time without following a symlink, and its owner, group,
+  type and ACL are read from the object reached: a file swapped in under the name is read as what it is, and a directory
+  on the way turned into a symlink is a read the scan could not make. A hit under an excluded or disabled line,
+  by the registry's own covering match (a glob whose text starts outside the root among them), and one
+  with a secret-named component, split on `/` alone, are dropped, since the walk skips both and listing either would put
+  the step on every re-claim. The scan reads entries and not modes: a `670` file is the state a deliberate `chmod g+x`
+  leaves, and is not reported. Unlike the drift kinds this is a **pending step**, under the proceed confirm, since its
+  repair is the ACL step's walk, which only narrows or follows the owner's own permissions on a file in the sandbox
+  group; it takes the secret gate as that step does, and the walk it runs over the tree also settles the mode states
+  an earlier walk left (`670`, `460`, `570`).
 - **SELinux type** (`label_drift_scan`, when the root is labelled): the paths whose type is not the one the claim's
   relabel would apply, asked of the policy through a dry run of that relabel (`restorecon -n -F`, unprivileged),
   so every loaded module's types are covered. Only a type difference counts; why a difference in the SELinux user
