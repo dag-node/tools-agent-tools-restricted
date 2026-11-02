@@ -3249,7 +3249,7 @@ cmd_project_claim() {
     local scan_wanted=false
     { ${listed} || ${reenable}; } && scan_wanted=true
     if ! claim_read_owner_inspection "${scan_wanted}"; then
-        warn MSG-X7N2 "the project's tree was not read as ${OWNER_USER}, so the claim applied no step -- ${INSPECT_FAILURE}" \
+        warn MSG-X7N2 "the project's tree was not read as ${OWNER_USER} (${INSPECT_FAILURE}) -- the claim did not apply any step" \
             "The claim reads the tree as the account it belongs to and does not claim a tree that read did not describe."
         claim_write_row error directory inspect "${d}" "the tree was not read as ${OWNER_USER} (${INSPECT_FAILURE})"
         claim_end
@@ -3260,7 +3260,7 @@ cmd_project_claim() {
     local safedir_status=0
     check_safedir_entry "${d}" || safedir_status=$?
     if (( safedir_status == 2 )); then
-        warn MSG-S3F4 "the git safe.directory list ${GITCONFIG} could not be read, so the claim applied no step" \
+        warn MSG-S3F4 "the git safe.directory list ${GITCONFIG} could not be read -- the claim did not apply any step" \
             "The claim does not describe its pending steps over a trust list it cannot read. git's own error names the cause:" \
             "      git -C / config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory"
         claim_write_row error directory safedir "${d}" "the git safe.directory list ${GITCONFIG} could not be read"
@@ -4677,7 +4677,7 @@ cmd_project_remove() {
             -y|--yes) assume_yes=true ;;
             --force)
                 mapfile -t remedy < <(list_unregistered_unclaim_remedy "${path}")
-                die MSG-S6Q5 "projects remove has no --force: a project is deleted on its registry entry and a clone on being a recognized clone, and no flag stands in for either." \
+                die MSG-S6Q5 "projects remove has no --force: a project is deleted on its registry entry and a clone on its place, its owner and its shape, and no flag stands in for either." \
                     "To reverse a claim on an unregistered tree, and then remove it yourself:" "${remedy[@]}" ;;
             # Deliberately does not enumerate the options the way the other verbs' refusals do: the only one this verb
             # has pre-answers both the confirmation and the typed-name challenge, and a caller who has just mistyped
@@ -5166,7 +5166,7 @@ cmd_project_push() {
     # git's own stderr is not echoed, the clone being co-written; the refusal prints the command that shows it.
     local n
     n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null)" \
-        || die MSG-H6R3 "could not count the commits ahead of ${up} in ${d}, so nothing was pushed -- git's own error names the cause:" \
+        || die MSG-H6R3 "could not count the commits ahead of ${up} in ${d} -- the push did not run, and git's own error names the cause:" \
             "      git -C $(_quote_path "${d}") rev-list --count '@{u}..HEAD'"
 
     section "Push sandbox work"

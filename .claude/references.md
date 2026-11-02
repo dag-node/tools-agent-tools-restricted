@@ -231,8 +231,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | j2a7 | [MSG-J2A7](../src/usr/local/bin/ai-tools.sh) | unknown projects claim option: ${a} (allowed: -y/--yes, --format tsv) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | f8g9 | [MSG-F8G9](../src/usr/local/bin/ai-tools.sh) | projects claim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | s9a3 | [MSG-S9A3](../src/usr/local/bin/ai-tools.sh) | projects claim --format takes one value, tsv | src/usr/local/bin/ai-tools.sh |  | die_usage |
-| x7n2 | [MSG-X7N2](../src/usr/local/bin/ai-tools.sh) | the project's tree was not read as ${OWNER_USER}, so the claim applied no step -- ${INSPECT_FAILURE} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
-| s3f4 | [MSG-S3F4](../src/usr/local/bin/ai-tools.sh) | the git safe.directory list ${GITCONFIG} could not be read, so the claim applied no step | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
+| x7n2 | [MSG-X7N2](../src/usr/local/bin/ai-tools.sh) | the project's tree was not read as ${OWNER_USER} (${INSPECT_FAILURE}) -- the claim did not apply any step | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
+| s3f4 | [MSG-S3F4](../src/usr/local/bin/ai-tools.sh) | the git safe.directory list ${GITCONFIG} could not be read -- the claim did not apply any step | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
 | j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | cannot resolve the parent directory: $(ai_tools_log__sanitize "${parent}") -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | c5t8 | [MSG-C5T8](../src/usr/local/bin/ai-tools.sh) | unknown projects create option: ${a} | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
@@ -248,7 +248,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | c8p8 | [MSG-C8P8](../src/usr/local/bin/ai-tools.sh) | projects unclaim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | p4d2 | [MSG-P4D2](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | b5k3 | [MSG-B5K3](../src/usr/local/bin/ai-tools.sh) | --for cannot be combined with --force | src/usr/local/bin/ai-tools.sh | src/usr/local/bin/ai-tools.sh, tests/integration/cli.sh | die |
-| s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a project is deleted on its registry entry and a clone on being a recognized clone, and no flag stands in for either. | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
+| s6q5 | [MSG-S6Q5](../src/usr/local/bin/ai-tools.sh) | projects remove has no --force: a project is deleted on its registry entry and a clone on its place, its owner and its shape, and no flag stands in for either. | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
 | m3y5 | [MSG-M3Y5](../src/usr/local/bin/ai-tools.sh) | unknown projects remove option: ${a} | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die_usage |
 | m2u9 | [MSG-M2U9](../src/usr/local/bin/ai-tools.sh) | projects remove takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | f4d8 | [MSG-F4D8](../src/usr/local/bin/ai-tools.sh) | this is not a claimed project, but ${#nested[@]} claimed project(s) are nested under it: ${d} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-state-machine.sh, tests/integration/cli.sh | die |
@@ -266,7 +266,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | h2d4 | [MSG-H2D4](../src/usr/local/bin/ai-tools.sh) | destination already exists: ${dst} | src/usr/local/bin/ai-tools.sh |  | die |
 | c2u5 | [MSG-C2U5](../src/usr/local/bin/ai-tools.sh) | unknown projects push option: ${a} (projects push takes no options) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | k4r8 | [MSG-K4R8](../src/usr/local/bin/ai-tools.sh) | projects push takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
-| h6r3 | [MSG-H6R3](../src/usr/local/bin/ai-tools.sh) | could not count the commits ahead of ${up} in ${d}, so nothing was pushed -- git's own error names the cause: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
+| h6r3 | [MSG-H6R3](../src/usr/local/bin/ai-tools.sh) | could not count the commits ahead of ${up} in ${d} -- the push did not run, and git's own error names the cause: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | r3h8 | [MSG-R3H8](../src/usr/local/bin/ai-tools.sh) | unknown projects lockdown option: ${a} (allowed: --dry-run, --yes) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | y6v3 | [MSG-Y6V3](../src/usr/local/bin/ai-tools.sh) | projects lockdown takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | p5p8 | [MSG-P5P8](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh, tests/unit/lockdown.sh | die_usage |
