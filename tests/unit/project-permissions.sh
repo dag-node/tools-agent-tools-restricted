@@ -623,6 +623,15 @@ feed"
             "${my_uid}" "${ne}/sub/item"
         rm -f "${ne}/sub"; mv "${ne}/sub.aside" "${ne}/sub"
         assert_narrow_acl_entry_paths "a path outside the root" 1 "" "${my_uid}" "${TESTDIR}/outside-the-root"
+        # An owner-only file keeping an earlier claim's narrow entries, the state a `chmod 600` leaves, renamed
+        # into a listed name: the walk leaves a sealed file alone, so the reader does not list it.
+        : > "${ne}/sealed"; setfacl -m "g:${my_gid}:rw-" "${ne}/sealed"; chmod 0600 "${ne}/sealed"
+        if getfacl -p -n "${ne}/sealed" 2>/dev/null | grep -q "^group:${my_gid}:rw-"; then
+            pass "narrow entries: control: the sealed file keeps its narrow entry under a --- mask"
+        else
+            fail "narrow entries: control: the sealed file lost its entry -- the case below is not evidence"
+        fi
+        assert_narrow_acl_entry_paths "an owner-only file carrying narrow entries" 0 "" "${my_uid}" "${ne}/sealed"
         if (( EUID != 0 )); then
             mkdir -p "${ne}/closed"; : > "${ne}/closed/inside"; chmod 0000 "${ne}/closed"
             assert_narrow_acl_entry_paths "a path whose ACL cannot be read, after a hit" 1 "$(printf '%q ' "${ne}/user-narrow")" \

@@ -469,15 +469,16 @@ ai_tools_project_permissions__check_group() {
 # `chmod g+x` from reaching the agent. <root> is opened once, and each path is reached from it one component at a time,
 # every component opened `O_PATH | O_NOFOLLOW` relative to the one before, so a directory on the way swapped
 # for a symlink after the caller listed the path is not followed; every fact the answer rests on is then read
-# from the final object, which is a hit only while it is a regular file held by <operator-uid> in <sandbox-gid>. The ACL
-# is the kernel's `system.posix_acl_access` value, read through `/proc/self/fd` (an `O_PATH` descriptor does not need
-# read permission) and decoded from its binary form (a version-2 header, then 8-byte tag, permission and id entries,
-# acl(5)), so a path is read as bytes and no tool's escaping of a name is parsed. A path without an access ACL,
-# on a filesystem without ACLs, or no longer present is not a hit. Returns 0 when every path was read. Returns 1
-# with <detail-var> naming why -- a path outside <root>, a directory on its way that is no longer one (a symlink swapped
-# in among them), a path that could not be opened or read, an ACL that does not decode, python3 failing, an identity
-# that is not a number -- and <paths-array> holding the hits read before it: an unread path is not one without
-# the entries. `-I` as for the lstat reader.
+# from the final object, which is a hit only while it is a regular file held by <operator-uid> in <sandbox-gid>
+# with a group or other bit: an owner-only file is the operator's seal, which the walk leaves alone, so listing one
+# would put it on every re-claim. The ACL is the kernel's `system.posix_acl_access` value, read through `/proc/self/fd`
+# (an `O_PATH` descriptor does not need read permission) and decoded from its binary form (a version-2 header, then
+# 8-byte tag, permission and id entries, acl(5)), so a path is read as bytes and no tool's escaping of a name is parsed.
+# A path without an access ACL, on a filesystem without ACLs, or no longer present is not a hit. Returns 0 when every
+# path was read. Returns 1 with <detail-var> naming why -- a path outside <root>, a directory on its way that is no
+# longer one (a symlink swapped in among them), a path that could not be opened or read, an ACL that does not decode,
+# python3 failing, an identity that is not a number -- and <paths-array> holding the hits read before it: an unread path
+# is not one without the entries. `-I` as for the lstat reader.
 ai_tools_project_permissions__find_paths_with_narrow_acl_entries() {
     local _list="$1" _work="$2" _root="$3" _operator_uid="$4" _sandbox_gid="$5" _status=0 _first=""
     local -n _narrow_paths="$6" _narrow_detail="$7"
@@ -512,7 +513,7 @@ for path in paths:
         fd = os.open(parts[-1], os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
         held.append(fd)
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_gid != gid:
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_gid != gid or not st.st_mode & 0o077:
             continue
         data = os.getxattr("/proc/self/fd/%d" % fd, "system.posix_acl_access")
     except OSError as error:

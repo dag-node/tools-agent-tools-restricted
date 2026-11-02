@@ -1016,7 +1016,13 @@ by intent:
   the operator's own `chmod g-x` across the tree, while an operator-owned file's ACL is the operator's to set. Each
   candidate is reached from the project root one component at a time without following a symlink, and its owner, group,
   type and ACL are read from the object reached: a file swapped in under the name is read as what it is, and a directory
-  on the way turned into a symlink is a read the scan could not make. A hit under an excluded or disabled line,
+  on the way turned into a symlink is a read the scan could not make. An owner-only object is not a hit, since the walk
+  leaves it sealed. **The scan decides only whether the walk is offered, and the agent can induce the offer**: a file it
+  narrows while it owns it reaches the operator through the handback with its ACL, and a rename moves another
+  of the operator's files into a listed name. Neither grants the agent anything: the offer stays behind the proceed
+  confirm with the list shown and the secret gate, and the walk re-validates each path as root. The step is held
+  to that bound and not to a scan the agent cannot influence; what it costs is a walk the operator confirms,
+  which resets the operator's own `chmod g-x` across the tree. A hit under an excluded or disabled line,
   by the registry's own covering match (a glob whose text starts outside the root among them), and one
   with a secret-named component, split on `/` alone, are dropped, since the walk skips both and listing either would put
   the step on every re-claim. The scan reads entries and not modes: a `670` file is the state a deliberate `chmod g+x`
