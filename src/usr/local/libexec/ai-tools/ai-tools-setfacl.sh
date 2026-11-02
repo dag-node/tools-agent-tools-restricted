@@ -9,11 +9,12 @@
 # normalizes `.git` the same way -- group, setgid on its directories and the same ACL -- so the operator's commits stay
 # agent-readable.
 #
-# The walk skips secret-named, '!'-excluded, skip-list and foreign-owned paths, and never grants an owner-only path
-# (0600/0700; `_safe_setfacl` returns 2 on ai_tools_owner_only__is_owner_only): it strips the sandbox residue such
-# a path carries instead, and a skipped directory takes its subtree with it, no grant inside being reachable through it.
-# What the seal is, what the strip removes and why `setfacl -m` on a sealed path would grant are owner-only.lib.sh's.
-# Every skip is counted and reported: on the project ROOT it means the sandbox account has no way into the tree,
+# The walk skips secret-named, '!'-excluded, skip-list and foreign-owned paths and the project's `.git` (whatever
+# the skip list holds; the `--with-git` pass is its one route), and never grants an owner-only path (0600/0700;
+# `_safe_setfacl` returns 2 on ai_tools_owner_only__is_owner_only): it strips the sandbox residue such a path carries
+# instead, and a skipped directory takes its subtree with it, no grant inside being reachable through it. What the seal
+# is, what the strip removes and why `setfacl -m` on a sealed path would grant are owner-only.lib.sh's. Every skip is
+# counted and reported: on the project ROOT it means the sandbox account has no way into the tree,
 # and under `--with-git` it means the history the operator asked to share was not shared.
 #
 # Alongside the ACL, the walk normalizes the primary group of a DRIFTED path -- group-accessible yet not group
@@ -323,6 +324,10 @@ find "${expr[@]}" 2>/dev/null \
             [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
         while IFS= read -r -d '' p; do
             _under_skip "${p}" && continue
+            # The project's `.git` is the `--with-git` pass's alone, the share the claim asks about: pruned here
+            # whatever the skip list holds, since an operator may clear SKIP_VCS_DIRS and a skip list that did not load
+            # is empty.
+            if [[ "${p}" == "${canonical}/.git" ]]; then skip+=("${p}"); continue; fi
             if _is_excluded "${p}" || _is_secret_name "${p}"; then
                 [[ -d "${p}" ]] && skip+=("${p}")     # skip the whole subtree of a dir
                 continue

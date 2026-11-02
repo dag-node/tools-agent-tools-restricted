@@ -435,4 +435,32 @@ assert_msg MSG-X6T6 "${sd_err}" "the paths --skip-drifted left are reported"
 if grep -q "left 3 path(s)" <<< "${sd_err}"; then pass "the report counts the three drifted paths"
 else fail "the report does not count three paths: $(tr '\n' ' ' <<< "${sd_err}")"; fi
 
+# ── The project's `.git` with the VCS skip list cleared ──────────────────────────────────
+# `SKIP_VCS_DIRS=[]` takes `.git` off the skip list, which leaves the main walk the one thing between it and the project
+# ACL, so the walk prunes it by name: `.git` and the file inside keep their group and carry no entry, while the file
+# beside it takes the ACL (the control that the walk ran under the override). `--with-git` is the route that shares it,
+# and the control that the fixture's `.git` is reachable.
+section "ai-tools-setfacl: the project's .git with SKIP_VCS_DIRS cleared"
+vcs="${TESTDIR}/vcs-cleared"
+mkdir -p "${vcs}/.git/objects"; : > "${vcs}/README.md"; : > "${vcs}/.git/objects/o"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${vcs}"
+chmod 0750 "${vcs}" "${vcs}/.git" "${vcs}/.git/objects"; chmod 0640 "${vcs}/README.md" "${vcs}/.git/objects/o"
+mk_allowlist "@ ${vcs}"
+printf 'SKIP_VCS_DIRS=[]\n' >> "${TESTDIR}/operator.conf"
+setsid "${HELPER}" "${vcs}" < /dev/null > /dev/null 2>&1 || true
+if g "${vcs}/README.md"; then
+    pass "control: the walk under the cleared VCS list gives the file beside .git the project ACL"
+else
+    fail "control: README.md carries no group entry -- the walk did not run, so the case below is not evidence"
+fi
+if ! g "${vcs}/.git" && ! g "${vcs}/.git/objects/o" && ! u "${vcs}/.git/objects/o" \
+        && [[ "$(stat -c '%G' "${vcs}/.git")" == "${PROJECTS_GROUP}" ]]; then
+    pass "with SKIP_VCS_DIRS cleared, the walk leaves .git in its group and without an entry"
+else
+    fail "the walk under a cleared VCS list reached .git: $(stat -c '%G %a' "${vcs}/.git") $(getfacl -p "${vcs}/.git/objects/o" 2>/dev/null | tr '\n' ' ')"
+fi
+setsid "${HELPER}" --with-git "${vcs}" < /dev/null > /dev/null 2>&1 || true
+if g "${vcs}/.git/objects/o"; then pass "control: --with-git shares the same .git"
+else fail "control: --with-git did not share the fixture's .git -- the refusal above is not evidence"; fi
+
 finish
