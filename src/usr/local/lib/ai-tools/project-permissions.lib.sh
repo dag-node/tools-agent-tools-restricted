@@ -465,13 +465,17 @@ ai_tools_project_permissions__check_group() {
 # <paths-array> <detail-var>  -- read the access ACL of each NUL-separated path in <list-file> and fill <paths-array>,
 # in list order, with the paths carrying a `user:<operator-uid>` or `group:<sandbox-gid>` entry written narrower than
 # `rwx`: the entries a claim before the owner-permissions mask wrote (`rw-` on a file without an execute bit),
-# which a mask hides in effect and which keep the owner's later `chmod g+x` from reaching the agent. The ACL is
-# the kernel's `system.posix_acl_access` value, read by os.getxattr without following a link and decoded from its binary
-# form (a version-2 header, then 8-byte tag, permission and id entries, acl(5)), so a path is read as bytes and no
-# tool's escaping of a name is parsed. A path without an access ACL, on a filesystem without ACLs, or no longer present
-# is not a hit. Returns 0 when every path was read. Returns 1 with <detail-var> naming why -- a path whose ACL could not
-# be read or does not decode, python3 failing, an identity that is not a number -- and <paths-array> holding the hits
-# read before it: an unread path is not one without the entries. `-I` as for the lstat reader.
+# which a mask hides in effect and which keep the owner's later `chmod g+x` from reaching the agent. Each path is opened
+# once, `O_PATH | O_NOFOLLOW`, and every fact the answer rests on is read from that one object: it is a hit only while
+# it is a regular file held by <operator-uid> in <sandbox-gid>, so a file swapped in under the name after the caller
+# listed it, a symlink among them, is read as the object it is and not as the one listed. The ACL is the kernel's
+# `system.posix_acl_access` value, read through `/proc/self/fd` (an `O_PATH` descriptor does not need read permission)
+# and decoded from its binary form (a version-2 header, then 8-byte tag, permission and id entries, acl(5)), so a path
+# is read as bytes and no tool's escaping of a name is parsed. A path without an access ACL, on a filesystem without
+# ACLs, or no longer present is not a hit. Returns 0 when every path was read. Returns 1 with <detail-var> naming why --
+# a path that could not be opened or read, an ACL that does not decode, python3 failing, an identity that is not
+# a number -- and <paths-array> holding the hits read before it: an unread path is not one without the entries. `-I`
+# as for the lstat reader.
 ai_tools_project_permissions__find_narrow_named_entries() {
     local _list="$1" _work="$2" _operator_uid="$3" _sandbox_gid="$4" _status=0 _first=""
     local -n _narrow_paths="$5" _narrow_detail="$6"
@@ -481,7 +485,7 @@ ai_tools_project_permissions__find_narrow_named_entries() {
         return 1
     fi
     { /usr/bin/python3 -I -c '
-import errno, os, struct, sys
+import errno, os, stat, struct, sys
 uid, gid = int(sys.argv[1]), int(sys.argv[2])
 paths = sys.stdin.buffer.read().split(b"\0")
 if paths and paths[-1] == b"":
@@ -489,13 +493,21 @@ if paths and paths[-1] == b"":
 not_a_hit = {errno.ENODATA, errno.EOPNOTSUPP, errno.ENOENT, errno.ENOTDIR}
 unread = None
 for path in paths:
+    fd = None
     try:
-        data = os.getxattr(path, "system.posix_acl_access", follow_symlinks=False)
+        fd = os.open(path, os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_gid != gid:
+            continue
+        data = os.getxattr("/proc/self/fd/%d" % fd, "system.posix_acl_access")
     except OSError as error:
         if error.errno in not_a_hit:
             continue
         unread = unread or "%s: %s" % (os.fsdecode(path), errno.errorcode.get(error.errno, error.errno))
         continue
+    finally:
+        if fd is not None:
+            os.close(fd)
     if len(data) < 4 or (len(data) - 4) % 8 or struct.unpack_from("<I", data, 0)[0] != 2:
         unread = unread or "%s: the ACL does not decode" % os.fsdecode(path)
         continue

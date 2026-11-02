@@ -1546,14 +1546,17 @@ acl_drift_scan() {
 # and owner-only directories pruned, held by the operator, in the sandbox group, with a group or other bit.
 # A sandbox-owned file is left out: its owner may set its ACL, so the sandbox account could plant narrow entries
 # and have every re-claim offer a walk that resets the operator's own chmods across the tree; an operator-owned file's
-# ACL is the operator's to set (tests/boundary/access.sh). A secret-named path is dropped where the caller's
-# secret_patterns_loaded (dynamic scope) says the owner's patterns loaded: the walk skips it, so listing it would put it
-# on every re-claim. Returns 1, with <detail-var> naming why, when the walk or the ACL reader did not complete; the hits
-# it did read stay in the array.
+# ACL is the operator's to set (tests/boundary/access.sh). A hit is then dropped wherever the walk would skip it,
+# so listing it would put it on every re-claim: under an excluded or disabled line by the registry's own covering match
+# (ai_tools_conf__is_path_excluded over SCAN_EXCLUSIONS, each glob-free one beside the path `realpath -e` gives it
+# as the loader adds it for the helper; the walk's `find` prunes the lines naming a path under the root only to save
+# work), and where the caller's secret_patterns_loaded (dynamic scope) says the owner's patterns loaded and a component
+# of it matches them. Returns 1, with <detail-var> naming why, when the walk, the ACL reader or the covering match did
+# not complete; the hits it did read stay in the array.
 entry_drift_scan() {
-    local dir="$1" work="$2" exclusion status=0 path operator_uid sandbox_gid reader_detail=""
+    local dir="$1" work="$2" exclusion resolved status=0 excluded_status path operator_uid sandbox_gid reader_detail=""
     local -n _entry_scan_paths="$3" _entry_scan_detail="$4"
-    local -a skip=( -path "${dir}/.git" -prune -o -type d ! -perm /077 -prune ) candidates=() narrow=()
+    local -a skip=( -path "${dir}/.git" -prune -o -type d ! -perm /077 -prune ) candidates=() narrow=() covering=()
     _entry_scan_paths=() _entry_scan_detail=""
     for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
         [[ "${exclusion}" == "${dir}"/* ]] && skip+=( -o -path "${exclusion}" -prune )
@@ -1580,7 +1583,22 @@ entry_drift_scan() {
         [[ -n "${_entry_scan_detail}" ]] \
             || _entry_scan_detail="$(ai_tools_log__sanitize "${reader_detail:-the path list for the ACL reader could not be written}")"
     fi
+    for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
+        covering+=("${exclusion}")
+        ai_tools_conf__has_glob_characters "${exclusion}" && continue
+        resolved="$(realpath -e -- "${exclusion}" 2>/dev/null)" || continue
+        [[ "${resolved}" == "${exclusion}" ]] || covering+=("${resolved}")
+    done
     for path in "${narrow[@]}"; do
+        excluded_status=0
+        ai_tools_conf__is_path_excluded "${path}" covering || excluded_status=$?
+        case "${excluded_status}" in
+            0) continue ;;
+            1) ;;
+            *) [[ -n "${_entry_scan_detail}" ]] \
+                   || _entry_scan_detail="whether a registry line covers a path could not be read: $(ai_tools_log__sanitize "${path}")"
+               continue ;;
+        esac
         [[ "${secret_patterns_loaded:-false}" == true ]] && is_secret_drift_path "${dir}" "${path}" && continue
         _entry_scan_paths+=("${path}")
     done
@@ -2400,7 +2418,8 @@ is_secret_drift_path() {
     declare -F ai_tools_secret_patterns__is_secret_basename >/dev/null 2>&1 || return 1
     local _part
     local -a _parts=()
-    IFS=/ read -r -a _parts <<< "${2#"$1"/}"
+    # Split on `/` alone: a read would stop at a line feed in a name and match the path on its first line only.
+    mapfile -d / -t _parts < <(printf '%s' "${2#"$1"/}")
     for _part in "${_parts[@]}"; do
         [[ -n "${_part}" ]] && ai_tools_secret_patterns__is_secret_basename "${_part}" && return 0
     done

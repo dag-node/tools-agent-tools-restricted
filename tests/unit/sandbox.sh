@@ -754,9 +754,11 @@ else
     # The entries an earlier claim wrote: a claimed tree (the sandbox group, setgid, the default ACL in place) holding
     # one file whose named entries are rw-, the one record; beside it the same entries on a file the walk does not reach
     # -- under the skip list, under an owner-only directory, under an excluded subtree, a secret-named one
-    # under a fixture patterns file -- a file the sandbox account holds, whose ACL that account sets itself, and a file
-    # carrying the walk's own entries, rwx under a rw- mask, none of them a record. The drift tree of the cap case,
-    # whose root does not carry a default ACL, is the control that the scan runs only where the ACL step is in place.
+    # under a fixture patterns file, and one under a parent whose name holds a line feed -- a file under a glob
+    # exclusion whose text starts outside the project root, which the registry's covering match reads as covering it,
+    # a file the sandbox account holds, whose ACL that account sets itself, and a file carrying the walk's own entries,
+    # rwx under a rw- mask, none of them a record. The drift tree of the cap case, whose root does not carry a default
+    # ACL, is the control that the scan runs only where the ACL step is in place.
     in_out="$(inspect_run "${in_drift}" "${in_work}/drift.in" --scan-group)" || true
     if inspect_has "${in_out}" "state|acl|true|" && ! grep -q '^scan|entries|' <<< "${in_out}"; then
         pass "control: with the ACL step pending the entries scan is not run"
@@ -764,12 +766,15 @@ else
         fail "projects inspect ran the entries scan over a tree whose ACL step is pending"
     fi
     in_entries="${in_work}/entries"
-    mkdir -p "${in_entries}/node_modules/pkg" "${in_entries}/private" "${in_entries}/excl"
-    in_entry_files=(narrow walked node_modules/pkg/narrow private/narrow excl/narrow deploy.pem agent-owned)
+    mkdir -p "${in_entries}/node_modules/pkg" "${in_entries}/private" "${in_entries}/excl" "${in_entries}/globbed" \
+        "${in_entries}/"$'odd\npart'
+    in_entry_files=(narrow walked node_modules/pkg/narrow private/narrow excl/narrow deploy.pem agent-owned
+        globbed/narrow $'odd\npart/key.pem')
     for in_name in "${in_entry_files[@]}"; do : > "${in_entries}/${in_name}"; chmod 0660 "${in_entries}/${in_name}"; done
     chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${in_entries}"
     chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${in_entries}/agent-owned"
-    chmod 2770 "${in_entries}" "${in_entries}/node_modules" "${in_entries}/node_modules/pkg" "${in_entries}/excl"
+    chmod 2770 "${in_entries}" "${in_entries}/node_modules" "${in_entries}/node_modules/pkg" "${in_entries}/excl" \
+        "${in_entries}/globbed" "${in_entries}/"$'odd\npart'
     chmod 0700 "${in_entries}/private"
     setfacl -m "g:${SANDBOX_GROUP}:rwx,d:g:${SANDBOX_GROUP}:rwx,d:u:${PROJECTS_USER}:rwx" "${in_entries}"
     for in_name in "${in_entry_files[@]}"; do
@@ -777,11 +782,22 @@ else
         setfacl -m "u:${PROJECTS_USER}:rw-,g:${SANDBOX_GROUP}:rw-" "${in_entries}/${in_name}"
     done
     setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${in_entries}/walked"
-    printf 'exclude\t%s\n' "${in_entries}/excl" > "${in_work}/entries.in"
+    printf 'exclude\t%s\n' "${in_entries}/excl" "${in_work}/*/globbed" > "${in_work}/entries.in"
     printf '*.pem\n' > "${in_work}/secret-patterns"; chmod 0644 "${in_work}/secret-patterns"
     chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${in_work}/entries.in" "${in_work}/secret-patterns"
-    in_out="$(export AI_TOOLS_SECRET_PATTERNS_FILE="${in_work}/secret-patterns"
-              inspect_run "${in_entries}" "${in_work}/entries.in" --scan-group)" || true
+    # inspect_run under the fixture patterns file, which marks *.pem secret.
+    inspect_run_with_patterns() { AI_TOOLS_SECRET_PATTERNS_FILE="${in_work}/secret-patterns" inspect_run "$@"; }
+    # Control: without the glob line the globbed file is one of the records, so its absence from the next run is
+    # the exclusion's.
+    printf 'exclude\t%s\n' "${in_entries}/excl" > "${in_work}/entries-noglob.in"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${in_work}/entries-noglob.in"
+    in_out="$(inspect_run_with_patterns "${in_entries}" "${in_work}/entries-noglob.in" --scan-group)" || true
+    if grep -qF -- "entry-drift|$(printf '%q' "${in_entries}/globbed/narrow")|" <<< "${in_out}"; then
+        pass "control: without the glob line the globbed file is a record"
+    else
+        fail "control: the globbed file is not a record without its glob line -- the case below is not evidence: '$(grep '^entry-drift' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+    in_out="$(inspect_run_with_patterns "${in_entries}" "${in_work}/entries.in" --scan-group)" || true
     if [[ "$(grep -c '^entry-drift|' <<< "${in_out}" || true)" == 1 ]] \
             && grep -qF -- "entry-drift|$(printf '%q' "${in_entries}/narrow")|" <<< "${in_out}" \
             && inspect_has "${in_out}" "scan|entries|complete|''|"; then

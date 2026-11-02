@@ -567,7 +567,9 @@ section "project-permissions: the entries an earlier claim wrote (unit, live)"
 # Real ACLs set with setfacl and read back through the kernel's xattr: the reader lists a file whose operator or sandbox
 # group entry is written narrower than rwx, in list order and with a line feed in a name kept whole, and does not list
 # one written rwx under a rw- mask (the walk's state), one without an ACL, one carrying a narrow entry for another
-# group, or a path removed after the listing. The operator is uid 4242, the sandbox group this run's group.
+# group, or a path removed after the listing. The reader decides from the object it opens, so a file another account
+# holds is not a hit (driven with an operator id other than the file's owner), and neither is a listed name replaced
+# by a symlink to a narrow file. This run's account and group stand in for the operator and the sandbox group.
 narrow_is() {  # narrow_is <what> <want-status> <want-hits> <operator-uid> <path...>
     local what="$1" want_status="$2" want_hits="$3" operator="$4" narrow_status=0 narrow_detail=""
     local -a narrow_hits=()
@@ -588,11 +590,11 @@ if command -v setfacl >/dev/null 2>&1 && [[ -x /usr/bin/python3 ]]; then
     mkdir -p "${ne}"
     for ne_name in user-narrow group-narrow walked plain other-group "line
 feed"; do : > "${ne}/${ne_name}"; chmod 0660 "${ne}/${ne_name}"; done
-    if setfacl -m "u:${op_uid}:rw-,g:${my_gid}:rwx" "${ne}/user-narrow" 2>/dev/null; then
-        setfacl -m "u:${op_uid}:rwx,g:${my_gid}:rw-" "${ne}/group-narrow"
-        setfacl -n -m "u:${op_uid}:rwx,g:${my_gid}:rwx,m::rw-" "${ne}/walked"
+    if setfacl -m "u:${my_uid}:rw-,g:${my_gid}:rwx" "${ne}/user-narrow" 2>/dev/null; then
+        setfacl -m "u:${my_uid}:rwx,g:${my_gid}:rw-" "${ne}/group-narrow"
+        setfacl -n -m "u:${my_uid}:rwx,g:${my_gid}:rwx,m::rw-" "${ne}/walked"
         setfacl -m "g:65533:rw-" "${ne}/other-group"
-        setfacl -m "u:${op_uid}:rw-,g:${my_gid}:rw-" "${ne}/line
+        setfacl -m "u:${my_uid}:rw-,g:${my_gid}:rw-" "${ne}/line
 feed"
         if getfacl -p -n "${ne}/walked" 2>/dev/null | grep -qx "group:${my_gid}:rwx[[:space:]]*#effective:rw-"; then
             pass "narrow entries: control: the walked file carries its entries rwx under a rw- mask"
@@ -600,14 +602,18 @@ feed"
             fail "narrow entries: control: the walked file is not as set -- the cases below are not evidence: $(getfacl -p "${ne}/walked" 2>/dev/null | tr '\n' ' ')"
         fi
         narrow_is "a tree of each shape" 0 "$(printf '%q ' "${ne}/user-narrow" "${ne}/group-narrow" "${ne}/line
-feed")" "${op_uid}" "${ne}/user-narrow" "${ne}/walked" "${ne}/plain" "${ne}/group-narrow" "${ne}/other-group" \
+feed")" "${my_uid}" "${ne}/user-narrow" "${ne}/walked" "${ne}/plain" "${ne}/group-narrow" "${ne}/other-group" \
             "${ne}/gone" "${ne}/line
 feed"
         narrow_is "an operator id that is not a number" 1 "" "op" "${ne}/user-narrow"
+        narrow_is "a narrow file held by an account other than the operator" 0 "" 4242 "${ne}/user-narrow"
+        mv "${ne}/plain" "${ne}/plain.aside"; ln -s user-narrow "${ne}/plain"
+        narrow_is "a listed name replaced by a symlink to a narrow file" 0 "" "${my_uid}" "${ne}/plain"
+        rm -f "${ne}/plain"; mv "${ne}/plain.aside" "${ne}/plain"
         if (( EUID != 0 )); then
             mkdir -p "${ne}/closed"; : > "${ne}/closed/inside"; chmod 0000 "${ne}/closed"
             narrow_is "a path whose ACL cannot be read, after a hit" 1 "$(printf '%q ' "${ne}/user-narrow")" \
-                "${op_uid}" "${ne}/user-narrow" "${ne}/closed/inside"
+                "${my_uid}" "${ne}/user-narrow" "${ne}/closed/inside"
             chmod 0700 "${ne}/closed"
         else
             skip "narrow entries: an unreadable path" "root reads through a closed directory"
