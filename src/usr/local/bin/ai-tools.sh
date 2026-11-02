@@ -857,11 +857,10 @@ refuse_control_character_path() {
     fi
 }
 
-# require_sandbox_clone <path>  -- die unless <path> is a real sandbox CLONE: it passes the protected-paths backstop, is
-# a DIRECT child of SANDBOX_ROOT (exactly one component under it -- never SANDBOX_ROOT itself, never a nested or system
-# path), and is a git worktree. This scopes the clone kind of `projects remove` (`rm -rf`) and `projects push`
-# to an actual clone, so neither the shared clone area root nor an unrelated path can ever be the target.
-require_sandbox_clone() {
+# require_sandbox_clone_path <path>  -- die unless <path> passes the protected-paths backstop and is a DIRECT child
+# of SANDBOX_ROOT (exactly one component under it -- never SANDBOX_ROOT itself, never a nested or system path). It reads
+# the path alone, so `projects remove` runs it ahead of a `--for` run's registry snapshot, the run's first `sudo`.
+require_sandbox_clone_path() {
     local d="$1" rel
     ai_tools_safe_paths__assert_safe_target "${d}" "sandbox" || exit 3
     [[ "${d}" == "${SANDBOX_ROOT}/"* ]] \
@@ -869,8 +868,51 @@ require_sandbox_clone() {
     rel="${d#"${SANDBOX_ROOT}/"}"
     [[ -n "${rel}" && "${rel}" != */* ]] \
         || die MSG-W3H3 "not a sandbox clone (expected ${SANDBOX_ROOT}/<clone>, one level deep): ${d}"
-    git -C "${d}" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-        || die "not a git clone: ${d} -- if it is a stray directory, remove it by hand"
+}
+
+# require_sandbox_clone_shape <path>  -- die unless <path> passes require_sandbox_clone_path and its tree has a clone's
+# shape: the root belongs to the acting owner or to the invoker -- a create made as the target, or a clone the invoker
+# made and claimed for the target -- .git is a directory and .git/HEAD a regular file. It gates the clone kind
+# of `projects remove` (`rm -rf`) and `projects push`, so neither the shared clone area root nor a tree another account
+# holds can be the target. The read does not establish that the tree is a repository or that `projects clone` made it:
+# an unregistered tree of that shape is deleted on the operator's confirm, or `-y`. A directory the sandbox account
+# creates in the area is born that account's, so the owner rule refuses it.
+#
+# The shape is read as data, with one `stat` run as the acting owner, and git is not run over the tree: the agent
+# co-writes .git, and git run as the operator executes what .git/config names (cmd_project_remove). `stat` without `-L`
+# reads a symlink as itself. The read runs as the owner because a declined .git share leaves .git in the owner's group,
+# which the invoker cannot enter on a `--for` run; the path does not hold a control character (resolve_existing_path
+# refused one).
+require_sandbox_clone_shape() {
+    local d="$1"
+    require_sandbox_clone_path "${d}"
+
+    # One line per path stat could read, `<uid> <raw mode in hex> <name>`; a path it could not read has no line, and
+    # %f is locale-independent, so no LC_ALL rides through sudo.
+    local readings line uid mode name owner_uid
+    local -A uid_of=() mode_of=()
+    readings="$(run_as_owner stat -c '%u %f %n' -- "${d}" "${d}/.git" "${d}/.git/HEAD" 2>/dev/null)" || true
+    while IFS= read -r line; do
+        [[ "${line}" =~ ^([0-9]+)\ ([0-9a-f]+)\ (.+)$ ]] || continue
+        uid="${BASH_REMATCH[1]}" mode="${BASH_REMATCH[2]}" name="${BASH_REMATCH[3]}"
+        uid_of["${name}"]="${uid}"; mode_of["${name}"]="${mode}"
+    done <<< "${readings}"
+    owner_uid="$(id -u -- "${OWNER_USER}" 2>/dev/null)" || owner_uid=""
+
+    local refusal_reason=""
+    if [[ -z "${uid_of[${d}]+set}" ]]; then
+        refusal_reason="its owner could not be read as ${OWNER_USER}"
+    elif [[ "${uid_of[${d}]}" != "${EUID}" && "${uid_of[${d}]}" != "${owner_uid}" ]]; then
+        refusal_reason="it belongs to uid ${uid_of[${d}]}, neither ${INVOKING_USER} nor ${OWNER_USER}"
+    elif [[ -z "${mode_of[${d}/.git]+set}" ]]; then
+        refusal_reason=".git could not be read as ${OWNER_USER}"
+    elif (( (16#${mode_of[${d}/.git]} & 0xF000) != 0x4000 )); then
+        refusal_reason=".git is not a directory"
+    elif [[ -z "${mode_of[${d}/.git/HEAD]+set}" ]] || (( (16#${mode_of[${d}/.git/HEAD]} & 0xF000) != 0x8000 )); then
+        refusal_reason=".git/HEAD is missing or not a regular file"
+    fi
+    [[ -z "${refusal_reason}" ]] \
+        || die MSG-Z7U6 "not a git clone: ${d} -- ${refusal_reason}; if it is a stray directory, remove it by hand"
 }
 
 # run_as_owner <cmd> [args...]  -- run <cmd> as the operator this run acts FOR: directly without --for,
@@ -4554,20 +4596,19 @@ get_covering_entry() {
 }
 
 # die_remove_incomplete <dir> <kind> <own-entry> <label-outcome> [<covering-entry>]  -- report a removal whose deletion
-# left paths under <dir>, and die. The warning states what the run verified: what became of <kind>'s own registry
-# entry, a session already running keeps what it holds until it ends, and the files left keep their group grant, since
+# left paths under <dir>, and die. The warning states what the run verified: what became of <kind>'s own registry entry,
+# a session already running keeps what it holds until it ends, and the files left keep their group grant, since
 # a removal does not hand them back. <own-entry> is `removed`, the entry is removed and no longer authorizes a launch
-# there, or `none`, <dir> had no entry of its own: a clone is authorized by being a recognized one
-# (require_sandbox_clone), so one a failed gate left private and unregistered reaches this arm, and unreg_allow returns
-# 0 over a path no line names. Any other value is a caller error. <covering-entry> is get_covering_entry's result,
-# and the warning names it. <label-outcome> is what the label step ahead
-# of the deletion did: `completed` says the step ran and its helper returned success, which does not read the type
-# the tree carries, since a rule on an ancestor of the project keeps the project type through the step; `failed` says
-# it did not complete, and that the relabel command the failed step printed still applies, since
-# `ai-tools-relabel --remove` does not read the registry the removal has already changed; `skipped` (SELinux off,
-# no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name a label. Any other
-# value is a caller error.
-# The remedy is the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
+# there, or `none`, <dir> had no entry of its own: a clone is authorized by its place, its owner and its shape
+# (require_sandbox_clone_shape), so one a failed gate left private and unregistered reaches this arm, and unreg_allow
+# returns 0 over a path no line names. Any other value is a caller error. <covering-entry> is get_covering_entry's
+# result, and the warning names it. <label-outcome> is what the label step ahead of the deletion did: `completed` says
+# the step ran and its helper returned success, which does not read the type the tree carries, since a rule
+# on an ancestor of the project keeps the project type through the step; `failed` says it did not complete,
+# and that the relabel command the failed step printed still applies, since `ai-tools-relabel --remove` does not read
+# the registry the removal has already changed; `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type
+# comes from the policy's file contexts) does not name a label. Any other value is a caller error. The remedy is
+# the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
 die_remove_incomplete() {
     local d="$1" kind="$2" own_entry="$3" label_outcome="$4" covering_entry="${5-}" entry_clause label_clause
     local covering_clause=""
@@ -4593,10 +4634,10 @@ die_remove_incomplete() {
 # cmd_project_remove <path> [-y|--yes]  -- unclaim a project AND delete its directory, which the path must name;
 # `projects unclaim` is the non-destructive reversal these refusals point at. One verb, two kinds: a path
 # under SANDBOX_ROOT is a sandbox clone and takes remove_clone, every other path is a project claimed in place.
-# A project's authorization is an EXACT registry entry, enabled or disabled; a clone's is being a recognized clone
-# (remove_clone). The verb does not take `--force`. Teardown in either kind is registries first, deletion last, so
-# a failed deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be deleted
-# (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name challenge of either kind.
+# A project's authorization is an EXACT registry entry, enabled or disabled; a clone's is its place, its owner and its
+# shape (remove_clone). The verb does not take `--force`. Teardown in either kind is registries first, deletion last,
+# so a failed deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be
+# deleted (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name challenge of either kind.
 cmd_project_remove() {
     local a path="" assume_yes=false
     local -a remedy=()
@@ -4622,13 +4663,18 @@ cmd_project_remove() {
 
     local d; d="$(resolve_existing_path "${path}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
-    # Ahead of the clone branch, whose removal reaches the registry too.
+    # The path checks of either kind read the path alone, so they run ahead of the snapshot, a `--for` run's first
+    # `sudo`; the snapshot comes ahead of the clone branch, whose removal reaches the registry too.
+    if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
+        require_sandbox_clone_path "${d}"
+    else
+        ai_tools_safe_paths__assert_safe_target "${d}" "project remove" || exit 3
+    fi
     load_target_registry_snapshot
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
         remove_clone "${d}" "${assume_yes}"
         return
     fi
-    ai_tools_safe_paths__assert_safe_target "${d}" "project remove" || exit 3
 
     # ── Classification: the path's own entry, `@` or `%`, and only that, is a removal target; a disabled entry
     # authorizes it as an enabled one does (cli.rule.md). A `!` line is not an entry, so it neither authorizes
@@ -5075,13 +5121,13 @@ cmd_project_push() {
         esac
     done
     # Without a path, the project the current directory is in; either way the target must be a clone directly
-    # under the sandbox area (require_sandbox_clone), and push does not read the registry state beyond finding it.
+    # under the sandbox area (require_sandbox_clone_shape), and push does not read the registry state beyond finding it.
     if [[ -z "${d}" ]]; then
         d="$(resolve_verb_target push "")" || exit "$?"
     else
         d="$(resolve_existing_path "${d}")"
     fi
-    require_sandbox_clone "${d}"
+    require_sandbox_clone_shape "${d}"
     local up
     up="$(git -C "${d}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" \
         || die "no upstream configured for the current branch in ${d}"
@@ -5104,17 +5150,17 @@ cmd_project_push() {
 }
 
 # remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: unregister a sandbox clone, then delete it.
-# A clone is authorized by being a recognized one (require_sandbox_clone), and its own lines go with it. Teardown takes
-# the in-place kind's order: the registry entry, the safe.directory entry, then the tree. The registry step is first and
-# fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it was: on disk, registered and trusted, and
-# a deletion that does not complete leaves an unregistered tree.
-# <assume-yes> true pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made
-# over the clone (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets
-# instead of counting them. The registry record is read for what a failed deletion's warning names alone: whether
-# the clone had an entry of its own and which entry still covers it; the authorization stays require_sandbox_clone.
+# A clone is authorized by its place, its owner and its shape (require_sandbox_clone_shape), and its own lines go
+# with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then the tree.
+# The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it was: on disk,
+# registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes> true
+# pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made over the clone
+# (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets instead
+# of counting them. The registry record is read for what a failed deletion's warning names alone: whether the clone had
+# an entry of its own and which entry still covers it; the authorization stays require_sandbox_clone_shape.
 remove_clone() {
     local d="$1" assume_yes="$2" own_entry=none covering_entry
-    require_sandbox_clone "${d}"
+    require_sandbox_clone_shape "${d}"
     read_path_class "${d}"
     [[ "${CLASS_STATE}" != enabled && "${CLASS_STATE}" != disabled ]] || own_entry=removed
     covering_entry="$(get_covering_entry)"
@@ -6915,7 +6961,7 @@ require_runas_target() {
     case "${COMMAND}" in
         "projects create") needed=(mkdir git tee chmod chgrp setfacl "${SELF_PATH}") ;;
         "projects claim")  needed=("${SELF_PATH}") ;;
-        "projects remove") needed=(find rm) ;;
+        "projects remove") needed=(stat find rm) ;;
         *) return 0 ;;
     esac
     local name resolved blocked=""

@@ -27,18 +27,18 @@ atr projects remove .
 
 ## What authorizes it
 
-An **exact** entry for the path in your project registry, an `@` or a `%`
-line, and only that: there is no `--force`, since deleting a tree no entry
-registers is an unclaim plus an `rm` you type yourself. A disabled (`%`) entry
-counts, since it records a project taken out of service and still yours,
-and adds one confirmation naming that state. A directory enclosing claimed
-projects, a path *inside* a project, an unregistered path, and a project
-that **contains** another claimed project are each refused, the last because
-deleting it would take the nested one with it and leave that project registered
-at a path that no longer exists. An excluded path (`!`) is refused too, since
-no entry authorizes deleting it, and the excluded lines under a project you
-remove stay in the file, which `atr projects list` then reports as stale.
-A sandbox clone is authorized by being one ([A sandbox
+An **exact** entry for the path in your project registry, an `@` or a `%` line,
+and only that: there is no `--force`, since deleting a tree no entry registers
+is an unclaim plus an `rm` you type yourself. A disabled (`%`) entry counts,
+since it records a project taken out of service and still yours, and adds one
+confirmation naming that state. A directory enclosing claimed projects, a path
+*inside* a project, an unregistered path, and a project that **contains**
+another claimed project are each refused, the last because deleting it would
+take the nested one with it and leave that project registered at a path that no
+longer exists. An excluded path (`!`) is refused too, since no entry authorizes
+deleting it, and the excluded lines under a project you remove stay
+in the file, which `atr projects list` then reports as stale. A sandbox clone
+is authorized by where it is, who owns it and its shape ([A sandbox
 clone](#a-sandbox-clone)). The rules are
 [ref-section-k3v7](../../.claude/rules/cli.rule.md#ref-section-k3v7).
 
@@ -98,21 +98,29 @@ or end them all with `atr stop`, then run the removal again.
 ## A sandbox clone
 
 Pointed at a clone under the sandbox area, the command removes it when it is
-a git clone directly inside that area, and asks one default-No confirm. It then
-takes the order [Registries first, the tree
-last](#registries-first-the-tree-last) states, the clone's own lines going
-with it; a clone no line names is reported as having had no entry when its
-deletion fails. A commit not yet pushed goes with it, and the command does not
-count them: run `atr projects push` first to keep your work ([Push](push.md)).
-The remote branch stays for others to merge. `-y` answers that one confirm,
-on the same terms ([Clone](clone.md)).
+a directory directly inside that area, owned by you or by the operator you act
+for, holding a `.git` directory with a `HEAD` file, and asks one default-No
+confirm. The command does not run git to check that the directory is a clone,
+so a directory of that shape is removed on your confirm whether
+`atr projects clone` made it or not. It then takes the order [Registries first,
+the tree last](#registries-first-the-tree-last) states, the clone's own lines
+going with it; a clone no line names is reported as having had no entry
+when its deletion fails. A commit not yet pushed goes with it, and the command
+does not count them: run `atr projects push` first to keep your work
+([Push](push.md)). The remote branch stays for others to merge. `-y` answers
+that one confirm, on the same terms ([Clone](clone.md)).
 
 ## For another operator
 
 `atr projects remove --for svc-ci /srv/projects/api` deletes the tree **as**
 that account, since only its owner can delete it, so the run needs a `sudo`
 grant to act as that account; it is checked before anything is removed
-([Service accounts](../operators/service-accounts.md)).
+([Service accounts](../operators/service-accounts.md)). A project created
+in the sandbox area for that account is removed the same way:
+
+```bash
+atr projects remove --for svc-ci /var/opt/ai-tools/sandbox-projects/api
+```
 
 ## Exit status
 

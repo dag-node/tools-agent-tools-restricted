@@ -1267,6 +1267,46 @@ EOF
         else
             fail "the control clone removal (rc=${rc}, on disk $([[ -e "${rclone}" ]] && echo yes || echo no)): $(brief "${out}")"
         fi
+        # The clone kind reads .git as data and does not run git over the tree: a partial clone whose HEAD object is
+        # gone and whose core.sshCommand writes a marker, the in-place kind's fixture, is accepted as a clone
+        # and removed, and the marker stays absent. The control is a direct rev-list as the projects user, which runs
+        # the transport. The stub and its marker sit in a directory the projects user owns, outside the clone area,
+        # since the transport runs as that user and the testdir is root's.
+        rpart="${sroot}/clone-partial"; rpart_work="${TESTDIR}/clone-partial-work"
+        mkdir -p "${rpart_work}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${rpart_work}"
+        rpart_marker="${rpart_work}/git-ran"
+        printf 'touch %s\nexit 1\n' "${rpart_marker}" > "${rpart_work}/ssh-stub"
+        if git -C "${sroot}" init -q clone-partial 2>/dev/null \
+                && git -C "${rpart}" -c user.name=t -c user.email=t@t commit -q --allow-empty -m one 2>/dev/null; then
+            rpart_head="$(git -C "${rpart}" rev-parse HEAD)"
+            git -C "${rpart}" update-ref refs/remotes/origin/main "${rpart_head}"
+            git -C "${rpart}" config remote.origin.url ssh://nowhere.invalid/up
+            git -C "${rpart}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+            git -C "${rpart}" config remote.origin.promisor true
+            git -C "${rpart}" config remote.origin.partialclonefilter blob:none
+            git -C "${rpart}" config extensions.partialClone origin
+            git -C "${rpart}" config core.sshCommand "bash ${rpart_work}/ssh-stub"
+            git -C "${rpart}" branch --set-upstream-to=origin/main >/dev/null 2>&1
+            rm -f "${rpart}/.git/objects/${rpart_head:0:2}/${rpart_head:2}"
+            chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rpart}" "${rpart_work}/ssh-stub"
+            runuser -u "${PROJECTS_USER}" -- git -C "${rpart}" rev-list --count '@{u}..HEAD' >/dev/null 2>&1 || true
+            if [[ -e "${rpart_marker}" ]]; then
+                pass "control: a rev-list over the armed clone runs the configured transport"
+                rm -f "${rpart_marker}"
+                printf '%s\n' "${REG_MARKER}" "@ ${rpart}" > "${creg}"
+                rclone="${rpart}"; out="$(remove_clone_run)" && rc=0 || rc=$?
+                if [[ ${rc} -eq 0 && ! -e "${rpart}" && ! -e "${rpart_marker}" ]]; then
+                    pass "ai-tools.projects.remove.clone removes the armed clone and runs no git over it"
+                else
+                    fail "ai-tools.projects.remove.clone over the armed clone (rc=${rc}, on disk $([[ -e "${rpart}" ]] && echo yes || echo no), marker $([[ -e "${rpart_marker}" ]] && echo yes || echo no)): $(brief "${out}")"
+                fi
+            else
+                fail "control: the armed clone did not run the configured transport, so the case proves nothing"
+            fi
+        else
+            skip "ai-tools.projects.remove.clone runs no git over the tree" "git unavailable"
+        fi
+        rm -rf "${rpart}" "${rpart_work}"
         if [[ -n "${rmstub}" ]]; then
             rleft="${sroot}/clone left"; mkdir -p "${rleft}"; git init -q "${rleft}"
             chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rleft}"

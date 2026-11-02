@@ -107,9 +107,9 @@ Two layers, both fail-closed:
   directory (`/efi` or `/lost+found` on a host without one). It does not refuse a project nested *inside* a protected
   tree — descendants pass by design, exactly as for a claim, or no project under a home would work. The clone verbs —
   `projects push`, and `projects remove` pointed at a clone — add a second front-line for the destructive `rm -rf`:
-  `require_sandbox_clone` calls the backstop **and** requires a direct-child clone of `SANDBOX_ROOT` that is a git
-  worktree, so the shared clone-area root — a *descendant* of the protected `/var`, hence not caught by the backstop
-  alone — is never a removal target.
+  `require_sandbox_clone_shape` calls the backstop **and** requires a direct child of `SANDBOX_ROOT` held by the acting
+  owner or the invoker, with a `.git` directory holding a `HEAD` file, so the shared clone-area root — a *descendant*
+  of the protected `/var`, hence not caught by the backstop alone — is never a removal target.
 - **Last line** — `ai-tools-{chown,reclaim,setgid,setfacl,unclaim,lockdown,relabel}` each call the guard right
   after resolving their canonical target, before any mutation. The walkers (`reclaim`, `setgid`, `setfacl`, `unclaim`)
   refuse the whole pass at the project root, before descending.

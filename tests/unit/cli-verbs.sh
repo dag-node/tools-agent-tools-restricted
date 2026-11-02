@@ -22,8 +22,9 @@
 # dispatch function, and a bare collection in the help is its `list`, the CLI's own rule.
 #
 # Pure text comparison of the CLI source -- no root, no install dependency, no CLI execution (its bootstrap gate
-# fail-closes on an unprovisioned host). Validates the repo source, falling back to the installed copy outside
-# a checkout, exactly like man.sh.
+# fail-closes on an unprovisioned host); section (6) runs one function read out of the source as text, with its
+# collaborators stubbed. Validates the repo source, falling back to the installed copy outside a checkout, exactly like
+# man.sh.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -367,5 +368,71 @@ check_spelling_keys() {
     fi
 }
 check_spelling_keys
+
+# ── (6) The clone kind reads .git as data ────────────────────────────────────────
+# require_sandbox_clone_shape and the require_sandbox_clone_path it calls, read out of the CLI source as text and run
+# with their collaborators stubbed: the backstop passes, die prints its code and exits 1, and run_as_owner runs
+# the `stat` it is handed or, for a root another account holds, prints canned readings. The refusals each carry
+# MSG-Z7U6; the accepted shapes are a root the invoker holds and, under `--for`, a root the acting owner holds. git is
+# not on the path the function runs, so a read that ran it fails.
+section "cli: the clone kind's .git read, as data (unit)"
+mktestdir
+clone_area="${TESTDIR}/clones"
+mkdir -p "${clone_area}/ok/.git" "${clone_area}/no-head/.git" "${clone_area}/linked" "${clone_area}/target-git"
+: > "${clone_area}/ok/.git/HEAD"; : > "${clone_area}/target-git/HEAD"
+ln -s "${clone_area}/target-git" "${clone_area}/linked/.git"
+clone_read_function="$(extract_function "${CLI}" require_sandbox_clone_path)"$'\n'"$(extract_function "${CLI}" require_sandbox_clone_shape)"
+# clone_read <dir> <owner-user> [<canned-readings-file>]: run require_sandbox_clone_shape over <dir> with OWNER_USER
+# set, and print its output, then rc=<status>.
+clone_read() {
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    env -i PATH=/usr/bin:/bin bash -c '
+        eval "$1"; d="$2"; OWNER_USER="$3"; canned="$4"; SANDBOX_ROOT="$5"; INVOKING_USER=invoker
+        git() { echo "git ran"; return 0; }
+        die() { [[ "$1" == MSG-* ]] && { printf "%s\n" "$1"; shift; }; printf "%s\n" "$*"; exit 1; }
+        ai_tools_safe_paths__assert_safe_target() { return 0; }
+        if [[ -n "${canned}" ]]; then run_as_owner() { sed "s|@D@|${d}|" "${canned}"; }
+        else run_as_owner() { "$@"; }; fi
+        rc=0; ( require_sandbox_clone_shape "${d}" ) || rc=$?
+        printf "rc=%s\n" "${rc}"' _ "${clone_read_function}" "$1" "$2" "${3:-}" "${clone_area}" 2>&1
+}
+clone_refused() {  # clone_refused <what> <output> <reason-text>
+    if [[ "$2" == *"rc=1"* ]] && grep -qxF MSG-Z7U6 <<< "$2" && grep -qF -- "$3" <<< "$2"; then
+        pass "$1 is refused under MSG-Z7U6, naming that ${3}"
+    else
+        fail "$1: $(tr '\n' '~' <<<"$2")"
+    fi
+}
+invoker="$(id -un)"
+if [[ "${clone_read_function}" != *"require_sandbox_clone_path()"*"require_sandbox_clone_shape()"* ]]; then
+    fail "require_sandbox_clone_path or require_sandbox_clone_shape is not in ${CLI} where this reads it"
+else
+    clone_out="$(clone_read "${clone_area}/ok" "${invoker}")"
+    if [[ "${clone_out}" == "rc=0" ]]; then pass "control: a clone root the invoker holds, with .git/HEAD, is accepted"
+    else fail "the invoker's clone was refused: $(tr '\n' '~' <<<"${clone_out}")"; fi
+    clone_out="$(clone_read "${clone_area}/ok/.git" "${invoker}")"
+    if [[ "${clone_out}" == *"rc=1"* ]] && grep -qxF MSG-W3H3 <<< "${clone_out}" && [[ "${clone_out}" != *"git ran"* ]]; then
+        pass "a path two levels under the clone area is refused under MSG-W3H3 by the path check"
+    else
+        fail "the nested path: $(tr '\n' '~' <<<"${clone_out}")"
+    fi
+    clone_refused "a .git symlink" "$(clone_read "${clone_area}/linked" "${invoker}")" ".git is not a directory"
+    clone_refused "a .git without HEAD" "$(clone_read "${clone_area}/no-head" "${invoker}")" ".git/HEAD is missing"
+    # A third account: a uid neither the invoker nor the owner holds.
+    printf '%s\n' "2147483646 41ed @D@" "2147483646 41e8 @D@/.git" "2147483646 81a4 @D@/.git/HEAD" \
+        > "${TESTDIR}/third.readings"
+    clone_refused "a root a third account holds" \
+        "$(clone_read "${clone_area}/ok" "${invoker}" "${TESTDIR}/third.readings")" "belongs to uid 2147483646"
+    # Under `--for`, the acting owner's root: the canned readings carry that account's uid, as `stat` run as it would.
+    if for_uid="$(id -u nobody 2>/dev/null)" && [[ "${for_uid}" != "${EUID}" ]]; then
+        printf '%s\n' "${for_uid} 41e8 @D@" "${for_uid} 45e8 @D@/.git" "${for_uid} 81a0 @D@/.git/HEAD" \
+            > "${TESTDIR}/for.readings"
+        clone_out="$(clone_read "${clone_area}/ok" nobody "${TESTDIR}/for.readings")"
+        if [[ "${clone_out}" == "rc=0" ]]; then pass "a root the --for owner holds, its .git 2750 in that owner's group, is accepted"
+        else fail "the --for owner's clone was refused: $(tr '\n' '~' <<<"${clone_out}")"; fi
+    else
+        skip "the --for owner's clone root" "no account 'nobody' distinct from the invoker"
+    fi
+fi
 
 finish

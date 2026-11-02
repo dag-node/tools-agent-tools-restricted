@@ -189,10 +189,15 @@ an ordinary account read it — a partial view, the file sink being the authorit
   on the clone path ([Sandbox clone](#sandbox-clone)).
 - `projects push [path]` — push the clone's commits to its branch; without a path it discovers the clone the current
   directory is in ([Discovery](#discovery)). It and the clone kind of `projects remove`, which unregisters the clone
-  and then removes it, gate the target through `require_sandbox_clone`: it must be a **real clone** — a direct child
-  of `SANDBOX_ROOT` (exactly one level deep, so never the shared area root and never a nested or system path) that is
-  a git worktree, and it passes the protected-paths backstop. This scopes `projects remove`'s `rm -rf` to one recognized
-  clone; a stray non-git directory is refused ("remove it by hand"). `projects clone` scopes its own destination
+  and then removes it, gate the target through `require_sandbox_clone_shape`: the path must be a direct child
+  of `SANDBOX_ROOT` (exactly one level deep, so never the shared area root and never a nested or system path)
+  that passes the protected-paths backstop (`require_sandbox_clone_path`, which `projects remove` runs ahead
+  of a `--for` snapshot), and its tree must have a clone's shape, read as data with one `stat` as the acting owner:
+  the root held by that owner or by the invoker, `.git` a directory and `.git/HEAD` a regular file, so git is not run
+  over the tree. The read does not establish that the tree is a repository or that `projects clone` made it,
+  so an unregistered tree of that shape is deleted on the operator's confirm, or `-y`; a directory the sandbox account
+  creates in the area is born that account's, and the owner rule refuses it. Any other reading is refused
+  under `MSG-Z7U6`, naming which read failed ("remove it by hand"). `projects clone` scopes its own destination
   (`<name>` with no `/`, under `SANDBOX_ROOT`), so it does not need that guard.
 - `projects lockdown [path]` — wrapper over `ai-tools-lockdown`, which takes the project as its argument
   (see [secret-handling](secret-handling.rule.md)).
@@ -1153,8 +1158,8 @@ a tree no entry names, and deleting such a tree is an unclaim plus an `rm` the o
 inside a project, an unregistered path, and an entry that **contains another claimed project** (which `rm -rf` would
 take with it and leave registered at a path that no longer exists) are each refused with the command that applies;
 the nested check sees only the registry this run can read. The verb reads the kind from the path, so a clone
-under `SANDBOX_ROOT` is removed through `require_sandbox_clone`, which authorizes it as a recognized clone with its own
-lines going with it, and every other entry as a project.
+under `SANDBOX_ROOT` is removed through `require_sandbox_clone_shape`, which authorizes it by its place, its owner
+and its shape ([Commands](#commands)) with its own lines going with it, and every other entry as a project.
 
 A registry line the writer cannot write back, other than the project's own, refuses the removal before any change
 (`MSG-A5Y2`), since the registry step follows the label reversal. A read-only deletability pre-flight runs as the acting
@@ -1256,8 +1261,9 @@ is the last component of the ref the clone was forked from (`sandbox_default_bra
 only the projects user can push, since the sandbox account does not hold git credentials, and anyone with repository
 access merges that branch back. Clones are labelled statically by `ai_tools.fc` and a plain `restorecon`, not
 by `ai-tools-relabel`. `projects push` and the clone kind of `projects remove` gate the target
-through `require_sandbox_clone`: a direct child of `SANDBOX_ROOT` that is a git worktree and passes the protected-paths
-backstop, which scopes the `rm -rf` to one recognized clone.
+through `require_sandbox_clone_shape`: a direct child of `SANDBOX_ROOT` that passes the protected-paths backstop, held
+by the acting owner or the invoker, with a `.git` directory holding a `HEAD` file, read as data ([Commands](#commands)),
+which scopes the `rm -rf` to one tree of that shape.
 
 The create is **lock-before-grant**, by construction. `clone_privately` creates the clone root `0700` with its inherited
 ACL stripped before git writes into it, and git creates every path inside under `umask 077`. A umask alone does not make

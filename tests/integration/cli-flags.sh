@@ -1475,10 +1475,38 @@ EOF
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f yes)" "${R}/pa"
     expect "the clone kind is decided by the path: a project in place takes the registry gate" rc_not0
     expect "that refusal leaves the tree"                             test -d "${R}/pa"
+    # A clone the `--for` target holds, the shape a create for that account in the clone area leaves: read with one
+    # `stat` as the target, accepted on its root's owner, deleted, and its entry dropped from the target's registry
+    # through the helper. The shim runs the owner's commands as the projects user, so the fixture is opened to it.
+    # The clone's safe.directory entry is added beside the ones the file holds, since the removal drops only an entry it
+    # finds listed.
+    local for_clone="${SBROOT}/for-clone" for_clone_saved
+    for_clone_saved="$(cat "${FOR_AL}")"
+    mkdir -p "${for_clone}/.git"; : > "${for_clone}/.git/HEAD"
+    chown -R "${FOR_USER}:${FOR_GROUP}" "${for_clone}"; chmod -R a+rwX "${for_clone}"
+    seed_for "@ ${for_clone}"
+    git config --file "${GC}" --add safe.directory "${for_clone}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"
+    expect "control: the clone's safe.directory entry is listed"     gc_has "${for_clone}"
+    # A path nested under a clone is refused by the path check, ahead of the snapshot that is a `--for` run's first
+    # sudo.
+    cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f for)" "${FOR_USER}" "$(f yes)" "${for_clone}/.git"
+    expect "remove --for of a path nested in the clone area is refused"   rc_not0
+    expect "that refusal is the one-level path check"                 out_has_text MSG-W3H3
+    expect "and comes ahead of the registry snapshot"                 not_called ai-tools-allowlist
+    expect "and leaves the clone"                                     test -d "${for_clone}/.git"
+    cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f for)" "${FOR_USER}" "$(f yes)" "${for_clone}"
+    expect "remove --for of a clone the target holds exits 0"         rc_is 0
+    expect "the clone is read with one stat as the target"            cli_called runas "^${FOR_USER}${T}stat${T}"
+    expect "and is deleted"                                           test ! -e "${for_clone}"
+    expect "its entry is dropped through the helper" \
+        cli_called ai-tools-allowlist "^--operator${T}${FOR_USER}${T}--remove${T}${for_clone}$"
+    expect "and its safe.directory entry is dropped"                  cli_called ai-tools-safedir "^--remove${T}${for_clone}$"
+    rm -rf "${for_clone}"
+    printf '%s\n' "${for_clone_saved}" > "${FOR_AL}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${FOR_AL}"
     # A clone removal whose deletion fails reports the entry the clone had and the one that still covers it, read
     # from the registry record ahead of the registry step. The `rm` stub of the `--for` group fails the clone's path;
-    # an enabled entry over the clone area is the covering one, and a clone no line names had no entry of its own,
-    # since a recognized clone is removed on being one.
+    # an enabled entry over the clone area is the covering one, and a clone no line names had no entry of its own, since
+    # a clone is removed on its place, its owner and its shape.
     local clone_al_saved; clone_al_saved="$(cat "${AL}")"
     printf '%s' "${SBROOT}/${N_SRC}" > "${rm_stub}/target"
     RUN_EXTRA_ENV=(PATH="${rm_stub}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")

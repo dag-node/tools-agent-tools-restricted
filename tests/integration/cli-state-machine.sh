@@ -216,8 +216,9 @@ ROWS
 # trim <text> : <text> without leading or trailing spaces.
 trim() { local t="$1"; t="${t#"${t%%[! ]*}"}"; printf '%s' "${t%"${t##*[! ]}"}"; }
 
-# The push column is the gate's: `projects push` with a path does not read the registry state (require_sandbox_clone
-# decides), so each of its cells proves the clone check refuses every state. A push over a real clone is a discovery
+# The push column is the gate's: `projects push` with a path does not read the registry state
+# (require_sandbox_clone_shape decides), so each of its cells proves the clone check refuses every state. A push
+# over a real clone is a discovery
 # row.
 
 # The table is complete before a row runs: one cell per (verb, state), and no cell for an undeclared verb or state.
