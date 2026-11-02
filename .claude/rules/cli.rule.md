@@ -1032,10 +1032,13 @@ and its type each refuse the agent on their own; so on an enforcing host the gro
 when the relabel did not run and every path on its list is also on the relabel list, and where exactly one repair took
 the claim adds one line counting those paths. A path in either list whose name, or a directory containing it inside
 the project, matches the owner's secret patterns is marked `[secret]` by the owner-side read, with one line saying
-the gate makes it owner-only before a repair runs; the mark reads `secret-patterns.lib.sh` and is advisory, so where
-the library does not load no path is marked. Either repair answered
-yes joins the secret gate like any other access-granting step, which is why the gate follows both questions. A declined
-repair does not stop the claim.
+the gate makes it owner-only before a repair runs; the mark reads `secret-patterns.lib.sh` and is advisory,
+so where the library does not load no path is marked. Either repair answered yes joins the secret gate like any other
+access-granting step, which is why the gate follows both questions. A declined repair does not stop the claim.
+A declined group repair also holds for the walk `ai-tools-setfacl` makes for the ACL step and the `.git` share,
+which by default regroups every path with a foreign group: wherever the group scan ran and the repair was not accepted,
+the claim passes `--skip-drifted`, and the walk leaves each such path's group and ACL as the scan found them, the paths
+the cap left unlisted among them.
 
 **After the Apply block the claim checks each drifted path on its own**, as the owner, in the owner-side read's
 `--verify` pass, against the postconditions its repair establishes (`claim_verify_label`, `claim_verify_group`;

@@ -18,7 +18,9 @@
 #
 # Alongside the ACL, the walk normalizes the primary group of a DRIFTED path -- group-accessible yet not group
 # @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's
-# drift scan (acl_drift_scan in the CLI) finds the tree settled.
+# drift scan (acl_drift_scan in the CLI) finds the tree settled. Under `--skip-drifted` the main walk leaves a drifted
+# path as it is, its group and its ACL both, and reports how many it left: the claim passes it on a re-claim whose group
+# repair the operator declined, since the walk also runs for the steps the operator accepted.
 #
 # Runs as root via sudo under `atr projects claim`; CAP_FOWNER lets it ACL files the operator does not own. Installed
 # 750 root:root. Its domain rule is cli.rule.md.
@@ -41,13 +43,15 @@ warn() {
     printf 'ai-tools-setfacl: %s\n' "${_warn_text}" >&2
 }
 
-# Args: an optional --with-git flag (anywhere) enables the one-shot .git normalization
-# pass; the remaining argument is the absolute project path.
+# Args: an optional --with-git flag (anywhere) enables the one-shot .git normalization pass, and an optional
+# --skip-drifted leaves drifted paths out of the main walk; the remaining argument is the absolute project path.
 WITH_GIT=false
+SKIP_DRIFTED=false
 TARGET=""
 for arg in "$@"; do
     case "${arg}" in
         --with-git) WITH_GIT=true ;;
+        --skip-drifted) SKIP_DRIFTED=true ;;
         -*) warn MSG-C3V2 "unknown option: ${arg}"; exit 2 ;;
         *)  if [[ -z "${TARGET}" ]]; then
                 TARGET="${arg}"
@@ -57,8 +61,8 @@ for arg in "$@"; do
     esac
 done
 [[ -n "${TARGET}" ]] \
-    || { printf 'usage: ai-tools-setfacl [--with-git] <absolute-project-path>\n' >&2; exit 2; }
-readonly TARGET WITH_GIT
+    || { printf 'usage: ai-tools-setfacl [--with-git] [--skip-drifted] <absolute-project-path>\n' >&2; exit 2; }
+readonly TARGET WITH_GIT SKIP_DRIFTED
 
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A missing lib leaves
 # ai_tools_operator__resolve_owner a fail-closed stub, so the tree is left untouched.
@@ -264,6 +268,13 @@ _safe_setfacl() {
     if [[ "${normalize}" == "normalize" ]]; then
         fix_group=true
     elif [[ "${got_grp}" != "${GROUP}" ]] && (( 8#${got_mode} & 077 )); then
+        # Under `--skip-drifted` the operator declined this repair, so the path keeps its group and does not take
+        # an entry: an ACL alone would give the agent the access the declined repair was asked about. Returns 4
+        # for the walk's count.
+        if ${SKIP_DRIFTED}; then
+            exec {fd}<&-
+            return 4
+        fi
         fix_group=true
     fi
     if ${fix_group}; then
@@ -306,7 +317,7 @@ declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]
 declare -i applied=0
 find "${expr[@]}" 2>/dev/null \
     | { declare -a skip=()
-        declare -i owneronly=0 thirdparty=0 rc=0
+        declare -i owneronly=0 thirdparty=0 drifted=0 rc=0
         declare root_thirdparty=false
         _under_skip() { local p; for p in "${skip[@]:-}"; do
             [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
@@ -328,6 +339,7 @@ find "${expr[@]}" 2>/dev/null \
                    # The project root decides whether the ACL grant happened at all -- see the same split
                    # in ai-tools-setgid.
                    [[ "${p}" == "${canonical}" ]] && root_thirdparty=true ;;
+                4) drifted=$(( drifted + 1 )) ;;
             esac
         done
         # The counts are local to this subshell (pipe); log them here.
@@ -337,6 +349,11 @@ find "${expr[@]}" 2>/dev/null \
             warn MSG-C9Z6 "left ${owneronly} owner-only path(s) (0600/0700) out of the sandbox account's reach"
             ai_tools_log__coded info "${_warn_code}" \
                 "left ${owneronly} owner-only path(s) under ${canonical} out of the agent's reach"
+        fi
+        if (( drifted )); then
+            warn MSG-X6T6 "left ${drifted} path(s) with a group other than ${GROUP} as they are, without the project ACL"
+            ai_tools_log__coded info "${_warn_code}" \
+                "left ${drifted} drifted path(s) under ${canonical} as they are (--skip-drifted)"
         fi
         # Surfaced for the same reason as the setgid walk's: the owner guard is the one skip that can leave a claim
         # reporting success having granted no access.

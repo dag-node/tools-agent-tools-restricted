@@ -2058,16 +2058,16 @@ run_reclaim() {
     sudo "${RECLAIM_BIN}" "$@" "${d}"
 }
 
-# run_setfacl <dir> <with_git>  -- apply the project's group-permission ACL on <dir> via the root helper (sudo,
-# password); when <with_git> is true, also pass --with-git so the helper normalizes the .git tree too. Returns its
-# status.
+# run_setfacl <dir> <with_git> [skip_drifted]  -- apply the project's group-permission ACL on <dir> via the root
+# helper (sudo, password); when <with_git> is true, also pass --with-git so the helper normalizes the .git tree too,
+# and when <skip_drifted> is true, --skip-drifted so the walk leaves each path with a foreign group as it is. Returns
+# its status.
 run_setfacl() {
-    local d="$1" with_git="${2:-false}"
-    if ${with_git}; then
-        sudo "${SETFACL_BIN}" --with-git "${d}"
-    else
-        sudo "${SETFACL_BIN}" "${d}"
-    fi
+    local d="$1" with_git="${2:-false}" skip_drifted="${3:-false}"
+    local -a flags=()
+    ${with_git} && flags+=(--with-git)
+    ${skip_drifted} && flags+=(--skip-drifted)
+    sudo "${SETFACL_BIN}" "${flags[@]+"${flags[@]}"}" "${d}"
 }
 
 # run_unclaim <dir> <target-group> [helper-flag...]  -- clear the agent ACL, regroup <dir> to <target-group>, and remove
@@ -2297,19 +2297,21 @@ claim_relabel() {
     fi
 }
 
-# claim_setfacl <dir> <with_git>  -- apply the group-permission ACL via the root helper so files the projects user's git
-# checkout/merge writes under a restrictive umask stay group- accessible; when <with_git> is true the helper also
-# normalizes the .git tree (group + setgid + ACL) so the operator's commits stay agent-accessible. Best-effort,
+# claim_setfacl <dir> <with_git> [skip_drifted]  -- apply the group-permission ACL via the root helper so files
+# the projects user's git checkout/merge writes under a restrictive umask stay group- accessible; when <with_git> is
+# true the helper also normalizes the .git tree (group + setgid + ACL) so the operator's commits stay agent-accessible,
+# and when <skip_drifted> is true the walk leaves the group drift the operator declined to repair as it is. Best-effort,
 # mirroring claim_relabel: warns with the manual command (never dies) when sudo is missing or fails.
 claim_setfacl() {
-    local d="$1" with_git="${2:-false}" flag="" note=""
+    local d="$1" with_git="${2:-false}" skip_drifted="${3:-false}" flag="" note=""
     ${with_git} && { flag=" --with-git"; note=" (incl. .git)"; }
+    ${skip_drifted} && flag+=" --skip-drifted"
     if ! command -v sudo >/dev/null 2>&1; then
         warn "sudo not found -- cannot apply the project ACL automatically"
         say  "      ${C_BOLD}sudo ${SETFACL_BIN}${flag} ${d}${C_RST}"
         return 0
     fi
-    if run_setfacl "${d}" "${with_git}"; then
+    if run_setfacl "${d}" "${with_git}" "${skip_drifted}"; then
         say "    group-permission ACL: applied${note}"
     else
         warn "could not apply the project ACL -- run it by hand:"
@@ -3382,12 +3384,14 @@ cmd_project_claim() {
     unreadable_steps_note() {
         ${git_unreadable} || ${filemode_unreadable} || return 0
         [[ "${CLAIM_FORMAT}" == tsv ]] && return 0
-        local _owner_command_prefix="" _quoted_project_path
+        local _owner_command_prefix="" _quoted_project_path _skip_flag=""
         [[ -n "${FOR_OPERATOR}" ]] && _owner_command_prefix="sudo -u ${OWNER_USER} -H "
         _quoted_project_path="$(_quote_path "${d}")"
+        # The by-hand walk leaves the group drift the operator declined as the claim's own walk did.
+        ! ${skip_drifted:-false} || _skip_flag=" --skip-drifted"
         say "      ${C_DIM}not checked, since ${OWNER_USER} cannot read them; to finish them by hand:${C_RST}"
         ! ${git_unreadable} \
-            || say "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git ${_quoted_project_path}${C_RST}   ${C_DIM}(shares .git history)${C_RST}"
+            || say "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git${_skip_flag} ${_quoted_project_path}${C_RST}   ${C_DIM}(shares .git history)${C_RST}"
         ! ${filemode_unreadable} \
             || say "      ${C_BOLD}${_owner_command_prefix}git -C ${_quoted_project_path} config core.filemode true${C_RST}"
     }
@@ -3722,8 +3726,12 @@ cmd_project_claim() {
             reg_ownership "${d}" force || note_root_failure || stopped=true
         fi
     fi
+    # The walk regroups every path with a foreign group unless told otherwise, and it also runs for the ACL and `.git`
+    # steps; where the group scan ran and its repair was not accepted, it leaves those paths as the scan found them.
+    local skip_drifted=false
+    if ${scan_wanted} && [[ "${owngap}" == false ]] && ! ${do_drift}; then skip_drifted=true; fi
     if ! ${stopped} && { ${need_acl} || ${do_git} || ${do_drift}; }; then
-        claim_setfacl "${d}" "${do_git}" || note_root_failure || stopped=true
+        claim_setfacl "${d}" "${do_git}" "${skip_drifted}" || note_root_failure || stopped=true
     fi
     if ! ${stopped} && { ${need_label} || ${do_label_drift}; }; then
         claim_relabel "${d}" || note_root_failure || stopped=true

@@ -396,4 +396,43 @@ setsid "${HELPER}" "${ps}" < /dev/null > /dev/null 2>&1 || true
 mask_is "a later walk over the chmod g+x data file" "${ps}/plain/data" -rw-rw---- rw-
 mask_is "a later walk over the chmod g-x script" "${ps}/plain/tool" -rwxrwx--- rwx
 
+# ── A declined group repair: `--skip-drifted` ────────────────────────────────
+# A claimed tree holding a file and a directory moved in with the operator's own group and group bits, beside a file
+# already in the sandbox group. Under `--skip-drifted` the walk leaves each drifted path with its group and without
+# an entry, reports how many it left, and still writes the project ACL on the file beside them; the walk without
+# the flag over a copy of the tree is the control that the fixture is drift the walk repairs.
+section "ai-tools-setfacl: --skip-drifted leaves a declined group repair alone"
+skip_tree() {  # skip_tree <dir>: the claimed tree with its two moved-in paths
+    mkdir -p "$1/moved-dir"; : > "$1/shared"; : > "$1/moved-in"; : > "$1/moved-dir/inside"
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "$1"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1/moved-in" "$1/moved-dir" "$1/moved-dir/inside"
+    chmod 2770 "$1"; chmod 0750 "$1/moved-dir"; chmod 0660 "$1/shared"; chmod 0640 "$1/moved-in" "$1/moved-dir/inside"
+}
+sd="${TESTDIR}/skip-drifted"; sd_control="${TESTDIR}/skip-drifted-control"
+skip_tree "${sd}"; skip_tree "${sd_control}"
+mk_allowlist "@ ${sd}" "@ ${sd_control}"
+setsid "${HELPER}" "${sd_control}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%G' "${sd_control}/moved-in")" == "${SANDBOX_GROUP}" ]] && g "${sd_control}/moved-in"; then
+    pass "control: the walk without --skip-drifted moves the drifted file to ${SANDBOX_GROUP} with the project ACL"
+else
+    fail "control: the walk without --skip-drifted did not repair the drifted file -- the cases below are not evidence: $(stat -c '%G %a' "${sd_control}/moved-in")"
+fi
+sd_err="$(setsid "${HELPER}" --skip-drifted "${sd}" < /dev/null 2>&1 >/dev/null || true)"
+for sd_path in "${sd}/moved-in" "${sd}/moved-dir" "${sd}/moved-dir/inside"; do
+    if [[ "$(stat -c '%G' "${sd_path}")" == "${PROJECTS_GROUP}" ]] && ! g "${sd_path}" && ! u "${sd_path}" \
+            && ! dg "${sd_path}"; then
+        pass "--skip-drifted leaves ${sd_path#"${sd}"/} in its group without an entry"
+    else
+        fail "--skip-drifted changed ${sd_path#"${sd}"/}: $(stat -c '%G %a' "${sd_path}") $(getfacl -p "${sd_path}" 2>/dev/null | tr '\n' ' ')"
+    fi
+done
+if g "${sd}/shared" && u "${sd}/shared"; then
+    pass "--skip-drifted still writes the project ACL on the file beside them"
+else
+    fail "--skip-drifted left the file in the sandbox group without the project ACL: $(getfacl -p "${sd}/shared" 2>/dev/null | tr '\n' ' ')"
+fi
+assert_msg MSG-X6T6 "${sd_err}" "the paths --skip-drifted left are reported"
+if grep -q "left 3 path(s)" <<< "${sd_err}"; then pass "the report counts the three drifted paths"
+else fail "the report does not count three paths: $(tr '\n' ' ' <<< "${sd_err}")"; fi
+
 finish

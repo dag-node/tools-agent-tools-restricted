@@ -234,7 +234,8 @@ own, right under the list of files it found:
   outside the project.
 - **Group and ACL**, default No. Yes moves each file to the agent's group
   with the project's grants: the agent gets the access its group bits give,
-  and the group the file had loses it.
+  and the group the file had loses it. No leaves each file as it is,
+  through every step of the claim, the `.git` share among them.
 
 Which flag pre-answers which question, and what a run without a terminal does,
 is on [Claim](claim.md). On an enforcing host the group question is not asked

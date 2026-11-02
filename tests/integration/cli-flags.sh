@@ -469,6 +469,7 @@ drive_rows() {
     expect "claim --yes registers safe.directory"                     cli_called ai-tools-safedir "^${R}/pa$"
     expect "claim --yes sets the group and setgid"                    cli_called ai-tools-setgid "^${R}/pa$"
     expect "claim --yes applies the ACL"                              cli_called ai-tools-setfacl "${R}/pa$"
+    expect "a first claim's walk regroups every path"                 cli_log_lacks ai-tools-setfacl "--skip-drifted"
     expect "the safe.directory entry is on record"                    gc_has "${R}/pa"
     expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setgid "."
 
@@ -558,6 +559,16 @@ drive_rows() {
     expect "a secret-named drift path is marked"                      out_has_text "deploy.pem [secret]"
     expect "a plain drift path beside it is not"                      out_lacks_text "moved-in.txt [secret]"
     RUN_EXTRA_ENV=(); rm -f "${R}/ph/deploy.pem"
+
+    # A declined group repair holds for the walk the claim runs for another step: here the `.git` share, which a run
+    # without a terminal accepts by its default. The repository belongs to the projects user, so its git reads it.
+    claimed_fixture "${R}/pj"
+    git init -q "${R}/pj"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pj/.git"
+    seed "@ ${R}/pj"; seed_gc "${R}/pj"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pj"
+    expect "control: the re-claim lists the moved-in file as group drift" out_has_text "Interior drift: group and ACL"
+    expect "the walk the .git share runs leaves the declined drift as it is" \
+        cli_called ai-tools-setfacl "^--with-git${T}--skip-drifted${T}${R}/pj$"
 
     # A root step that fails outranks the rows: the safe.directory entry is missing, so its helper runs on every host,
     # and it exits 1; the claim exits 1 with the file still reported not fixed.
