@@ -5140,9 +5140,10 @@ cmd_project_clone() {
 
 # cmd_project_push [path]  -- push the sandbox clone's commits ahead of its upstream branch, after listing them
 # and confirming; without a path, the clone the current directory is in (discover_project). No-op when already
-# up to date. The verb does not take any option, so one is refused with the usage status rather than dropped: the push
-# confirm defaults to yes and is taken without a terminal, so a `--dry-run` read as a path or silently discarded would
-# push where the caller asked to look.
+# up to date, and a refusal when git cannot count the commits ahead of the upstream, since a count read as zero would
+# report the clone up to date. The verb does not take any option, so one is refused with the usage status rather than
+# dropped: the push confirm defaults to yes and is taken without a terminal, so a `--dry-run` read as a path or silently
+# discarded would push where the caller asked to look.
 cmd_project_push() {
     local d="" a
     for a in "$@"; do
@@ -5162,7 +5163,11 @@ cmd_project_push() {
     local up
     up="$(git -C "${d}" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)" \
         || die "no upstream configured for the current branch in ${d}"
-    local n; n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null || echo 0)"
+    # git's own stderr is not echoed, the clone being co-written; the refusal prints the command that shows it.
+    local n
+    n="$(git -C "${d}" rev-list --count '@{u}..HEAD' 2>/dev/null)" \
+        || die MSG-H6R3 "could not count the commits ahead of ${up} in ${d}, so nothing was pushed -- git's own error names the cause:" \
+            "      git -C $(_quote_path "${d}") rev-list --count '@{u}..HEAD'"
 
     section "Push sandbox work"
     say "  sandbox  : ${d}"

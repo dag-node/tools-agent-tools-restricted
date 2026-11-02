@@ -188,13 +188,14 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and only past that gate label, open and register the clone; fail-closed otherwise, and resumable by re-running
   on the clone path ([Sandbox clone](#sandbox-clone)).
 - `projects push [path]` — push the clone's commits to its branch; without a path it discovers the clone the current
-  directory is in ([Discovery](#discovery)). It and the clone kind of `projects remove`, which unregisters the clone
-  and then removes it, gate the target through `require_sandbox_clone_shape`: the path must be a direct child
-  of `SANDBOX_ROOT` (exactly one level deep, so never the shared area root and never a nested or system path)
-  that passes the protected-paths backstop (`require_sandbox_clone_path`, which `projects remove` runs ahead
-  of a `--for` snapshot), and its tree must have a clone's shape, read as data with one `stat` as the acting owner:
-  the root held by that owner or by the invoker, `.git` a directory and `.git/HEAD` a regular file, so git is not run
-  over the tree. The read does not establish that the tree is a repository or that `projects clone` made it,
+  directory is in ([Discovery](#discovery)). A commit count git cannot make (`rev-list @{u}..HEAD`) refuses the push
+  under `MSG-H6R3`, so a damaged clone is not reported up to date. It and the clone kind of `projects remove`,
+  which unregisters the clone and then removes it, gate the target through `require_sandbox_clone_shape`: the path must
+  be a direct child of `SANDBOX_ROOT` (exactly one level deep, so never the shared area root and never a nested
+  or system path) that passes the protected-paths backstop (`require_sandbox_clone_path`, which `projects remove` runs
+  ahead of a `--for` snapshot), and its tree must have a clone's shape, read as data with one `stat` as the acting
+  owner: the root held by that owner or by the invoker, `.git` a directory and `.git/HEAD` a regular file, so git is not
+  run over the tree. The read does not establish that the tree is a repository or that `projects clone` made it,
   so an unregistered tree of that shape is deleted on the operator's confirm, or `-y`; a directory the sandbox account
   creates in the area is born that account's, and the owner rule refuses it. Any other reading is refused
   under `MSG-Z7U6`, naming which read failed ("remove it by hand"). `projects clone` scopes its own destination

@@ -1340,6 +1340,42 @@ EOF
             skip "ai-tools.projects.remove.clone runs no git over the tree" "git unavailable"
         fi
         rm -rf "${rpart}" "${rpart_work}"
+        # The push counts the commits ahead of the upstream before it lists or pushes them: a clone whose upstream
+        # resolves and whose walk git cannot make, the upstream ref naming an object the store does not hold, is refused
+        # under MSG-H6R3 and not reported up to date. The same clone with its upstream at HEAD, the control, has nothing
+        # to push. The remote's URL does not resolve, so a push that ran anyway would fail on the host.
+        rpush="${sroot}/clone-push"
+        if git -C "${sroot}" init -q clone-push 2>/dev/null \
+                && git -C "${rpush}" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m one 2>/dev/null; then
+            git -C "${rpush}" config remote.origin.url ssh://nowhere.invalid/up
+            git -C "${rpush}" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+            git -C "${rpush}" update-ref refs/remotes/origin/main HEAD
+            git -C "${rpush}" branch -q --set-upstream-to=origin/main
+            chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rpush}"
+            spell ai-tools.projects.push
+            push_run() {
+                runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+                    AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${emptyal}" AI_TOOLS_SANDBOX_ROOT="${sroot}" \
+                    setsid "${CLI}" "${CLI_ARGV[@]}" "${rpush}" 2>&1
+            }
+            out="$(push_run)" && rc=0 || rc=$?
+            if [[ ${rc} -eq 0 ]] && grep -qF "nothing to push" <<<"${out}"; then
+                pass "control: ai-tools.projects.push over a clone with its upstream at HEAD has nothing to push"
+            else
+                fail "control: ai-tools.projects.push over the clone at its upstream (rc=${rc}): $(brief "${out}")"
+            fi
+            printf '%040d\n' 1 > "${rpush}/.git/refs/remotes/origin/main"
+            out="$(push_run)" && rc=0 || rc=$?
+            refused "ai-tools.projects.push whose commit count git cannot make is refused" MSG-H6R3 1
+            if grep -qF "nothing to push" <<<"${out}"; then
+                fail "the refused push still reports the clone up to date: $(brief "${out}")"
+            else
+                pass "the refused push does not report the clone up to date"
+            fi
+        else
+            skip "ai-tools.projects.push refuses a count it cannot make" "git unavailable"
+        fi
+        rm -rf "${rpush}"
         if [[ -n "${rmstub}" ]]; then
             rleft="${sroot}/clone left"; mkdir -p "${rleft}"; git init -q "${rleft}"
             chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${rleft}"

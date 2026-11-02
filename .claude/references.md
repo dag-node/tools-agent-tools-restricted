@@ -266,6 +266,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | h2d4 | [MSG-H2D4](../src/usr/local/bin/ai-tools.sh) | destination already exists: ${dst} | src/usr/local/bin/ai-tools.sh |  | die |
 | c2u5 | [MSG-C2U5](../src/usr/local/bin/ai-tools.sh) | unknown projects push option: ${a} (projects push takes no options) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | k4r8 | [MSG-K4R8](../src/usr/local/bin/ai-tools.sh) | projects push takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
+| h6r3 | [MSG-H6R3](../src/usr/local/bin/ai-tools.sh) | could not count the commits ahead of ${up} in ${d}, so nothing was pushed -- git's own error names the cause: | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
 | r3h8 | [MSG-R3H8](../src/usr/local/bin/ai-tools.sh) | unknown projects lockdown option: ${a} (allowed: --dry-run, --yes) | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | y6v3 | [MSG-Y6V3](../src/usr/local/bin/ai-tools.sh) | projects lockdown takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | p5p8 | [MSG-P5P8](../src/usr/local/bin/ai-tools.sh) | --yes has no effect with --dry-run, which neither changes a path nor asks | src/usr/local/bin/ai-tools.sh | src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh, tests/unit/lockdown.sh | die_usage |

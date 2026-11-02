@@ -553,6 +553,8 @@ Without
 it pushes the clone the current directory is in.
 It does not take options: one given is refused with exit 2 before anything is
 pushed, since the confirmation defaults to yes.
+When git cannot count the commits ahead of the remote branch, the push is
+refused with exit 1 and prints the git command that shows git's error.
 .TP
 .B projects lockdown \fR[\fIDIRECTORY\fR] [\fB\-\-dry\-run\fR] [\fB\-y\fR]
 Lock secret-named files under the project (\fB.env\fR, \fB*.key\fR, ...) to

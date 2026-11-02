@@ -38,13 +38,16 @@ push. Read both before you confirm.
 It does not take an option. One given is refused with exit 2 before anything is
 pushed, since the confirmation would otherwise proceed without a terminal.
 A path that is not a sandbox clone — a directory outside the sandbox area,
-or one inside it that is not a git working tree — is refused, so the command
-does not push from a tree you did not clone with `projects clone`. It does not
-take `--for`, for the reason the clone does not: a clone belongs
-to the operator who made it.
+or one inside it that another account owns or that has no `.git` directory
+with a `HEAD` file — is refused. When git cannot count the commits the clone
+holds ahead of its remote branch, the push is refused and prints
+the `git rev-list` command that shows git's own error, so a damaged clone is
+not reported up to date. It does not take `--for`, for the reason the clone
+does not: a clone belongs to the operator who made it.
 
 ## Exit status
 
 0 when the commits are pushed or there were none; 1 when the push failed,
-the path is not a clone, or you declined; 2 for a rejected command line, or no
-project at the current directory. `man ai-tools` has the full list.
+the path is not a clone, the commits could not be counted, or you declined; 2
+for a rejected command line, or no project at the current directory.
+`man ai-tools` has the full list.
