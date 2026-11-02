@@ -122,7 +122,10 @@ gets right now. A claim sets it from your own permissions on the file,
 so the agent can do what you can: read and write, and run a file you can run.
 After the claim, `chmod ug+x` and `chmod g-x` change the agent's execute,
 and change only the bit you name; `chmod u+x` alone does not give the agent
-anything.
+anything. On a project an earlier release claimed, this holds once a re-claim
+has applied the project's permissions again: the re-claim lists the files
+whose grants that release wrote without execute, and asks before it walks
+the project.
 
 On a host with SELinux confinement, the default, the agent runs a project
 script through its interpreter (`bash build.sh`) and does not run it directly,
@@ -315,6 +318,7 @@ These run one:
 | `atr projects create` | yes, over the new directory |
 | "Claim here" on the screen a session shows in a directory not claimed yet | yes |
 | `atr projects claim` on a claimed project, answering yes to the `.git` question or to a group and ACL repair | yes |
+| `atr projects claim` on a project an earlier release claimed, when it lists files under *ACL entries from an earlier claim* and you apply the pending steps, or pass `-y` | yes |
 | `atr projects claim` on a claimed project with no question to ask, or where you answer no | no |
 | `sudo /usr/local/libexec/ai-tools/ai-tools-setfacl <project>`, with `--with-git` to include `.git` | yes |
 | a session, the handback after each write, `atr projects handback`, `lockdown`, `enable`, `disable`, `unclaim`, `remove` | no |

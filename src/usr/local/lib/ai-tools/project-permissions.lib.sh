@@ -376,13 +376,16 @@ _ai_tools_project_permissions__read_pinned() {
 #     the helper refused cannot pass on a group and ACL that already matched);
 #   * it is not owner-only (the claim honours that seal, and the path is still not shared);
 #   * its group is the sandbox group, and a directory carries setgid;
-#   * each named entry of the specification grants in effect exactly the owner's permissions
-#     (ai_tools_project_permissions__get_owner_permissions), the mask the repair sets, so a permission the owner lacks
-#     is drift; `other::` is `---`; on a directory the default set grants `rwx` and `other::---`.
+#   * each named entry of the specification is written `rwx`, as the repair writes it, and grants in effect exactly
+#     the owner's permissions (ai_tools_project_permissions__get_owner_permissions), the mask the repair sets, so
+#     a permission the owner lacks is drift, and so is an entry written narrower under a mask that hides it, which
+#     the owner's later `chmod g+x` would not reach; `other::` is `---`; on a directory the default set grants `rwx`
+#     and `other::---`.
 ai_tools_project_permissions__check_group() {
     local _path="$1" _work="$2" _operator_uid="$3" _sandbox_uid="$4" _sandbox_gid="$5"
     local -n _group_outcome="$6" _group_detail="$7"
     local LC_ALL=C _read="" _status=0 _uid _gid _mode _type _specification _entry _key _need _set_need _have _set
+    local _written
     local -A _access=() _default=()
     local -a _entries=() _sets=(_access)
     _group_outcome=unknown _group_detail=""
@@ -442,6 +445,12 @@ ai_tools_project_permissions__check_group() {
                 _group_detail="${_set#_}: other:: grants ${_have}, not ---"
                 return 0
             fi
+            if [[ "${_set}" == _access ]]; then _written="${_access[${_key}]:-}"
+            else _written="${_default[${_key}]:-}"; fi
+            if [[ "${_written}" != rwx ]]; then
+                _group_detail="${_set#_}: ${_key}: is written ${_written:-as no entry}, not rwx"
+                return 0
+            fi
             ai_tools_project_permissions__get_effective_permissions _have "${_set}" "${_key}"
             if [[ "${_have}" != "${_set_need}" ]]; then
                 _group_detail="${_set#_}: ${_key}: grants ${_have:-no entry} in effect, not ${_set_need}"
@@ -450,4 +459,63 @@ ai_tools_project_permissions__check_group() {
         done
     done
     _group_outcome=match _group_detail=""
+}
+
+# ai_tools_project_permissions__find_narrow_named_entries <list-file> <work-dir> <operator-uid> <sandbox-gid>
+# <paths-array> <detail-var>  -- read the access ACL of each NUL-separated path in <list-file> and fill <paths-array>,
+# in list order, with the paths carrying a `user:<operator-uid>` or `group:<sandbox-gid>` entry written narrower than
+# `rwx`: the entries a claim before the owner-permissions mask wrote (`rw-` on a file without an execute bit),
+# which a mask hides in effect and which keep the owner's later `chmod g+x` from reaching the agent. The ACL is
+# the kernel's `system.posix_acl_access` value, read by os.getxattr without following a link and decoded from its binary
+# form (a version-2 header, then 8-byte tag, permission and id entries, acl(5)), so a path is read as bytes and no
+# tool's escaping of a name is parsed. A path without an access ACL, on a filesystem without ACLs, or no longer present
+# is not a hit. Returns 0 when every path was read. Returns 1 with <detail-var> naming why -- a path whose ACL could not
+# be read or does not decode, python3 failing, an identity that is not a number -- and <paths-array> holding the hits
+# read before it: an unread path is not one without the entries. `-I` as for the lstat reader.
+ai_tools_project_permissions__find_narrow_named_entries() {
+    local _list="$1" _work="$2" _operator_uid="$3" _sandbox_gid="$4" _status=0 _first=""
+    local -n _narrow_paths="$5" _narrow_detail="$6"
+    _narrow_paths=() _narrow_detail=""
+    if [[ ! "${_operator_uid}" =~ ^[0-9]+$ || ! "${_sandbox_gid}" =~ ^[0-9]+$ ]]; then
+        _narrow_detail="the operator or the sandbox group did not resolve to an id"
+        return 1
+    fi
+    { /usr/bin/python3 -I -c '
+import errno, os, struct, sys
+uid, gid = int(sys.argv[1]), int(sys.argv[2])
+paths = sys.stdin.buffer.read().split(b"\0")
+if paths and paths[-1] == b"":
+    paths.pop()
+not_a_hit = {errno.ENODATA, errno.EOPNOTSUPP, errno.ENOENT, errno.ENOTDIR}
+unread = None
+for path in paths:
+    try:
+        data = os.getxattr(path, "system.posix_acl_access", follow_symlinks=False)
+    except OSError as error:
+        if error.errno in not_a_hit:
+            continue
+        unread = unread or "%s: %s" % (os.fsdecode(path), errno.errorcode.get(error.errno, error.errno))
+        continue
+    if len(data) < 4 or (len(data) - 4) % 8 or struct.unpack_from("<I", data, 0)[0] != 2:
+        unread = unread or "%s: the ACL does not decode" % os.fsdecode(path)
+        continue
+    for offset in range(4, len(data), 8):
+        tag, perm, ident = struct.unpack_from("<HHI", data, offset)
+        if ((tag == 0x02 and ident == uid) or (tag == 0x08 and ident == gid)) and perm & 7 != 7:
+            sys.stdout.buffer.write(path + b"\0")
+            break
+if unread:
+    sys.stderr.write(unread + "\n")
+    sys.exit(4)
+' "${_operator_uid}" "${_sandbox_gid}" < "${_list}" > "${_work}/narrow.out" 2> "${_work}/narrow.err"; } 2>/dev/null \
+        || _status=$?
+    mapfile -d '' -t _narrow_paths 2>/dev/null < "${_work}/narrow.out" || _narrow_paths=()
+    (( _status == 0 )) && [[ -f "${_work}/narrow.err" && ! -s "${_work}/narrow.err" ]] && return 0
+    IFS= read -r _first 2>/dev/null < "${_work}/narrow.err" || true
+    if (( _status == 4 )); then
+        _narrow_detail="an ACL could not be read: ${_first}"
+    else
+        _narrow_detail="the ACL reader exited ${_status}${_first:+: ${_first}}"
+    fi
+    return 1
 }

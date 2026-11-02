@@ -751,6 +751,53 @@ else
         fail "projects inspect without --scan-group printed '$(grep -v '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
     fi
 
+    # The entries an earlier claim wrote: a claimed tree (the sandbox group, setgid, the default ACL in place) holding
+    # one file whose named entries are rw-, the one record; beside it the same entries on a file the walk does not reach
+    # -- under the skip list, under an owner-only directory, under an excluded subtree, a secret-named one
+    # under a fixture patterns file -- and a file carrying the walk's own entries, rwx under a rw- mask, none of them
+    # a record. The drift tree of the cap case, whose root does not carry a default ACL, is the control that the scan
+    # runs only where the ACL step is in place.
+    in_out="$(inspect_run "${in_drift}" "${in_work}/drift.in" --scan-group)" || true
+    if inspect_has "${in_out}" "state|acl|true|" && ! grep -q '^scan|entries|' <<< "${in_out}"; then
+        pass "control: with the ACL step pending the entries scan is not run"
+    else
+        fail "projects inspect ran the entries scan over a tree whose ACL step is pending"
+    fi
+    in_entries="${in_work}/entries"
+    mkdir -p "${in_entries}/node_modules/pkg" "${in_entries}/private" "${in_entries}/excl"
+    in_entry_files=(narrow walked node_modules/pkg/narrow private/narrow excl/narrow deploy.pem)
+    for in_name in "${in_entry_files[@]}"; do : > "${in_entries}/${in_name}"; chmod 0660 "${in_entries}/${in_name}"; done
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${in_entries}"
+    chmod 2770 "${in_entries}" "${in_entries}/node_modules" "${in_entries}/node_modules/pkg" "${in_entries}/excl"
+    chmod 0700 "${in_entries}/private"
+    setfacl -m "g:${SANDBOX_GROUP}:rwx,d:g:${SANDBOX_GROUP}:rwx,d:u:${PROJECTS_USER}:rwx" "${in_entries}"
+    for in_name in "${in_entry_files[@]}"; do
+        [[ "${in_name}" == walked ]] && continue
+        setfacl -m "u:${PROJECTS_USER}:rw-,g:${SANDBOX_GROUP}:rw-" "${in_entries}/${in_name}"
+    done
+    setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${in_entries}/walked"
+    printf 'exclude\t%s\n' "${in_entries}/excl" > "${in_work}/entries.in"
+    printf '*.pem\n' > "${in_work}/secret-patterns"; chmod 0644 "${in_work}/secret-patterns"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${in_work}/entries.in" "${in_work}/secret-patterns"
+    in_out="$(export AI_TOOLS_SECRET_PATTERNS_FILE="${in_work}/secret-patterns"
+              inspect_run "${in_entries}" "${in_work}/entries.in" --scan-group)" || true
+    if [[ "$(grep -c '^entry-drift|' <<< "${in_out}" || true)" == 1 ]] \
+            && grep -qF -- "entry-drift|$(printf '%q' "${in_entries}/narrow")|" <<< "${in_out}" \
+            && inspect_has "${in_out}" "scan|entries|complete|''|"; then
+        pass "the entries scan records the file an earlier claim's entries narrow, and none the walk does not reach"
+    else
+        fail "projects inspect --scan-group over the entries tree printed '$(grep -e '^entry-drift' -e '^scan|entries' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+    # The same entries on a file in the sandbox group, read as the walk would leave them: rwx under the mask,
+    # so the chmod g+x the owner makes later reaches the agent, and the scan no longer lists it.
+    setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${in_entries}/narrow"
+    in_out="$(inspect_run "${in_entries}" "${in_work}/entries.in" --scan-group)" || true
+    if [[ "$(grep -c '^entry-drift|' <<< "${in_out}" || true)" == 0 ]] && inspect_has "${in_out}" "scan|entries|complete|''|"; then
+        pass "after the walk's entries, the file is no longer listed"
+    else
+        fail "projects inspect still listed entries after the walk's state: '$(grep -e '^entry-drift' -e '^scan|entries' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+
     # A sealed setgid directory named with a line feed: one record, its path decoded whole, its owner's reading beside
     # it, under a complete scan.
     if [[ -n "${third_group}" ]]; then
@@ -807,10 +854,11 @@ in_parse() {  # in_parse <stream-file> <child-status> [verify]
          claim_run_inspect() { cat "${stream}"; return "${child_status}"; }
          d=/proj
          if [[ "${mode}" == verify ]]; then
-             label_drift=(/proj/l1 /proj/l2); drift=(/proj/g1)
-             claim_read_owner_verification labels groups details present >/dev/null
+             label_drift=(/proj/l1 /proj/l2); drift=(/proj/g1); entry_drift=(/proj/e1)
+             claim_read_owner_verification labels groups details present entries entry_details >/dev/null
              printf "verify=%s\n" "$(printf "%s " "${labels[@]}")"
              printf "present=%s\n" "${present[0]:-}"
+             printf "entries=%s\n" "${entries[0]:-}"
              rc=0; ai_tools_records_base__get_exit_status || rc=$?; printf "exit=%s\n" "${rc}"
              exit 0
          fi
@@ -818,7 +866,7 @@ in_parse() {  # in_parse <stream-file> <child-status> [verify]
          drift=() drift_before=() drift_types=() drift_skipped=() group_scan_detail="" group_capped=false
          skipped_capped=false label_drift=() label_subject_types=(); declare -A label_drift_types=()
          label_scan_detail="" label_capped=false sealed_setgid=() ancestor_configs=() sealed_setgid_scan_result=complete
-         ancestor_config_scan_result=complete
+         ancestor_config_scan_result=complete entry_drift=() entry_before=() entry_scan_detail="" entry_capped=false
          listed=true; [[ "${mode}" == unlisted ]] && listed=false
          rc=0; claim_read_owner_inspection "${listed}" || rc=$?
          if [[ "${mode}" == detail ]]; then
@@ -828,16 +876,19 @@ in_parse() {  # in_parse <stream-file> <child-status> [verify]
              exit 0
          fi
          printf "rc=%s failure=%s\n" "${rc}" "${INSPECT_FAILURE}"
-         printf "state=%s/%s/%s/%s/%s/%s/%s drift=%s\n" "${filemode}" "${git}" "${owngap}" "${acl}" "${labelled}" \
-             "${inspect_pristine}" "${root_mode}" "$(printf "%q" "${drift[0]:-}")"' \
+         printf "state=%s/%s/%s/%s/%s/%s/%s drift=%s entries=%s\n" "${filemode}" "${git}" "${owngap}" "${acl}" \
+             "${labelled}" "${inspect_pristine}" "${root_mode}" "$(printf "%q" "${drift[0]:-}")" \
+             "$(printf "%q" "${entry_drift[0]:-}")"' \
         _ "${CLI}" "$1" "$2" "${3:-}"
 }
 in_stream="${in_work}/stream"
 # The base carries every record a listed claim requires but the ancestor-configuration scan, which each stream adds
-# in the form it is about: owngap false asks for the group scan, labelled na does not ask for the label scan.
+# in the form it is about: owngap false asks for the group scan, with acl false the entries scan, and labelled na does
+# not ask for the label scan.
 printf '%s\n' 'state	filemode	false' 'state	git	true' 'state	owngap	false' 'state	acl	false' \
     'state	labelled	na' 'state	pristine	false' 'state	root-mode	750' \
     'group-drift	/proj/a\tb	op:dev 664	file	reachable	secret' 'scan	group	complete	' \
+    'entry-drift	/proj/e1	op:ai-tools 660' 'scan	entries	complete	' \
     'scan	sealed-setgid	complete	' > "${in_stream}.base"
 { cat "${in_stream}.base"; printf 'scan\tancestor-config\tcomplete\t\n'; } > "${in_stream}"
 grep -v root-mode "${in_stream}" > "${in_stream}.missing"
@@ -846,6 +897,7 @@ grep -v root-mode "${in_stream}" > "${in_stream}.missing"
 grep -v $'^scan\tsealed-setgid\t' "${in_stream}" > "${in_stream}.no-sealed-setgid"
 cp "${in_stream}.base" "${in_stream}.no-ancestor-config"
 grep -v $'^scan\tgroup\t' "${in_stream}" > "${in_stream}.no-group"
+grep -v $'^scan\tentries\t' "${in_stream}" > "${in_stream}.no-entries"
 sed $'s/^state\tlabelled\tna$/state\tlabelled\ttrue/' "${in_stream}" > "${in_stream}.no-label"
 # A second record for one scan kind, and for one state token.
 { cat "${in_stream}"; printf 'scan\tsealed-setgid\tcomplete\t\n'; } > "${in_stream}.scan-twice"
@@ -853,7 +905,7 @@ sed $'s/^state\tlabelled\tna$/state\tlabelled\ttrue/' "${in_stream}" > "${in_str
 # A verify record carries six fields: the kind, the path, the outcome, the check's reason, and the owner's reading
 # of a group path after the check.
 printf '%b' 'verify\tlabel\t/proj/l1\tfixed\t\t\n' 'verify\tgroup\t/proj/g1\tnot-fixed\tnot repaired\top:dev 664\n' \
-    > "${in_stream}.verify"
+    'verify\tentries\t/proj/e1\tfixed\t\top:ai-tools 660\n' > "${in_stream}.verify"
 # The listing's readings: a sealed-setgid path the owner measured, and an ancestor-configuration check not made.
 { cat "${in_stream}.base"; printf 'sealed-setgid\t/proj/sealed\top:other 2700\n'
   printf 'scan\tancestor-config\tnot-made\tthe ancestor-config library did not load\n'; } > "${in_stream}.detail"
@@ -862,8 +914,8 @@ in_out="$(in_parse "${in_stream}" 0)" || true
 if [[ "${in_out}" == *"rc=98"* || "${in_out}" == *"rc=99"* ]]; then
     skip "the inspect stream's parser" "the installed CLI predates the owner-side read"
 else
-    if [[ "${in_out}" == "rc=0 failure="$'\n'"state=false/true/false/false/na/false/750 drift=$'/proj/a\tb'" ]]; then
-        pass "a complete stream fills every state token and the drift list, a tab in a path decoded"
+    if [[ "${in_out}" == "rc=0 failure="$'\n'"state=false/true/false/false/na/false/750 drift=$'/proj/a\tb' entries=/proj/e1" ]]; then
+        pass "a complete stream fills every state token and the drift lists, a tab in a path decoded"
     else
         fail "the parser over a complete stream printed '$(tr '\n' '~' <<<"${in_out}")'"
     fi
@@ -875,7 +927,7 @@ else
     if [[ "${in_out}" == "rc=1 failure=a record of projects inspect did not decode"* ]]; then
         pass "a record that does not decode is a tree not read"
     else fail "the parser over an undecodable record printed '$(tr '\n' '~' <<<"${in_out}")'"; fi
-    for in_scan in sealed-setgid ancestor-config group label; do
+    for in_scan in sealed-setgid ancestor-config group entries label; do
         in_out="$(in_parse "${in_stream}.no-${in_scan}" 0)" || true
         if [[ "${in_out}" == "rc=1 failure=projects inspect did not report its ${in_scan} scan"* ]]; then
             pass "a stream missing the ${in_scan} scan the claim asked for is a tree not read"
@@ -896,7 +948,7 @@ else
         pass "a child that exits non-zero is a tree not read, its status named"
     else fail "the parser over a child exiting 4 printed '$(tr '\n' '~' <<<"${in_out}")'"; fi
     in_out="$(in_parse "${in_stream}.verify" 0 verify)" || true
-    if [[ "${in_out}" == "verify=fixed unverified "$'\n'"present=op:dev 664"$'\n'"exit=5" ]]; then
+    if [[ "${in_out}" == "verify=fixed unverified "$'\n'"present=op:dev 664"$'\n'"entries=fixed"$'\n'"exit=5" ]]; then
         pass "a verify stream missing one path reads that path unverified alone, the owner's present reading kept, exit 5"
     else fail "the verify parser printed '$(tr '\n' '~' <<<"${in_out}")'"; fi
     in_out="$(in_parse "${in_stream}.detail" 0 detail)" || true

@@ -5,7 +5,8 @@
 # (`runuser -u ai-tools`). Each check names the threat its boundary prevents. "can" checks confirm access the sandbox
 # needs to function; "cannot" checks confirm control-plane integrity and secret isolation. Probe-only
 # (`test -r`/`-w`/`-x`); the one unlink attempt targets a DECOY file (projects-user-owned, in the sticky .claude dir)
-# so real control-plane files are never at risk. Run as root via sudo; drops to the agent per check.
+# so real control-plane files are never at risk, and the permission-change attempts target a fixture in the testdir. Run
+# as root via sudo; drops to the agent per check.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -418,6 +419,33 @@ elif runuser -u "${SANDBOX_USER}" -- test -w "${oolib}" 2>/dev/null; then
     fail "the agent can write ${oolib} -- it could redefine which paths count as sealed"
 else
     pass "the agent cannot write owner-only.lib.sh (the seal predicate and residue strip)"
+fi
+
+# The project ACL, from the agent's side: the boundary half of the re-claim's entries scan and the walk that follows
+# the owner's permissions (unit/project-permissions.sh, unit/sandbox.sh and unit/setfacl.sh are the runtime half).
+# On a file the operator holds in a claimed tree, the agent co-writes the content and does not set the permissions:
+# a `chmod g+x`, a raised mask and a narrowed entry are each the owner's (chmod(2) and acl_set_file(3) require it),
+# so the agent cannot give itself an execute the owner did not, nor put the file into a state a re-claim reports.
+# The attempts target a fixture in this file's testdir, read back afterwards against the state it was given.
+acl_file="${TESTDIR}/claimed/data"
+mkdir -p "${TESTDIR}/claimed"; : > "${acl_file}"
+chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${TESTDIR}/claimed"
+chmod 2770 "${TESTDIR}/claimed"; chmod 0660 "${acl_file}"
+setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${acl_file}"
+acl_before="$(getfacl -p -c "${acl_file}" 2>/dev/null; stat -c '%a' "${acl_file}")"
+if runuser -u "${SANDBOX_USER}" -- test -w "${acl_file}" 2>/dev/null; then
+    pass "control: the agent can write the claimed file's content"
+else
+    fail "control: the agent cannot write the claimed fixture -- the probes below are not evidence"
+fi
+for acl_try in "chmod g+x" "setfacl -m m::rwx" "setfacl -m g:${SANDBOX_GROUP}:rw-"; do
+    # shellcheck disable=SC2086  # each probe is a command and its options, split on purpose
+    runuser -u "${SANDBOX_USER}" -- ${acl_try} "${acl_file}" >/dev/null 2>&1 || true
+done
+if [[ "$(getfacl -p -c "${acl_file}" 2>/dev/null; stat -c '%a' "${acl_file}")" == "${acl_before}" ]]; then
+    pass "the agent cannot chmod g+x, raise the mask or narrow an entry on a file the operator holds"
+else
+    fail "the agent changed the permissions of a file the operator holds: $(getfacl -p -c "${acl_file}" 2>/dev/null | tr '\n' ' ') $(stat -c '%a' "${acl_file}")"
 fi
 
 # ai-tools-allowlist edits an operator's allowed-projects -- the launch gate deciding where a session may start.

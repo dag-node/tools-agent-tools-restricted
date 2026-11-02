@@ -290,6 +290,12 @@ patterns is marked
 .BR [secret] :
 if you accept either repair, the secret lockdown makes it owner-only first,
 so neither repair shares it.
+On a project an earlier release claimed, the files whose ACL entries for you and
+the agent that release wrote narrower than read, write and execute are listed
+as a pending step: the claim applies the project ACL across the tree again
+under the proceed confirm, which
+.B \-y
+answers, and a run without a terminal declines.
 After the claim's steps, each such file is checked on its own and printed as one
 indented line naming its
 .IR "outcome kind path detail" ;

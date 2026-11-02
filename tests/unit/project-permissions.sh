@@ -404,7 +404,8 @@ gc_file="${TESTDIR}/gc-file" gc_dir="${TESTDIR}/gc-dir"
 mkdir -p "${gc_dir}"; chmod 2770 "${gc_dir}"
 my_uid="$(stat -c '%u' "${gc_file}")" my_gid="$(stat -c '%g' "${gc_file}")"
 op_uid=4242
-good_access=(user::rw- "user:${op_uid}:rw-" group::rw- "group:${my_gid}:rw-" mask::rw- other::---)
+# The state the walk leaves on a data file: both named entries written rwx, held at rw- by the mask.
+good_access=(user::rw- "user:${op_uid}:rwx" group::rwx "group:${my_gid}:rwx" mask::rw- other::---)
 good_dir_access=(user::rwx "user:${op_uid}:rwx" group::rwx "group:${my_gid}:rwx" mask::rwx other::---)
 good_default=(default:user::rwx "default:user:${op_uid}:rwx" default:group::rwx "default:group:${my_gid}:rwx"
     default:mask::rwx default:other::---)
@@ -430,9 +431,9 @@ gc_is "a directory carrying every entry, default set included" "${gc_dir}" match
 gc_is "the operator's entry missing" "${gc_file}" drift "${my_uid}" "${my_gid}" \
     user::rw- "group:${my_gid}:rw-" group::rw- mask::rw- other::---
 gc_is "the mask reduced to r--" "${gc_file}" drift "${my_uid}" "${my_gid}" \
-    user::rw- "user:${op_uid}:rw-" group::rw- "group:${my_gid}:rw-" mask::r-- other::---
+    user::rw- "user:${op_uid}:rwx" group::rw- "group:${my_gid}:rwx" mask::r-- other::---
 gc_is "other:: r-- under mask -wx (the mask does not reach other::)" "${gc_file}" drift "${my_uid}" "${my_gid}" \
-    user::rw- "user:${op_uid}:rw-" group::rw- "group:${my_gid}:rw-" mask::rw- other::r--
+    user::rw- "user:${op_uid}:rwx" group::rw- "group:${my_gid}:rwx" mask::rw- other::r--
 gc_is "a named entry and no mask" "${gc_file}" unknown "${my_uid}" "${my_gid}" \
     user::rw- "user:${op_uid}:rw-" group::rw- "group:${my_gid}:rw-" other::---
 gc_is "a directory with no default set" "${gc_dir}" drift "${my_uid}" "${my_gid}" "${good_dir_access[@]}"
@@ -443,8 +444,10 @@ chmod 0770 "${gc_file}"
 gc_is "a file with an execute bit, its entries lacking x" "${gc_file}" drift "${my_uid}" "${my_gid}" \
     user::rwx "user:${op_uid}:rw-" group::rwx "group:${my_gid}:rw-" mask::rw- other::---
 chmod 0660 "${gc_file}"
-gc_is "a file without an execute bit, its entries lacking x" "${gc_file}" match "${my_uid}" "${my_gid}" \
-    "${good_access[@]}"
+# The entries a claim before the owner-permissions mask wrote on a file without an execute bit: rw- in effect,
+# as the walk gives it, and drift, since the owner's later chmod g+x would not reach them.
+gc_is "a file without an execute bit, its entries written rw- (an earlier claim's)" "${gc_file}" drift \
+    "${my_uid}" "${my_gid}" user::rw- "user:${op_uid}:rw-" group::rw- "group:${my_gid}:rw-" mask::rw- other::---
 # The defect state as it lands on disk: a recalculated mask of rwx is the mode's group bits, so the file reads 0670
 # and the group x is the mask's, not an execute bit of the file. The named entries granting x in effect are drift.
 rwx_on_data=(user::rw- "user:${op_uid}:rwx" group::rwx "group:${my_gid}:rwx" mask::rwx other::---)
@@ -558,6 +561,62 @@ if [[ -n "${acl_real}" ]] && command -v setfacl >/dev/null 2>&1; then
     fi
 else
     skip "group_check live cases" "setfacl or getfacl not installed"
+fi
+
+section "project-permissions: the entries an earlier claim wrote (unit, live)"
+# Real ACLs set with setfacl and read back through the kernel's xattr: the reader lists a file whose operator or sandbox
+# group entry is written narrower than rwx, in list order and with a line feed in a name kept whole, and does not list
+# one written rwx under a rw- mask (the walk's state), one without an ACL, one carrying a narrow entry for another
+# group, or a path removed after the listing. The operator is uid 4242, the sandbox group this run's group.
+narrow_is() {  # narrow_is <what> <want-status> <want-hits> <operator-uid> <path...>
+    local what="$1" want_status="$2" want_hits="$3" operator="$4" narrow_status=0 narrow_detail=""
+    local -a narrow_hits=()
+    shift 4
+    printf '%s\0' "$@" > "${work}/narrow.list"
+    ai_tools_project_permissions__find_narrow_named_entries "${work}/narrow.list" "${work}" "${operator}" "${my_gid}" \
+        narrow_hits narrow_detail || narrow_status=$?
+    local got_hits=""
+    (( ${#narrow_hits[@]} == 0 )) || got_hits="$(printf '%q ' "${narrow_hits[@]}")"
+    if (( narrow_status == want_status )) && [[ "${got_hits}" == "${want_hits}" ]]; then
+        pass "narrow entries: ${what} -> status ${narrow_status}${narrow_detail:+ (${narrow_detail})}"
+    else
+        fail "narrow entries: ${what} -> status ${narrow_status} hits [${got_hits}] (${narrow_detail}), want ${want_status} [${want_hits}]"
+    fi
+}
+if command -v setfacl >/dev/null 2>&1 && [[ -x /usr/bin/python3 ]]; then
+    ne="${TESTDIR}/narrow-entries"
+    mkdir -p "${ne}"
+    for ne_name in user-narrow group-narrow walked plain other-group "line
+feed"; do : > "${ne}/${ne_name}"; chmod 0660 "${ne}/${ne_name}"; done
+    if setfacl -m "u:${op_uid}:rw-,g:${my_gid}:rwx" "${ne}/user-narrow" 2>/dev/null; then
+        setfacl -m "u:${op_uid}:rwx,g:${my_gid}:rw-" "${ne}/group-narrow"
+        setfacl -n -m "u:${op_uid}:rwx,g:${my_gid}:rwx,m::rw-" "${ne}/walked"
+        setfacl -m "g:65533:rw-" "${ne}/other-group"
+        setfacl -m "u:${op_uid}:rw-,g:${my_gid}:rw-" "${ne}/line
+feed"
+        if getfacl -p -n "${ne}/walked" 2>/dev/null | grep -qx "group:${my_gid}:rwx[[:space:]]*#effective:rw-"; then
+            pass "narrow entries: control: the walked file carries its entries rwx under a rw- mask"
+        else
+            fail "narrow entries: control: the walked file is not as set -- the cases below are not evidence: $(getfacl -p "${ne}/walked" 2>/dev/null | tr '\n' ' ')"
+        fi
+        narrow_is "a tree of each shape" 0 "$(printf '%q ' "${ne}/user-narrow" "${ne}/group-narrow" "${ne}/line
+feed")" "${op_uid}" "${ne}/user-narrow" "${ne}/walked" "${ne}/plain" "${ne}/group-narrow" "${ne}/other-group" \
+            "${ne}/gone" "${ne}/line
+feed"
+        narrow_is "an operator id that is not a number" 1 "" "op" "${ne}/user-narrow"
+        if (( EUID != 0 )); then
+            mkdir -p "${ne}/closed"; : > "${ne}/closed/inside"; chmod 0000 "${ne}/closed"
+            narrow_is "a path whose ACL cannot be read, after a hit" 1 "$(printf '%q ' "${ne}/user-narrow")" \
+                "${op_uid}" "${ne}/user-narrow" "${ne}/closed/inside"
+            chmod 0700 "${ne}/closed"
+        else
+            skip "narrow entries: an unreadable path" "root reads through a closed directory"
+        fi
+    else
+        skip "narrow entries" "setfacl refused an ACL on ${TESTDIR}"
+    fi
+else
+    skip "narrow entries" "setfacl or /usr/bin/python3 not installed"
 fi
 
 finish

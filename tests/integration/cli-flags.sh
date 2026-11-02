@@ -570,6 +570,30 @@ drive_rows() {
     expect "the walk the .git share runs leaves the declined drift as it is" \
         cli_called ai-tools-setfacl "^--with-git${T}--skip-drifted${T}${R}/pj$"
 
+    # A project an earlier release claimed: one file carrying that release's entries, rw- for the operator
+    # and the sandbox group. The re-claim lists it as a pending step under the proceed confirm, so a run without
+    # a terminal declines before any helper, and `--yes` runs the ACL step's walk, which no other step of this fixture
+    # calls for. The stubbed walk does not change the file, so the check after it reads the entries not fixed
+    # and the claim exits 4. With the file carrying the walk's own entries the re-claim does not list a file and does
+    # not walk.
+    claimed_fixture "${R}/pn"; rm -f "${R}/pn/moved-in.txt"
+    : > "${R}/pn/data"; chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${R}/pn/data"; chmod 0660 "${R}/pn/data"
+    setfacl -m "u:${PROJECTS_USER}:rw-,g:${SANDBOX_GROUP}:rw-" "${R}/pn/data"
+    seed "@ ${R}/pn"; seed_gc "${R}/pn"
+    cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pn"
+    expect "the re-claim lists the earlier claim's entries"           out_has_text "ACL entries from an earlier claim"
+    expect "without --yes and a terminal the entries step declines"   rc_not0
+    expect "the declined entries step reaches no helper"              cli_log_empty
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pn"
+    expect "--yes runs the ACL step's walk for the listed entries"   cli_called ai-tools-setfacl "${R}/pn$"
+    expect "the entries step takes the secret gate"                   before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setfacl "."
+    expect "the stubbed walk leaves the entries, read as not fixed"   out_has_row entries-not-fixed
+    expect "and the claim exits 4"                                    rc_is 4
+    setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${R}/pn/data"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pn"
+    expect "with the walk's entries the re-claim lists none"          out_lacks_text "ACL entries from an earlier claim"
+    expect "and does not walk the tree"                               cli_log_lacks ai-tools-setfacl
+
     # A root step that fails outranks the rows: the safe.directory entry is missing, so its helper runs on every host,
     # and it exits 1; the claim exits 1 with the file still reported not fixed.
     seed_gc

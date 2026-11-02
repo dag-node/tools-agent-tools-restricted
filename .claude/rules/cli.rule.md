@@ -996,16 +996,26 @@ did reach.
 
 Root-level state cannot see a path inside a claimed tree that lacks what the claim gave the rest of it, and a rename is
 how one arrives: `mv` keeps a file's group, its ACL-less mode and its SELinux type, where creation under the setgid,
-default-ACL, labelled parents inherits all three. A re-claim therefore runs two read-only, unprivileged scans in its
-owner-side read, as the tree's owner, each
-leaving out owner-only paths ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) and `!`-excluded
-subtrees as out of reach by intent:
+default-ACL, labelled parents inherits all three. A re-claim therefore runs read-only, unprivileged scans in its
+owner-side read, as the tree's owner, each leaving out owner-only paths
+([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) and `!`-excluded subtrees as out of reach
+by intent:
 
 - **Group and ACL** (`acl_drift_scan`, when ownership is in place): shared-looking paths with a foreign group,
   the predicate `ai-tools-setfacl` skips on, so the scan does not report a path the repair would decline. The hits split
   on the shared skip list: the claim walks leave a skip-listed directory's contents alone, so hits there get
   an informational block naming the remedies that reach them, which [ownership-and-hooks](ownership-and-hooks.rule.md)
   states with the categories.
+- **Entries** (`entry_drift_scan`, when ownership and the ACL step are both in place): the files whose operator
+  or sandbox-group entry is written narrower than `rwx`, read from the kernel's access-ACL value. Only a claim
+  before the owner-permissions mask writes one (`rw-` on a file without an execute bit, under a mask that leaves
+  the access in effect the model gives); the owner's later `chmod g+x` does not reach the agent through it.
+  The candidates are the files `ai-tools-setfacl`'s walk reaches and does not regroup, and a secret-named one is left
+  out, since the walk skips it. The scan reads entries and not modes: a `670` file is the state a deliberate `chmod g+x`
+  leaves, and is not reported. Unlike the drift kinds this is a **pending step**, under the proceed confirm, since its
+  repair is the ACL step's walk, which only narrows or follows the owner's own permissions on a file in the sandbox
+  group; it takes the secret gate as that step does, and the walk it runs over the tree also settles the mode states
+  an earlier walk left (`670`, `460`, `570`).
 - **SELinux type** (`label_drift_scan`, when the root is labelled): the paths whose type is not the one the claim's
   relabel would apply, asked of the policy through a dry run of that relabel (`restorecon -n -F`, unprivileged),
   so every loaded module's types are covered. Only a type difference counts; why a difference in the SELinux user
@@ -1016,8 +1026,8 @@ read**: a part of the tree it could not read makes it incomplete, so it writes a
 the drift it did read, and does not read as a complete scan of a smaller tree. `CLAIM_SCAN_CAP` bounds the paths
 the claim asks about; past it the claim writes a `scan-capped` row ([records](records.rule.md) states the row),
 the group kind capped after the skip-list split so paths the repair cannot reach do not take the places of ones it can.
-A first claim, one with the setgid step pending, or an unlabelled root skips the matching scan: its normal walk repairs
-the whole tree.
+A first claim, one with the setgid or the ACL step pending, or an unlabelled root skips the matching scan: its normal
+walk repairs the whole tree.
 
 **Each kind is its own question, asked under its own list**, so the answer follows the paths it is about, and each
 defaults to no, since each can widen the agent's access. A relabel leaves owner, group and mode alone, so it gives
@@ -1041,13 +1051,14 @@ the claim passes `--skip-drifted`, and the walk leaves each such path's group an
 the cap left unlisted among them.
 
 **After the Apply block the claim checks each drifted path on its own**, as the owner, in the owner-side read's
-`--verify` pass, against the postconditions its repair establishes (`claim_verify_label`, `claim_verify_group`;
+`--verify` pass, against the postconditions its repair establishes (`claim_verify_label`, `claim_verify_group`,
+which an entries path takes too, its repair being the same walk and its check reading the entries as written;
 the contracts are the doc comments in `project-permissions.lib.sh`). A pass that exits non-zero, a record that does not
 decode, and a path it does not answer leave each path without an outcome `unverified`, under one `error` row naming
-the pass. A re-scan does not decide `fixed`, since a path can be missing from one because
-the scan was capped, failed, or excludes it; a check that cannot be read yields `unverified` and never `fixed`,
-a confirmed absence yields `gone`, and the group check reads owner, group, mode and ACL from one pinned object, so its
-result is an observation of that object rather than a guarantee against a later change.
+the pass. A re-scan does not decide `fixed`, since a path can be missing from one because the scan was capped, failed,
+or excludes it; a check that cannot be read yields `unverified` and never `fixed`, a confirmed absence yields `gone`,
+and the group check reads owner, group, mode and ACL from one pinned object, so its result is an observation
+of that object rather than a guarantee against a later change.
 
 <a id="ref-table-x8q5"></a>**The outcome a re-claim reports per drifted path**
 
