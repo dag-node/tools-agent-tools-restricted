@@ -1158,6 +1158,39 @@ EOF
     list_has "ai-tools-safedir --remove ${lst}/stale-safedir" "and names its safe.directory removal"
     list_has "ai-tools-safedir --remove ${lst}/stale"'\ with\ space' "and prints a stale path carrying a space as one word"
     list_lacks "ai-tools-relabel --remove ${lst}/stale-safedir" "and no label removal, there being no tree to read a label from"
+    # git exits 128 when its working directory was deleted, where a shell stands after `atr projects remove .`,
+    # so the listing reads the list from /: the same run from a deleted directory reports the same stale entry. A list
+    # git cannot read is named as such, and its rows read `?`, beside `lout`, the listing over the readable list,
+    # which reads them `yes`. The projects user removes the directory it stands in, which takes write on the parent,
+    # and TESTDIR is root's.
+    lgone_parent="${TESTDIR}/list-cwd"
+    lgone="${lgone_parent}/gone"
+    mkdir -p "${lgone}"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${lgone_parent}"
+    gone_rc=0
+    # shellcheck disable=SC2016  # the $N are for the inner `bash -c`, not this shell -- do not expand here
+    gone_out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal}" AI_TOOLS_GITCONFIG="${lgc}" bash -c \
+        'dir="$1"; shift; cd "${dir}" && rmdir "${dir}" || exit 97
+         git config --file "${AI_TOOLS_GITCONFIG}" --get-all safe.directory >/dev/null 2>&1 && exit 98
+         "$@"' _ "${lgone}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || gone_rc=$?
+    if [[ "${gone_rc}" -eq 97 || "${gone_rc}" -eq 98 ]]; then
+        fail "fixture: the run did not stand in a deleted directory git's plain read fails in (status ${gone_rc}) -- $(brief "${gone_out}")"
+    elif grep -qF "ai-tools-safedir --remove ${lst}/stale-safedir" <<<"${gone_out}"; then
+        pass "ai-tools.projects.list run from a deleted directory reports the stale safe.directory"
+    else
+        fail "ai-tools.projects.list run from a deleted directory: $(brief "${gone_out}")"
+    fi
+    lgc_bad="${TESTDIR}/list-gitconfig-unreadable"
+    printf '[safe\n' > "${lgc_bad}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lgc_bad}"
+    bad_out="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal}" \
+            AI_TOOLS_GITCONFIG="${lgc_bad}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || true
+    if grep -qF "safe.dir:?" <<<"${bad_out}" && ! grep -qE 'safe\.dir:(yes|NO)' <<<"${bad_out}" \
+            && grep -qF "could not be read" <<<"${bad_out}"; then
+        pass "ai-tools.projects.list over a safe.directory list git cannot read names the file and reads no row yes or NO"
+    else
+        fail "ai-tools.projects.list over an unreadable safe.directory list: $(brief "${bad_out}")"
+    fi
     # A value ai-tools-safedir does not write is named by its form with the command that lists the file, and does not
     # take a removal: the exact-value removal of a trust rule deletes the rule, and git does not read an expanded path
     # as the directory this listing would read it as.
@@ -1177,7 +1210,7 @@ EOF
     fi
     list_has "not an absolute path" "ai-tools.projects.list names a relative safe.directory value as such"
     list_lacks "--remove relative/repo" "and offers no removal for it"
-    list_has "git config --file ${lgc} --get-all safe.directory" "each names the command that lists the file"
+    list_has "git -C / config --file ${lgc} --get-all safe.directory" "each names the command that lists the file"
     # The disabled row carries the safe.dir column the project rows carry, and stays out of the cleanup.
     if grep -qE "disabled +${lst}/disabled-proj +safe\.dir:yes" <<<"${lout}"; then
         pass "ai-tools.projects.list shows safe.dir:yes on a disabled row whose path is in git safe.directory"

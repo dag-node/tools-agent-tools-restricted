@@ -232,6 +232,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | f8g9 | [MSG-F8G9](../src/usr/local/bin/ai-tools.sh) | projects claim takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | s9a3 | [MSG-S9A3](../src/usr/local/bin/ai-tools.sh) | projects claim --format takes one value, tsv | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | x7n2 | [MSG-X7N2](../src/usr/local/bin/ai-tools.sh) | the project's tree was not read as ${OWNER_USER}, so the claim applied no step -- ${INSPECT_FAILURE} | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
+| s3f4 | [MSG-S3F4](../src/usr/local/bin/ai-tools.sh) | the git safe.directory list ${GITCONFIG} could not be read, so the claim applied no step | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | warn |
 | j3r8 | [MSG-J3R8](../src/usr/local/bin/ai-tools.sh) | cannot resolve the parent directory: $(ai_tools_log__sanitize "${parent}") -- it does not exist, or a symbolic link on its path leads through a directory ${INVOKING_USER} cannot enter | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh, tests/integration/cli.sh | die |
 | c5t8 | [MSG-C5T8](../src/usr/local/bin/ai-tools.sh) | unknown projects create option: ${a} | src/usr/local/bin/ai-tools.sh |  | die_usage |
 | z5y7 | [MSG-Z5Y7](../src/usr/local/bin/ai-tools.sh) | projects create takes a single path | src/usr/local/bin/ai-tools.sh |  | die_usage |
@@ -701,6 +702,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | v7j8 | [MSG-V7J8](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | unknown option: ${arg} | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | f6q4 | [MSG-F6Q4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | too many arguments | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | t6r4 | [MSG-T6R4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | cannot load ${CONTROL_PLANE_LIB} -- not editing safe.directory; reinstall ai-tools-base | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
+| e7t5 | [MSG-E7T5](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | cannot read the safe.directory list in ${GITCONFIG} (git exit ${status}) -- not editing safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh | tests/unit/safedir.sh | warn |
+| x8t6 | [MSG-X8T6](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | safe.directory still lists ${stored_value} after the removal -- ${GITCONFIG} was not changed | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh | tests/unit/safedir.sh | warn |
 | n4d4 | [MSG-N4D4](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | no such directory ${TARGET} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | f4y6 | [MSG-F4Y6](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | not a directory: ${canonical} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh |  | warn |
 | p5b5 | [MSG-P5B5](../src/usr/local/libexec/ai-tools/ai-tools-safedir.sh) | no operator covers ${canonical} -- not registering safe.directory | src/usr/local/libexec/ai-tools/ai-tools-safedir.sh | tests/unit/safedir.sh | warn |

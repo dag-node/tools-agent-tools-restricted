@@ -115,7 +115,7 @@ make_fixtures() {
     mk_operator_conf "${CONF}" "${PROJECTS_USER}" "${FOR_USER}"
     printf '%s\n' "${REG_MARKER}" > "${AL}"; printf '%s\n' "${REG_MARKER}" > "${FOR_AL}"; : > "${GC}"
     mkdir -p "${SBROOT}"
-    for d in pa pb pc pd pe pf pg psd plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
+    for d in pa pb pc pd pe pf pg psd psu plain unreg parent/p1 parent/p2 hold/inner for1 for2; do
         mkdir -p "${R}/${d}"; printf '# %s\n' "${d}" > "${R}/${d}/README.md"
     done
     mkdir -p "${R}/unreg/node_modules/dep"; : > "${R}/unreg/node_modules/dep/index.js"
@@ -492,6 +492,21 @@ drive_rows() {
     expect "a declined secret lockdown stops the claim"               rc_not0
     expect "the declined claim grants no access"                      cli_log_lacks ai-tools-setgid
     expect "the declined claim rolls back its allowlist entry"        st_is "${R}/psd" absent
+    cli_stub_reset
+
+    # A safe.directory list git cannot read stops the claim ahead of its Review block: an error row and exit 5, with no
+    # registry line written and no helper called. The same claim over the readable list is the control.
+    local gc_saved; gc_saved="$(cat "${GC}")"
+    printf '[safe\n' > "${GC}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/psu"
+    expect "a claim over a safe.directory list git cannot read exits 5" rc_is 5
+    expect "that stop is read by its code"                            out_has_text MSG-S3F4
+    expect "the stopped claim registers nothing"                      st_is "${R}/psu" absent
+    expect "the stopped claim reaches no helper"                      cli_log_empty
+    printf '%s\n' "${gc_saved}" > "${GC}"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/psu"
+    expect "control: the same claim over the readable list exits 0"   rc_is 0
+    expect "control: and registers the project"                       st_is "${R}/psu" enabled
     cli_stub_reset
 
     drive cli ai-tools.projects.claim --bogus "${R}/pa"

@@ -1375,11 +1375,11 @@ unreg_allow() {
 # reg_safedir <dir>  -- register <dir> in the agent's git safe.directory list: read unprivileged for idempotency, then
 # write via the SAFEDIR_BIN root helper (see its declaration for the sudo/644 rationale). The entry lets the agent's git
 # trust this tree, so the step is best-effort: when sudo is absent or the helper does not complete, it prints the manual
-# command as a hint and lets the claim carry on.
+# command as a hint and lets the claim carry on. A list the read could not make goes to the helper, which reads it
+# again.
 reg_safedir() {
     local dir="$1"
-    if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
-            | grep -qxF "${dir}"; then
+    if check_safedir_entry "${dir}"; then
         say "    git safe.directory: already listed"
         return 0
     fi
@@ -1400,11 +1400,12 @@ reg_safedir() {
 # unreg_safedir <dir>  -- the unclaim counterpart to reg_safedir: drop <dir> via SAFEDIR_BIN --remove. The helper's
 # --remove does not take a registry gate, so the call sits after the registry step in both kinds of `projects remove`,
 # and before the registry disposition in an unclaim, whose hand-back precedes both. Best-effort like reg_safedir: warns
-# with the manual command and lets the verb carry on.
+# with the manual command and lets the verb carry on. Only a list read without the entry skips the helper: a list
+# the read could not make goes to the helper, which reads it again and removes the entry where it stands.
 unreg_safedir() {
-    local dir="$1"
-    if ! git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
-            | grep -qxF "${dir}"; then
+    local dir="$1" listed=0
+    check_safedir_entry "${dir}" || listed=$?
+    if (( listed == 1 )); then
         say "    git safe.directory: not listed"
         return 0
     fi
@@ -2183,19 +2184,37 @@ clear_lockdown_guard() {
 # ── Commands ─────────────────────────────────────────────────────────────────────
 
 # read_project_state <dir>  -- print the claim state of <dir> as seven space-separated tokens: "<listed> <safedir>
-# <filemode> <owngap> <acl> <labelled> <git>". listed/safedir reflect the two registries, read here; the five tree
-# tokens are read_project_tree_state's. `projects list` reads all seven as the invoker; the claim reads listed
-# and safedir itself and takes the tree tokens from the owner-side read (`projects inspect`). Read-only, no privilege.
+# <filemode> <owngap> <acl> <labelled> <git>". listed/safedir reflect the two registries, read here, safedir `unknown`
+# where the safe.directory list could not be read; the five tree tokens are read_project_tree_state's. `projects list`
+# reads all seven as the invoker; the claim reads listed and safedir itself and takes the tree tokens
+# from the owner-side read (`projects inspect`). Read-only, no privilege.
 read_project_state() {
-    local dir="$1" listed=false safedir=false
+    local dir="$1" listed=false safedir=false safedir_status=0
     ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${dir}" 2>/dev/null && listed=true
-    is_safedir_listed "${dir}" && safedir=true
+    check_safedir_entry "${dir}" || safedir_status=$?
+    case "${safedir_status}" in
+        0) safedir=true ;;
+        2) safedir=unknown ;;
+    esac
     printf '%s %s %s\n' "${listed}" "${safedir}" "$(read_project_tree_state "${dir}")"
 }
 
-# is_safedir_listed <dir>  -- 0 when the git safe.directory list in GITCONFIG holds <dir> exactly.
-is_safedir_listed() {
-    git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null | grep -qxF -- "$1"
+# list_safedir_entries  -- print the git safe.directory values GITCONFIG holds, one per line, as git stores them.
+# Returns 0, the list empty when the file or the key is absent (git's exit 1), and non-zero when git could not read
+# the file. git runs from /: it reads its working directory at startup and exits 128 when that directory was deleted,
+# where a shell stands after `atr projects remove .`.
+list_safedir_entries() {
+    local status=0
+    git -C / config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null || status=$?
+    (( status <= 1 ))
+}
+
+# check_safedir_entry <dir>  -- 0 when the git safe.directory list in GITCONFIG holds <dir> exactly, 1 when it does not,
+# and 2 when the list could not be read. Three answers, so a caller reads the status rather than a truth value.
+check_safedir_entry() {
+    local entries
+    entries="$(list_safedir_entries)" || return 2
+    grep -qxF -- "$1" <<< "${entries}"
 }
 
 # read_project_tree_state <dir>  -- print the five readings of <dir>'s tree as space-separated tokens: "<filemode>
@@ -3236,6 +3255,19 @@ cmd_project_claim() {
         claim_end
     fi
 
+    # The trust list is read ahead of the re-enable offer, the first step that can write: a claim that cannot read it
+    # does not describe its pending steps, and applies none.
+    local safedir_status=0
+    check_safedir_entry "${d}" || safedir_status=$?
+    if (( safedir_status == 2 )); then
+        warn MSG-S3F4 "the git safe.directory list ${GITCONFIG} could not be read, so the claim applied no step" \
+            "The claim does not describe its pending steps over a trust list it cannot read. git's own error names the cause:" \
+            "      git -C / config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory"
+        claim_write_row error directory safedir "${d}" "the git safe.directory list ${GITCONFIG} could not be read"
+        claim_end
+    fi
+    (( safedir_status == 0 )) && safedir=true
+
     if ${reenable}; then
         offer_reenable "${d}" "the claim" \
             || die "the registry was not updated -- ${d} is still disabled"
@@ -3243,7 +3275,6 @@ cmd_project_claim() {
         [[ "${CLASS_BLOCKED}" == - ]] || die_blocked "${d}" claim
         ai_tools_conf__has_allowlist_entry "${ALLOWLIST}" "${d}" 2>/dev/null && listed=true
     fi
-    is_safedir_listed "${d}" && safedir=true
 
     # A tree `projects create` just made, by the owner's pristine reading; each question it answers is marked where it
     # is asked.
@@ -6441,10 +6472,18 @@ cmd_project_list() {
     # _has_glob <str>  -- 0 when <str> carries a shell glob metacharacter (* ? [). A glob is a `!` line alone, matched
     # as a pattern and never resolved to one path; the grammar refuses one on an `@` or `%` line.
     _has_glob() { [[ "$1" == *[*?[]* ]]; }
+    # The safe.directory list is read once, for every row's column and the reverse reconciliation. A list git could not
+    # read is named under Suggested cleanup and reads as no entry on any row.
+    local safedir_entries safedir_readable=true
+    safedir_entries="$(list_safedir_entries)" || safedir_readable=false
     # _read_safedir_column <entry>  -- set `safe` to the safe.dir column for <entry> and `sd` to whether git
-    # safe.directory names it, the reading every registered row prints.
+    # safe.directory names it, the reading every registered row prints. Where the list was not read the column is `?`
+    # and `sd` is true, so a stale or protected row still offers the helper's removal, which removes a value only
+    # where the list holds it.
     _read_safedir_column() {
-        if git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null | grep -qxF -- "$1"; then
+        if ! ${safedir_readable}; then
+            safe="safe.dir:${C_YEL}?${C_RST}"; sd=true
+        elif grep -qxF -- "$1" <<< "${safedir_entries}"; then
             safe="safe.dir:yes"; sd=true
         else
             safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
@@ -6567,63 +6606,69 @@ cmd_project_list() {
     # withholds the removal, since `ai-tools-safedir --remove` does not consult any registry, and the count says
     # the entries exist. Each printed path is one bash word (_quote_path), and `ai-tools-safedir --remove` removes
     # a value as git holds it, so a stored spelling is named as stored.
-    # shellcheck disable=SC2034  # sdir_blocker is filled through its name by find_invoker_traversal_blocker
-    local sdir sdir_blocker sdir_real sdir_owner sdir_form sdir_trusted unattributed=0
-    while IFS= read -r sdir; do
-        [[ -n "${sdir}" ]] || continue
+    # shellcheck disable=SC2034  # safedir_entry_blocker is filled through its name by find_invoker_traversal_blocker
+    local safedir_entry safedir_entry_blocker safedir_entry_real safedir_entry_owner safedir_entry_form
+    local safedir_entry_trusted unattributed=0
+    while IFS= read -r safedir_entry; do
+        [[ -n "${safedir_entry}" ]] || continue
         # The forms git reads by its own rules (git-config(1), safe.directory), matched in git's order: `*` before any
         # expansion, then a leading `~` or `%(prefix)/`, then a value ending in `/*` (git 2.46 and later).
-        sdir_form=""
+        safedir_entry_form=""
         # shellcheck disable=SC2088  # the quoted ~ matches git's literal leading ~, which a bare one would expand
-        case "${sdir}" in
+        case "${safedir_entry}" in
             '*')
-                sdir_form="${C_YEL}trust rule${C_RST} -- git trusts every repository on this host" ;;
+                safedir_entry_form="${C_YEL}trust rule${C_RST} -- git trusts every repository on this host" ;;
             '~'|'~/'*)
-                sdir_form="${C_YEL}expanded path${C_RST} -- git expands the leading ~ to the home directory of the account that runs git, the sandbox account's in a session" ;;
+                safedir_entry_form="${C_YEL}expanded path${C_RST} -- git expands the leading ~ to the home directory of the account that runs git, the sandbox account's in a session" ;;
             '~'*|'%(prefix)/'*)
-                sdir_form="${C_YEL}expanded path${C_RST} -- git expands the leading ${sdir%%/*} when it reads the value" ;;
+                safedir_entry_form="${C_YEL}expanded path${C_RST} -- git expands the leading ${safedir_entry%%/*} when it reads the value" ;;
             '/*'|/*'/*')
-                sdir_trusted="${sdir%/\*}"
-                sdir_form="${C_YEL}trust rule${C_RST} -- git trusts every repository under ${sdir_trusted:-/}" ;;
+                safedir_entry_trusted="${safedir_entry%/\*}"
+                safedir_entry_form="${C_YEL}trust rule${C_RST} -- git trusts every repository under ${safedir_entry_trusted:-/}" ;;
             /*) ;;
             *)
-                sdir_form="${C_YEL}not an absolute path${C_RST}" ;;
+                safedir_entry_form="${C_YEL}not an absolute path${C_RST}" ;;
         esac
-        if [[ -n "${sdir_form}" ]]; then
-            cleanup+=( "  ${sdir}" \
-                "      ${sdir_form}; ai-tools-safedir writes one absolute path per claim, and this value is a hand edit to review:" \
-                "          git config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory" )
+        if [[ -n "${safedir_entry_form}" ]]; then
+            cleanup+=( "  ${safedir_entry}" \
+                "      ${safedir_entry_form}; ai-tools-safedir writes one absolute path per claim, and this value is a hand edit to review:" \
+                "          git -C / config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory" )
             continue
         fi
-        ai_tools_safe_paths__match_protected_path "${sdir}" >/dev/null 2>&1 && continue
-        read_path_class "$(resolve_entry_path "${sdir}")"
+        ai_tools_safe_paths__match_protected_path "${safedir_entry}" >/dev/null 2>&1 && continue
+        read_path_class "$(resolve_entry_path "${safedir_entry}")"
         case "${CLASS_STATE}" in enabled|disabled) continue ;; esac
-        if find_invoker_traversal_blocker "${sdir}/" sdir_blocker; then
+        if find_invoker_traversal_blocker "${safedir_entry}/" safedir_entry_blocker; then
             unattributed=$(( unattributed + 1 )); continue
         fi
-        if ! sdir_real="$(realpath -e -- "${sdir}" 2>/dev/null)"; then
-            cleanup+=( "  ${sdir}" \
+        if ! safedir_entry_real="$(realpath -e -- "${safedir_entry}" 2>/dev/null)"; then
+            cleanup+=( "  ${safedir_entry}" \
                 "      ${C_YEL}no longer exists${C_RST} (stale git safe.directory); remove it:" \
-                "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${sdir}")" )
+                "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${safedir_entry}")" )
             continue
         fi
-        sdir_owner="$(stat -c '%U' -- "${sdir_real}" 2>/dev/null)" || sdir_owner=""
-        if [[ "${sdir_owner}" == "${SANDBOX_USER}" ]]; then
-            cleanup+=( "  ${sdir}" \
+        safedir_entry_owner="$(stat -c '%U' -- "${safedir_entry_real}" 2>/dev/null)" || safedir_entry_owner=""
+        if [[ "${safedir_entry_owner}" == "${SANDBOX_USER}" ]]; then
+            cleanup+=( "  ${safedir_entry}" \
                 "      ${C_YEL}held by the sandbox account${C_RST}; no line of this registry names it, and a claim accepts that owner for any operator, so remove it only if the tree is yours:" \
-                "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${sdir}")" )
-            _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove $(_quote_path "${sdir}")" )
+                "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${safedir_entry}")" )
+            _is_labelled "${safedir_entry}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove $(_quote_path "${safedir_entry}")" )
             continue
         fi
-        if [[ "${sdir_owner}" != "${OWNER_USER}" ]]; then
+        if [[ "${safedir_entry_owner}" != "${OWNER_USER}" ]]; then
             unattributed=$(( unattributed + 1 )); continue
         fi
-        cleanup+=( "  ${sdir}" \
+        cleanup+=( "  ${safedir_entry}" \
             "      ${C_YEL}git safe.directory with no allowlist entry${C_RST} (orphaned); remove it:" \
-            "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${sdir}")" )
-        _is_labelled "${sdir}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove $(_quote_path "${sdir}")" )
+            "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${safedir_entry}")" )
+        _is_labelled "${safedir_entry}" && cleanup+=( "          sudo ${RELABEL_BIN} --remove $(_quote_path "${safedir_entry}")" )
         continue
-    done < <(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null || true)
+    done <<< "${safedir_entries}"
+    if ! ${safedir_readable}; then
+        cleanup+=( "  ${GITCONFIG}" \
+            "      ${C_YEL}could not be read${C_RST}: each row reads safe.dir:?, and no orphaned or stale safe.directory entry is listed; list it with:" \
+            "          git -C / config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory" )
+    fi
 
     if (( ${#cleanup[@]} )); then
         section "Suggested cleanup"
@@ -6638,7 +6683,7 @@ cmd_project_list() {
         local entries_word="entries are" reader_word="${INVOKING_USER} "
         (( unattributed == 1 )) && entries_word="entry is"
         [[ "${INVOKING_USER}" != "${OWNER_USER}" ]] || reader_word=""
-        say "  ${C_DIM}${unattributed} git safe.directory ${entries_word} in trees ${OWNER_USER} does not hold or ${reader_word}cannot read, and not listed; each operator's own atr projects reports theirs. The whole list: git config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory${C_RST}"
+        say "  ${C_DIM}${unattributed} git safe.directory ${entries_word} in trees ${OWNER_USER} does not hold or ${reader_word}cannot read, and not listed; each operator's own atr projects reports theirs. The whole list: git -C / config --file $(_quote_path "${GITCONFIG}") --get-all safe.directory${C_RST}"
     fi
     list_maintenance_note
 }

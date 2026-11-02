@@ -475,29 +475,31 @@ an ordinary account read it — a partial view, the file sink being the authorit
   directions: a protected system path the tools refuse to touch; a stale enabled or disabled line, or a stale non-glob
   excluded line, whose path no longer exists; a project listed but not fully claimed; and — the reverse direction —
   a git `safe.directory` with **no** registry entry, skipping the deliberately-registered control-plane paths
-  the protected-paths backstop already covers. `safe.directory` is one list every operator's claims write into
-  and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is attributed before a removal
-  is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted unclaim); one whose
-  tree the sandbox account holds is named with its removal, to run only if the tree is the reader's, since
-  `require_claimable_owner` accepts that owner for any operator and no registry attributes it; one whose path is gone
-  is stale; one under a directory the invoker cannot enter, in a tree another account holds, or whose owner cannot be
-  read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not write — git's `*`
-  and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not
-  absolute — is named by its form with the command that lists the file, and does not take a removal or count, since
+  the protected-paths backstop already covers. `safe.directory` is one list every operator's claims write
+  into and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is attributed
+  before a removal is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted
+  unclaim); one whose tree the sandbox account holds is named with its removal, to run only if the tree is the reader's,
+  since `require_claimable_owner` accepts that owner for any operator and no registry attributes it; one whose path is
+  gone is stale; one under a directory the invoker cannot enter, in a tree another account holds, or whose owner cannot
+  be read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not write — git's `*`
+  and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not absolute
+  — is named by its form with the command that lists the file, and does not take a removal or count, since
   the exact-value removal deletes a live rule. Each printed path is one bash word, and `ai-tools-safedir --remove`
-  removes a value as git holds it, so a stored spelling is removed as stored. A registry line under a directory
-  the invoker cannot enter is reported as one it cannot read, without a removal, and on a `--for` run names
-  the target's own listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all,
-  from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed through
-  `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
-  standing, and a protected path, which the helper's backstop refuses, read in the form that backstop reads,
-  `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry through
-  the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line
-  among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
+  removes a value as git holds it, so a stored spelling is removed as stored. The list is read once, with git run
+  from `/`, since git exits on a working directory that was deleted, the one a shell keeps
+  after `atr projects remove .`; a list git cannot read is named under the cleanup, and each row's status reads `?`.
+  A registry line under a directory the invoker cannot enter is reported as one it cannot read, without a removal,
+  and on a `--for` run names the target's own listing as the one that reads it. The `sed` line deletes the verbatim
+  line, comment and all, from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line
+  is removed through `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line,
+  which that removal leaves standing, and a protected path, which the helper's backstop refuses, read in the form
+  that backstop reads, `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry
+  through the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow
+  line among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
   under a banner naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing
   predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command, never
-  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational,
-  so it stays open to a non-operator.
+  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational, so it
+  stays open to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree).
 - `--help`, `-h` and the bare word `help` — a **help request**, answered after the principal guards and ahead of every
   gate from the bootstrap gate on, so it does not run the command, call `sudo` or take a `--for` snapshot: the top help,
@@ -950,13 +952,15 @@ not claimed over. Where drift was listed, a second invocation after the Apply bl
 ([Interior drift](#interior-drift)).
 
 **A step whose state the owner cannot read is neither applied nor reported done.** The owner-side read reads the `.git`
-and `core.filemode` steps as `unknown` where the owner cannot make the reading — a root it cannot enter, a `.git`
-its git refuses as another account's repository, or a `.git` whose repository is not the one its git opens, or one it
-cannot list and enter — and the claim announces each in the Review block, writes it as an `error` row naming the step,
-prints the command that finishes it, and ends with exit 5. Each such step is the opt-in history share or a registry pin,
-so it is not applied, and the agent has less access to the project until the operator runs the printed command.
-That command, and the traverse grant the unreachable-location refusal prints, carry the path in bash's `%q` encoding,
-so each pastes as one word.
+and `core.filemode` steps as `unknown` where the owner cannot make the reading — a root it cannot enter, a `.git` its
+git refuses as another account's repository, or a `.git` whose repository is not the one its git opens, or one it cannot
+list and enter — and the claim announces each in the Review block, writes it as an `error` row naming the step, prints
+the command that finishes it, and ends with exit 5. Each such step is the opt-in history share or a registry pin, so it
+is not applied, and the agent has less access to the project until the operator runs the printed command. That command,
+and the traverse grant the unreachable-location refusal prints, carry the path in bash's `%q` encoding, so each pastes
+as one word. A `safe.directory` list git cannot read stops the claim ahead of the Review block and of its first write,
+the re-enable offer, under `MSG-S3F4` with an `error` row and exit 5, since a pending step it would list there is one
+the claim cannot decide; the notice names the `git -C /` read that shows git's own error.
 
 **A failed step asks once before attempting the next.** Every root step authenticates separately and no step can be
 pre-authenticated (a sudoers `timestamp_timeout=0` prompts on every invocation), so a mistyped password would cost

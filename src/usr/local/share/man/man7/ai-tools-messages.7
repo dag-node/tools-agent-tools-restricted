@@ -306,6 +306,10 @@ unknown command: ${path} \-\- run '${help_command}'
 ERROR.
 project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running
 .TP
+.B MSG-S3F4
+WARNING.
+the git safe.directory list ${GITCONFIG} could not be read, so the claim applied no step
+.TP
 .B MSG-S3U5
 WARNING.
 the directory $(ai_tools_log__sanitize "${CREATE_LEFT_TREE}") was created and its claim did not finish \-\- the directory stays; finish the claim with:
@@ -1730,6 +1734,10 @@ ERROR.
 the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than a file this host wrote \-\- refusing to launch
 .SS ai-tools-safedir
 .TP
+.B MSG-E7T5
+WARNING.
+cannot read the safe.directory list in ${GITCONFIG} (git exit ${status}) \-\- not editing safe.directory
+.TP
 .B MSG-F4Y6
 WARNING.
 not a directory: ${canonical} \-\- not registering safe.directory
@@ -1753,6 +1761,10 @@ cannot load ${CONTROL_PLANE_LIB} \-\- not editing safe.directory; reinstall ai\-
 .B MSG-V7J8
 WARNING.
 unknown option: ${arg}
+.TP
+.B MSG-X8T6
+WARNING.
+safe.directory still lists ${stored_value} after the removal \-\- ${GITCONFIG} was not changed
 .SS ai-tools-setfacl
 .TP
 .B MSG-C3V2

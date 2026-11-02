@@ -1055,8 +1055,8 @@ states for every report in this project.
 A report could not make a reading it promises, so its findings are incomplete
 .RB ( status ": a library the package ships did not load; " audit ": a log file,
 the journal or the audit log could not be read, or the caller is not root;
-.BR "projects claim" ": the tree could not be read as its owner, or a drifted file's state, or a scan of the tree,
-could not be read).
+.BR "projects claim" ": the tree could not be read as its owner, the git safe.directory list
+could not be read, or a drifted file's state, or a scan of the tree, could not be read).
 The page names the reading it could not make.
 .B stop
 returns the same code for its own case: it could not run at all, because it was
