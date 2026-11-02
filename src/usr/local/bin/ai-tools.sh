@@ -1543,11 +1543,13 @@ acl_drift_scan() {
 # tree whose named entries a claim before the owner-permissions mask wrote narrower than `rwx`
 # (ai_tools_project_permissions__find_narrow_named_entries). The candidates are the files ai-tools-setfacl's walk
 # reaches and does not regroup: its skip list and `.git` pruned, this project's '!'-excluded subtrees (SCAN_EXCLUSIONS)
-# and owner-only directories pruned, held by the operator or the sandbox account, in the sandbox group, with a group
-# or other bit. A secret-named path is dropped where the caller's secret_patterns_loaded (dynamic scope) says
-# the owner's patterns loaded: the walk skips it, so listing it would put it on every re-claim. Returns 1,
-# with <detail-var> naming why, when the walk or the ACL reader did not complete; the hits it did read stay
-# in the array.
+# and owner-only directories pruned, held by the operator, in the sandbox group, with a group or other bit.
+# A sandbox-owned file is left out: its owner may set its ACL, so the sandbox account could plant narrow entries
+# and have every re-claim offer a walk that resets the operator's own chmods across the tree; an operator-owned file's
+# ACL is the operator's to set (tests/boundary/access.sh). A secret-named path is dropped where the caller's
+# secret_patterns_loaded (dynamic scope) says the owner's patterns loaded: the walk skips it, so listing it would put it
+# on every re-claim. Returns 1, with <detail-var> naming why, when the walk or the ACL reader did not complete; the hits
+# it did read stay in the array.
 entry_drift_scan() {
     local dir="$1" work="$2" exclusion status=0 path operator_uid sandbox_gid reader_detail=""
     local -n _entry_scan_paths="$3" _entry_scan_detail="$4"
@@ -1559,7 +1561,7 @@ entry_drift_scan() {
     AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=()
     ai_tools_skip_dirs__build_find_expression setfacl '' "${dir}" 2>/dev/null || true
     { LC_ALL=C find "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" \( "${skip[@]}" \) -o \
-        -type f \( -user "${OWNER_USER}" -o -user "${SANDBOX_USER}" \) -group "${SANDBOX_GROUP}" -perm /077 -print0 \
+        -type f -user "${OWNER_USER}" -group "${SANDBOX_GROUP}" -perm /077 -print0 \
         > "${work}/entries.walk" 2> "${work}/entries.walk.err"; } 2>/dev/null || status=$?
     if (( status != 0 )) || [[ ! -f "${work}/entries.walk.err" || -s "${work}/entries.walk.err" ]]; then
         _entry_scan_detail="the entries walk $(drift_walk_failure "${status}" "${work}/entries.walk.err")"
@@ -3394,6 +3396,10 @@ cmd_project_claim() {
     # Files whose named entries an earlier claim wrote narrower than rwx take the ACL step's walk again, behind
     # the proceed confirm and the gate: the walk can widen a file whose owner gained a permission since.
     local need_entries=false; (( ${#entry_drift[@]} )) && need_entries=true
+    # A project an earlier release claimed carries the entries on most of its files, so the list usually stops
+    # at CLAIM_SCAN_CAP; the count then says so rather than naming the cap as the total.
+    local entry_count="${#entry_drift[@]}"
+    ! ${entry_capped} || entry_count="more than ${CLAIM_SCAN_CAP}"
     # A step the owner-side read records as `unknown` is not applied (cli.rule.md, Claim in place).
     local git_unreadable=false filemode_unreadable=false
     [[ "${git}" == unknown ]] && git_unreadable=true
@@ -3679,7 +3685,7 @@ cmd_project_claim() {
     [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
     ${need_entries} \
-        && say "    - apply the group-permission ACL again: ${#entry_drift[@]} file(s) carry an earlier claim's entries"
+        && say "    - apply the group-permission ACL again: ${entry_count} file(s) carry an earlier claim's entries"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
     (( ${#label_drift[@]} )) \
         && say "    - SELinux type differs on ${#label_drift[@]} path(s) -- you will be asked to relabel the tree (default no)"
@@ -3709,7 +3715,7 @@ cmd_project_claim() {
     # over entries written rwx does not show here, so the step does not reset a deliberate one on every re-claim.
     if ${need_entries}; then
         headline_warn "NOTICE: ACL entries from an earlier claim" \
-            "${#entry_drift[@]} file(s) carry the ACL entries a claim by an earlier release wrote: yours and the agent's give read and write alone, so a chmod g+x on one does not reach the agent. The pending ACL step writes them again across the tree, so the agent gets what you have on each file and later chmods reach it."
+            "${entry_count} file(s) carry the ACL entries a claim by an earlier release wrote: yours and the agent's give read and write alone, so a chmod g+x on one does not reach the agent. The pending ACL step writes them again across the tree, so the agent gets what you have on each file and later chmods reach it."
         path_listing "file(s)" "${entry_drift[@]}"
         ! ${entry_capped} || say "        ${C_DIM}(list capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
     fi

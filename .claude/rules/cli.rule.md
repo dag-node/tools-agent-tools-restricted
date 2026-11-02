@@ -1010,12 +1010,15 @@ by intent:
   or sandbox-group entry is written narrower than `rwx`, read from the kernel's access-ACL value. Only a claim
   before the owner-permissions mask writes one (`rw-` on a file without an execute bit, under a mask that leaves
   the access in effect the model gives); the owner's later `chmod g+x` does not reach the agent through it.
-  The candidates are the files `ai-tools-setfacl`'s walk reaches and does not regroup, and a secret-named one is left
-  out, since the walk skips it. The scan reads entries and not modes: a `670` file is the state a deliberate `chmod g+x`
-  leaves, and is not reported. Unlike the drift kinds this is a **pending step**, under the proceed confirm, since its
-  repair is the ACL step's walk, which only narrows or follows the owner's own permissions on a file in the sandbox
-  group; it takes the secret gate as that step does, and the walk it runs over the tree also settles the mode states
-  an earlier walk left (`670`, `460`, `570`).
+  The candidates are the operator's files that `ai-tools-setfacl`'s walk reaches and does not regroup,
+  and a secret-named one is left out, since the walk skips it. A file the sandbox account holds is left out too: its
+  owner sets its ACL, so the account could plant narrow entries and have every re-claim offer a walk that resets
+  the operator's own `chmod g-x` across the tree, while an operator-owned file's ACL is the operator's to set. The scan
+  reads entries and not modes: a `670` file is the state a deliberate `chmod g+x` leaves, and is not reported. Unlike
+  the drift kinds this is a **pending step**, under the proceed confirm, since its repair is the ACL step's walk,
+  which only narrows or follows the owner's own permissions on a file in the sandbox group; it takes the secret gate
+  as that step does, and the walk it runs over the tree also settles the mode states an earlier walk left (`670`, `460`,
+  `570`).
 - **SELinux type** (`label_drift_scan`, when the root is labelled): the paths whose type is not the one the claim's
   relabel would apply, asked of the policy through a dry run of that relabel (`restorecon -n -F`, unprivileged),
   so every loaded module's types are covered. Only a type difference counts; why a difference in the SELinux user

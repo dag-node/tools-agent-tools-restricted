@@ -754,9 +754,9 @@ else
     # The entries an earlier claim wrote: a claimed tree (the sandbox group, setgid, the default ACL in place) holding
     # one file whose named entries are rw-, the one record; beside it the same entries on a file the walk does not reach
     # -- under the skip list, under an owner-only directory, under an excluded subtree, a secret-named one
-    # under a fixture patterns file -- and a file carrying the walk's own entries, rwx under a rw- mask, none of them
-    # a record. The drift tree of the cap case, whose root does not carry a default ACL, is the control that the scan
-    # runs only where the ACL step is in place.
+    # under a fixture patterns file -- a file the sandbox account holds, whose ACL that account sets itself, and a file
+    # carrying the walk's own entries, rwx under a rw- mask, none of them a record. The drift tree of the cap case,
+    # whose root does not carry a default ACL, is the control that the scan runs only where the ACL step is in place.
     in_out="$(inspect_run "${in_drift}" "${in_work}/drift.in" --scan-group)" || true
     if inspect_has "${in_out}" "state|acl|true|" && ! grep -q '^scan|entries|' <<< "${in_out}"; then
         pass "control: with the ACL step pending the entries scan is not run"
@@ -765,9 +765,10 @@ else
     fi
     in_entries="${in_work}/entries"
     mkdir -p "${in_entries}/node_modules/pkg" "${in_entries}/private" "${in_entries}/excl"
-    in_entry_files=(narrow walked node_modules/pkg/narrow private/narrow excl/narrow deploy.pem)
+    in_entry_files=(narrow walked node_modules/pkg/narrow private/narrow excl/narrow deploy.pem agent-owned)
     for in_name in "${in_entry_files[@]}"; do : > "${in_entries}/${in_name}"; chmod 0660 "${in_entries}/${in_name}"; done
     chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${in_entries}"
+    chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${in_entries}/agent-owned"
     chmod 2770 "${in_entries}" "${in_entries}/node_modules" "${in_entries}/node_modules/pkg" "${in_entries}/excl"
     chmod 0700 "${in_entries}/private"
     setfacl -m "g:${SANDBOX_GROUP}:rwx,d:g:${SANDBOX_GROUP}:rwx,d:u:${PROJECTS_USER}:rwx" "${in_entries}"
@@ -784,7 +785,7 @@ else
     if [[ "$(grep -c '^entry-drift|' <<< "${in_out}" || true)" == 1 ]] \
             && grep -qF -- "entry-drift|$(printf '%q' "${in_entries}/narrow")|" <<< "${in_out}" \
             && inspect_has "${in_out}" "scan|entries|complete|''|"; then
-        pass "the entries scan records the file an earlier claim's entries narrow, and none the walk does not reach"
+        pass "the entries scan records the operator's file whose entries are narrow, and none the walk does not reach or the sandbox account holds"
     else
         fail "projects inspect --scan-group over the entries tree printed '$(grep -e '^entry-drift' -e '^scan|entries' <<<"${in_out}" | tr '\n' '~')'"
     fi
