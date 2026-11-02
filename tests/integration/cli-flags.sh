@@ -560,6 +560,15 @@ drive_rows() {
     expect "a plain drift path beside it is not"                      out_lacks_text "moved-in.txt [secret]"
     RUN_EXTRA_ENV=(); rm -f "${R}/ph/deploy.pem"
 
+    # A root step that fails outranks the rows: the safe.directory entry is missing, so its helper runs on every host,
+    # and it exits 1; the claim exits 1 with the file still reported not fixed.
+    seed_gc
+    cli_stub_reset; cli_stub_fail ai-tools-safedir
+    drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/ph"
+    expect "a failed root step exits 1 over the drift left"           rc_is 1
+    expect "the failed claim still writes its rows"                   out_has_row group-not-fixed
+    cli_stub_reset; seed_gc "${R}/ph"
+
     # A declined group repair holds for the walk the claim runs for another step: here the `.git` share, which a run
     # without a terminal accepts by its default. The repository belongs to the projects user, so its git reads it.
     claimed_fixture "${R}/pj"
@@ -593,15 +602,6 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pn"
     expect "with the walk's entries the re-claim lists none"          out_lacks_text "ACL entries from an earlier claim"
     expect "and does not walk the tree"                               cli_log_lacks ai-tools-setfacl
-
-    # A root step that fails outranks the rows: the safe.directory entry is missing, so its helper runs on every host,
-    # and it exits 1; the claim exits 1 with the file still reported not fixed.
-    seed_gc
-    cli_stub_reset; cli_stub_fail ai-tools-safedir
-    drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/ph"
-    expect "a failed root step exits 1 over the drift left"           rc_is 1
-    expect "the failed claim still writes its rows"                   out_has_row group-not-fixed
-    cli_stub_reset; seed_gc "${R}/ph"
 
     # A walk that fails to read part of the tree: a root-owned 0700 directory, which the projects user lacks search
     # permission on, makes the group walk write to stderr, which the claim reports as an `error` row and exit 5 rather
