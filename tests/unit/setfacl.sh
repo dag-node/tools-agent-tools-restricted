@@ -333,4 +333,67 @@ else
     fail "control: ${ir}/sub carries no group entry -- the refusal above is not evidence"
 fi
 
+# ── The mask per path: what the owner has, not the execute or write a path inherited ───────────────────────────
+# A file created under a default ACL inherits the named and group:: entries with x, held at r-- by the mask its mode
+# set; a `setfacl -m` of `rwX` would resolve X to x and recalculate the mask to rwx, so a 0640 file would end 0670
+# and executable to every group-class entry, and a 0444 file would end writable to it. The helper writes both named
+# entries rwx and gives each path its mask explicitly from the owner's permissions, as a file created later
+# under the default ACL carries it, and leaves a directory's sticky bit. Each fixture is asserted on the mode, the mask
+# and both named entries in effect, under a parent that carried a default ACL when the file was created and under one
+# that did not. The owner's chmod of the group execute bit then decides, which is what the operator page states.
+section "ai-tools-setfacl: the mask a path gets"
+ps="${TESTDIR}/mask-per-path"
+mkdir -p "${ps}/inherited" "${ps}/plain/dir" "${ps}/plain/rodir" "${ps}/plain/sticky"
+chmod 0750 "${ps}" "${ps}/inherited" "${ps}/plain" "${ps}/plain/dir"
+chmod 0770 "${ps}/plain/sticky"; chmod +t "${ps}/plain/sticky"
+setfacl -m "d:group::rwx,d:user:${PROJECTS_USER}:rwx,d:group:${SANDBOX_GROUP}:rwx,d:other::---" "${ps}/inherited"
+: > "${ps}/inherited/data"; : > "${ps}/plain/data"; : > "${ps}/plain/tool"; : > "${ps}/plain/readonly"
+: > "${ps}/inherited/readonly"
+chmod 0640 "${ps}/inherited/data" "${ps}/plain/data"; chmod 0750 "${ps}/plain/tool"
+chmod 0444 "${ps}/plain/readonly" "${ps}/inherited/readonly"; chmod 0550 "${ps}/plain/rodir"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ps}"
+if getfacl -p "${ps}/inherited/data" 2>/dev/null | grep -qx "group::rwx[[:space:]]*#effective:r--"; then
+    pass "fixture: the file under the default ACL inherits group::rwx under a r-- mask"
+else
+    fail "fixture: ${ps}/inherited/data did not inherit group::rwx under a r-- mask -- the cases below are not evidence: $(getfacl -p "${ps}/inherited/data" 2>/dev/null | tr '\n' ' ')"
+fi
+mk_allowlist "@ ${ps}"
+setsid "${HELPER}" "${ps}" < /dev/null > /dev/null 2>&1 || true
+# mask_is <what> <path> <want-mode> <want-effective>: the mode, the mask, and both named entries written rwx
+# and granting <want-effective> in effect.
+mask_is() {
+    local acl entry missing=""
+    acl="$(getfacl -p -c "$2" 2>/dev/null)"
+    for entry in "user:${PROJECTS_USER}" "group:${SANDBOX_GROUP}"; do
+        if [[ "$4" == rwx ]]; then
+            grep -qx -- "${entry}:rwx" <<< "${acl}" || missing+=" ${entry}:rwx"
+        else
+            grep -qx -- "${entry}:rwx[[:space:]]*#effective:$4" <<< "${acl}" || missing+=" ${entry}:rwx (effective $4)"
+        fi
+    done
+    grep -qx -- "mask::$4" <<< "${acl}" || missing+=" mask::$4"
+    if [[ -z "${missing}" && "$(stat -c '%A' "$2")" == "$3" ]]; then
+        pass "$1: $3, both named entries rwx, $4 in effect"
+    else
+        fail "$1: $(stat -c '%A' "$2"), missing${missing:- none} in '$(tr '\n' ' ' <<< "${acl}")' (want $3, $4)"
+    fi
+}
+mask_is "a 0640 file created under a default ACL" "${ps}/inherited/data" -rw-rw---- rw-
+mask_is "a 0640 file created without a default ACL" "${ps}/plain/data" -rw-rw---- rw-
+mask_is "a 0750 file" "${ps}/plain/tool" -rwxrwx--- rwx
+mask_is "a directory" "${ps}/plain/dir" drwxrws--- rwx
+# The mask copies the owner's permissions, so a path the owner cannot write stays unwritable to the agent in place.
+mask_is "a 0444 file" "${ps}/plain/readonly" -r--r----- r--
+mask_is "a 0444 file created under a default ACL" "${ps}/inherited/readonly" -r--r----- r--
+mask_is "a 0550 directory" "${ps}/plain/rodir" dr-xr-s--- r-x
+mask_is "a sticky 0770 directory, its sticky bit kept" "${ps}/plain/sticky" drwxrws--T rwx
+chmod g+x "${ps}/plain/data"; chmod g-x "${ps}/plain/tool"
+mask_is "the owner's chmod g+x on a claimed data file" "${ps}/plain/data" -rw-rwx--- rwx
+mask_is "the owner's chmod g-x on a claimed script" "${ps}/plain/tool" -rwxrw---- rw-
+# A walk sets each file's mask from the owner bit again: a group execute bit without the owner's goes, and one taken
+# from a script the owner runs comes back.
+setsid "${HELPER}" "${ps}" < /dev/null > /dev/null 2>&1 || true
+mask_is "a later walk over the chmod g+x data file" "${ps}/plain/data" -rw-rw---- rw-
+mask_is "a later walk over the chmod g-x script" "${ps}/plain/tool" -rwxrwx--- rwx
+
 finish

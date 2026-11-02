@@ -2,11 +2,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-setfacl
 # Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write an approved tree
-# whatever either party's umask: an access + inherited-default ACL granting rwX to the @SANDBOX_GROUP@ group (the
-# agent's access to operator-written files) and to the resolved operator (the operator's access to agent-written files),
-# others denied, built by project-permissions.lib.sh, the specification the claim's verifier reads too.
-# Under `--with-git` a second pass normalizes `.git` the same way -- group, setgid on its directories and the same ACL
-# -- so the operator's commits stay agent-readable.
+# whatever either party's umask: an access + inherited-default ACL granting the @SANDBOX_GROUP@ group (the agent's
+# access to operator-written files) and the resolved operator (the operator's access to agent-written files) rwx,
+# under a mask copying the owner's permissions, so each path gives them what its owner has, others denied, built
+# by project-permissions.lib.sh, the specification the claim's verifier reads too. Under `--with-git` a second pass
+# normalizes `.git` the same way -- group, setgid on its directories and the same ACL -- so the operator's commits stay
+# agent-readable.
 #
 # The walk skips secret-named, '!'-excluded, skip-list and foreign-owned paths, and never grants an owner-only path
 # (0600/0700; `_safe_setfacl` returns 2 on ai_tools_owner_only__is_owner_only): it strips the sandbox residue such
@@ -270,13 +271,21 @@ _safe_setfacl() {
         [[ "${got_ftype}" == directory ]] \
             && { chmod -- g+s "/proc/self/fd/${fd}" 2>/dev/null || rc=1; }
     fi
+    # The mask is the owner's permissions (ai_tools_project_permissions__get_owner_permissions), written explicitly
+    # under `setfacl -n`, so the named entries, `rwx` as on a path created later under the default ACL, give the agent
+    # what the owner has: a read-only file stays read-only to it, and the owner's later `chmod g+x` or `g-x` changes its
+    # execute. A plain `-m` recalculates the mask to the union of the group-class entries, which a file created
+    # under a default ACL inherits with `x` (the clone area's among them). A directory's default set keeps `rwx`,
+    # the access a path created inside it inherits under the mask its create mode sets.
+    local path_mask=""
+    ai_tools_project_permissions__get_owner_permissions path_mask "${got_mode}" || { exec {fd}<&-; return 1; }
     case "${got_ftype}" in
         directory)
-            setfacl    -m "${ACL_SPEC}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
+            setfacl -n -m "${ACL_SPEC},mask::${path_mask}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
             setfacl -d -m "${ACL_SPEC}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
             ;;
         "regular file"|"regular empty file")
-            setfacl    -m "${ACL_SPEC}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
+            setfacl -n -m "${ACL_SPEC},mask::${path_mask}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
             ;;
         *)  # symlink / fifo / device / socket -- never ACL these
             exec {fd}<&-

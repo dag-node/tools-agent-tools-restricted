@@ -73,9 +73,10 @@ readonly LOCKDOWN_BIN="/usr/local/libexec/ai-tools/ai-tools-lockdown"
 # in-place tree; the per-project semanage fcontext rule it adds needs root. Sandbox clones do not use it (static rule +
 # plain restorecon -- see relabel_clone).
 readonly RELABEL_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel"
-# Root-only ACL helper: applies the project's group-permission ACL (default + access group:SANDBOX_GROUP:rwX, other
-# denied) so files the projects user's git checkout/merge writes under a restrictive umask stay group-accessible
-# to the agent. CAP_FOWNER lets it ACL files the projects user does not own.
+# Root-only ACL helper: applies the project's group-permission ACL (default + access group:SANDBOX_GROUP:rwx
+# under a mask of rw- on a file without an owner execute bit, other denied) so files the projects user's git
+# checkout/merge writes under a restrictive umask stay group-accessible to the agent. CAP_FOWNER lets it ACL files
+# the projects user does not own.
 readonly SETFACL_BIN="/usr/local/libexec/ai-tools/ai-tools-setfacl"
 # Root-only setgid helper: sets group SANDBOX_GROUP + the setgid bit on a claimed project's directories. The operator is
 # not a SANDBOX_GROUP member (multi-operator), so the group change needs root; the helper carries its own allowlist +
@@ -1919,8 +1920,9 @@ grant_ancestor_traversal() {
 # The clone is created with its ACL stripped (clone_privately), so the walk then gives every opened path the access ACL
 # the clone area's default ACL would have given it at creation, and every directory that default ACL itself: the named
 # and `group::` entries as the default holds them, and the mask the kernel derives from the create mode -- `rwx`
-# on a directory and on a file with an execute bit, `rw-` on any other file, which is what `chmod g+rwX` leaves
-# after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries and would open every file
+# on a directory and on a file with an owner execute bit, `rw-` on any other file, the rule ai-tools-setfacl applies
+# to a claimed file. A umask-077 create does not leave a group or other execute bit, so this is also what `chmod g+rwX`
+# leaves after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries and would open every file
 # to execute, so each class takes its mask explicitly under `-n`. `user::` and `other::` keep the bits the create's
 # umask 077 left.
 normalize_clone() {
@@ -1948,8 +1950,8 @@ normalize_clone() {
     done <<< "${area_acl}"
     [[ -n "${defaults}" ]] || return 0
     find "${d}" -xdev "${prune[@]}" -type d -exec setfacl -n -m "${access}${access:+,}m::rwx,${defaults}" {} +
-    find "${d}" -xdev "${prune[@]}" -type f -perm /111 -exec setfacl -n -m "${access}${access:+,}m::rwx" {} +
-    find "${d}" -xdev "${prune[@]}" -type f ! -perm /111 -exec setfacl -n -m "${access}${access:+,}m::rw-" {} +
+    find "${d}" -xdev "${prune[@]}" -type f -perm -u+x -exec setfacl -n -m "${access}${access:+,}m::rwx" {} +
+    find "${d}" -xdev "${prune[@]}" -type f ! -perm -u+x -exec setfacl -n -m "${access}${access:+,}m::rw-" {} +
 }
 
 # find_pattern_literal <output-variable> <path>  -- set <output-variable> to <path> escaped for find's `-path`/`-name`

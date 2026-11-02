@@ -19,10 +19,13 @@ fi
 readonly _AI_TOOLS_PROJECT_PERMISSIONS__LOADED=1
 
 # ai_tools_project_permissions__build_acl_specification <output-variable> <operator> <sandbox-group>  -- set
-# <output-variable> to the `setfacl -m` specification a claim applies: the operator's named grant, the sandbox group's,
-# and `other::---`. `rwX` grants execute only on a directory or a file that already has an execute bit. Returns 1
-# with the variable empty when an identity is empty or holds a character outside `[A-Za-z0-9._-]`, since a `,` or `:`
-# in one would add an entry of its own to the specification; returns 2 on an invalid variable name.
+# <output-variable> to the `setfacl -m` specification a claim applies: the operator's named grant and the sandbox
+# group's, each `rwx`, and `other::---`. It does not carry a mask entry: the mask decides what each named entry grants
+# in effect, and ai-tools-setfacl sets it per path to the owner's permissions
+# (ai_tools_project_permissions__get_owner_permissions), so a path gives the agent what its owner has. A `rwX` here
+# would resolve `X` from the entries a file inherited. Returns 1 with the variable empty when an identity is empty
+# or holds a character outside `[A-Za-z0-9._-]`, since a `,` or `:` in one would add an entry of its own
+# to the specification; returns 2 on an invalid variable name.
 ai_tools_project_permissions__build_acl_specification() {
     local _output="$1" _operator="$2" _group="$3"
     [[ "${_output}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
@@ -30,7 +33,25 @@ ai_tools_project_permissions__build_acl_specification() {
     local LC_ALL=C
     [[ "${_operator}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]] || return 1
     [[ "${_group}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]] || return 1
-    printf -v "${_output}" 'user:%s:rwX,group:%s:rwX,other::---' "${_operator}" "${_group}"
+    printf -v "${_output}" 'user:%s:rwx,group:%s:rwx,other::---' "${_operator}" "${_group}"
+}
+
+# ai_tools_project_permissions__get_owner_permissions <output-variable> <octal-mode>  -- set <output-variable> to the
+# owner's permissions in <octal-mode> as a three-character string (`rwx`, `rw-`, `r--`, `r-x`, ...), the mask a claim
+# gives the path. The owner's bits are read because on a path carrying an ACL the group bits of the mode are the mask,
+# and git records the owner's execute bit; a mask copying them does not give the group class a permission the owner
+# lacks, so a read-only file stays read-only to the agent. Returns 1 with the variable empty when <octal-mode> is not
+# an octal number of at most four digits; returns 2 on an invalid variable name.
+ai_tools_project_permissions__get_owner_permissions() {
+    local _output="$1" _mode="$2" _letters=rwx _result="" _bits _index
+    [[ "${_output}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
+    printf -v "${_output}" '%s' ''
+    [[ "${_mode}" =~ ^[0-7]{1,4}$ ]] || return 1
+    _bits=$(( (8#${_mode} >> 6) & 7 ))
+    for _index in 0 1 2; do
+        if (( _bits & (4 >> _index) )); then _result+="${_letters:_index:1}"; else _result+=-; fi
+    done
+    printf -v "${_output}" '%s' "${_result}"
 }
 
 # _ai_tools_project_permissions__read_capture <file> <output-variable>  -- set <output-variable> to the whole content
@@ -355,12 +376,13 @@ _ai_tools_project_permissions__read_pinned() {
 #     the helper refused cannot pass on a group and ACL that already matched);
 #   * it is not owner-only (the claim honours that seal, and the path is still not shared);
 #   * its group is the sandbox group, and a directory carries setgid;
-#   * each named entry of the specification grants in effect `rw`, plus `x` on a directory or on a file whose mode has
-#     an execute bit, and `other::` is `---`; on a directory the default set holds the same.
+#   * each named entry of the specification grants in effect exactly the owner's permissions
+#     (ai_tools_project_permissions__get_owner_permissions), the mask the repair sets, so a permission the owner lacks
+#     is drift; `other::` is `---`; on a directory the default set grants `rwx` and `other::---`.
 ai_tools_project_permissions__check_group() {
     local _path="$1" _work="$2" _operator_uid="$3" _sandbox_uid="$4" _sandbox_gid="$5"
     local -n _group_outcome="$6" _group_detail="$7"
-    local LC_ALL=C _read="" _status=0 _uid _gid _mode _type _specification _entry _key _need _have _set _index
+    local LC_ALL=C _read="" _status=0 _uid _gid _mode _type _specification _entry _key _need _set_need _have _set
     local -A _access=() _default=()
     local -a _entries=() _sets=(_access)
     _group_outcome=unknown _group_detail=""
@@ -394,13 +416,13 @@ ai_tools_project_permissions__check_group() {
         _group_outcome=unknown _group_detail="its ACL could not be read"
         return 0
     fi
+    ai_tools_project_permissions__get_owner_permissions _need "${_mode}" || {
+        _group_outcome=unknown _group_detail="its mode ${_mode} could not be read"; return 0; }
     if ! ai_tools_project_permissions__build_acl_specification _specification \
             "${_operator_uid}" "${_sandbox_gid}"; then
         _group_outcome=unknown _group_detail="no ACL specification for uid ${_operator_uid}"
         return 0
     fi
-    _need=rw-
-    if [[ "${_type}" == directory ]] || (( (8#${_mode} & 8#111) != 0 )); then _need=rwx; fi
     if [[ "${_type}" == directory ]]; then
         _sets+=(_default)
         if (( ${#_default[@]} == 0 )); then
@@ -410,6 +432,8 @@ ai_tools_project_permissions__check_group() {
     fi
     IFS=, read -r -a _entries <<< "${_specification}"
     for _set in "${_sets[@]}"; do
+        _set_need="${_need}"
+        [[ "${_set}" == _default ]] && _set_need=rwx
         for _entry in "${_entries[@]}"; do
             _key="${_entry%:*}"
             if [[ "${_key}" == other: ]]; then
@@ -419,12 +443,10 @@ ai_tools_project_permissions__check_group() {
                 return 0
             fi
             ai_tools_project_permissions__get_effective_permissions _have "${_set}" "${_key}"
-            for _index in 0 1 2; do
-                if [[ "${_need:_index:1}" != - && "${_have:_index:1}" != "${_need:_index:1}" ]]; then
-                    _group_detail="${_set#_}: ${_key}: grants ${_have:-no entry} in effect, not ${_need}"
-                    return 0
-                fi
-            done
+            if [[ "${_have}" != "${_set_need}" ]]; then
+                _group_detail="${_set#_}: ${_key}: grants ${_have:-no entry} in effect, not ${_set_need}"
+                return 0
+            fi
         done
     done
     _group_outcome=match _group_detail=""

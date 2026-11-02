@@ -1219,6 +1219,8 @@ else
         printf "created_entries=%s\n" "$(getfacl -p -c -- "${area}/created" | grep -cE "^(user|group):[^:]+:|^default:")"
         normalize_clone "${area}/control" >/dev/null 2>&1
         normalize_clone "${area}/created" >/dev/null 2>&1
+        printf "created_plain_mask=%s\n" "$(getfacl -p -c -- "${area}/created/plain.txt" | sed -n "s/^mask:://p")"
+        printf "created_run_mask=%s\n" "$(getfacl -p -c -- "${area}/created/run.sh" | sed -n "s/^mask:://p")"
         acl_tree() { ( cd "$1" && find . -print0 | sort -z | xargs -0 getfacl -p -- ); }
         control_tree="$(acl_tree "${area}/control")"; created_tree="$(acl_tree "${area}/created")"
         printf "control_named=%s\n" "$(grep -c "^group:ai-ops:" <<< "${control_tree}")"
@@ -1248,6 +1250,13 @@ else
         pass "normalize_clone opens a private clone to the ACL the area gives a clone created under it"
     else
         fail "normalize_clone: the opened trees $(cp_value trees) ($(sed -n 's/^diff=//p' <<< "${cp_out}" | tr '\n' '|' || true))"
+    fi
+    # The mask follows the owner execute bit, the rule ai-tools-setfacl applies to a claimed file: a data file rw-,
+    # a script rwx.
+    if [[ "$(cp_value created_plain_mask)" == rw- && "$(cp_value created_run_mask)" == rwx ]]; then
+        pass "normalize_clone gives a data file the mask rw- and a script the mask rwx"
+    else
+        fail "normalize_clone: plain.txt mask '$(cp_value created_plain_mask)', run.sh mask '$(cp_value created_run_mask)' (want rw-, rwx)"
     fi
 fi
 

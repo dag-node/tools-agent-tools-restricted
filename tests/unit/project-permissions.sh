@@ -3,7 +3,7 @@
 # tests/unit/project-permissions.sh
 # Unit test for project-permissions.lib.sh: the ACL specification a claim grants, which ai-tools-setfacl applies,
 # and the per-path checks the claim collects its drift and verifies its repairs with. What it pins, in order:
-#   * the specification: the literal `ai-tools-setfacl` applies, `user:<operator>:rwX,group:<group>:rwX,other::---`,
+#   * the specification: the literal `ai-tools-setfacl` applies, `user:<operator>:rwx,group:<group>:rwx,other::---`,
 #     so a change to the builder is a change to every claimed tree's grant; the numeric form the checks pass;
 #     and the refusals that keep an identity from adding an entry of its own (a `,` or `:` in a name);
 #   * the context and record grammar, where a malformed context is refused rather than read as an empty type;
@@ -13,6 +13,7 @@
 #     to read as a match, while the whole records such output carried keep their drift;
 #   * lstat_outcomes over real paths: absence is ENOENT or ENOTDIR alone, an unsearchable ancestor is unknown,
 #     a dangling symlink and a non-UTF-8 name exist, and a run whose output cannot be read makes every path unknown;
+#   * the owner's permissions a claim copies into the mask, as a table, with the modes it refuses;
 #   * the ACL reader and group_check: the mask limits the named entries and group:: alone (acl(5)), a named entry with
 #     no mask, a duplicate and an incomplete set are unknown, and each postcondition -- owner, seal, group, setgid, each
 #     entry in effect, the default set -- fails on its own; a real setfacl of the specification is the live control.
@@ -40,15 +41,15 @@ source "${LIB}"
 
 spec='unset'
 if ai_tools_project_permissions__build_acl_specification spec alice ai-tools \
-        && [[ "${spec}" == "user:alice:rwX,group:ai-tools:rwX,other::---" ]]; then
-    pass "names: the specification ai-tools-setfacl applied before the move"
+        && [[ "${spec}" == "user:alice:rwx,group:ai-tools:rwx,other::---" ]]; then
+    pass "names: both named entries rwx and other::---, no mask entry"
 else
     fail "names: got '${spec}'"
 fi
 
 spec='unset'
 if ai_tools_project_permissions__build_acl_specification spec 1000 985 \
-        && [[ "${spec}" == "user:1000:rwX,group:985:rwX,other::---" ]]; then
+        && [[ "${spec}" == "user:1000:rwx,group:985:rwx,other::---" ]]; then
     pass "numeric ids: the form getfacl --numeric prints"
 else
     fail "numeric ids: got '${spec}'"
@@ -56,7 +57,7 @@ fi
 
 spec='unset'
 if ai_tools_project_permissions__build_acl_specification spec first.last_name-2 ai-tools \
-        && [[ "${spec}" == "user:first.last_name-2:rwX,group:ai-tools:rwX,other::---" ]]; then
+        && [[ "${spec}" == "user:first.last_name-2:rwx,group:ai-tools:rwx,other::---" ]]; then
     pass "a name with dot, underscore and hyphen is kept as given"
 else
     fail "dot/underscore/hyphen name: got '${spec}'"
@@ -82,6 +83,29 @@ done
 rc=0
 ai_tools_project_permissions__build_acl_specification 'bad-name' alice ai-tools || rc=$?
 (( rc == 2 )) && pass "an invalid output-variable name returns 2" || fail "invalid variable name: rc=${rc}"
+
+# The mask a claim gives a path is the owner's permissions, as a three-character string.
+for pair in 755:rwx 750:rwx 2770:rwx 640:rw- 600:rw- 444:r-- 555:r-x 0:--- 7777:rwx 0300:-wx; do
+    perms='unset'
+    if ai_tools_project_permissions__get_owner_permissions perms "${pair%%:*}" && [[ "${perms}" == "${pair#*:}" ]]; then
+        pass "owner permissions of ${pair%%:*} -> ${pair#*:}"
+    else
+        fail "owner permissions of ${pair%%:*}: got '${perms}', want ${pair#*:}"
+    fi
+done
+for bad in "" 8 x7 12345 -1 "7 5"; do
+    perms='unset' rc=0
+    ai_tools_project_permissions__get_owner_permissions perms "${bad}" || rc=$?
+    if (( rc == 1 )) && [[ -z "${perms}" ]]; then
+        pass "owner permissions: mode '$(printf '%q' "${bad}")' refused, variable emptied"
+    else
+        fail "owner permissions: mode '$(printf '%q' "${bad}")': rc=${rc}, perms='${perms}'"
+    fi
+done
+rc=0
+ai_tools_project_permissions__get_owner_permissions 'bad-name' 755 || rc=$?
+(( rc == 2 )) && pass "owner permissions: an invalid output-variable name returns 2" \
+    || fail "owner permissions: invalid variable name: rc=${rc}"
 
 # Sourcing twice is a no-op (the include guard), so a consumer that loads it directly and transitively does not abort
 # under `set -e` on the readonly guard.
@@ -421,11 +445,39 @@ gc_is "a file with an execute bit, its entries lacking x" "${gc_file}" drift "${
 chmod 0660 "${gc_file}"
 gc_is "a file without an execute bit, its entries lacking x" "${gc_file}" match "${my_uid}" "${my_gid}" \
     "${good_access[@]}"
+# The defect state as it lands on disk: a recalculated mask of rwx is the mode's group bits, so the file reads 0670
+# and the group x is the mask's, not an execute bit of the file. The named entries granting x in effect are drift.
+rwx_on_data=(user::rw- "user:${op_uid}:rwx" group::rwx "group:${my_gid}:rwx" mask::rwx other::---)
+chmod 0670 "${gc_file}"
+gc_is "a 0670 data file whose named entries grant rwx in effect (an inherited execute)" "${gc_file}" drift \
+    "${my_uid}" "${my_gid}" "${rwx_on_data[@]}"
+chmod 0660 "${gc_file}"
+gc_is "a 0660 file whose named entries grant rwx in effect" "${gc_file}" drift "${my_uid}" "${my_gid}" \
+    "${rwx_on_data[@]}"
+# The state the walk leaves on a data file: both named entries rwx, held at rw- by the mask.
+gc_is "a data file whose named entries are rwx under a rw- mask" "${gc_file}" match "${my_uid}" "${my_gid}" \
+    user::rw- "user:${op_uid}:rwx" group::rwx "group:${my_gid}:rwx" mask::rw- other::---
+# A read-only file: the walk holds the group class at the owner's r--, so a writable mask is drift.
+chmod 0440 "${gc_file}"
+gc_is "a 0440 file whose named entries are rwx under a r-- mask" "${gc_file}" match "${my_uid}" "${my_gid}" \
+    user::r-- "user:${op_uid}:rwx" group::r-- "group:${my_gid}:rwx" mask::r-- other::---
+chmod 0460 "${gc_file}"
+gc_is "a 0460 file: the named entries grant write the owner lacks" "${gc_file}" drift "${my_uid}" "${my_gid}" \
+    user::r-- "user:${op_uid}:rwx" group::r-- "group:${my_gid}:rwx" mask::rw- other::---
+chmod 0660 "${gc_file}"
+good_exec_access=(user::rwx "user:${op_uid}:rwx" group::rwx "group:${my_gid}:rwx" mask::rwx other::---)
+chmod 0770 "${gc_file}"
+gc_is "control: a 0770 file whose named entries grant rwx" "${gc_file}" match "${my_uid}" "${my_gid}" \
+    "${good_exec_access[@]}"
+chmod 0660 "${gc_file}"
 gc_is "owned by a third account" "${gc_file}" drift 4343 "${my_gid}" "${good_access[@]}"
 gc_is "in another group" "${gc_file}" drift "${my_uid}" 4343 "${good_access[@]}"
 chmod g-s "${gc_dir}"  # a numeric chmod keeps a directory's setgid bit
 gc_is "a directory without setgid" "${gc_dir}" drift "${my_uid}" "${my_gid}" \
     "${good_dir_access[@]}" "${good_default[@]}"
+chmod 2550 "${gc_dir}"
+gc_is "a 2550 directory: access entries r-x in effect, the default set rwx" "${gc_dir}" match "${my_uid}" "${my_gid}" \
+    user::r-x "user:${op_uid}:rwx" group::r-x "group:${my_gid}:rwx" mask::r-x other::--- "${good_default[@]}"
 chmod 2770 "${gc_dir}"
 chmod 0600 "${gc_file}"
 gc_is "made owner-only" "${gc_file}" drift "${my_uid}" "${my_gid}" "${good_access[@]}"
@@ -457,24 +509,55 @@ fi
 unset -f getfacl
 export -n acl_fixture
 
-# The live control: the specification applied with the real setfacl and read back with the real getfacl.
+# The live cases: the specification applied with the real setfacl, the call shape ai-tools-setfacl makes on a regular
+# file, and read back with the real getfacl. A file created under a default ACL inherits the named and group:: entries
+# with x, held at r-- by the mask its create mode set; a plain `-m` of `rwX` resolves X from those entries
+# and recalculates the mask to rwx, the defect, which must read as drift. The helper's `-n` call with an explicit mask
+# is the control, and must read as a match.
+live_check() {  # live_check <what> <path> <want-outcome>
+    local live_outcome='' live_detail=''
+    ai_tools_project_permissions__check_group "$2" "${work}" "${op_uid}" "${my_uid}" "${my_gid}" \
+        live_outcome live_detail
+    [[ "${live_outcome}" == "$3" ]] \
+        && pass "group_check, live: $1 -> $3${live_detail:+ (${live_detail})}" \
+        || fail "group_check, live: $1 -> ${live_outcome} (${live_detail}), want $3"
+}
 if [[ -n "${acl_real}" ]] && command -v setfacl >/dev/null 2>&1; then
-    live="${TESTDIR}/gc-live"
-    : > "${live}"; chmod 0660 "${live}"
     live_spec=''
     ai_tools_project_permissions__build_acl_specification live_spec "${op_uid}" "${my_gid}"
-    if setfacl -m "${live_spec//X/x}" "${live}" 2>/dev/null; then
-        live_outcome='' live_detail=''
-        ai_tools_project_permissions__check_group "${live}" "${work}" "${op_uid}" "${my_uid}" "${my_gid}" \
-            live_outcome live_detail
-        [[ "${live_outcome}" == match ]] \
-            && pass "group_check over a real setfacl of the specification -> match" \
-            || fail "group_check over a real setfacl -> ${live_outcome} (${live_detail})"
+    live_area="${TESTDIR}/gc-live-area"
+    mkdir -p "${live_area}"
+    if setfacl -m "d:user:${op_uid}:rwx,d:group::rwx,d:group:${my_gid}:rwx,d:other::---" "${live_area}" 2>/dev/null; then
+        live_new="${live_area}/new" live_old="${live_area}/old" live_exec="${live_area}/exec"
+        # A default ACL replaces the umask at creation, so the 0640 a `projects create` README carries is set by chmod,
+        # which sets the mask.
+        : > "${live_new}"; : > "${live_old}"; : > "${live_exec}"
+        chmod 0640 "${live_new}" "${live_old}"; chmod 0750 "${live_exec}"
+        if [[ "$(stat -c '%a' "${live_new}")" == 640 ]] && getfacl -p "${live_new}" 2>/dev/null \
+                | grep -qx "group::rwx[[:space:]]*#effective:r--"; then
+            pass "group_check, live: the fixture inherits group::rwx under a r-- mask"
+        else
+            fail "group_check, live: the fixture did not inherit group::rwx under a r-- mask -- the cases below are not evidence: $(getfacl -p "${live_new}" 2>/dev/null | tr '\n' ' ')"
+        fi
+        setfacl -m "user:${op_uid}:rwX,group:${my_gid}:rwX,other::---" "${live_old}"
+        live_check "a data file after a plain -m of rwX (the inherited execute, $(stat -c '%a' "${live_old}"))" \
+            "${live_old}" drift
+        setfacl -n -m "${live_spec},mask::rw-" "${live_new}"
+        live_check "a data file after the helper's rw- call ($(stat -c '%a' "${live_new}"))" "${live_new}" match
+        setfacl -n -m "${live_spec},mask::rwx" "${live_exec}"
+        live_check "an executable after the helper's rwx call ($(stat -c '%a' "${live_exec}"))" "${live_exec}" match
+        live_ro="${live_area}/readonly" live_ro_old="${live_area}/readonly-old"
+        : > "${live_ro}"; : > "${live_ro_old}"; chmod 0444 "${live_ro}" "${live_ro_old}"
+        setfacl -m "user:${op_uid}:rwX,group:${my_gid}:rwX,other::---" "${live_ro_old}"
+        live_check "a 0444 file after a plain -m of rwX (write the owner lacks, $(stat -c '%a' "${live_ro_old}"))" \
+            "${live_ro_old}" drift
+        setfacl -n -m "${live_spec},mask::r--" "${live_ro}"
+        live_check "a 0444 file after the helper's r-- call ($(stat -c '%a' "${live_ro}"))" "${live_ro}" match
     else
-        skip "group_check live control" "setfacl refused on ${TESTDIR}"
+        skip "group_check live cases" "setfacl refused a default ACL on ${TESTDIR}"
     fi
 else
-    skip "group_check live control" "setfacl or getfacl not installed"
+    skip "group_check live cases" "setfacl or getfacl not installed"
 fi
 
 finish
