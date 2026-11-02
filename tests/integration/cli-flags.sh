@@ -596,7 +596,7 @@ drive_rows() {
     cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pn"
     expect "--yes runs the ACL step's walk for the listed entries"   cli_called ai-tools-setfacl "${R}/pn$"
     expect "the entries step takes the secret gate"                   before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setfacl "."
-    expect "the stubbed walk leaves the entries, read as not fixed"   out_has_row entries-not-fixed
+    expect "the stubbed walk leaves the entries, read as not fixed"   out_has_row narrow-acl-entries-not-fixed
     expect "and the claim exits 4"                                    rc_is 4
     setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${R}/pn/data"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pn"

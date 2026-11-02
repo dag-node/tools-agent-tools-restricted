@@ -461,7 +461,7 @@ ai_tools_project_permissions__check_group() {
     _group_outcome=match _group_detail=""
 }
 
-# ai_tools_project_permissions__find_narrow_named_entries <list-file> <work-dir> <operator-uid> <sandbox-gid>
+# ai_tools_project_permissions__find_paths_with_narrow_acl_entries <list-file> <work-dir> <operator-uid> <sandbox-gid>
 # <paths-array> <detail-var>  -- read the access ACL of each NUL-separated path in <list-file> and fill <paths-array>,
 # in list order, with the paths carrying a `user:<operator-uid>` or `group:<sandbox-gid>` entry written narrower than
 # `rwx`: the entries a claim before the owner-permissions mask wrote (`rw-` on a file without an execute bit),
@@ -476,7 +476,7 @@ ai_tools_project_permissions__check_group() {
 # a path that could not be opened or read, an ACL that does not decode, python3 failing, an identity that is not
 # a number -- and <paths-array> holding the hits read before it: an unread path is not one without the entries. `-I`
 # as for the lstat reader.
-ai_tools_project_permissions__find_narrow_named_entries() {
+ai_tools_project_permissions__find_paths_with_narrow_acl_entries() {
     local _list="$1" _work="$2" _operator_uid="$3" _sandbox_gid="$4" _status=0 _first=""
     local -n _narrow_paths="$5" _narrow_detail="$6"
     _narrow_paths=() _narrow_detail=""

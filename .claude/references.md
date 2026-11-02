@@ -223,10 +223,10 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | t6g3 | [MSG-T6G3](../src/usr/local/bin/ai-tools.sh) | group-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
 | d3k4 | [MSG-D3K4](../src/usr/local/bin/ai-tools.sh) | group-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
 | b6s7 | [MSG-B6S7](../src/usr/local/bin/ai-tools.sh) | group-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
-| n2y5 | [MSG-N2Y5](../src/usr/local/bin/ai-tools.sh) | entries-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_info |
-| j9p2 | [MSG-J9P2](../src/usr/local/bin/ai-tools.sh) | entries-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
-| y6b5 | [MSG-Y6B5](../src/usr/local/bin/ai-tools.sh) | entries-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
-| m4x2 | [MSG-M4X2](../src/usr/local/bin/ai-tools.sh) | entries-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
+| n2y5 | [MSG-N2Y5](../src/usr/local/bin/ai-tools.sh) | narrow-acl-entries-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_info |
+| j9p2 | [MSG-J9P2](../src/usr/local/bin/ai-tools.sh) | narrow-acl-entries-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
+| y6b5 | [MSG-Y6B5](../src/usr/local/bin/ai-tools.sh) | narrow-acl-entries-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
+| m4x2 | [MSG-M4X2](../src/usr/local/bin/ai-tools.sh) | narrow-acl-entries-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
 | b7p8 | [MSG-B7P8](../src/usr/local/bin/ai-tools.sh) | scan-capped | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
 | q6x2 | [MSG-Q6X2](../src/usr/local/bin/ai-tools.sh) | error | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | _claim_unreadable |
 | u8g4 | [MSG-U8G4](../src/usr/local/bin/ai-tools.sh) | this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |

@@ -1006,7 +1006,7 @@ by intent:
   on the shared skip list: the claim walks leave a skip-listed directory's contents alone, so hits there get
   an informational block naming the remedies that reach them, which [ownership-and-hooks](ownership-and-hooks.rule.md)
   states with the categories.
-- **Entries** (`entry_drift_scan`, when ownership and the ACL step are both in place): the files whose operator
+- **Entries** (`narrow_acl_entry_scan`, when ownership and the ACL step are both in place): the files whose operator
   or sandbox-group entry is written narrower than `rwx`, read from the kernel's access-ACL value. Only a claim
   before the owner-permissions mask writes one (`rw-` on a file without an execute bit, under a mask that leaves
   the access in effect the model gives); the owner's later `chmod g+x` does not reach the agent through it.

@@ -359,9 +359,9 @@ else
 fi
 mk_allowlist "@ ${ps}"
 setsid "${HELPER}" "${ps}" < /dev/null > /dev/null 2>&1 || true
-# mask_is <what> <path> <want-mode> <want-effective>: the mode, the mask, and both named entries written rwx
-# and granting <want-effective> in effect.
-mask_is() {
+# assert_acl_mask_and_entries <what> <path> <want-mode> <want-effective>: the mode, the mask, and both named entries
+# written rwx and granting <want-effective> in effect.
+assert_acl_mask_and_entries() {
     local acl entry missing=""
     acl="$(getfacl -p -c "$2" 2>/dev/null)"
     for entry in "user:${PROJECTS_USER}" "group:${SANDBOX_GROUP}"; do
@@ -378,23 +378,23 @@ mask_is() {
         fail "$1: $(stat -c '%A' "$2"), missing${missing:- none} in '$(tr '\n' ' ' <<< "${acl}")' (want $3, $4)"
     fi
 }
-mask_is "a 0640 file created under a default ACL" "${ps}/inherited/data" -rw-rw---- rw-
-mask_is "a 0640 file created without a default ACL" "${ps}/plain/data" -rw-rw---- rw-
-mask_is "a 0750 file" "${ps}/plain/tool" -rwxrwx--- rwx
-mask_is "a directory" "${ps}/plain/dir" drwxrws--- rwx
+assert_acl_mask_and_entries "a 0640 file created under a default ACL" "${ps}/inherited/data" -rw-rw---- rw-
+assert_acl_mask_and_entries "a 0640 file created without a default ACL" "${ps}/plain/data" -rw-rw---- rw-
+assert_acl_mask_and_entries "a 0750 file" "${ps}/plain/tool" -rwxrwx--- rwx
+assert_acl_mask_and_entries "a directory" "${ps}/plain/dir" drwxrws--- rwx
 # The mask copies the owner's permissions, so a path the owner cannot write stays unwritable to the agent in place.
-mask_is "a 0444 file" "${ps}/plain/readonly" -r--r----- r--
-mask_is "a 0444 file created under a default ACL" "${ps}/inherited/readonly" -r--r----- r--
-mask_is "a 0550 directory" "${ps}/plain/rodir" dr-xr-s--- r-x
-mask_is "a sticky 0770 directory, its sticky bit kept" "${ps}/plain/sticky" drwxrws--T rwx
+assert_acl_mask_and_entries "a 0444 file" "${ps}/plain/readonly" -r--r----- r--
+assert_acl_mask_and_entries "a 0444 file created under a default ACL" "${ps}/inherited/readonly" -r--r----- r--
+assert_acl_mask_and_entries "a 0550 directory" "${ps}/plain/rodir" dr-xr-s--- r-x
+assert_acl_mask_and_entries "a sticky 0770 directory, its sticky bit kept" "${ps}/plain/sticky" drwxrws--T rwx
 chmod g+x "${ps}/plain/data"; chmod g-x "${ps}/plain/tool"
-mask_is "the owner's chmod g+x on a claimed data file" "${ps}/plain/data" -rw-rwx--- rwx
-mask_is "the owner's chmod g-x on a claimed script" "${ps}/plain/tool" -rwxrw---- rw-
+assert_acl_mask_and_entries "the owner's chmod g+x on a claimed data file" "${ps}/plain/data" -rw-rwx--- rwx
+assert_acl_mask_and_entries "the owner's chmod g-x on a claimed script" "${ps}/plain/tool" -rwxrw---- rw-
 # A walk sets each file's mask from the owner bit again: a group execute bit without the owner's goes, and one taken
 # from a script the owner runs comes back.
 setsid "${HELPER}" "${ps}" < /dev/null > /dev/null 2>&1 || true
-mask_is "a later walk over the chmod g+x data file" "${ps}/plain/data" -rw-rw---- rw-
-mask_is "a later walk over the chmod g-x script" "${ps}/plain/tool" -rwxrwx--- rwx
+assert_acl_mask_and_entries "a later walk over the chmod g+x data file" "${ps}/plain/data" -rw-rw---- rw-
+assert_acl_mask_and_entries "a later walk over the chmod g-x script" "${ps}/plain/tool" -rwxrwx--- rwx
 
 # ── A declined group repair: `--skip-drifted` ────────────────────────────────
 # A claimed tree holding a file and a directory moved in with the operator's own group and group bits, beside a file

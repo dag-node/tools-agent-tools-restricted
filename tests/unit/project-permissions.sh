@@ -517,7 +517,7 @@ export -n acl_fixture
 # with x, held at r-- by the mask its create mode set; a plain `-m` of `rwX` resolves X from those entries
 # and recalculates the mask to rwx, the defect, which must read as drift. The helper's `-n` call with an explicit mask
 # is the control, and must read as a match.
-live_check() {  # live_check <what> <path> <want-outcome>
+assert_live_group_check_outcome() {  # assert_live_group_check_outcome <what> <path> <want-outcome>
     local live_outcome='' live_detail=''
     ai_tools_project_permissions__check_group "$2" "${work}" "${op_uid}" "${my_uid}" "${my_gid}" \
         live_outcome live_detail
@@ -543,19 +543,19 @@ if [[ -n "${acl_real}" ]] && command -v setfacl >/dev/null 2>&1; then
             fail "group_check, live: the fixture did not inherit group::rwx under a r-- mask -- the cases below are not evidence: $(getfacl -p "${live_new}" 2>/dev/null | tr '\n' ' ')"
         fi
         setfacl -m "user:${op_uid}:rwX,group:${my_gid}:rwX,other::---" "${live_old}"
-        live_check "a data file after a plain -m of rwX (the inherited execute, $(stat -c '%a' "${live_old}"))" \
+        assert_live_group_check_outcome "a data file after a plain -m of rwX (the inherited execute, $(stat -c '%a' "${live_old}"))" \
             "${live_old}" drift
         setfacl -n -m "${live_spec},mask::rw-" "${live_new}"
-        live_check "a data file after the helper's rw- call ($(stat -c '%a' "${live_new}"))" "${live_new}" match
+        assert_live_group_check_outcome "a data file after the helper's rw- call ($(stat -c '%a' "${live_new}"))" "${live_new}" match
         setfacl -n -m "${live_spec},mask::rwx" "${live_exec}"
-        live_check "an executable after the helper's rwx call ($(stat -c '%a' "${live_exec}"))" "${live_exec}" match
+        assert_live_group_check_outcome "an executable after the helper's rwx call ($(stat -c '%a' "${live_exec}"))" "${live_exec}" match
         live_ro="${live_area}/readonly" live_ro_old="${live_area}/readonly-old"
         : > "${live_ro}"; : > "${live_ro_old}"; chmod 0444 "${live_ro}" "${live_ro_old}"
         setfacl -m "user:${op_uid}:rwX,group:${my_gid}:rwX,other::---" "${live_ro_old}"
-        live_check "a 0444 file after a plain -m of rwX (write the owner lacks, $(stat -c '%a' "${live_ro_old}"))" \
+        assert_live_group_check_outcome "a 0444 file after a plain -m of rwX (write the owner lacks, $(stat -c '%a' "${live_ro_old}"))" \
             "${live_ro_old}" drift
         setfacl -n -m "${live_spec},mask::r--" "${live_ro}"
-        live_check "a 0444 file after the helper's r-- call ($(stat -c '%a' "${live_ro}"))" "${live_ro}" match
+        assert_live_group_check_outcome "a 0444 file after the helper's r-- call ($(stat -c '%a' "${live_ro}"))" "${live_ro}" match
     else
         skip "group_check live cases" "setfacl refused a default ACL on ${TESTDIR}"
     fi
@@ -570,12 +570,12 @@ section "project-permissions: the entries an earlier claim wrote (unit, live)"
 # group, or a path removed after the listing. The reader decides from the object it opens, so a file another account
 # holds is not a hit (driven with an operator id other than the file's owner), and neither is a listed name replaced
 # by a symlink to a narrow file. This run's account and group stand in for the operator and the sandbox group.
-narrow_is() {  # narrow_is <what> <want-status> <want-hits> <operator-uid> <path...>
+assert_narrow_acl_entry_paths() {  # assert_narrow_acl_entry_paths <what> <want-status> <want-hits> <operator-uid> <path...>
     local what="$1" want_status="$2" want_hits="$3" operator="$4" narrow_status=0 narrow_detail=""
     local -a narrow_hits=()
     shift 4
     printf '%s\0' "$@" > "${work}/narrow.list"
-    ai_tools_project_permissions__find_narrow_named_entries "${work}/narrow.list" "${work}" "${operator}" "${my_gid}" \
+    ai_tools_project_permissions__find_paths_with_narrow_acl_entries "${work}/narrow.list" "${work}" "${operator}" "${my_gid}" \
         narrow_hits narrow_detail || narrow_status=$?
     local got_hits=""
     (( ${#narrow_hits[@]} == 0 )) || got_hits="$(printf '%q ' "${narrow_hits[@]}")"
@@ -601,18 +601,18 @@ feed"
         else
             fail "narrow entries: control: the walked file is not as set -- the cases below are not evidence: $(getfacl -p "${ne}/walked" 2>/dev/null | tr '\n' ' ')"
         fi
-        narrow_is "a tree of each shape" 0 "$(printf '%q ' "${ne}/user-narrow" "${ne}/group-narrow" "${ne}/line
+        assert_narrow_acl_entry_paths "a tree of each shape" 0 "$(printf '%q ' "${ne}/user-narrow" "${ne}/group-narrow" "${ne}/line
 feed")" "${my_uid}" "${ne}/user-narrow" "${ne}/walked" "${ne}/plain" "${ne}/group-narrow" "${ne}/other-group" \
             "${ne}/gone" "${ne}/line
 feed"
-        narrow_is "an operator id that is not a number" 1 "" "op" "${ne}/user-narrow"
-        narrow_is "a narrow file held by an account other than the operator" 0 "" 4242 "${ne}/user-narrow"
+        assert_narrow_acl_entry_paths "an operator id that is not a number" 1 "" "op" "${ne}/user-narrow"
+        assert_narrow_acl_entry_paths "a narrow file held by an account other than the operator" 0 "" 4242 "${ne}/user-narrow"
         mv "${ne}/plain" "${ne}/plain.aside"; ln -s user-narrow "${ne}/plain"
-        narrow_is "a listed name replaced by a symlink to a narrow file" 0 "" "${my_uid}" "${ne}/plain"
+        assert_narrow_acl_entry_paths "a listed name replaced by a symlink to a narrow file" 0 "" "${my_uid}" "${ne}/plain"
         rm -f "${ne}/plain"; mv "${ne}/plain.aside" "${ne}/plain"
         if (( EUID != 0 )); then
             mkdir -p "${ne}/closed"; : > "${ne}/closed/inside"; chmod 0000 "${ne}/closed"
-            narrow_is "a path whose ACL cannot be read, after a hit" 1 "$(printf '%q ' "${ne}/user-narrow")" \
+            assert_narrow_acl_entry_paths "a path whose ACL cannot be read, after a hit" 1 "$(printf '%q ' "${ne}/user-narrow")" \
                 "${my_uid}" "${ne}/user-narrow" "${ne}/closed/inside"
             chmod 0700 "${ne}/closed"
         else
