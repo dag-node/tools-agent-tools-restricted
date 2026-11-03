@@ -1518,7 +1518,9 @@ drift_walk_failure() {
 acl_drift_scan() {
     local dir="$1" work="$2" exclusion status=0
     local -n _acl_scan_paths="$3" _acl_scan_detail="$4"
-    local -a skip=( -name .git -prune )
+    # `.git` is pruned as a directory, the `--with-git` pass's; a worktree's or a submodule's `.git` file is a path
+    # the walk grants, so one moved in with a foreign group is drift like any other.
+    local -a skip=( -name .git -type d -prune )
     _acl_scan_paths=() _acl_scan_detail=""
     for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
         [[ "${exclusion}" == "${dir}"/* ]] && skip+=( -o -path "${exclusion}" -prune )

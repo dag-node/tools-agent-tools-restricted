@@ -579,6 +579,31 @@ drive_rows() {
     expect "the walk the .git share runs leaves the declined drift as it is" \
         cli_called ai-tools-setfacl "^--with-git${T}--skip-drifted${T}${R}/pj$"
 
+    # A worktree's `.git` is a pointer file the walk grants, so one moved in with the projects user's own group is group
+    # drift like the moved-in file: listed, and left as it is by the walk when the repair is declined. A file carrying
+    # an earlier claim's entries makes the ACL step's walk the one that runs, since a pointer file has no `.git` tree
+    # to share. The worktree is a real one, so the owner-side read finds the project its own toplevel.
+    git init -q "${R}/pw-main"
+    git -C "${R}/pw-main" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+        commit -q --allow-empty -m fixture
+    git -C "${R}/pw-main" worktree add -q "${R}/pw"
+    claimed_fixture "${R}/pw"; rm -f "${R}/pw/moved-in.txt"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pw-main"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pw/.git"; chmod 0640 "${R}/pw/.git"
+    : > "${R}/pw/data"; chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${R}/pw/data"; chmod 0660 "${R}/pw/data"
+    setfacl -m "u:${PROJECTS_USER}:rw-,g:${SANDBOX_GROUP}:rw-" "${R}/pw/data"
+    seed "@ ${R}/pw"; seed_gc "${R}/pw"
+    if [[ -f "${R}/pw/.git" ]]; then
+        pass "control: the worktree fixture's .git is a pointer file"
+    else
+        fail "control: the worktree fixture has no .git pointer file -- the rows below are not evidence"
+    fi
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pw"
+    expect "the re-claim lists the worktree's .git pointer as group drift" \
+        out_line_has_text group-not-fixed "${R}/pw/.git"
+    expect "control: the earlier claim's entries make the ACL step's walk run" out_has_row narrow-acl-entries-not-fixed
+    expect "the declined repair passes --skip-drifted to that walk"   cli_called ai-tools-setfacl "^--skip-drifted${T}${R}/pw$"
+
     # A project an earlier release claimed: one file carrying that release's entries, rw- for the operator
     # and the sandbox group. The re-claim lists it as a pending step under the proceed confirm, so a run without
     # a terminal declines before any helper, and `--yes` runs the ACL step's walk, which no other step of this fixture

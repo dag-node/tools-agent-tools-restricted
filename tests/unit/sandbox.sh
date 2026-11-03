@@ -751,6 +751,30 @@ else
         fail "projects inspect without --scan-group printed '$(grep -v '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
     fi
 
+    # `.git` in the group scan: a directory of that name is pruned, the `--with-git` pass's, while a worktree's `.git`
+    # pointer file is a path the walk grants, so one with a foreign group is drift. The project's own `.git`
+    # and a nested one each hold a foreign-group file, and a file moved in beside them is the control that the scan
+    # reached the tree.
+    in_gitdrift="${in_work}/git-drift"; mkdir -p "${in_gitdrift}/.git" "${in_gitdrift}/sub/.git" "${in_gitdrift}/wt"
+    : > "${in_gitdrift}/.git/HEAD"; : > "${in_gitdrift}/sub/.git/HEAD"; : > "${in_gitdrift}/moved.txt"
+    printf 'gitdir: /elsewhere/.git/worktrees/wt\n' > "${in_gitdrift}/wt/.git"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${in_gitdrift}"
+    chmod 0664 "${in_gitdrift}/.git/HEAD" "${in_gitdrift}/sub/.git/HEAD" "${in_gitdrift}/moved.txt" "${in_gitdrift}/wt/.git"
+    chgrp "${SANDBOX_GROUP}" "${in_gitdrift}" "${in_gitdrift}/sub" "${in_gitdrift}/wt"
+    chmod 2770 "${in_gitdrift}" "${in_gitdrift}/sub" "${in_gitdrift}/wt"
+    in_out="$(inspect_run "${in_gitdrift}" "${in_work}/empty.in" --scan-group)" || true
+    if grep -qF -- "group-drift|${in_gitdrift}/moved.txt|" <<< "${in_out}"; then
+        pass "control: the group scan lists the moved-in file beside the .git paths"
+    else
+        fail "control: the group scan did not list the moved-in file -- the case below is not evidence: '$(tr '\n' '~' <<<"${in_out}")'"
+    fi
+    if grep -qF -- "group-drift|${in_gitdrift}/wt/.git|" <<< "${in_out}" \
+            && ! grep -qF -- "/.git/HEAD|" <<< "${in_out}" && inspect_has "${in_out}" "scan|group|complete|''|"; then
+        pass "the group scan lists a worktree's foreign-group .git pointer file, and nothing under a .git directory"
+    else
+        fail "the group scan's .git paths: '$(grep '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+
     # The entries an earlier claim wrote: a claimed tree (the sandbox group, setgid, the default ACL in place) holding
     # one file whose named entries are rw-, the one record; beside it the same entries on a file the walk does not reach
     # -- under the skip list, under an owner-only directory, under an excluded subtree, a secret-named one
