@@ -534,7 +534,8 @@ else
     bootstrap="${REPO_ROOT}/src/usr/local/libexec/ai-tools/ai-tools-bootstrap.sh"
     prune_line="$(grep -n -m1 -E '^[[:space:]]+prune_npm_cache$' "${updater}" | cut -d: -f1)"
     remover_line="$(grep -n -m1 -F 'ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache' "${bootstrap}" | cut -d: -f1)"
-    first_install_line="$(grep -n -m1 -F 'npm install -g --allow-scripts="${allow_scripts}"' "${bootstrap}" | cut -d: -f1)"
+    first_install_line="$(grep -n -m1 -E 'npm (install|update) -g --allow-scripts="\$\{allow_scripts\}"' "${bootstrap}" \
+        | cut -d: -f1)"
     if grep -qE '^[^#]*npm cache clean' "${updater}" "${bootstrap}"; then
         fail "a provisioner still runs npm cache clean: $(grep -nE '^[^#]*npm cache clean' "${updater}" "${bootstrap}" | tr '\n' '|')"
     else
