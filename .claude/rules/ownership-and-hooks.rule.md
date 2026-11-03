@@ -7,6 +7,7 @@ paths:
   - "src/usr/local/lib/ai-tools/session-sweep.lib.sh"
   - "src/usr/local/lib/ai-tools/owner-only.lib.sh"
   - "src/usr/local/lib/ai-tools/control-plane.lib.sh"
+  - "src/usr/local/lib/ai-tools/operator.lib.sh"
 ---
 
 # Ownership handback, hooks, and sweeps

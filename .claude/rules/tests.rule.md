@@ -405,17 +405,34 @@ fixtures). A fixture tree is `chown`ed to the projects user before the run, or t
 the built-in default pattern set, pinning the matcher itself — credential names match case-insensitively, while plain
 configs and build artifacts the toolchain must read do not. `control-plane.sh` pins the two unit-search-path readers
 `ai-tools-admin status` reports from: the drift reader tells a clean chain from a failed reading by status,
-and the unexpected-entry reader leaves the entry in place and clamps a name the account chose. `layout.sh` pins
-the library that brings the chain to its modes, and [layout](layout.rule.md) states what it drives. `source-modes.sh`
-and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed artifact, each
-covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree within
-a directory, and that every tracked text file ends with a newline. Both classify without a maintained list — the first
-by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte in the first 8000 bytes),
-so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh` reports one result line
-per offender, since the harness reduces a message to safe-for-display characters and a newline inside one would run
-the paths together. Each skips outside a git checkout. `check-version.sh` departs the installed-helper pattern the other
-way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed artifact)
-against fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match,
+and the unexpected-entry reader leaves the entry in place and clamps a name the account chose.
+
+`layout.sh` loads the checkout's layout library by path, with the sandbox tokens substituted into a copy as `install.sh`
+substitutes them, and drives each reader, the validator, the entry set, the `--check` stream and the reconcile's
+decisions unprivileged, with the per-entry repair over owned fixtures, where a leaf or a parent swapped
+after the identity read is refused with the file outside the fixture left as it was. It holds the table in lockstep
+with `packaging/ai-tools.spec`: every `%attr` line resolves to a row with the same owner, mode, package
+and `config`/`ghost` flag, and every `files` row is a `%files` line of each package it names. The reconcile as root is
+`layout-reconcile-fields.sh` (the field repairs and the refusals of an exposed file), `layout-reconcile-entries.sh` (the
+missing and replaced entries and the ancestor rule) and `layout-reconcile-inputs.sh` (the discovery inputs and the exit
+order), which the pool runs at once, each building its own tree from the table itself over `AI_TOOLS_LAYOUT_ROOT`
+(`tests/lib/layout-fixture.sh`): each planted drift converges in one run, each refused state is left as it was,
+and the exit order holds. `layout-bound.sh` sources the checkout's `ai-tools-admin.sh` with the library stubbed
+and holds the command's deadline: a reconcile sleeping past a two-second bound returns within a few seconds at exit 1
+under its code, its collector gone, beside a control that finishes inside it. `integration/perms.sh` is the loop
+over the installed library, and `boundary/access.sh` probes the library, every boundary row and the reconcile
+through the installed `/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding
+the status to the two a refusal produces. What the table and the reconcile are is [layout](layout.rule.md)'s.
+
+`source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed
+artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree
+within a directory, and that every tracked text file ends with a newline. Both classify without a maintained list —
+the first by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte in the first 8000
+bytes), so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh` reports one
+result line per offender, since the harness reduces a message to safe-for-display characters and a newline inside one
+would run the paths together. Each skips outside a git checkout. `check-version.sh` departs the installed-helper pattern
+the other way: it runs a `TESTDIR` copy of `packaging/check-version.sh` (a repo release-gate script, not a deployed
+artifact) against fixture `VERSION`/spec files, pinning the tag grammar — final `vX.Y.Z` requires the three-way match,
 `vX.Y.Z-rc.N` compares its base and relaxes only the `%changelog` match, any other dashed tag is refused, a missing
 `%changelog` entry is fatal for every form. The formatter tests drive the `formatters/` of the pinned
 `ai-tools-assets-tools` release and the checker of the pinned `core` release, resolved through `tools/lib/assets.sh`,
@@ -568,7 +585,10 @@ as root, an operator's help request, bare `atr admin` and `--version` print with
 the `sudo` route; the fixed paths themselves are read from the wrapper as text, since a recorder does not see them.
 The recorders are exec'd, so the file takes `agent-installs.sh`'s fallback for a directory where a `0755` file is
 executable. `integration/cli.sh` holds the installed wrapper to the same argv through a recording shim of its own,
-and `boundary/access.sh` holds the account's `atr admin` to a refusal with no admin output.
+and `boundary/access.sh` holds the account's `atr admin` to a refusal with no admin output. The same file proves
+`projects remove` does not run git over the tree ([ref-section-k3v7](cli.rule.md#ref-section-k3v7)) by driving it
+over a partial clone whose missing `HEAD` object fetches through a `core.sshCommand` that writes a marker, with a direct
+`git rev-list` as the control that the fixture arms it.
 
 `help.sh` pins the help library (`help.lib.sh`) over the checkout: the rows' form, every rendered help and hint within
 80 columns, the admin's domain block over a root-owned fixture directory and its refusal line beside a group-writable
@@ -652,19 +672,19 @@ compared with the registry `selinux-groups.lib.sh` holds. A table of typed lines
 `sandbox.sh` also carries `is_project_tree_pristine`, which is not a sandbox helper but belongs to the same class:
 a pure decision with a security consequence. `projects create` skips the secret scan, the git-history prompt
 and the proceed confirm when it returns 0, so every way it could wrongly say yes is a way to grant an agent access
-to a tree no scan has covered — which is why the claim re-derives it from the tree rather than trusting the caller's
-hint, and why the cases driven here are the states that must read as **not** pristine: any file beyond the README, any
-object the store holds whether or not a reference names it, and each reading the projects user cannot make, beside
-a rebuilt fresh tree as the control. `find_sealed_setgid_directories` and `read_project_state` follow on the same
-principle: a walk that could not start or could not finish reads as a scan not made or incomplete, and a `.git`
-the projects user cannot read as the project's own repository reads as `unknown`, each beside a control the same reading
-answers. It closes with `label_drift_scan`, the re-claim's SELinux half, over a canned `restorecon` transcript: the scan
-must ask for a forced, non-recursive dry run over a NUL list, since it runs unprivileged ahead of the question, must
-keep a type difference while dropping a difference in the SELinux user alone, an owner-only file and a carved-out path,
-and must read a stray line among the records as an incomplete scan that still reports the drift it read. Its last
-section drives the two verifiers the claim runs after its Apply block over a stubbed `restorecon`, and pins that a batch
-which fails is never read as `fixed`. `relabel_clone` is driven over the host readings with `restorecon` stubbed:
-the one state the launch proceeds through creates the clone unlabelled, and every other keeps the stop.
+to a tree no scan has covered — the guarantee [ref-section-x8s5](cli.rule.md#ref-section-x8s5) states — so the cases
+driven here are the states that must read as **not** pristine: any file beyond the README, any object the store holds
+whether or not a reference names it, and each reading the projects user cannot make, beside a rebuilt fresh tree
+as the control. `find_sealed_setgid_directories` and `read_project_state` follow on the same principle: a walk
+that could not start or could not finish reads as a scan not made or incomplete, and a `.git` the projects user cannot
+read as the project's own repository reads as `unknown`, each beside a control the same reading answers. It closes
+with `label_drift_scan`, the re-claim's SELinux half, over a canned `restorecon` transcript: the scan must ask
+for a forced, non-recursive dry run over a NUL list, since it runs unprivileged ahead of the question, must keep a type
+difference while dropping a difference in the SELinux user alone, an owner-only file and a carved-out path, and must
+read a stray line among the records as an incomplete scan that still reports the drift it read. Its last section drives
+the two verifiers the claim runs after its Apply block over a stubbed `restorecon`, and pins that a batch which fails is
+never read as `fixed`. `relabel_clone` is driven over the host readings with `restorecon` stubbed: the one state
+the launch proceeds through creates the clone unlabelled, and every other keeps the stop.
 
 `project-permissions.sh` pins the checks that scan and the claim's verification rest on, unprivileged
 and against the checkout: every way `restorecon`'s output can be incomplete is asserted to read unknown, not `match`,

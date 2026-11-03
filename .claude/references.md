@@ -21,13 +21,13 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | v2n3 | [ref-section-v2n3](rules/cli.rule.md#ref-section-v2n3) | The project registry and the state machine | .claude/rules/cli.rule.md | docs/projects/disable.md, docs/projects/enable.md |  |
 | h7d3 | [ref-section-h7d3](rules/cli.rule.md#ref-section-h7d3) | Claim in place | .claude/rules/cli.rule.md | docs/projects/claim.md, docs/projects/permissions.md |  |
 | g6f5 | [ref-list-g6f5](rules/cli.rule.md#ref-list-g6f5) | The claim's blocks, in run order | .claude/rules/cli.rule.md | .claude/rules/messaging.rule.md, docs/projects/claim.md |  |
-| s7c5 | [ref-table-s7c5](rules/cli.rule.md#ref-table-s7c5) | What answers each question a claim asks | .claude/rules/cli.rule.md | docs/projects/claim.md |  |
+| s7c5 | [ref-table-s7c5](rules/cli.rule.md#ref-table-s7c5) | What answers each question a claim asks | .claude/rules/cli.rule.md | .claude/rules/messaging.rule.md, docs/projects/claim.md |  |
 | b9q6 | [ref-table-b9q6](rules/cli.rule.md#ref-table-b9q6) | A failed root step, per verb | .claude/rules/cli.rule.md | docs/projects/unclaim.md |  |
 | a9b2 | [ref-section-a9b2](rules/cli.rule.md#ref-section-a9b2) | Interior drift | .claude/rules/cli.rule.md | docs/projects/permissions.md |  |
 | x8q5 | [ref-table-x8q5](rules/cli.rule.md#ref-table-x8q5) | The outcome a re-claim reports per drifted path | .claude/rules/cli.rule.md | docs/projects/permissions.md |  |
 | d7d5 | [ref-section-d7d5](rules/cli.rule.md#ref-section-d7d5) | Reachability | .claude/rules/cli.rule.md | docs/projects/claim.md |  |
-| x8s5 | [ref-section-x8s5](rules/cli.rule.md#ref-section-x8s5) | Create | .claude/rules/cli.rule.md | docs/projects/create.md |  |
-| k3v7 | [ref-section-k3v7](rules/cli.rule.md#ref-section-k3v7) | Remove | .claude/rules/cli.rule.md | docs/projects/remove.md, src/usr/local/bin/ai-tools.sh |  |
+| x8s5 | [ref-section-x8s5](rules/cli.rule.md#ref-section-x8s5) | Create | .claude/rules/cli.rule.md | .claude/rules/tests.rule.md, docs/projects/create.md |  |
+| k3v7 | [ref-section-k3v7](rules/cli.rule.md#ref-section-k3v7) | Remove | .claude/rules/cli.rule.md | .claude/rules/tests.rule.md, docs/projects/remove.md, src/usr/local/bin/ai-tools.sh |  |
 | m5n5 | [ref-section-m5n5](rules/cli.rule.md#ref-section-m5n5) | Unclaim | .claude/rules/cli.rule.md | docs/projects/unclaim.md, src/usr/local/bin/ai-tools.sh |  |
 | d9g9 | [ref-table-d9g9](rules/cli.rule.md#ref-table-d9g9) | What an unclaim does with each target | .claude/rules/cli.rule.md | docs/projects/unclaim.md |  |
 | u9a9 | [ref-section-u9a9](rules/cli.rule.md#ref-section-u9a9) | Sandbox clone | .claude/rules/cli.rule.md | .claude/rules/secret-handling.rule.md, docs/projects/clone.md |  |
@@ -38,7 +38,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | f2p3 | [ref-section-f2p3](rules/launch.rule.md#ref-section-f2p3) | An agent entrypoint started from inside a session | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | p3k8 | [ref-section-p3k8](rules/launch.rule.md#ref-section-p3k8) | The ordering is read, not assumed | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
-| y9z4 | [ref-section-y9z4](rules/ownership-and-hooks.rule.md#ref-section-y9z4) | Setgid normalization | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md |  |
+| y9z4 | [ref-section-y9z4](rules/ownership-and-hooks.rule.md#ref-section-y9z4) | Setgid normalization | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md, CLAUDE.md |  |
 | b5v7 | [ref-table-b5v7](rules/ownership-and-hooks.rule.md#ref-table-b5v7) | A path's mode before, during and after a claim | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md, docs/projects/permissions.md |  |
 | d2n3 | [ref-section-d2n3](rules/providers.rule.md#ref-section-d2n3) | The gate-side read of the project registry | .claude/rules/providers.rule.md | .claude/rules/launch.rule.md, src/usr/local/lib/ai-tools/conf.lib.sh |  |
 | x4z9 | [ref-section-x4z9](rules/providers.rule.md#ref-section-x4z9) | The uid a trust predicate reads is the reader's uid map's | .claude/rules/providers.rule.md | .claude/rules/launch.rule.md, .claude/rules/tests.rule.md, .claude/rules/updater.rule.md, src/opt/ai-tools/bin/ai-tools-run.sh, src/usr/local/lib/ai-tools/conf.lib.sh, tests/integration/ai-tools-run.sh, tests/integration/systemd.sh, tests/unit/conf.sh |  |
@@ -53,7 +53,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | k4q2 | [ref-section-k4q2](rules/shipped-assets.rule.md#ref-section-k4q2) | An asset bound to an integration | .claude/rules/shipped-assets.rule.md | .claude/rules/typesafe.rule.md, docs/development/shipped-assets.md |  |
 | e5k5 | [ref-section-e5k5](rules/shipped-assets.rule.md#ref-section-e5k5) | Design notes | .claude/rules/shipped-assets.rule.md | src/usr/local/lib/ai-tools/assets.lib.sh, src/usr/local/libexec/ai-tools/ai-tools-admin.sh |  |
 | a4p8 | [ref-section-a4p8](rules/stop.rule.md#ref-section-a4p8) | The invariants it rests on | .claude/rules/stop.rule.md | .claude/rules/governance.rule.md |  |
-| r5r9 | [ref-section-r5r9](rules/stop.rule.md#ref-section-r5r9) | Who may stop what | .claude/rules/stop.rule.md | .claude/rules/cli.rule.md, .claude/rules/launch.rule.md, .claude/rules/safe-paths.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
+| r5r9 | [ref-section-r5r9](rules/stop.rule.md#ref-section-r5r9) | Who may stop what | .claude/rules/stop.rule.md | .claude/rules/cli-grammar.rule.md, .claude/rules/cli.rule.md, .claude/rules/launch.rule.md, .claude/rules/safe-paths.rule.md, docs/sessions/stop.md, src/usr/local/libexec/ai-tools/ai-tools-stop.sh |  |
 | e8k5 | [ref-section-e8k5](rules/stop.rule.md#ref-section-e8k5) | Degradation policy: two inversions, one reason | .claude/rules/stop.rule.md | .claude/rules/cli.rule.md, .claude/rules/logging.rule.md, .claude/rules/messaging.rule.md, docs/sessions/stop.md, src/usr/local/lib/ai-tools/sessions.lib.sh, src/usr/local/libexec/ai-tools/ai-tools-stop.sh, tests/unit/sessions.sh |  |
 | b4y9 | [ref-section-b4y9](rules/tests.rule.md#ref-section-b4y9) | Root-only test hooks | .claude/rules/tests.rule.md | .claude/rules/handback-bridge.rule.md, install.sh, src/usr/local/lib/ai-tools/assets-verify.lib.sh, src/usr/local/lib/ai-tools/assets.lib.sh, src/usr/local/lib/ai-tools/managed-assets.lib.sh, src/usr/local/libexec/ai-tools/ai-tools-admin.sh, src/usr/local/libexec/ai-tools/ai-tools-handback.py, tests/lib/harness.sh |  |
 | s9t9 | [ref-section-s9t9](rules/updater.rule.md#ref-section-s9t9) | Root runs none of the toolchain | .claude/rules/updater.rule.md | .claude/rules/cli.rule.md, CLAUDE.md |  |
@@ -67,7 +67,8 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q7v4 | [ref-section-q7v4](rules/updater.rule.md#ref-section-q7v4) | Two tiers, and what each one claims | .claude/rules/updater.rule.md | CLAUDE.md |  |
 | b8h3 | [ref-section-b8h3](rules/updater.rule.md#ref-section-b8h3) | Three outcomes, and only one of them is tamper | .claude/rules/updater.rule.md | .claude/rules/shipped-assets.rule.md, src/usr/local/lib/ai-tools/assets-verify.lib.sh, src/usr/local/lib/ai-tools/openpgp.lib.sh |  |
 | z2h7 | [ref-section-z2h7](rules/updater.rule.md#ref-section-z2h7) | Design notes | .claude/rules/updater.rule.md | src/opt/ai-tools/bin/nvm-update.sh |  |
-| e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | README.md, docs/about/index.md |  |
+| e7n8 | [ref-section-e7n8](../CLAUDE.md#ref-section-e7n8) | Security model — what `SANDBOX_USER` can and cannot do | CLAUDE.md | .claude/rules/cli.rule.md, README.md, docs/about/index.md |  |
+| b6z9 | [ref-list-b6z9](../CLAUDE.md#ref-list-b6z9) | The invariants the agent operates under | CLAUDE.md | .claude/rules/cli.rule.md |  |
 | g6c4 | [ref-section-g6c4](../CLAUDE.md#ref-section-g6c4) | What is expected of the agent where a control leaves a choice | CLAUDE.md | .claude/rules/launch.rule.md, README.md |  |
 | x6a9 | [ref-section-x6a9](../CLAUDE.md#ref-section-x6a9) | Boundaries and non-goals | CLAUDE.md | .claude/rules/confinement.rule.md, .claude/rules/dotnet.rule.md, .claude/rules/launch.rule.md, .claude/rules/providers.rule.md, docs/about/scope.md, docs/operators/service-accounts.md |  |
 | e7g6 | [ref-section-e7g6](../README.md#ref-section-e7g6) | Architecture at a glance | README.md | docs/install/from-source.md |  |

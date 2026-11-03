@@ -234,8 +234,8 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
 
 ### Degradation policy: two inversions, one reason <a id="ref-section-e8k5"></a>
 
-`sessions.lib.sh` carries a copy of four walk functions from this helper, `find_session_cgroups` and the liveness reads
-beneath it, for the relabel gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)). The helper stays the original
+`sessions.lib.sh` carries a copy of this helper's cgroup mount reader, of `find_session_cgroups` and of the liveness
+reads beneath it, for the relabel gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)). The helper stays the original
 and does not source the library, by the first inversion in this section, and `tests/unit/sessions.sh` holds each copy
 equal to it, so a fix to the walk lands in both or fails the suite.
 

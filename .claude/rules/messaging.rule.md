@@ -11,6 +11,8 @@ paths:
   - src/usr/local/libexec/ai-tools/ai-tools-stop.sh
   - install.sh
   - selinux/install-selinux.sh
+  - src/usr/local/share/man/man7/ai-tools-messages.7
+  - tools/generators/man-messages.sh
 ---
 
 # User-facing message formatting
@@ -253,9 +255,9 @@ Pre-answering is two distinct mechanisms, by direction:
 - `AI_TOOLS_ASSUME_YES=1` (environment; unattended runs, tests) skips the prompt and answers yes **only when the default
   is already `y`** — it fast-tracks safe-direction questions and never flips a default-NO question.
 - A default-NO question is pre-answered only by an **explicit per-invocation flag** on the command that owns it —
-  `atr projects claim -y/--yes` (the launch wrapper's delegated claim, covering just the proceed prompt),
-  `ai-tools-lockdown --yes`, `ai-tools-chown --yes` (the batch caller's per-path skip) — an auditable operator decision,
-  never ambient state.
+  `atr projects claim -y/--yes` (the launch wrapper's delegated claim, covering the proceed prompt and the relabel
+  question, [ref-table-s7c5](cli.rule.md#ref-table-s7c5)), `ai-tools-lockdown --yes`, `ai-tools-chown --yes` (the batch
+  caller's per-path skip) — an auditable operator decision, never ambient state.
 
 ### The stop confirmation defaults YES, and that is the rule, not an exception to it
 
