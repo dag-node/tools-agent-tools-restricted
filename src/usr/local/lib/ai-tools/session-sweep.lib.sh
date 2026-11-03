@@ -52,11 +52,11 @@
 #                 reclaim is logged to journald alone so it never clobbers the agent's
 #                 startup banner.
 #
-# .git reclaim: every sweep SKIPS .git for cost, so @SANDBOX_USER@-owned objects the agent writes there via `git commit`
-# (Bash tool -> no path in the event) are never handed back by the sweep, on a graceful exit as much as a killed one --
-# leaving .git in mixed ownership, which makes git report "dubious ownership". The unbounded session-start pass
-# and the session-end pass therefore reclaim .git; a per-turn Stop reclaim is avoided (it would change ownership
-# mid-turn under a live git command).
+# .git reclaim: every sweep SKIPS the project's .git for cost, so @SANDBOX_USER@-owned objects the agent writes there
+# via `git commit` (Bash tool -> no path in the event) are never handed back by the sweep, on a graceful exit as much
+# as a killed one -- leaving .git in mixed ownership, which makes git report "dubious ownership". The unbounded
+# session-start pass and the session-end pass therefore reclaim .git; a per-turn Stop reclaim is avoided (it would
+# change ownership mid-turn under a live git command).
 #
 # Heavy/transient trees are skipped in both sweeping modes (their contents are world-readable anyway, so <you> can
 # already read them) and the scan stays on one filesystem (`-xdev`).
@@ -200,13 +200,14 @@ _ai_tools_session_sweep__sweep_project() {
     local bounded=0 swept=0 failed=0 path below quoted
     # The project as a command argument, for the remedy a warning prints (the %q form, as the NOTICE carries it).
     quoted="$(_ai_tools_session_sweep__quote_path "${dir}")"
-    # `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [cnewer] file|dir \) -print0`. A directory
-    # named `.git` is pruned ahead of the skip expression, whatever the skip list holds: the boundary passes reclaim it,
-    # and a per-turn walk would change ownership under a live git command (ownership-and-hooks.rule.md). An operator may
-    # clear SKIP_VCS_DIRS, and a skip list that did not load is empty.
+    # `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [cnewer] file|dir \) -print0`. The project's
+    # own `.git` is skipped by the walk's loop and by the descendant walk's, whatever the skip list holds: the boundary
+    # passes reclaim it, and a per-turn walk would change ownership under a live git command
+    # (ownership-and-hooks.rule.md). An operator may clear SKIP_VCS_DIRS, and a skip list that did not load is empty;
+    # a nested repository's `.git` is then swept like any other path. The check compares strings, since `find -path`
+    # would read a glob character in the project path as a pattern.
     ai_tools_skip_dirs__build_find_expression sweep '' "${dir}"
-    local -a git_prune=( '(' -type d -name .git ')' -prune -o )
-    local -a expr=( "${dir}" -xdev "${git_prune[@]}" "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
+    local -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
     # Bound to paths whose status changed since the marker, EXCEPT an unbounded (session-start) pass, which sweeps every
     # ai-tools-owned path. A first-ever stop run (no marker) is likewise a full sweep. The bound reads ctime, so a file
     # moved into the tree is selected (ownership-and-hooks.rule.md). A path handed back is no longer ai-tools-owned,
@@ -218,7 +219,7 @@ _ai_tools_session_sweep__sweep_project() {
         bounded=1
     fi
     expr+=( '(' -type f -o -type d ')' -print0 ')' )
-    local -a descendant_expr=( -mindepth 1 -xdev "${git_prune[@]}" "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" \
+    local -a descendant_expr=( -mindepth 1 -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" \
         '(' -user @SANDBOX_USER@ \
         '(' -type f -o -type d ')' -print0 ')' )
 
@@ -238,6 +239,7 @@ _ai_tools_session_sweep__sweep_project() {
     # Count CONFIRMED handbacks (client exit 0), not attempts, and the calls that failed apart from them.
     local -A offered=()
     while IFS= read -r -d '' path; do
+        [[ "${path}" == "${dir}/.git" || "${path}" == "${dir}/.git/"* ]] && continue
         # A path an earlier walk offered sits under a directory that walk covered whole, so it is not walked again.
         [[ -z "${offered[${path}]+x}" ]] || continue
         offered["${path}"]=1
@@ -248,6 +250,7 @@ _ai_tools_session_sweep__sweep_project() {
         fi
         (( bounded )) && [[ -d "${path}" && ! -L "${path}" ]] || continue
         while IFS= read -r -d '' below; do
+            [[ "${below}" == "${dir}/.git" || "${below}" == "${dir}/.git/"* ]] && continue
             [[ -z "${offered[${below}]+x}" ]] || continue
             offered["${below}"]=1
             if "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT}" CHOWN "${below}"; then
@@ -371,12 +374,12 @@ ai_tools_session_sweep__run() {
         [[ -z "${scan_start}" ]] || touch -d "${scan_start}" "${marker}" 2>/dev/null || true
     fi
 
-    # .git ownership reclaim, run on every unbounded (session-start) pass. Every sweep SKIPS .git, so ai-tools-owned
-    # objects the agent writes there via `git commit` (Bash tool, no path in the event, so no PostToolUse handback)
-    # escape the sweep and leave .git in mixed ownership -- work tree <you>-owned, .git internals ai-tools-owned --
-    # which makes git report "dubious ownership" and, once <you> is not an ai-tools group member, blocks reads
-    # and repacks. The marker does not gate this reclaim; it only selects the cross-project target and the NOTICE
-    # wording.
+    # .git ownership reclaim, run on every unbounded (session-start) pass. Every sweep SKIPS the project's .git,
+    # so ai-tools-owned objects the agent writes there via `git commit` (Bash tool, no path in the event, so no
+    # PostToolUse handback) escape the sweep and leave .git in mixed ownership -- work tree <you>-owned, .git internals
+    # ai-tools-owned -- which makes git report "dubious ownership" and, once <you> is not an ai-tools group member,
+    # blocks reads and repacks. The marker does not gate this reclaim; it only selects the cross-project target
+    # and the NOTICE wording.
     [[ "${unbounded}" -eq 1 ]] || return 0
     if [[ -S "${_AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET}" ]]; then
         git_found="$(_ai_tools_session_sweep__reclaim_git_tree "${dir}")"

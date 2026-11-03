@@ -148,10 +148,29 @@ fi
 
 # ── `.git` with an empty skip list ───────────────────────────────────────────────────────────────────────────────────
 # An empty skip list, the state SKIP_VCS_DIRS=[] or a skip-dirs library that did not load leaves, does not take
-# the sweep into `.git`: the boundary passes reclaim it, and a per-turn walk would change ownership under a live git
-# command. A lock file in the project's `.git` and a file in a nested `.git` are not offered, while the file beside them
-# is; a plain `find` over the same tree, which lists both `.git` files, is the control that they are eligible.
-section "sweep bound: an empty skip list does not take the sweep into .git"
+# the sweep into the project's own `.git`: the boundary passes reclaim it, and a per-turn walk would change ownership
+# under a live git command. A nested repository's `.git` is a path like any other there, since clearing the list asks
+# for it. A lock file in the project's `.git` is not offered, while the file beside it and a file in a nested `.git`
+# are; a plain `find` over the same tree, which lists both `.git` files, is the control that they are eligible. The run
+# takes an argument for its bound, since the bounded pass walks each directory it selects in a second loop: a directory
+# moved in after the marker leaves the project root's ctime newer than the marker too, so the root is walked whole
+# there, its `.git` included, and the older file at the root, offered by that walk alone, is the control that it ran.
+section "sweep bound: an empty skip list does not take the sweep into the project's .git"
+# sweep_with_empty_skip_list <project> <marker or ''> <unbounded 0|1> <offers-file>
+sweep_with_empty_skip_list() {
+    # shellcheck disable=SC2016  # the inner bash expands these
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); }
+        ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
+        stub_walked="$2"
+        stub_client() { printf "%s\n" "${2#"${stub_walked}/"}" >&2; }
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$5"
+        _ai_tools_session_sweep__sweep_project "$2" "$3" "$4" stop >/dev/null
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "$1" "$2" "$3" "${SOCKET}" 2>"$4" || true
+}
 VCS="${TESTDIR}/vcs-project"
 mkdir -p "${VCS}/.git/refs/heads" "${VCS}/sub/.git"
 printf 'work\n' > "${VCS}/work.txt"; : > "${VCS}/.git/refs/heads/main.lock"; : > "${VCS}/sub/.git/HEAD"
@@ -165,23 +184,34 @@ fi
 if [[ ! -S "${SOCKET}" ]]; then
     skip "the sweep under an empty skip list" "no socket to answer the sweep's check"
 else
-    # shellcheck disable=SC2016  # the inner bash expands these
-    bash -c '
-        set -euo pipefail
-        source "$1"
-        ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); }
-        ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
-        stub_walked="$2"
-        stub_client() { printf "%s\n" "${2#"${stub_walked}/"}" >&2; }
-        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
-        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
-        _ai_tools_session_sweep__sweep_project "$2" "" 1 stop >/dev/null
-        ' _ "${LIB_COPY}/session-sweep.lib.sh" "${VCS}" "${SOCKET}" 2>"${TESTDIR}/offered-vcs" || true
+    sweep_with_empty_skip_list "${VCS}" "" 1 "${TESTDIR}/offered-vcs"
     offered="$(LC_ALL=C sort "${TESTDIR}/offered-vcs")"
-    if grep -qxF work.txt <<< "${offered}" && ! grep -q '\.git' <<< "${offered}"; then
-        pass "under an empty skip list the sweep offers the file beside .git and nothing under any .git"
+    if grep -qxF work.txt <<< "${offered}" && grep -qxF sub/.git/HEAD <<< "${offered}" \
+            && ! grep -q '^\.git' <<< "${offered}"; then
+        pass "under an empty skip list the sweep offers the file beside .git and the nested .git file, and nothing under the project's .git"
     else
         fail "the sweep's offers under an empty skip list: $(_san "${offered}")"
+    fi
+
+    BOUNDED_VCS="${TESTDIR}/vcs-bounded"; MOVED_REPO="${OUTSIDE}/moved-repo"; VCS_MARKER="${TESTDIR}/.sweep-marker-vcs"
+    mkdir -p "${BOUNDED_VCS}/.git/refs/heads" "${MOVED_REPO}/.git"
+    : > "${BOUNDED_VCS}/.git/refs/heads/main.lock"; printf 'old\n' > "${BOUNDED_VCS}/old.txt"
+    : > "${MOVED_REPO}/.git/HEAD"
+    sleep 1; touch "${VCS_MARKER}"; sleep 1
+    mv "${MOVED_REPO}" "${BOUNDED_VCS}/"
+    by_ctime_vcs="$(find "${BOUNDED_VCS}" -cnewer "${VCS_MARKER}" -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ')"
+    if [[ "${by_ctime_vcs}" == " moved-repo "* && "${by_ctime_vcs}" != *main.lock* && "${by_ctime_vcs}" != *old.txt* ]]; then
+        pass "control: -cnewer selects the project root and the moved directory, and neither older file"
+    else
+        fail "control: the bounded fixture's selection is not the state under test: '${by_ctime_vcs}'"
+    fi
+    sweep_with_empty_skip_list "${BOUNDED_VCS}" "${VCS_MARKER}" 0 "${TESTDIR}/offered-vcs-bounded"
+    offered="$(LC_ALL=C sort "${TESTDIR}/offered-vcs-bounded")"
+    if grep -qxF old.txt <<< "${offered}" && grep -qxF moved-repo/.git/HEAD <<< "${offered}" \
+            && ! grep -q '^\.git' <<< "${offered}"; then
+        pass "the bounded sweep walks the selected root, offering the nested .git file and nothing under the project's .git"
+    else
+        fail "the bounded sweep's offers under an empty skip list: $(_san "${offered}")"
     fi
 fi
 

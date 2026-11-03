@@ -128,21 +128,22 @@ against the allowlist, so it reclaims agent files to `<you>:SANDBOX_GROUP` and n
 
 ### `.git` reclaim
 
-Every sweep skips `.git`, by name whatever the skip list holds, so `SANDBOX_USER`-owned objects the agent writes there
-via `git commit` (a `Bash`-tool action with no `file_path`, so no `PostToolUse` handback) stay agent-owned. **Access**
-to them is carried by the `user:<operator>` ACL (`ai-tools-setfacl --with-git`): a `<you>` out of `SANDBOX_GROUP` reads
-and repacks those objects through the named entry regardless of who owns them, timing-independently. The reclaim is
-the **ownership** companion to that ACL: it descends the otherwise-skipped `.git` of `.cwd` and hands each
-`SANDBOX_USER`-owned path to `ai-tools-chown` (same allowlist + exclusion + secret re-validation as any sweep),
-so `.git` ownership converges to `<you>:SANDBOX_GROUP` — consistent with the work tree, and so the operator's access
-survives an ACL-unaware copy (an `rsync`/`tar` that drops ACLs preserves owner). It runs on the once-per-session
-`session-start` pass (which also covers a killed prior session's leftovers) and the `session-end` pass (graceful-exit
-convergence), never the per-turn `Stop` sweep, so it never flips ownership mid-turn under a live `git` command.
-The other skipped trees (`node_modules`, `.venv`, …) stay agent-owned, which is safe as an ownership outcome — the files
-are world-readable, so the owner field does not decide access to them, and the tree is regenerable. That is a claim
-about ownership alone: no sweep inspects what a tree holds. The operator's on-demand counterpart is
-`atr projects handback [--full]` (the `ai-tools-reclaim` helper, which walks a project and delegates to the same
-`ai-tools-chown`; see [cli](cli.rule.md)) — e.g. before a backup, with `--full` to include the skipped heavy trees.
+Every sweep skips the project's own `.git`, by its path whatever the skip list holds, so `SANDBOX_USER`-owned objects
+the agent writes there via `git commit` (a `Bash`-tool action with no `file_path`, so no `PostToolUse` handback) stay
+agent-owned. **Access** to them is carried by the `user:<operator>` ACL (`ai-tools-setfacl --with-git`): a `<you>`
+out of `SANDBOX_GROUP` reads and repacks those objects through the named entry regardless of who owns them,
+timing-independently. The reclaim is the **ownership** companion to that ACL: it descends the otherwise-skipped `.git`
+of `.cwd` and hands each `SANDBOX_USER`-owned path to `ai-tools-chown` (same allowlist + exclusion + secret
+re-validation as any sweep), so `.git` ownership converges to `<you>:SANDBOX_GROUP` — consistent with the work tree,
+and so the operator's access survives an ACL-unaware copy (an `rsync`/`tar` that drops ACLs preserves owner). It runs
+on the once-per-session `session-start` pass (which also covers a killed prior session's leftovers)
+and the `session-end` pass (graceful-exit convergence), never the per-turn `Stop` sweep, so it never flips ownership
+mid-turn under a live `git` command. The other skipped trees (`node_modules`, `.venv`, …) stay agent-owned, which is
+safe as an ownership outcome — the files are world-readable, so the owner field does not decide access to them,
+and the tree is regenerable. That is a claim about ownership alone: no sweep inspects what a tree holds. The operator's
+on-demand counterpart is `atr projects handback [--full]` (the `ai-tools-reclaim` helper, which walks a project
+and delegates to the same `ai-tools-chown`; see [cli](cli.rule.md)) — e.g. before a backup, with `--full` to include
+the skipped heavy trees.
 
 ### Clean-exit marker
 
