@@ -1851,6 +1851,13 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Tue Nov 03 2026 dagnode <tools@dagnode.com> - 0.28.1-1
+- SECURITY: A source install ('selinux/install-selinux.sh') no longer gives a '!' path in your
+  project registry the project's SELinux type; 0.28.0 registered one for each that exists. Where it
+  ran, list them with 'sudo semanage fcontext -l -C | grep ai_tools_project', delete each naming an
+  excluded path with 'sudo semanage fcontext -d <pattern>', then run 'sudo restorecon -RF <path>'.
+  A host installed from packages alone was not affected.
+
 * Tue Nov 03 2026 dagnode <tools@dagnode.com> - 0.28.0-1
 - CHANGE: Your project registry moves to ~/.config/ai-tools/project-registry. After the upgrade
   run 'atr admin system post-upgrade': it migrates every enrolled operator's allowed-projects
