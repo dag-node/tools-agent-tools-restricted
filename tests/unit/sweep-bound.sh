@@ -156,20 +156,36 @@ fi
 # moved in after the marker leaves the project root's ctime newer than the marker too, so the root is walked whole
 # there, its `.git` included, and the older file at the root, offered by that walk alone, is the control that it ran.
 section "sweep bound: an empty skip list does not take the sweep into the project's .git"
-# sweep_with_empty_skip_list <project> <marker or ''> <unbounded 0|1> <offers-file>
-sweep_with_empty_skip_list() {
+# sweep_with_skip_list <empty|vcs> <project> <marker or ''> <unbounded 0|1> <offers-file>: the sweep over <project>
+# under an empty skip list, or one pruning `.git` as a directory, the default VCS list's form. Each offer is written
+# relative to <project> with its trailing slashes dropped, so a project named with one reads like the plain spelling.
+sweep_with_skip_list() {
     # shellcheck disable=SC2016  # the inner bash expands these
     bash -c '
         set -euo pipefail
         source "$1"
-        ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); }
+        if [[ "$6" == vcs ]]; then
+            ai_tools_skip_dirs__build_find_expression() {
+                AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=( "(" -type d "(" -name .git ")" ")" -prune -o )
+            }
+        else
+            ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); }
+        fi
         ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
-        stub_walked="$2"
+        stub_walked="$2"; while [[ "${stub_walked}" == ?*/ ]]; do stub_walked="${stub_walked%/}"; done
         stub_client() { printf "%s\n" "${2#"${stub_walked}/"}" >&2; }
         _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
         _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$5"
         _ai_tools_session_sweep__sweep_project "$2" "$3" "$4" stop >/dev/null
-        ' _ "${LIB_COPY}/session-sweep.lib.sh" "$1" "$2" "$3" "${SOCKET}" 2>"$4" || true
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "$2" "$3" "$4" "${SOCKET}" "$1" 2>"$5" || true
+}
+# offers_skip_project_git <offers-file> <file...>: each <file> was offered once and no path under the project's .git
+# was.
+offers_skip_project_git() {
+    local offers wanted
+    offers="$(LC_ALL=C sort "$1")"; shift
+    for wanted in "$@"; do [[ "$(grep -cxF -- "${wanted}" <<< "${offers}")" == 1 ]] || return 1; done
+    ! grep -q '^\.git/' <<< "${offers}"
 }
 VCS="${TESTDIR}/vcs-project"
 mkdir -p "${VCS}/.git/refs/heads" "${VCS}/sub/.git"
@@ -184,14 +200,23 @@ fi
 if [[ ! -S "${SOCKET}" ]]; then
     skip "the sweep under an empty skip list" "no socket to answer the sweep's check"
 else
-    sweep_with_empty_skip_list "${VCS}" "" 1 "${TESTDIR}/offered-vcs"
-    offered="$(LC_ALL=C sort "${TESTDIR}/offered-vcs")"
-    if grep -qxF work.txt <<< "${offered}" && grep -qxF sub/.git/HEAD <<< "${offered}" \
-            && ! grep -q '^\.git' <<< "${offered}"; then
+    sweep_with_skip_list empty "${VCS}" "" 1 "${TESTDIR}/offered-vcs"
+    if offers_skip_project_git "${TESTDIR}/offered-vcs" work.txt sub/.git/HEAD \
+            && ! grep -qxF .git "${TESTDIR}/offered-vcs"; then
         pass "under an empty skip list the sweep offers the file beside .git and the nested .git file, and nothing under the project's .git"
     else
-        fail "the sweep's offers under an empty skip list: $(_san "${offered}")"
+        fail "the sweep's offers under an empty skip list: $(_san "$(cat "${TESTDIR}/offered-vcs")")"
     fi
+    # The hook's .cwd is the session's input, so the project may arrive with a trailing slash, which find keeps
+    # out of the paths it prints under the root.
+    for spelling in "${VCS}/" "${VCS}//"; do
+        sweep_with_skip_list empty "${spelling}" "" 1 "${TESTDIR}/offered-vcs-slash"
+        if offers_skip_project_git "${TESTDIR}/offered-vcs-slash" work.txt sub/.git/HEAD; then
+            pass "a project named with ${spelling#"${VCS}"} keeps the sweep out of its .git under an empty skip list"
+        else
+            fail "the sweep's offers for a project named with ${spelling#"${VCS}"}: $(_san "$(cat "${TESTDIR}/offered-vcs-slash")")"
+        fi
+    done
 
     BOUNDED_VCS="${TESTDIR}/vcs-bounded"; MOVED_REPO="${OUTSIDE}/moved-repo"; VCS_MARKER="${TESTDIR}/.sweep-marker-vcs"
     mkdir -p "${BOUNDED_VCS}/.git/refs/heads" "${MOVED_REPO}/.git"
@@ -205,13 +230,53 @@ else
     else
         fail "control: the bounded fixture's selection is not the state under test: '${by_ctime_vcs}'"
     fi
-    sweep_with_empty_skip_list "${BOUNDED_VCS}" "${VCS_MARKER}" 0 "${TESTDIR}/offered-vcs-bounded"
-    offered="$(LC_ALL=C sort "${TESTDIR}/offered-vcs-bounded")"
-    if grep -qxF old.txt <<< "${offered}" && grep -qxF moved-repo/.git/HEAD <<< "${offered}" \
-            && ! grep -q '^\.git' <<< "${offered}"; then
+    sweep_with_skip_list empty "${BOUNDED_VCS}" "${VCS_MARKER}" 0 "${TESTDIR}/offered-vcs-bounded"
+    if offers_skip_project_git "${TESTDIR}/offered-vcs-bounded" old.txt moved-repo/.git/HEAD \
+            && ! grep -qxF .git "${TESTDIR}/offered-vcs-bounded"; then
         pass "the bounded sweep walks the selected root, offering the nested .git file and nothing under the project's .git"
     else
-        fail "the bounded sweep's offers under an empty skip list: $(_san "${offered}")"
+        fail "the bounded sweep's offers under an empty skip list: $(_san "$(cat "${TESTDIR}/offered-vcs-bounded")")"
+    fi
+    sweep_with_skip_list empty "${BOUNDED_VCS}/" "${VCS_MARKER}" 0 "${TESTDIR}/offered-vcs-bounded-slash"
+    if offers_skip_project_git "${TESTDIR}/offered-vcs-bounded-slash" old.txt moved-repo/.git/HEAD; then
+        pass "the bounded sweep keeps out of the project's .git for a project named with a trailing slash"
+    else
+        fail "the bounded sweep's offers for a project named with a trailing slash: $(_san "$(cat "${TESTDIR}/offered-vcs-bounded-slash")")"
+    fi
+fi
+
+# ── A `.git` pointer file ────────────────────────────────────────────────────────────────────────────────────────────
+# A worktree's or a submodule's `.git` is a regular file, which the boundary reclaim does not walk, so the sweep hands
+# it back like any other file under the default VCS list and under an empty one, from the unbounded walk
+# and from the descendant walk of a root a bounded pass selects; a plain `find` lists it as eligible, the control.
+section "sweep bound: a worktree's .git pointer file is swept like any other file"
+WORKTREE="${TESTDIR}/worktree-project"; MOVED_DIR="${OUTSIDE}/moved-into-worktree"; WT_MARKER="${TESTDIR}/.sweep-marker-wt"
+mkdir -p "${WORKTREE}" "${MOVED_DIR}"
+printf 'gitdir: /elsewhere/.git/worktrees/wt\n' > "${WORKTREE}/.git"; printf 'work\n' > "${WORKTREE}/work.txt"
+: > "${MOVED_DIR}/inside.txt"
+if [[ -f "${WORKTREE}/.git" && "$(find "${WORKTREE}" -user "${walk_owner}" -type f -name .git -printf '%P')" == .git ]]; then
+    pass "control: the fixture's .git is a regular file the sweep's owner predicate selects"
+else
+    fail "control: the fixture's .git pointer is not eligible -- the cases below are not evidence"
+fi
+if [[ ! -S "${SOCKET}" ]]; then
+    skip "the sweep over a .git pointer file" "no socket to answer the sweep's check"
+else
+    for skip_list in vcs empty; do
+        sweep_with_skip_list "${skip_list}" "${WORKTREE}" "" 1 "${TESTDIR}/offered-wt"
+        if offers_skip_project_git "${TESTDIR}/offered-wt" .git work.txt; then
+            pass "the unbounded sweep offers the .git pointer file under the ${skip_list} skip list"
+        else
+            fail "the unbounded sweep's offers over the pointer, ${skip_list} skip list: $(_san "$(cat "${TESTDIR}/offered-wt")")"
+        fi
+    done
+    sleep 1; touch "${WT_MARKER}"; sleep 1
+    mv "${MOVED_DIR}" "${WORKTREE}/"
+    sweep_with_skip_list vcs "${WORKTREE}" "${WT_MARKER}" 0 "${TESTDIR}/offered-wt-bounded"
+    if offers_skip_project_git "${TESTDIR}/offered-wt-bounded" .git work.txt moved-into-worktree/inside.txt; then
+        pass "the bounded sweep's descendant walk of the selected root offers the .git pointer file"
+    else
+        fail "the bounded sweep's offers over the pointer: $(_san "$(cat "${TESTDIR}/offered-wt-bounded")")"
     fi
 fi
 
