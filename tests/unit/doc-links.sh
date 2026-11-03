@@ -8,7 +8,8 @@
 # the run and leaves every file as it was. The second runs it over a copy of the checkout's docs/ and README.md
 # and reads every rewritten URL back against the checkout: each names a tracked file, each `#ref-` anchor is defined
 # there, and no relative link left in the copy leaves docs/ or README.md. Skipped outside a checkout that carries
-# the script.
+# the script. The second section is also skipped outside a git checkout: the selftest image copies only part of the tree
+# and leaves out the files the documentation links to, so the read-back runs in CI's dev-tools job instead.
 #
 # Hermetic: every tree it writes is in the test's own /tmp testdir. Pure text, so it does not need privilege of its own.
 #
@@ -105,6 +106,9 @@ else
 fi
 
 # ── The checkout: every rewritten URL names a tracked file and a defined anchor ───────────────
+if [[ ! -e "${ROOT}/.git" ]]; then
+    skip "the checkout's documentation links" "not a git checkout"; finish; exit
+fi
 COPY="${TESTDIR}/checkout"
 mkdir -p "${COPY}"
 cp -r "${ROOT}/docs" "${ROOT}/README.md" "${COPY}/"
