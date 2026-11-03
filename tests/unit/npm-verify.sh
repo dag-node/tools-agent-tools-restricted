@@ -6,7 +6,8 @@
 # contract nvm-update.sh and ai-tools-bootstrap gate the stable-launcher repoint on. The pure verdict touches neither
 # npm nor the filesystem, and does not need privilege, so this runs with no registry, no network, and no root risk:
 # a regression in the verdict (a tamper read as "unable to verify", an inverted gate, a format change read as a false
-# OK) fails here.
+# OK) fails here. The report the verdict prints is held too: each package name, and each invalid entry's code, keyid
+# and integrity, reaches stderr through the allowlist, and the detail stops at 20 entries.
 #
 # It deliberately does NOT exercise the impure ai_tools_npm_verify__verify_signatures over a real tree: that function
 # operates on the SANDBOX-owned (agent-writable) global npm tree and must run as the sandbox account, never root --
@@ -83,6 +84,45 @@ if [[ "${verdict_err}" == *"evil?[2Jname@1.0.0"* && "${verdict_err}" != *$'\033'
     pass "a package name from npm's JSON reaches the report through the allowlist"
 else
     fail "the verdict printed a package name unsanitized: $(printf '%q' "${verdict_err}")"
+fi
+
+# An invalid entry is reported with npm's own code, keyid and integrity, the fields verify-signatures.js writes,
+# on a line of its own under the package; a field npm left out reads as `?`. The verdict is unchanged by the detail.
+expect "an invalid entry carrying npm's detail" INVALID 1 \
+    '{"invalid":[{"name":"corepack","version":"0.36.0","code":"EINTEGRITYSIGNATURE","keyid":"SHA256:abc","integrity":"sha512-xyz"}],"missing":[]}'
+detail_err="$(as_verdict_account '{"invalid":[{"name":"corepack","version":"0.36.0","code":"EINTEGRITYSIGNATURE","keyid":"SHA256:abc","integrity":"sha512-xyz"},{"name":"b","version":"1.0.0","code":"EINTEGRITYSIGNATURE"}],"missing":[]}' 2>&1 >/dev/null || true)"
+if [[ "${detail_err}" == *$'\nnpm-verify:   corepack@0.36.0: code=EINTEGRITYSIGNATURE keyid=SHA256:abc integrity=sha512-xyz\n'* ]]; then
+    pass "an invalid entry is reported with its code, keyid and integrity"
+else
+    fail "the invalid entry's detail line is not as npm wrote it: $(printf '%q' "${detail_err}")"
+fi
+if [[ "${detail_err}" == *$'\nnpm-verify:   b@1.0.0: code=EINTEGRITYSIGNATURE keyid=? integrity=?'* ]]; then
+    pass "a detail field npm left out reads as ?"
+else
+    fail "an absent detail field did not read as ?: $(printf '%q' "${detail_err}")"
+fi
+
+# A detail field takes the allowlist without the space, so a value cannot carry a second key= into the line, and is cut
+# at 160 characters.
+long="$(printf 'A%.0s' {1..200})"
+crafted_detail="{\"invalid\":[{\"name\":\"p\",\"version\":\"1.0.0\",\"code\":\"E\\u001b[2J\",\"keyid\":\"k code=FORGED\",\"integrity\":\"${long}\"}],\"missing\":[]}"
+detail_err="$(as_verdict_account "${crafted_detail}" 2>&1 >/dev/null || true)"
+if [[ "${detail_err}" == *"code=E?[2J keyid=k?code=FORGED integrity=$(printf 'A%.0s' {1..160})..."* \
+       && "${detail_err}" != *$'\033'* && "${detail_err}" != *" code=FORGED"* ]]; then
+    pass "a detail field from npm's JSON keeps no space or escape byte and is cut at 160 characters"
+else
+    fail "a crafted detail field reached the report: $(printf '%q' "${detail_err}")"
+fi
+
+# The detail lines stop at 20 entries, with the rest counted; the summary line still names every package.
+many=""
+for i in $(seq 1 21); do many+="${many:+,}{\"name\":\"p${i}\",\"version\":\"1.0.0\",\"code\":\"E\"}"; done
+detail_err="$(as_verdict_account "{\"invalid\":[${many}],\"missing\":[]}" 2>&1 >/dev/null || true)"
+detail_lines="$(grep -c '^npm-verify:   p' <<<"${detail_err}" || true)"
+if [[ "${detail_lines}" == 20 && "${detail_err}" == *$'\nnpm-verify:   and 1 more'* && "${detail_err}" == *"p21@1.0.0"* ]]; then
+    pass "the detail stops at 20 entries and counts the rest, the summary naming all 21"
+else
+    fail "the detail for 21 entries printed ${detail_lines} line(s): $(printf '%q' "${detail_err}")"
 fi
 
 # Fail-closed backstop: the impure verifier refuses to run as root (this suite is root), so it returns "unable
