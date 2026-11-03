@@ -854,11 +854,12 @@ for_each_project() {
         warn "${ALLOWLIST} holds the line named above that no reader accepts -- its projects were not walked"
         return 0
     fi
+    # shellcheck disable=SC2154  # ai_tools_conf__kind and __value are set by ai_tools_conf__parse_path_entry (conf.lib.sh)
     while IFS= read -r entry || [[ -n "${entry}" ]]; do
         ai_tools_conf__parse_path_entry "${entry}" || continue
-        # shellcheck disable=SC2154  # set by ai_tools_conf__parse_path_entry (conf.lib.sh)
-        [[ "${ai_tools_conf__value}" == '!'* ]] && continue
-        dir="$(realpath -e -- "${ai_tools_conf__value#%}" 2>/dev/null)" || continue
+        # The kind is named rather than the sign skipped, so a kind the grammar adds later is not labelled.
+        case "${ai_tools_conf__kind}" in project|disabled) ;; *) continue ;; esac
+        dir="$(realpath -e -- "${ai_tools_conf__value}" 2>/dev/null)" || continue
         # Sandbox clones are labelled statically (ai_tools.fc); skip the dynamic loop.
         [[ "${dir}/" == "${SANDBOX_PROJECTS}/"* ]] && continue
         "${fn}" "${dir}"
