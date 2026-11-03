@@ -12,7 +12,8 @@
 # cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel library, and every restorecon outside
 # the gate names a root-owned tree, held against a control line the reader must flag, and the remove action reads
 # the live-session state ahead of its first policy-store write. verify_agent_labels is driven over a stubbed library
-# line for a config directory whose walk was left, at the type the agent writes and at another.
+# line for a config directory whose walk was left, at the type the agent writes and at another. for_each_project is
+# driven through the checkout's conf.lib.sh over a registry holding each sign, and does not yield an excluded path.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -349,6 +350,41 @@ grep -qx 'exit=1' <<<"${unload_out}" && grep -qxF 'semodule -r ai_tools ai_tools
     && ! grep -q 'removed' <<<"${unload_out}" && ! grep -qx 'MSG-R6M2' <<<"${unload_out}" \
     && pass "a failed read-back after the unload is reported as unread, neither as removed nor as left loaded" \
     || fail "failed read-back: ${unload_out//$'\n'/ | } (calls: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
+
+# ── for_each_project: the registry entries the label walks reach ──────────────────────────────
+# Every label, unlabel and restore over the operators' projects goes through for_each_project, so an entry it yields is
+# a tree that takes ai_tools_project_t. It is driven through the checkout's conf.lib.sh over a format 1.0 registry
+# holding each sign, every path an existing directory, so the kind alone decides what is yielded.
+section "install-selinux.sh: the project walk yields @ and % entries and no excluded path (unit)"
+walk_text="$(extract_function "${INSTALLER}" for_each_project)"
+if [[ -z "${walk_text}" ]]; then
+    fail "install-selinux.sh does not define for_each_project() in the form this file reads"
+    finish; exit
+fi
+reg_root="${TESTDIR}/registry"
+mkdir -p "${reg_root}/proj/carved" "${reg_root}/parked" "${reg_root}/outside" "${reg_root}/globbed-1"
+printf '%s\n' '# ai-tools-project-registry-format: 1.0' "@ ${reg_root}/proj" "  ! ${reg_root}/proj/carved" \
+    "! ${reg_root}/globbed-*" "! ${reg_root}/outside" "% ${reg_root}/parked" > "${reg_root}/project-registry"
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+walked="$(bash -c '
+    set -euo pipefail
+    source "$2"
+    eval "$1"
+    warn() { printf "WARN %s\n" "$*"; }
+    ALLOWLIST="$3"; SANDBOX_PROJECTS="$4"
+    for_each_project echo
+' _ "${walk_text}" "${ROOT}/src/usr/local/lib/ai-tools/conf.lib.sh" "${reg_root}/project-registry" \
+    "${TESTDIR}/clones" 2>&1)" || true
+if [[ "${walked}" == "${reg_root}/proj"$'\n'"${reg_root}/parked" ]]; then
+    pass "the project and the disabled project are walked (the control for the exclusions)"
+else
+    fail "the walk yielded: ${walked//$'\n'/ | }"
+fi
+for excluded in proj/carved outside globbed-1; do
+    grep -qxF -- "${reg_root}/${excluded}" <<<"${walked}" \
+        && fail "an excluded path is walked: ${excluded}" \
+        || pass "an excluded path is not walked: ${excluded}"
+done
 
 # ── the script's text ─────────────────────────────────────────────────────────────────────────
 section "the installed library is read first, and no other walk crosses an account-writable tree"
