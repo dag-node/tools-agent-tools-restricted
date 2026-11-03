@@ -332,8 +332,8 @@ from the root-owned file or directory that holds them, and each name is held to 
 `compgen -W`, which expands the words it is given. Running either program on each Tab would put its gates
 in an operator's prompt, and sourcing `help.lib.sh` would load the trust libraries into the completing shell.
 
-The completion's `atr` name is one of the names the short command takes, so `install.sh`'s `ATR_NAMES` and the base
-`%pre` replace and remove it only in this project's form, the header line its second line opens with.
+The completion's `atr` name is one of the names the short command takes, so the installers replace and remove it only
+in this project's form (`install.sh`'s `ATR_NAMES`).
 
 ## Why not
 

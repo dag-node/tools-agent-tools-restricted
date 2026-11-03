@@ -8,11 +8,12 @@
 #
 # Three `atr admin` answers do not go through sudo. A stop with no help flag ahead of `--` runs `ai-tools stop`,
 # whose bare form the %ai-ops NOPASSWD rule covers, for every caller; that branch does not read a library,
-# so the incident rung depends on this file and the CLI alone. An operator's help request, bare `atr admin`
-# and `--version` are rendered here from help.lib.sh, the library ai-tools-admin renders its own help
-# from, over the fixed domain and manifest directories this file names, so the environment does not move the listing.
-# The sandbox account takes the sudo route and meets sudo's refusal, and a library that does not load sends the line
-# to the sudo route, where the program answers or refuses with its own codes.
+# so the incident rung depends on this file and the CLI alone. An operator's help request and bare `atr admin` are
+# rendered here from help.lib.sh, the library ai-tools-admin renders its own help from, over the fixed domain
+# and manifest directories this file names, so the environment does not move the listing, and `--version` is printed
+# here once that library loads. A contributed domain's own help, an unknown path's, and every other admin line take
+# the sudo route; so does the sandbox account, which meets sudo's refusal, and a line whose library does not load,
+# where the program answers or refuses with its own codes.
 #
 # Every path is fixed, so neither an operator's PATH nor the sandbox account redirects the exec; sudo is resolved
 # by name, as ai-tools resolves it for its own root steps, and `--` ends sudo's option parsing ahead of the path. Every

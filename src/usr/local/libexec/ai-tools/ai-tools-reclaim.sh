@@ -3,7 +3,7 @@
 # /usr/local/libexec/ai-tools/ai-tools-reclaim
 # Reclaims ownership of agent-written files under a project back to the owning operator, on demand --
 # the operator-invoked counterpart to the session sweeps. It walks <project> and hands each @SANDBOX_USER@-owned path
-# to ai-tools-chown, the SAME per-path trust boundary (allowlist re-validation, exclusions, secret rules, TOCTOU-safe
+# to ai-tools-chown, the SAME per-path trust boundary (registry re-validation, exclusions, secret rules, TOCTOU-safe
 # chown) the handback and sweeps use, so it carries none of its own. No part of it is .git-specific: .git is simply
 # the one tree the per-session sweeps skip, so its objects linger @SANDBOX_USER@-owned, which is the usual reason to run
 # this -- e.g. before an ACL-unaware backup, where ownership (not the user:<operator> ACL) is what survives
@@ -13,7 +13,9 @@
 #
 # The walk is two-phase: collect, then apply. An empty hand-back set is reported as exactly that before any change;
 # otherwise ONE confirmation covers the whole set (count + a sample with owner/group/mode), and each path is applied
-# via `ai-tools-chown --yes` so the per-path prompt never fires inside the batch.
+# via `ai-tools-chown --yes` so the per-path prompt never fires inside the batch. What the children print on stderr is
+# folded and printed once with a ` (N paths)` count (_fold_child_messages), and a run a signal stops reports what it
+# handed back before the stop (_stop_on_signal).
 #
 # Runs as root via sudo under `atr projects handback` (no-NOPASSWD, like ai-tools-setfacl); root is required to chown
 # files the projects user does not own.

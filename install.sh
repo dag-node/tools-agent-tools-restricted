@@ -32,6 +32,9 @@
 #   - ai-tools OS user created at /opt/ai-tools  (README step 2)
 #   - nvm + Node v22 + claude installed as ai-tools  (README step 3)
 #   - the acl package (setfacl, getfacl), which the RPM requires; the install refuses without it
+#   - no other program answering to `atr` on the default PATH, and no foreign entry at a name `atr` takes (ATR_NAMES):
+#     the install refuses ahead of its first write otherwise (require_no_other_atr_command,
+#     require_atr_entries_replaceable)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -1326,11 +1329,6 @@ probe_shadowing_agents() {
 
 # ── install ────────────────────────────────────────────────────────────────────
 
-# Deploy every sandbox file with its intended owner and mode (root helpers, libs, hooks, the wrapper, the CLI, systemd
-# units), seed user config without clobbering edits, bootstrap the launcher symlinks, enable the nvm-update timer,
-# restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end -- run
-# the installed-files summary and the test suite (which includes the permissions check). Aborts if the sandbox user is
-# absent.
 # require_acl_tools -- refuse a host without setfacl and getfacl, ahead of the install's first write. Every grant
 # the ownership model makes is a POSIX ACL -- a claim's two entries, the clone area's g:ai-ops entries, a clone's
 # private create -- so a host without the tools does not hold the model. The RPM states the same requirement
@@ -1541,6 +1539,11 @@ remove_recognized_atr_entries() {
     done
 }
 
+# do_install -- deploy every sandbox file with its intended owner and mode (root helpers, libs, hooks, the wrapper,
+# the CLI, systemd units), seed user config without clobbering edits, bootstrap the launcher symlinks, enable
+# the nvm-update timer, restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end --
+# run the installed-files summary and the test suite (which includes the permissions check). Aborts if the sandbox user
+# is absent.
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"

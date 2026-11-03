@@ -22,7 +22,8 @@
 # applied, a launcher the declared rule does not cover, and a config directory a live session left at a type the agent
 # cannot write, each a session that breaks, and for every refusal ahead of the work (a caller that is not root,
 # a library that did not load, a usage error). Exits 0 where SELinux confinement is inactive, an entrypoint could not be
-# verified, and a live session left a config directory at the type it already carries.
+# verified, a live session left a config directory at the type it already carries, and under `--remove`
+# where the live-session gate left the config directory's labels as they were (MSG-G9X3).
 #
 # It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext and config_dir in its
 # manifest under /usr/local/lib/ai-tools/agents.d), and this helper registers them as local file-context rules.

@@ -3,15 +3,15 @@
 # /usr/local/libexec/ai-tools/ai-tools-setgid
 # Normalizes group ownership and the setgid bit on the directories of an approved project, so that files EITHER
 # an operator OR the agent creates there are born in group @SANDBOX_GROUP@ -- the shared group both can read/write.
-# setgid carries that group onto new files regardless of the creator's own group membership, which is what lets
-# an operator be a NON-member of @SANDBOX_GROUP@ (defence in depth: the operator's home configs are then unreachable
-# from the sandbox group) while the agent can still read/write everything it hands back.
+# setgid carries that group onto new files regardless of the creator's own group membership; the operator stays
+# a NON-member of @SANDBOX_GROUP@ and reaches agent-written files through the named ACL entry instead (CLAUDE.md,
+# Collaborative ownership).
 #
 # Invoked as root two ways: by `atr projects claim` via operator `sudo` (the operator is not a SANDBOX_GROUP member,
 # so changing the project's group needs root), and by the ai-tools-handback daemon when the SessionStart hook
 # (session-hook.sh session-start) sends a SETGID request over the handback socket. The handback path runs
 # IN ai_tools_handback_t (inherited from the daemon, no domain transition); the claim path runs as root
-# in the operator's sudo context. The agent that triggers it cannot read the allowlist, so the project path it passes is
+# in the operator's sudo context. The agent that triggers it cannot read the registry, so the project path it passes is
 # UNTRUSTED and re-validated here against the same allow/exclude rules.
 #
 # Owner-only directories are the exception: the operator sealed them, so they are left out of the agent's group,
@@ -20,9 +20,6 @@
 # sharing it is `ai-tools-setfacl --with-git`'s, behind the claim's own question.
 #
 # Idempotent: applies only the dirs that need it, safe to run every session start.
-#
-# Invocation: the handback socket's SETGID verb (ai-tools-handback daemon, root).
-#   Not a sudo target -- ai-tools has no sudo rights.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is ownership-and-hooks.rule.md.
 

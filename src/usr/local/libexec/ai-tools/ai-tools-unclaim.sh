@@ -23,8 +23,8 @@
 #
 # Two modes, differing ONLY in which paths they accept -- never in what they do to a path they accept, so one reversal
 # is described once and tested once:
-#   default      the whole tree is authorized by its allowlist entry, and every eligible path in it is reverted.
-#   `--unlisted` the tree is in NO allowlist (a claimed project copied or moved elsewhere and never unclaimed), so it
+#   default      the whole tree is authorized by its registry entry, and every eligible path in it is reverted.
+#   `--unlisted` the tree is in NO registry (a claimed project copied or moved elsewhere and never unclaimed), so it
 #                has no authorization of its own; a path is touched only while it still bears the ai-tools
 #                fingerprint (_is_residue: owned by the sandbox account, grouped to it, or carrying its named ACL
 #                entry), so a path that was never part of a claim is left byte for byte as it is. This mode also
@@ -34,7 +34,7 @@
 #
 # Owner guard: only the projects user's and the sandbox account's own files are touched, the rule the claim walks hold.
 # Under `--unlisted` the "projects user" is the operator who invoked sudo, validated against OPERATORS, since no
-# allowlist entry names the owner of an unlisted tree.
+# registry entry names the owner of an unlisted tree.
 #
 # Hardlink guard: a regular file with more than one name is refused in BOTH modes, the boundary ai-tools-chown holds too
 # -- chgrp and chmod act on the inode, which a second name reaches from outside the tree, so acting would change a path

@@ -9,7 +9,7 @@
 #     manifests (build_output_dirs, see dotnet.rule.md), so this library does not
 #     name any toolchain's layout, and a host where no integration declares any writes only the
 #     project rule. Sourced by the root helper ai-tools-relabel and by the policy installer
-#     install-selinux.sh's allowlist sweep.
+#     install-selinux.sh's registry sweep.
 #   * AGENT PATHS -- map each enabled agent's own paths to the types this policy defines: its
 #     launcher binary to ai_tools_exec_t (the label that drives the -> ai_tools_t domain
 #     transition on exec) and its config directory to ai_tools_home_t (so the confined session can
@@ -21,7 +21,7 @@
 #     manifest declares, are each reported as such instead of passing as "not installed"
 #     (ai_tools_relabel__evaluate_entrypoint_reconcile).
 #   * OPERATOR CONFIG -- map one operator's ~/.config/ai-tools to ai_tools_conf_t, the narrow type
-#     that lets the root helpers read that operator's allowlist without reaching the rest of
+#     that lets the root helpers read that operator's project registry without reaching the rest of
 #     ~/.config. Sourced by ai-tools-admin, which registers the rule for each account it enrols,
 #     and by the same installer's sweep over the enrolled set.
 # Every family keeps its `semanage fcontext` + `restorecon` body in exactly one place, and they write the one policy
@@ -40,10 +40,12 @@
 # the return value.
 #
 # A recursive relabel of a tree the sandbox account can write -- a project, a clone, an agent's config directory -- runs
-# only while no process of that account is live (_ai_tools_relabel__require_no_live_session), and returns 3 before any
-# write otherwise. The reading (sessions.lib.sh), why the user manager's plumbing is exempt from it, and the residual
-# a session launched during the walk is are cli.rule.md's (ref-section-e6c6). The per-path `restorecon -F`
-# of an entrypoint is not a walk and does not take the gate.
+# only while no process of that account is live (_ai_tools_relabel__require_no_live_session). The project walks return 3
+# before any write otherwise; the config-directory label registers its fcontext rule first and returns 4 or 5
+# by the type the directory already carries, and the agent unlabel deletes its rules and then returns 3, each function's
+# contract stating its set. The reading (sessions.lib.sh), why the user manager's plumbing is exempt from it,
+# and the residual a session launched during the walk is are cli.rule.md's (ref-section-e6c6). The per-path
+# `restorecon -F` of an entrypoint is not a walk and does not take the gate.
 
 # Every type this library applies is pinned in this file, and the labelling functions do not take a type argument:
 # a manifest or a caller names WHICH path is a project, a build-output directory, an entrypoint or a config directory,
@@ -393,9 +395,9 @@ _ai_tools_relabel__relabel_raw_rule_matches() {
 #
 # The fcontext rule is asserted whether or not the type already matches: it is what makes the type survive a future
 # restorecon, and re-asserting it is how a type change from a policy bump reaches an existing project. The same re-label
-# is how an upgraded host sheds the unescaped rules a label wrote before paths were escaped
-# (_ai_tools_relabel__retire_raw_project_rules): an RPM upgrade does not sweep projects, so a host converges on the next
-# claim, `ai-tools-relabel`, or `install-selinux.sh` sweep of each project.
+# retires a rule the store holds under the raw encoding (_ai_tools_relabel__retire_raw_project_rules): an RPM upgrade
+# does not sweep projects, so a host converges on the next claim, `ai-tools-relabel`, or `install-selinux.sh` sweep
+# of each project.
 ai_tools_relabel__label_project() {
     local dir="$1" build_pattern literal
     ai_tools_relabel__is_available || return 2
@@ -413,8 +415,8 @@ ai_tools_relabel__label_project() {
                 || semanage fcontext -m -t "${AI_TOOLS_RELABEL__PROJECT_BUILD_TYPE}" -- "${build_pattern}" >/dev/null 2>&1 \
                 || return 1
         fi
-        # A host labelled before paths were escaped still holds the raw rules, which keep matching the paths beside
-        # <dir> that a `.` in it reaches. They go once the escaped rules are in, and those paths are relabelled.
+        # A rule the store holds under the raw encoding keeps matching the paths beside <dir> that a `.` in it reaches.
+        # It goes once the escaped rule is in, and those paths are relabelled.
         if _ai_tools_relabel__retire_raw_project_rules "${dir}"; then
             _ai_tools_relabel__relabel_raw_rule_matches "${dir}"
         fi
@@ -436,8 +438,8 @@ ai_tools_relabel__label_project() {
 # is live, before any write (_ai_tools_relabel__require_no_live_session), 1 on restorecon failure, 0 otherwise.
 #
 # The rules are looked up under the escaped encoding ai_tools_relabel__label_project writes and, where it differs,
-# under the raw path, which is how a rule registered before paths were escaped is found: one left behind would keep
-# the project type on a path the unclaim meant to release.
+# under the raw path, so a rule the store holds under that encoding is found too: one left behind would keep the project
+# type on a path the unclaim meant to release.
 ai_tools_relabel__unlabel_project() {
     local dir="$1" pattern encoding raw_retired=1
     local -a encodings
@@ -706,12 +708,13 @@ _ai_tools_relabel__label_agent_entrypoint() {
 }
 
 # _ai_tools_relabel__label_agent_config_dir <agent> : the config-directory half. Same shape; the subtree is restored
-#   recursively, and only the directory itself is verified (its contents inherit). Returns 3 when the directory is not
-#   there. When a process of the sandbox account is live the rule is registered, the walk is left for a run with no
-#   session (_ai_tools_relabel__require_no_live_session), and `live <agent> <type> its config directory` is printed
-#   with the directory's own type, read without a walk; it then returns 4 where that type is the one the walk applies,
-#   and 5 where it is another. The layout creates the directory without a type and /opt/ai-tools's base is usr_t,
-#   so a directory created while a session runs is one ai_tools_t cannot write until a walk labels it.
+#   recursively, and only the directory itself is verified (its contents inherit). Returns 0 with no config_dir
+#   declared, 1 for a declaration the containment refuses, and 3 when the directory is not there, the status the caller
+#   files it under. When a process of the sandbox account is live the rule is registered, the walk is left for a run
+#   with no session (_ai_tools_relabel__require_no_live_session), and `live <agent> <type> its config directory` is
+#   printed with the directory's own type, read without a walk; it then returns 4 where that type is the one the walk
+#   applies, and 5 where it is another. The layout creates the directory without a type and /opt/ai-tools's base is
+#   usr_t, so a directory created while a session runs is one ai_tools_t cannot write until a walk labels it.
 _ai_tools_relabel__label_agent_config_dir() {
     local agent="$1" config_dir path pattern
     config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
@@ -989,8 +992,8 @@ ai_tools_relabel__label_operator_conf() {
 #   default type (config_home_t). Root-only. Returns 2 where SELinux is inactive, 1 on a restorecon failure, 0
 #   otherwise. The delete is best-effort: a store that does not hold the rule is the state this leaves behind anyway.
 #   The rule is dropped under the escaped encoding ai_tools_relabel__label_operator_conf writes and, where it differs,
-#   under the raw path, which is how a rule registered before paths were escaped is found
-#   (ai_tools_relabel__unlabel_project takes the same two encodings).
+#   under the raw path, so a rule the store holds under that encoding is found too (ai_tools_relabel__unlabel_project
+#   takes the same two encodings).
 ai_tools_relabel__unlabel_operator_conf() {
     local dir="${1:-}" pattern
     ai_tools_relabel__is_operator_conf_valid "${dir}" || return 1

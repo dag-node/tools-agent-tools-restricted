@@ -261,14 +261,10 @@ being the authoritative one.
   a reading that could not be made, and the run exits 5.
 
   **Each source is read with its exit status, stdout and stderr apart, and a source whose result is empty is told
-  from one that failed by what its tool documents** ([records](records.rule.md) holds the collector shape). `grep` exits
-  1 on no match and 2 on a read error; `journalctl` exits 0 over an empty window; `ausearch` exits 1 for no match
-  and for an error alike, so its `<no matches>` line is what separates them, and an exit 1 without it is reported
-  as unreadable. The log directory is checked before it is listed, since an unexpanded glob over a directory that is
-  missing or refuses a listing would read as a host with no log file; a `*.log` entry other than a readable file
-  and a record whose timestamp `date(1)` refuses are each a reading that could not be made. The observed absences — no
-  `journalctl`, no sandbox account (`getent` exit 2: no session ran), no audit daemon, no SELinux, no `sesearch` — are
-  printed as the reading each is, and leave the exit alone.
+  from one that failed by what its tool documents** ([records](records.rule.md) holds the collector shape); which status
+  each tool documents, and the checks on the log directory and on each record, are `ai-tools-audit.sh`'s header.
+  The observed absences — no `journalctl`, no sandbox account (`getent` exit 2: no session ran), no audit daemon, no
+  SELinux, no `sesearch` — are printed as the reading each is, and leave the exit alone.
 
   **It reports events, never current state.** Each line is something that *happened* between two points in time,
   and a condition recorded here may have been resolved since, so the report closes by naming `status` (and
@@ -470,12 +466,11 @@ being the authoritative one.
 
   Every command for such a unit goes through root, and the CLI composes them rather than the registry storing them: each
   names the sandbox **account**, and `services.lib.sh` is deployed with no `@SANDBOX_USER@` substitution. Status
-  and restart use the **machine transport** (`sudo systemctl --user -M ai-tools@.host …`), which reaches that manager
-  over the system bus where root is authorized — a plain `sudo -u ai-tools systemctl --user` gets its own bus refused
-  even when the manager is healthy (the reason the tests' `sandbox_systemctl` prefers it). The journal query cannot use
-  either: `journalctl --user-unit` as root reads **root's** user units, so the unit is selected by the journal fields
-  instead (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field names
-  and catches both the unit's own output and the `systemd-cat` lines its script emits.
+  and restart use the **machine transport**, which reaches that manager over the system bus where root is authorized,
+  where a plain `sudo -u` gets its own bus refused (`services.lib.sh`'s header). The journal query cannot use either:
+  `journalctl --user-unit` as root reads **root's** user units, so the unit is selected by the journal fields instead
+  (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field names and catches
+  both the unit's own output and the `systemd-cat` lines its script emits.
 - `projects list` — report every line of the registry by its kind (`project` / `sandbox` / `disabled`, with the enable
   command that restores it / `exclude` for an excluded path) with each project's git `safe.directory` status, then
   a **Suggested cleanup** section flagging inconsistent hand-edited lines, each with a copy-paste remediation carrying
@@ -618,17 +613,15 @@ registry coverage (`operator.lib.sh`), not from either global.
 that way by `ai-tools-admin`), so one operator cannot read another's at all — and every decision the CLI makes from it
 (the path's state, which disabled and excluded lines apply, what `projects list` reports) would read an unreadable file
 as an empty one. A `--for` run therefore takes a root-side **snapshot** through `ai-tools-allowlist --print`
-into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The verb takes it, through
-`load_target_registry_snapshot`, once its own command line and path have passed; until then `ALLOWLIST` names a path
-under `/dev/null`, where no file can exist, so every reader finds no registry there and a verb that forgot the call
-reads every path as unregistered — the less-access answer for each verb but the claim, whose add then goes through
-the helper, which re-reads the real file. `tests/unit/cli-verbs.sh` holds each verb `FOR_ALLOWED_VERBS` names
-to the call. The helper prints only a migrated registry the loader accepts over the target's own file, the link rule
-taken from that file's owner (`require_migrated_registry`), so the run's loader validates the snapshot under its grammar
+into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The verb takes it
+through `load_target_registry_snapshot` ([FN-R7N4](../../src/usr/local/bin/ai-tools.sh)) once its own command line
+and path have passed, and until then every reader finds no registry, the less-access answer for each verb but the claim,
+whose add goes through the helper; `tests/unit/cli-verbs.sh` holds each verb `FOR_ALLOWED_VERBS` names to the call.
+The helper prints only a migrated registry the loader accepts over the target's own file, the link rule taken
+from that file's owner (`require_migrated_registry`), so the run's loader validates the snapshot under its grammar
 alone: the snapshot belongs to the invoker, and the loader's owner rule would read the target's own links as foreign.
-The snapshot is read-only input for that run: mutations go back through the helper, which re-reads the real file
-and applies its own idempotency, and `reg_allow`/`unreg_allow` refresh the snapshot after theirs — so a stale copy
-is never what a write is based on.
+The snapshot is read-only input for that run, refreshed after each write
+([FN-K9Y2](../../src/usr/local/bin/ai-tools.sh)), so a stale copy is never what a write is based on.
 
 **What a `--for` run prints names the target's file and carries the flag.** The snapshot is a temporary file the run
 removes, so a message naming `ALLOWLIST` would send the operator to a path that is gone. Every message that names
@@ -1173,17 +1166,13 @@ shared on some hosts, and those are the modes an unclaim normalizes back to. Thi
 is a blanket default, not a seal placed on this directory, so where the umask would have sealed it the create says
 so in a line.
 
-**`.git` stays out of the agent's reach until the `.git` question shares it.** `git init` builds `.git`
-under the owner's umask, so under `022` it carries other bits, and under a setgid parent — the clone area among them —
-in that parent's group, the sandbox group there, with any default ACL the parent carries, the clone area's
-`group:ai-ops` entry among them. The create therefore strips every extended entry and the default ACL under `.git`
-(`setfacl -R -b`), regroups it to the owner's primary group, and clears group write and the other bits, all as the owner
-and before the root opens to `0750`, so the mode bits alone decide who reads `.git` and an operator's access to another
-account's `.git` is that owner's to grant. Group write is cleared explicitly, because `-b` turns the mask it strips
-into the group bits, and a `002` umask, the default a user-private-group login takes, has git build `.git`
-group-writable. The setgid and ACL walks skip `.git`, so a declined share leaves it so, and only
-`ai-tools-setfacl --with-git` opens it. If one of those steps fails, the create warns, and the claim's headline
-for the question says a decline leaves `.git` as git made it, which the agent may be able to read.
+**`.git` stays out of the agent's reach until the `.git` question shares it.** The create resets `.git` to the owner's
+primary group and mode bits alone, as the owner and before the root opens, so the mode bits decide who reads `.git`
+and an operator's access to another account's `.git` is that owner's to grant; the entries it strips, and why group
+write is cleared explicitly, are `cmd_project_create`'s header. The setgid and ACL walks skip `.git`, so a declined
+share leaves it so, and only `ai-tools-setfacl --with-git` opens it. If one of those steps fails, the create warns,
+and the claim's headline for the question says a decline leaves `.git` as git made it, which the agent may be able
+to read.
 
 ## Remove <a id="ref-section-k3v7"></a>
 

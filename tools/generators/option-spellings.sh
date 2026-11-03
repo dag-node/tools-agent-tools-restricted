@@ -37,10 +37,10 @@ rows() {
     printf '%s\n' "${out}"
 }
 
-# render: the page. A token is shown as it is typed -- an option spelling as a script written against an earlier release
-# carries it, `ai-tools` and the option, and a preferred form as an operator types it now, `atr` and the command;
-# the two short options and the long one `-g` stands for alone -- and the columns are padded to the widest cell,
-# so the table reads aligned in the source as well as rendered.
+# render: the page. A token is shown as it is typed -- an option spelling as a script carries it, `ai-tools`
+# and the option, and a preferred form as an operator types it, `atr` and the command; the two short options
+# and the long one `-g` stands for alone -- and the columns are padded to the widest cell, so the table reads aligned
+# in the source as well as rendered.
 render() {
     cat <<'MARKDOWN'
 <!-- GENERATED from src/usr/local/bin/ai-tools.sh (OPTION_SPELLINGS) by tools/generators/option-spellings.sh; do not edit this

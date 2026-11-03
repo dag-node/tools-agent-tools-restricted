@@ -8,7 +8,7 @@
 # distinguishes, and the two variables the exec carries through sudo are in launch.rule.md; the wrapper contract each
 # agent package holds to is stated there too.
 #
-# The library reads the operator's allowlist off ${HOME} and the stable launcher symlinks
+# The library reads the operator's project registry off ${HOME} and the stable launcher symlinks
 # under ${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}, the hook ai-tools.sh and relabel.lib.sh already read for the same
 # directory; neither moves an access decision, since the resolved path must still match the versioned shape here
 # and ai-tools-run re-validates it against the enabled manifests after the drop. The residue gate reads the same

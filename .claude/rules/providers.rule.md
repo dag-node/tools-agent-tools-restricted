@@ -383,24 +383,22 @@ An exclusion is kept as written and, for a glob-free absolute one, as its real p
 of the two forms: the resolved form alone stops covering the written path once a component of it becomes a symlink,
 and the written form alone misses an exclusion the operator spelled through one.
 
-The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it,
-which `_ai_tools_conf__resolve_exclusion_path` reads as the link and every directory on the way to it each held
-by the file's owner or root, with no group or other write bit on any of those directories unless its sticky bit is set,
-since write on one lets the account rename the link's own directory aside. A link in a tree that account co-writes
-therefore does not decide what an exclusion covers, whoever made it: the loader refuses the whole read (`MSG-Y5N6`,
-naming the entry, the link, the reason and the real path to write), both arrays come back empty, the wrapper refuses
-the launch (`MSG-Z3Q6`) and no helper resolves an owner or acts on a path under that file, until the entry is rewritten
-as the real path. A directory on the way that the reading process cannot search refuses the read the same way, since
-under it a link and an absent name read alike. Root searches every directory, so for an exclusion crossing a directory
-its operator cannot enter, root's report reads the file as standing where that operator's gate refuses it: the report
-under-reports a refusal. Every outcome of the read keeps or adds an exclusion, or withdraws every allow. What no
-spelling closes is a rename of the real directory itself inside a tree the account co-writes; the owner-only seal is
-what keeps its contents from the account ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)).
-The library's section comment carries the reasoning behind the refusal, `tests/unit/conf.sh` drives each outcome
-of the read, and `tests/unit/launch-wrapper.sh` drives the gate through it. A report that says whether a file would
-stand at the gate reads it through `ai_tools_conf__check_registry`, the same loader with the arrays discarded.
-`status` and the CLI's registry gate run as the operator, as the launch does, so neither passes a file the launch
-refuses; `atr admin status` and `system post-upgrade` run as root, and pass a file whose exclusion crosses
+The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it
+(`_ai_tools_conf__resolve_exclusion_path`). A link in a tree that account co-writes therefore does not decide
+what an exclusion covers, whoever made it: the loader refuses the whole read (`MSG-Y5N6`, naming the entry, the link,
+the reason and the real path to write), both arrays come back empty, the wrapper refuses the launch (`MSG-Z3Q6`) and no
+helper resolves an owner or acts on a path under that file, until the entry is rewritten as the real path. A directory
+on the way the reading process has no search permission on refuses the read the same way. Root searches every directory,
+so for an exclusion crossing a directory its operator cannot enter, root's report reads the file as standing
+where that operator's gate refuses it: the report under-reports a refusal. Every outcome of the read keeps or adds
+an exclusion, or withdraws every allow. What no spelling closes is a rename of the real directory itself inside a tree
+the account co-writes; the owner-only seal is what keeps its contents from the account
+([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)). Why neither reading of such a link is safe is
+the library's section comment ([NOTE-F9X8](../../src/usr/local/lib/ai-tools/conf.lib.sh)), `tests/unit/conf.sh` drives
+each outcome of the read, and `tests/unit/launch-wrapper.sh` drives the gate through it. A report that says whether
+a file would stand at the gate reads it through `ai_tools_conf__check_registry`, the same loader with the arrays
+discarded. `status` and the CLI's registry gate run as the operator, as the launch does, so neither passes a file
+the launch refuses; `atr admin status` and `system post-upgrade` run as root, and pass a file whose exclusion crosses
 a directory its operator cannot search, since root searches the directory that refuses the operator's read.
 
 ### `operator.conf` across an upgrade
@@ -458,16 +456,15 @@ The second is each enrolled operator's registry. A `~/.config/ai-tools/allowed-p
 every reader's registry, under the grammar it was written in, and every `projects` verb but the listing refuses over it
 ([cli](cli.rule.md)). `_pu_registry_migrate` writes `~/.config/ai-tools/project-registry` from it on every run,
 unattended too, through `ai_tools_conf__migrate_registry`: every entry in the canonical form the CLI writes,
-at the source's owner and mode, verified as a valid current file reading the same entries by resolved and by written
-path, and then the source renamed to its dated `.bak`, so a run that stops part-way leaves the source as the registry.
-Each entry keeps its kind and its written path, so the migration does not change what a session reaches; a whole-line
-comment is dropped, since format 1.0 carries a note at the end of an entry. It names each `!` line no project encloses
-with the `%` line that disables it in format 1.0, since an earlier release spelled a disabled project that way and only
-the operator knows which one a line meant. A source the operator does not own at mode `0600`, one the legacy grammar
-refuses, and one format 1.0 cannot carry — a path on an allow line and a `!` line, an entry carrying both quote
-characters — is named (`registry-invalid`) and left as written; a source whose exclusion crosses a link the gate refuses
-migrates and is named too. `--check` writes `registry-unmigrated` per legacy file. Enrolment does not seed the new file
-beside a legacy one (`MSG-A2P2`), and the base `%post` and `install.sh` name this command while one remains.
+at the source's owner and mode, verified as a valid current file reading the same entries, and then the source renamed
+to its dated `.bak`, so a run that stops part-way leaves the source as the registry. Each entry keeps its kind and its
+written path, so the migration does not change what a session reaches; what it drops and names is the library's section
+comment ([NOTE-Q2D8](../../src/usr/local/lib/ai-tools/conf.lib.sh)). A source the operator does not own at mode `0600`,
+one the legacy grammar refuses, and one format 1.0 cannot carry — a path on an allow line and a `!` line, an entry
+carrying both quote characters — is named (`registry-invalid`) and left as written; a source whose exclusion crosses
+a link the gate refuses migrates and is named too. `--check` writes `registry-unmigrated` per legacy file. Enrolment
+does not seed the new file beside a legacy one (`MSG-A2P2`), and the base `%post` and `install.sh` name this command
+while one remains.
 
 The same command answers unattended. It exits 4 while anything it reports needs the operator, 1 when a merge it was
 asked to make did not happen, and 0 otherwise, and `--check` writes the findings as the record stream

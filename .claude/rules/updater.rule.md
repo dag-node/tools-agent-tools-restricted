@@ -31,11 +31,10 @@ and the new entrypoint is relabelled for the SELinux transition.
 work. It first rewrites a provider list an earlier release wrote with bare names, the rewrite `system post-upgrade`
 makes ([providers](providers.rule.md)), so what follows reads the line this release reads. **It decides which agents it
 provisions before its first network step** (`choose_agents`): no agent manifest ships enabled, so with `AI_TOOLS_AGENTS`
-absent and at least one trusted manifest installed it draws one `ai_tools_msg__pick none` menu — one option
-per installed agent (`display_name`) and one for none, single-select — and writes the chosen name into `operator.conf`
-through `ai_tools_conf__set_list`; an unanswered menu (no terminal, closed input, three misses) or none chosen
-provisions Node alone under a coded warning naming the line and the re-run, at exit 0. `--agents NAME[,NAME...]`, passed
-through by `ai-tools-admin`, is the unattended form: each name is checked
+absent and at least one trusted manifest installed it asks which one installed agent to enable and writes the chosen
+name into `operator.conf` through `ai_tools_conf__set_list`; an unanswered menu or none chosen provisions Node alone
+under a coded warning naming the line and the re-run, at exit 0 (how the menu answers is the helper's header).
+`--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
 against `ai_tools_providers__list_installed_agents` and an unknown one refuses the run with the key unwritten. A present
 key is the operator's declaration and is not asked about; one naming more than one agent is answered with a notice,
 since every agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked

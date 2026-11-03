@@ -4,16 +4,17 @@
 # Whether any process of the sandbox account is live, read from the kernel's cgroup tree: the reader the recursive
 # relabels gate on (cli.rule.md, ref-section-e6c6), called from relabel.lib.sh.
 #
-# THE ENUMERATION IS A TWIN OF ai-tools-stop's, not a call into it (stop.rule.md, ref-section-e8k5). Four functions here
+# THE ENUMERATION IS A TWIN OF ai-tools-stop's, not a call into it (stop.rule.md, ref-section-e8k5). The functions here
 # are its cgroup2_mount, has_own_tasks, find_session_cgroups and cgroup_is_live under this module's names,
 # with the slice and the manager directory taken as arguments where the helper reads its globals SANDBOX_SLICE
 # and MANAGER_SERVICE. Each body is otherwise the helper's, and tests/unit/sessions.sh holds each pair equal
 # through `declare -f`. The comments explaining each body stay in the helper.
 #
 # What this file adds is an exemption by name, which the stop helper does not have: the user manager's own plumbing, its
-# init.scope and the dbus broker it starts on first use (the units `ai-tools stop` lists as account plumbing). A login
-# session scope (session-N.scope) is not plumbing: it holds a process of the account that a `sudo -u` started.
-# Why the name is sound where a relabel runs, which process it is not sound against, and what closes the residual are
+# init.scope and the dbus broker it starts on first use, a subset of what `atr stop` labels plumbing, since the stop
+# helper labels every non-agent unit so. A login session scope (session-N.scope) is not exempt here: it holds a process
+# of the account that a `sudo -u` started. Why the name is sound where a relabel runs, which process it is not sound
+# against, and what closes the residual are
 # cli.rule.md's.
 #
 # Sourced, not executed. Deployed 644 root:root: shipped logic alone, sourced by root (the relabel helpers,

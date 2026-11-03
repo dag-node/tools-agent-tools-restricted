@@ -46,7 +46,8 @@ _ai_tools_atr__list_names() {
 }
 
 # _ai_tools_atr__list_admin_domains <dir> : print each domain a provider package contributes to ai-tools-admin, less
-# the names base reserves, which the dispatch refuses as a domain.
+# the names base reserves, which the dispatch refuses as a domain. The reserved set is a copy of help.lib.sh's, since
+# this file does not source any library of the project; tests/unit/completion.sh holds the copy to it.
 _ai_tools_atr__list_admin_domains() {
     local name
     while IFS= read -r name; do

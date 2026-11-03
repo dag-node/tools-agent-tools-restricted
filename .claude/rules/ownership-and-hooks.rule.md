@@ -336,6 +336,14 @@ the reconcile runs, and a symlink on the chain is refused with the rows under it
 the callers and the pinned apply). An unexpected entry under `.local/share/systemd` is not a row:
 `ai-tools-admin status` names it and leaves it in place for the operator ([cli](cli.rule.md)).
 
+A root writer that replaces a control-plane file by rename — `git config --file` writes `<path>.lock` and renames it
+over the path — leaves a new inode born with root's group and umask and the type of its parent directory rather than
+the one the policy's file context gives the path, which the installed layout reports as label drift until the next
+reconcile. `ai_tools_control_plane__restore_file_attributes` restores the owner, mode and label after such a write,
+by path, which is sound only while no component of the path is the sandbox account's to rename: a file directly
+under `/opt/ai-tools`, whose mode does not carry group write. A file under a directory the account can write takes
+the layout reconcile's pinned apply instead ([layout](layout.rule.md)).
+
 The control-plane modes are single-sourced as constants in `/usr/local/lib/ai-tools/control-plane.lib.sh`
 (`CP_HOME_MODE`, `CP_DIR_MODES` for the base-owned `bin`, and `CP_AGENT_CONFIG_MODE` for every agent's config
 directory), which `install.sh`, the RPM `%files` and the layout table's rows all apply; cite the constants rather than
