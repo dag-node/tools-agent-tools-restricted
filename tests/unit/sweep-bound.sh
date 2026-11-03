@@ -146,6 +146,45 @@ else
     fi
 fi
 
+# ── `.git` with an empty skip list ───────────────────────────────────────────────────────────────────────────────────
+# An empty skip list, the state SKIP_VCS_DIRS=[] or a skip-dirs library that did not load leaves, does not take
+# the sweep into `.git`: the boundary passes reclaim it, and a per-turn walk would change ownership under a live git
+# command. A lock file in the project's `.git` and a file in a nested `.git` are not offered, while the file beside them
+# is; a plain `find` over the same tree, which lists both `.git` files, is the control that they are eligible.
+section "sweep bound: an empty skip list does not take the sweep into .git"
+VCS="${TESTDIR}/vcs-project"
+mkdir -p "${VCS}/.git/refs/heads" "${VCS}/sub/.git"
+printf 'work\n' > "${VCS}/work.txt"; : > "${VCS}/.git/refs/heads/main.lock"; : > "${VCS}/sub/.git/HEAD"
+chmod 0600 "${VCS}/.git/refs/heads/main.lock"
+eligible="$(find "${VCS}" -user "${walk_owner}" -type f -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ')"
+if [[ "${eligible}" == *".git/refs/heads/main.lock "* && "${eligible}" == *"sub/.git/HEAD "* ]]; then
+    pass "control: a plain walk of the fixture lists both .git files"
+else
+    fail "control: the fixture's .git files are not eligible -- the case below is not evidence: '${eligible}'"
+fi
+if [[ ! -S "${SOCKET}" ]]; then
+    skip "the sweep under an empty skip list" "no socket to answer the sweep's check"
+else
+    # shellcheck disable=SC2016  # the inner bash expands these
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); }
+        ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
+        stub_walked="$2"
+        stub_client() { printf "%s\n" "${2#"${stub_walked}/"}" >&2; }
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$3"
+        _ai_tools_session_sweep__sweep_project "$2" "" 1 stop >/dev/null
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "${VCS}" "${SOCKET}" 2>"${TESTDIR}/offered-vcs" || true
+    offered="$(LC_ALL=C sort "${TESTDIR}/offered-vcs")"
+    if grep -qxF work.txt <<< "${offered}" && ! grep -q '\.git' <<< "${offered}"; then
+        pass "under an empty skip list the sweep offers the file beside .git and nothing under any .git"
+    else
+        fail "the sweep's offers under an empty skip list: $(_san "${offered}")"
+    fi
+fi
+
 # ── The marker a stop run leaves ─────────────────────────────────────────────────────────────────────────────────────
 # A stop run sets the marker to the time its scan started and does not write another file into the state directory:
 # a hook killed at its timeout cannot clean up after itself, so a file the run created would stay behind. The marker

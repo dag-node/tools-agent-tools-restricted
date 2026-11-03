@@ -128,21 +128,21 @@ against the allowlist, so it reclaims agent files to `<you>:SANDBOX_GROUP` and n
 
 ### `.git` reclaim
 
-Every sweep skips `.git`, so `SANDBOX_USER`-owned objects the agent writes there via `git commit` (a `Bash`-tool action
-with no `file_path`, so no `PostToolUse` handback) stay agent-owned. **Access** to them is carried
-by the `user:<operator>` ACL (`ai-tools-setfacl --with-git`): a `<you>` out of `SANDBOX_GROUP` reads and repacks those
-objects through the named entry regardless of who owns them, timing-independently. The reclaim is the **ownership**
-companion to that ACL: it descends the otherwise-skipped `.git` of `.cwd` and hands each `SANDBOX_USER`-owned path
-to `ai-tools-chown` (same allowlist + exclusion + secret re-validation as any sweep), so `.git` ownership converges
-to `<you>:SANDBOX_GROUP` — consistent with the work tree, and so the operator's access survives an ACL-unaware copy (an
-`rsync`/`tar` that drops ACLs preserves owner). It runs on the once-per-session `session-start` pass (which also covers
-a killed prior session's leftovers) and the `session-end` pass (graceful-exit convergence), never the per-turn `Stop`
-sweep, so it never flips ownership mid-turn under a live `git` command. The other skipped trees (`node_modules`,
-`.venv`, …) stay agent-owned, which is safe as an ownership outcome — the files are world-readable, so the owner field
-does not decide access to them, and the tree is regenerable. That is a claim about ownership alone: no sweep inspects
-what a tree holds. The operator's on-demand counterpart is `atr projects handback [--full]` (the `ai-tools-reclaim`
-helper, which walks a project and delegates to the same `ai-tools-chown`; see [cli](cli.rule.md)) — e.g.
-before a backup, with `--full` to include the skipped heavy trees.
+Every sweep skips `.git`, by name whatever the skip list holds, so `SANDBOX_USER`-owned objects the agent writes there
+via `git commit` (a `Bash`-tool action with no `file_path`, so no `PostToolUse` handback) stay agent-owned. **Access**
+to them is carried by the `user:<operator>` ACL (`ai-tools-setfacl --with-git`): a `<you>` out of `SANDBOX_GROUP` reads
+and repacks those objects through the named entry regardless of who owns them, timing-independently. The reclaim is
+the **ownership** companion to that ACL: it descends the otherwise-skipped `.git` of `.cwd` and hands each
+`SANDBOX_USER`-owned path to `ai-tools-chown` (same allowlist + exclusion + secret re-validation as any sweep),
+so `.git` ownership converges to `<you>:SANDBOX_GROUP` — consistent with the work tree, and so the operator's access
+survives an ACL-unaware copy (an `rsync`/`tar` that drops ACLs preserves owner). It runs on the once-per-session
+`session-start` pass (which also covers a killed prior session's leftovers) and the `session-end` pass (graceful-exit
+convergence), never the per-turn `Stop` sweep, so it never flips ownership mid-turn under a live `git` command.
+The other skipped trees (`node_modules`, `.venv`, …) stay agent-owned, which is safe as an ownership outcome — the files
+are world-readable, so the owner field does not decide access to them, and the tree is regenerable. That is a claim
+about ownership alone: no sweep inspects what a tree holds. The operator's on-demand counterpart is
+`atr projects handback [--full]` (the `ai-tools-reclaim` helper, which walks a project and delegates to the same
+`ai-tools-chown`; see [cli](cli.rule.md)) — e.g. before a backup, with `--full` to include the skipped heavy trees.
 
 ### Clean-exit marker
 
@@ -210,16 +210,16 @@ the operator's standing seal, and this pass honours it exactly as `ai-tools-setf
 residue such a directory carries rather than normalizing it, since the mode masks that residue instead of removing it.
 `owner-only.lib.sh` defines what counts as residue and carries the strip; the seal itself is
 [secrets](secret-handling.rule.md). Heavy/transient trees (`.git`, `node_modules`, `.venv`, `__pycache__`, `packages`)
-are skipped, and the project's own `.git` is pruned by name besides, whatever the list holds, since sharing it is
-`ai-tools-setfacl --with-git`'s alone; that skip list is shared with the sweep (`ai-tools-lockdown` does not read it,
-since it covers what a claim exposes, [secrets](secret-handling.rule.md)),
-via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative reference), which groups the names into categories
-(VCS, package, artifact, cache) an operator can override per category in `operator.conf` — read through the shared
-`KEY=value` grammar in `conf.lib.sh`, so a category list separates on commas or whitespace with optional quotes,
-and a **present** key replaces that category's default while an absent one leaves it standing (see
-[providers](providers.rule.md)) — and combines per consumer. The artifact category ships empty — `bin`/`obj`-style
-build-output names double as source dirs in many codebases, so skipping them is a per-host perf opt-in
-(`SKIP_ARTIFACT_DIRS="bin obj"`), with root-relative exemptions for same-named source dirs
+are skipped, and the project's own `.git` directory is pruned by name besides, whatever the list holds, since sharing it
+is `ai-tools-setfacl --with-git`'s alone, while a worktree's or a submodule's `.git` pointer file takes the project ACL
+like any other file; that skip list is shared with the sweep (`ai-tools-lockdown` does not read it, since it covers
+what a claim exposes, [secrets](secret-handling.rule.md)), via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the
+authoritative reference), which groups the names into categories (VCS, package, artifact, cache) an operator can
+override per category in `operator.conf` — read through the shared `KEY=value` grammar in `conf.lib.sh`, so a category
+list separates on commas or whitespace with optional quotes, and a **present** key replaces that category's default
+while an absent one leaves it standing (see [providers](providers.rule.md)) — and combines per consumer. The artifact
+category ships empty — `bin`/`obj`-style build-output names double as source dirs in many codebases, so skipping them is
+a per-host perf opt-in (`SKIP_ARTIFACT_DIRS="bin obj"`), with root-relative exemptions for same-named source dirs
 (`SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`; every walk passes its root to the selector). "Skip" means omitted
 from the walk, not hidden from the agent — a skipped tree's files stay agent-owned. A Stop sweep that hands back
 an unusually large batch logs a journald hint naming the artifact opt-in.

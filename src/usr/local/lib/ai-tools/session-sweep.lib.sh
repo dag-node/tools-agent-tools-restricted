@@ -200,9 +200,13 @@ _ai_tools_session_sweep__sweep_project() {
     local bounded=0 swept=0 failed=0 path below quoted
     # The project as a command argument, for the remedy a warning prints (the %q form, as the NOTICE carries it).
     quoted="$(_ai_tools_session_sweep__quote_path "${dir}")"
-    # `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [cnewer] file|dir \) -print0`
+    # `find DIR -xdev \( skip heavy trees \) -prune -o \( ai-tools-owned [cnewer] file|dir \) -print0`. A directory
+    # named `.git` is pruned ahead of the skip expression, whatever the skip list holds: the boundary passes reclaim it,
+    # and a per-turn walk would change ownership under a live git command (ownership-and-hooks.rule.md). An operator may
+    # clear SKIP_VCS_DIRS, and a skip list that did not load is empty.
     ai_tools_skip_dirs__build_find_expression sweep '' "${dir}"
-    local -a expr=( "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
+    local -a git_prune=( '(' -type d -name .git ')' -prune -o )
+    local -a expr=( "${dir}" -xdev "${git_prune[@]}" "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ )
     # Bound to paths whose status changed since the marker, EXCEPT an unbounded (session-start) pass, which sweeps every
     # ai-tools-owned path. A first-ever stop run (no marker) is likewise a full sweep. The bound reads ctime, so a file
     # moved into the tree is selected (ownership-and-hooks.rule.md). A path handed back is no longer ai-tools-owned,
@@ -214,7 +218,8 @@ _ai_tools_session_sweep__sweep_project() {
         bounded=1
     fi
     expr+=( '(' -type f -o -type d ')' -print0 ')' )
-    local -a descendant_expr=( -mindepth 1 -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" '(' -user @SANDBOX_USER@ \
+    local -a descendant_expr=( -mindepth 1 -xdev "${git_prune[@]}" "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" \
+        '(' -user @SANDBOX_USER@ \
         '(' -type f -o -type d ')' -print0 ')' )
 
     # Delegate each path to the root validator. </dev/null keeps ai-tools-chown on its non-interactive branch. The find
