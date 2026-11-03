@@ -128,21 +128,22 @@ against the allowlist, so it reclaims agent files to `<you>:SANDBOX_GROUP` and n
 
 ### `.git` reclaim
 
-Every sweep skips `.git`, so `SANDBOX_USER`-owned objects the agent writes there via `git commit` (a `Bash`-tool action
-with no `file_path`, so no `PostToolUse` handback) stay agent-owned. **Access** to them is carried
-by the `user:<operator>` ACL (`ai-tools-setfacl --with-git`): a `<you>` out of `SANDBOX_GROUP` reads and repacks those
-objects through the named entry regardless of who owns them, timing-independently. The reclaim is the **ownership**
-companion to that ACL: it descends the otherwise-skipped `.git` of `.cwd` and hands each `SANDBOX_USER`-owned path
-to `ai-tools-chown` (same allowlist + exclusion + secret re-validation as any sweep), so `.git` ownership converges
-to `<you>:SANDBOX_GROUP` — consistent with the work tree, and so the operator's access survives an ACL-unaware copy (an
-`rsync`/`tar` that drops ACLs preserves owner). It runs on the once-per-session `session-start` pass (which also covers
-a killed prior session's leftovers) and the `session-end` pass (graceful-exit convergence), never the per-turn `Stop`
-sweep, so it never flips ownership mid-turn under a live `git` command. The other skipped trees (`node_modules`,
-`.venv`, …) stay agent-owned, which is safe as an ownership outcome — the files are world-readable, so the owner field
-does not decide access to them, and the tree is regenerable. That is a claim about ownership alone: no sweep inspects
-what a tree holds. The operator's on-demand counterpart is `atr projects handback [--full]` (the `ai-tools-reclaim`
-helper, which walks a project and delegates to the same `ai-tools-chown`; see [cli](cli.rule.md)) — e.g.
-before a backup, with `--full` to include the skipped heavy trees.
+Every sweep skips the project's own `.git` directory, by its path whatever the skip list holds, so `SANDBOX_USER`-owned
+objects the agent writes there via `git commit` (a `Bash`-tool action with no `file_path`, so no `PostToolUse` handback)
+stay agent-owned; a worktree's or a submodule's `.git` pointer file is swept like any other file. **Access** to those
+objects is carried by the `user:<operator>` ACL (`ai-tools-setfacl --with-git`): a `<you>` out of `SANDBOX_GROUP` reads
+and repacks those objects through the named entry regardless of who owns them, timing-independently. The reclaim is
+the **ownership** companion to that ACL: it descends the otherwise-skipped `.git` of `.cwd` and hands each
+`SANDBOX_USER`-owned path to `ai-tools-chown` (same allowlist + exclusion + secret re-validation as any sweep),
+so `.git` ownership converges to `<you>:SANDBOX_GROUP` — consistent with the work tree, and so the operator's access
+survives an ACL-unaware copy (an `rsync`/`tar` that drops ACLs preserves owner). It runs on the once-per-session
+`session-start` pass (which also covers a killed prior session's leftovers) and the `session-end` pass (graceful-exit
+convergence), never the per-turn `Stop` sweep, so it never flips ownership mid-turn under a live `git` command.
+The other skipped trees (`node_modules`, `.venv`, …) stay agent-owned, which is safe as an ownership outcome — the files
+are world-readable, so the owner field does not decide access to them, and the tree is regenerable. That is a claim
+about ownership alone: no sweep inspects what a tree holds. The operator's on-demand counterpart is
+`atr projects handback [--full]` (the `ai-tools-reclaim` helper, which walks a project and delegates to the same
+`ai-tools-chown`; see [cli](cli.rule.md)) — e.g. before a backup, with `--full` to include the skipped heavy trees.
 
 ### Clean-exit marker
 
@@ -210,43 +211,70 @@ the operator's standing seal, and this pass honours it exactly as `ai-tools-setf
 residue such a directory carries rather than normalizing it, since the mode masks that residue instead of removing it.
 `owner-only.lib.sh` defines what counts as residue and carries the strip; the seal itself is
 [secrets](secret-handling.rule.md). Heavy/transient trees (`.git`, `node_modules`, `.venv`, `__pycache__`, `packages`)
-are skipped; that skip list is shared with the sweep (`ai-tools-lockdown` does not read it, since it covers what a claim
-exposes, [secrets](secret-handling.rule.md)), via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the authoritative
-reference), which groups the names into categories (VCS, package, artifact, cache) an operator can override per category
-in `operator.conf` — read through the shared `KEY=value` grammar in `conf.lib.sh`, so a category list separates
-on commas or whitespace with optional quotes, and a **present** key replaces that category's default while an absent one
-leaves it standing (see [providers](providers.rule.md)) — and combines per consumer. The artifact category ships empty —
-`bin`/`obj`-style build-output names double as source dirs in many codebases, so skipping them is a per-host perf opt-in
-(`SKIP_ARTIFACT_DIRS="bin obj"`), with root-relative exemptions for same-named source dirs
+are skipped, and the project's own `.git` directory is pruned by name besides, whatever the list holds, since sharing it
+is `ai-tools-setfacl --with-git`'s alone, while a worktree's or a submodule's `.git` pointer file takes the project ACL
+like any other file; that skip list is shared with the sweep (`ai-tools-lockdown` does not read it, since it covers
+what a claim exposes, [secrets](secret-handling.rule.md)), via `/usr/local/lib/ai-tools/skip-dirs.lib.sh` (the
+authoritative reference), which groups the names into categories (VCS, package, artifact, cache) an operator can
+override per category in `operator.conf` — read through the shared `KEY=value` grammar in `conf.lib.sh`, so a category
+list separates on commas or whitespace with optional quotes, and a **present** key replaces that category's default
+while an absent one leaves it standing (see [providers](providers.rule.md)) — and combines per consumer. The artifact
+category ships empty — `bin`/`obj`-style build-output names double as source dirs in many codebases, so skipping them is
+a per-host perf opt-in (`SKIP_ARTIFACT_DIRS="bin obj"`), with root-relative exemptions for same-named source dirs
 (`SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`; every walk passes its root to the selector). "Skip" means omitted
 from the walk, not hidden from the agent — a skipped tree's files stay agent-owned. A Stop sweep that hands back
 an unusually large batch logs a journald hint naming the artifact opt-in.
 
 Setgid handles group *ownership* inheritance; a POSIX ACL handles *permission* inheritance in both directions. The root
 helper `ai-tools-setfacl` (run at project claim, see [cli](cli.rule.md)) applies a **default** ACL
-`user:<operator>:rwX,g:SANDBOX_GROUP:rwX,o::-` to every project directory, plus the matching **access** ACL on existing
+`user:<operator>:rwx,g:SANDBOX_GROUP:rwx,o::-` to every project directory, plus the matching **access** ACL on existing
 entries. The group grant is the AGENT's access: a file the operator's `git checkout`/`merge` writes under a restrictive
-umask is born group-accessible (and a pre-existing `600` operator file is opened to the agent group), others-denied
-independent of that umask. The `user:<operator>` grant is the mirror — the OPERATOR's umask-independent access
-to AGENT-written files — so the operator co-writes the tree, and reads agent-written `.git` objects, **without joining
-`SANDBOX_GROUP` and without waiting on the ownership handback**; it is the access counterpart to setgid's
-`operator→agent` group grant. The named entry governs agent-owned files and yields to the owner entry on operator-owned
-ones. The helper shares the allowlist/exclusion/secret-skip/skip-list rules with the setgid pass, so secret-named
-and `!`-excluded paths receive neither grant. The grant is applied with the mask recalculated (no `setfacl -n`), since
-an entry kept under the old mask would be dormant until a later `chmod` widening the group bits activated it.
-`other::---` is pinned explicitly rather than cloned from each directory's mode, which on a permissive-umask directory
-would otherwise seed `default:other::r-x` and leak read access to every future file.
+umask is born group-accessible, others-denied independent of that umask. The `user:<operator>` grant is the mirror —
+the OPERATOR's umask-independent access to AGENT-written files — so the operator co-writes the tree, and reads
+agent-written `.git` objects, **without joining `SANDBOX_GROUP` and without waiting on the ownership handback**; it is
+the access counterpart to setgid's `operator→agent` group grant. The named entry governs agent-owned files and yields
+to the owner entry on operator-owned ones. The helper shares the allowlist/exclusion/secret-skip/skip-list rules
+with the setgid pass, so secret-named and `!`-excluded paths receive neither grant. The mask decides what each grant
+gives in effect, the way it does on a path created later under the default ACL: `ai-tools-setfacl` writes it explicitly
+under `setfacl -n`, copying the owner's permissions on the path (`ai_tools_project_permissions__get_owner_permissions`),
+so the agent gets what the owner has and a read-only file stays read-only to it. A recalculation would take the union
+of the group-class entries, and a file created under a default ACL inherits those with `x` (the clone area's
+`group:ai-ops` among them), so a recalculated mask would make a text file executable and a read-only one writable.
+The owner's bits are the ones read, because git records the owner's execute bit and on a path carrying an ACL the group
+bits of the mode are the mask. A directory's default set stays `rwx`. After the claim the group column `ls -l` shows is
+what the agent's entry gives, so the owner's `chmod g+x` and `g-x` change it, and the next walk sets it from the owner's
+permissions again. `other::---` is pinned explicitly rather than cloned from each directory's mode,
+which on a permissive-umask directory would otherwise seed `default:other::r-x` and leak read access to every future
+file.
 
-The group grant and the mask leave a path's mode at one of three values, and an unclaim normalizes them, since
-the pre-claim mode is not recorded, which is why the claim's page says to back up first:
+The group grant and the mask leave a path's mode at the owner's digit repeated in the group's and `0` for other,
+and an unclaim normalizes them, since the pre-claim mode is not recorded, which is why the claim's page says to back
+up first. A walk is a claim that runs `ai-tools-setfacl`; the after-unclaim column is the state with no walk run since
+the row's:
 
 <a id="ref-table-b5v7"></a>**A path's mode before, during and after a claim**
 
-| before claim | while claimed | after unclaim |
+| before the walk | after the walk | after unclaim |
 |---|---|---|
-| `600`, `700` | never opened: the owner-only seal ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) | unchanged |
-| `640`, `644`, `660`, `664` | `660` | `640` |
-| `750`, `755`, `775` | `770` | `750` |
+| `600`, `700`, `400` | never opened: the owner-only seal ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) | unchanged |
+| `640`, `644`, `660`, `664`, `666`, `670` | `660` | `640` |
+| `750`, `755`, `775`, `777` | `770` | `750` |
+| `711`, `731` / `701` | `770` | `710` / `700` |
+| `620`, `604` | `660` | `600` |
+| `444` | `440` | `440` |
+| `555` | `550` | `550` |
+| created after the claim with `0666`, `0644` | `660`, `640` (the create mode's group digit under the default ACL; a walk makes it `660`) | `640` |
+| created after the claim with `0777`, `0755` | `770`, `750` (a walk makes it `770`) | `750` |
+| the owner's `chmod g-x` on a `770` file | `760` (a walk makes it `770`) | `740` |
+| the owner's `chmod 755` on a claimed file | `755` (a walk makes it `770`) | `755`: the file's other bits stay, and the project's directories, at `other::---`, keep other accounts from reaching it |
+
+An unclaim gives the group the read and execute of the path's own `group::` entry, without write, and without execute
+where the owner has none: for a path that existed before the claim that entry holds its group bits from then,
+and for a path created later the default its directory held, `r-x` under a `750` project directory. The mask hides
+the entry from `ls -l` while the project is claimed, so a `640` file the owner later makes `ug+x` unclaims to `740`.
+The handback does not change this table for a file the operator owns. On an agent-written file it removes the group's
+`x` when the owner has none, and the other bits, then gives the file to the operator, so the file keeps the mode it was
+created with otherwise.
 
 World access goes at claim time and does not come back: the claim pins `other::---`, so `644` becomes `660` at once
 and the unclaim drops group write and leaves `640`. `ls -l` shows the ACL **mask** in the group column, so effective

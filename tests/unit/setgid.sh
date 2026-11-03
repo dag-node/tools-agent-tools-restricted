@@ -267,4 +267,29 @@ else
     fail "control: ${ir}/sub is $(stat -c '%G %a' "${ir}/sub") -- the refusal above is not evidence"
 fi
 
+# ── The project's `.git` with the VCS skip list cleared ──────────────────────────────────
+# `SKIP_VCS_DIRS=[]` takes `.git` off the skip list, and the walk still leaves the project's own `.git` in its group
+# without setgid: sharing it is ai-tools-setfacl `--with-git`'s. A `.git` nested deeper is walked under the override,
+# the control that the cleared list reached this walk, and the directory beside them is regrouped as the walk's own
+# control.
+section "ai-tools-setgid: the project's .git with SKIP_VCS_DIRS cleared"
+vcs="${TESTDIR}/vcs-cleared"
+mkdir -p "${vcs}/.git/objects" "${vcs}/src" "${vcs}/sub/.git"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${vcs}"
+chmod 0750 "${vcs}" "${vcs}/.git" "${vcs}/.git/objects" "${vcs}/src" "${vcs}/sub" "${vcs}/sub/.git"
+mk_allowlist "@ ${vcs}"
+printf 'SKIP_VCS_DIRS=[]\n' >> "${TESTDIR}/operator.conf"
+setsid "${HELPER}" "${vcs}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%G' "${vcs}/src")" == "${SANDBOX_GROUP}" && "$(stat -c '%G' "${vcs}/sub/.git")" == "${SANDBOX_GROUP}" ]]; then
+    pass "control: the walk regroups the directory beside .git, and a nested .git under the cleared list"
+else
+    fail "control: src is $(stat -c '%G' "${vcs}/src"), sub/.git is $(stat -c '%G' "${vcs}/sub/.git") -- the case below is not evidence"
+fi
+gitdir_state="$(stat -c '%G %a' "${vcs}/.git") $(stat -c '%G %a' "${vcs}/.git/objects")"
+if [[ "${gitdir_state}" == "${PROJECTS_GROUP} 750 ${PROJECTS_GROUP} 750" ]]; then
+    pass "with SKIP_VCS_DIRS cleared, the project's .git keeps its group and does not take setgid"
+else
+    fail "the walk under a cleared VCS list reached the project's .git: ${gitdir_state}"
+fi
+
 finish

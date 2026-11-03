@@ -469,6 +469,7 @@ drive_rows() {
     expect "claim --yes registers safe.directory"                     cli_called ai-tools-safedir "^${R}/pa$"
     expect "claim --yes sets the group and setgid"                    cli_called ai-tools-setgid "^${R}/pa$"
     expect "claim --yes applies the ACL"                              cli_called ai-tools-setfacl "${R}/pa$"
+    expect "a first claim's walk regroups every path"                 cli_log_lacks ai-tools-setfacl "--skip-drifted"
     expect "the safe.directory entry is on record"                    gc_has "${R}/pa"
     expect "the secret scan precedes every access-granting step"     before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setgid "."
 
@@ -567,6 +568,72 @@ drive_rows() {
     expect "a failed root step exits 1 over the drift left"           rc_is 1
     expect "the failed claim still writes its rows"                   out_has_row group-not-fixed
     cli_stub_reset; seed_gc "${R}/ph"
+
+    # A declined group repair holds for the walk the claim runs for another step: here the `.git` share, which a run
+    # without a terminal accepts by its default. The repository belongs to the projects user, so its git reads it.
+    claimed_fixture "${R}/pj"
+    git init -q "${R}/pj"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pj/.git"
+    seed "@ ${R}/pj"; seed_gc "${R}/pj"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pj"
+    expect "control: the re-claim lists the moved-in file as group drift" out_has_text "Interior drift: group and ACL"
+    expect "the walk the .git share runs leaves the declined drift as it is" \
+        cli_called ai-tools-setfacl "^--with-git${T}--skip-drifted${T}${R}/pj$"
+
+    # A worktree's `.git` is a pointer file the walk grants, so one moved in with the projects user's own group is group
+    # drift like the moved-in file: listed, and left as it is by the walk when the repair is declined. A file carrying
+    # an earlier claim's entries makes the ACL step's walk the one that runs, since a pointer file has no `.git` tree
+    # to share. The worktree is a real one, so the owner-side read finds the project its own toplevel.
+    git init -q "${R}/pw-main"
+    git -C "${R}/pw-main" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+        commit -q --allow-empty -m fixture
+    git -C "${R}/pw-main" worktree add -q "${R}/pw"
+    claimed_fixture "${R}/pw"; rm -f "${R}/pw/moved-in.txt"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pw-main"
+    chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/pw/.git"; chmod 0640 "${R}/pw/.git"
+    : > "${R}/pw/data"; chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${R}/pw/data"; chmod 0660 "${R}/pw/data"
+    setfacl -m "u:${PROJECTS_USER}:rw-,g:${SANDBOX_GROUP}:rw-" "${R}/pw/data"
+    seed "@ ${R}/pw"; seed_gc "${R}/pw"
+    if [[ -f "${R}/pw/.git" ]]; then
+        pass "control: the worktree fixture's .git is a pointer file"
+    else
+        fail "control: the worktree fixture has no .git pointer file -- the rows below are not evidence"
+    fi
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pw"
+    expect "the re-claim lists the worktree's .git pointer as group drift" \
+        out_line_has_text group-not-fixed "${R}/pw/.git"
+    expect "control: the earlier claim's entries make the ACL step's walk run" out_has_row narrow-acl-entries-not-fixed
+    expect "the declined repair passes --skip-drifted to that walk"   cli_called ai-tools-setfacl "^--skip-drifted${T}${R}/pw$"
+    # The same re-claim on a terminal answering yes to the group question: the walk runs without `--skip-drifted`,
+    # after the secret gate, so the pointer takes the group and the project ACL.
+    cli_stub_reset; drive cli_tty 'y\n' ai-tools.projects.claim "$(f yes)" "${R}/pw"
+    expect "control: the terminal run lists the pointer"              out_has_text "${R}/pw/.git"
+    expect "control: the terminal run asks the group question"        out_has_text "Move these 1 path(s) to group"
+    expect "the accepted repair runs the walk without --skip-drifted" cli_called ai-tools-setfacl "^${R}/pw$"
+    expect "the accepted repair takes the secret gate first"          before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setfacl "."
+
+    # A project an earlier release claimed: one file carrying that release's entries, rw- for the operator
+    # and the sandbox group. The re-claim lists it as a pending step under the proceed confirm, so a run without
+    # a terminal declines before any helper, and `--yes` runs the ACL step's walk, which no other step of this fixture
+    # calls for. The stubbed walk does not change the file, so the check after it reads the entries not fixed
+    # and the claim exits 4. With the file carrying the walk's own entries the re-claim does not list a file and does
+    # not walk.
+    claimed_fixture "${R}/pn"; rm -f "${R}/pn/moved-in.txt"
+    : > "${R}/pn/data"; chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${R}/pn/data"; chmod 0660 "${R}/pn/data"
+    setfacl -m "u:${PROJECTS_USER}:rw-,g:${SANDBOX_GROUP}:rw-" "${R}/pn/data"
+    seed "@ ${R}/pn"; seed_gc "${R}/pn"
+    cli_stub_reset; drive cli ai-tools.projects.claim "${R}/pn"
+    expect "the re-claim lists the earlier claim's entries"           out_has_text "ACL entries from an earlier claim"
+    expect "without --yes and a terminal the entries step declines"   rc_not0
+    expect "the declined entries step reaches no helper"              cli_log_empty
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/pn"
+    expect "--yes runs the ACL step's walk for the listed entries"   cli_called ai-tools-setfacl "${R}/pn$"
+    expect "the entries step takes the secret gate"                   before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setfacl "."
+    expect "the stubbed walk leaves the entries, read as not fixed"   out_has_row narrow-acl-entries-not-fixed
+    expect "and the claim exits 4"                                    rc_is 4
+    setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${R}/pn/data"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pn"
+    expect "with the walk's entries the re-claim lists none"          out_lacks_text "ACL entries from an earlier claim"
+    expect "and does not walk the tree"                               cli_log_lacks ai-tools-setfacl
 
     # A walk that fails to read part of the tree: a root-owned 0700 directory, which the projects user lacks search
     # permission on, makes the group walk write to stderr, which the claim reports as an `error` row and exit 5 rather

@@ -206,6 +206,10 @@ your project registry is ${REGISTRY_DISPLAY_PATH}, the allowed\-projects an earl
 NOTICE.
 group\-fixed
 .TP
+.B MSG-J9P2
+WARNING.
+narrow\-acl\-entries\-not\-fixed
+.TP
 .B MSG-K4R8
 ERROR.
 projects push takes a single path
@@ -246,9 +250,17 @@ unknown projects remove option: ${a}
 ERROR.
 the sandbox account is not an operator and must not own projects
 .TP
+.B MSG-M4X2
+NOTICE.
+narrow\-acl\-entries\-gone
+.TP
 .B MSG-M9H2
 WARNING.
 the confinement library ${CONFINEMENT_LIB} did not load its attestation readers \-\- reinstall ai\-tools\-base
+.TP
+.B MSG-N2Y5
+NOTICE.
+narrow\-acl\-entries\-fixed
 .TP
 .B MSG-P4D2
 ERROR.
@@ -431,6 +443,10 @@ the sandbox is not provisioned for any enabled agent: ${joined%, } \-\- provisio
 .B MSG-X9Z9
 ERROR.
 status takes no arguments
+.TP
+.B MSG-Y6B5
+ERROR.
+narrow\-acl\-entries\-unverified
 .TP
 .B MSG-Y6V3
 ERROR.
@@ -1818,6 +1834,10 @@ cannot load ${SECRET_PATTERNS_LIB}, which decides which paths are secrets \-\- n
 .B MSG-V3W8
 WARNING.
 setfacl not found \-\- skipping ACL normalization for ${TARGET}
+.TP
+.B MSG-X6T6
+WARNING.
+left ${drifted} path(s) with a group other than ${GROUP} as they are, without the project ACL
 .SS ai-tools-setgid
 .TP
 .B MSG-B3F5

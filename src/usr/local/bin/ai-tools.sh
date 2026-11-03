@@ -73,9 +73,10 @@ readonly LOCKDOWN_BIN="/usr/local/libexec/ai-tools/ai-tools-lockdown"
 # in-place tree; the per-project semanage fcontext rule it adds needs root. Sandbox clones do not use it (static rule +
 # plain restorecon -- see relabel_clone).
 readonly RELABEL_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel"
-# Root-only ACL helper: applies the project's group-permission ACL (default + access group:SANDBOX_GROUP:rwX, other
-# denied) so files the projects user's git checkout/merge writes under a restrictive umask stay group-accessible
-# to the agent. CAP_FOWNER lets it ACL files the projects user does not own.
+# Root-only ACL helper: applies the project's group-permission ACL (default + access group:SANDBOX_GROUP:rwx
+# under a mask of rw- on a file without an owner execute bit, other denied) so files the projects user's git
+# checkout/merge writes under a restrictive umask stay group-accessible to the agent. CAP_FOWNER lets it ACL files
+# the projects user does not own.
 readonly SETFACL_BIN="/usr/local/libexec/ai-tools/ai-tools-setfacl"
 # Root-only setgid helper: sets group SANDBOX_GROUP + the setgid bit on a claimed project's directories. The operator is
 # not a SANDBOX_GROUP member (multi-operator), so the group change needs root; the helper carries its own allowlist +
@@ -1517,7 +1518,9 @@ drift_walk_failure() {
 acl_drift_scan() {
     local dir="$1" work="$2" exclusion status=0
     local -n _acl_scan_paths="$3" _acl_scan_detail="$4"
-    local -a skip=( -name .git -prune )
+    # `.git` is pruned as a directory, the `--with-git` pass's; a worktree's or a submodule's `.git` file is a path
+    # the walk grants, so one moved in with a foreign group is drift like any other.
+    local -a skip=( -name .git -type d -prune )
     _acl_scan_paths=() _acl_scan_detail=""
     for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
         [[ "${exclusion}" == "${dir}"/* ]] && skip+=( -o -path "${exclusion}" -prune )
@@ -1536,6 +1539,74 @@ acl_drift_scan() {
         return 1
     fi
     return 0
+}
+
+# narrow_acl_entry_scan <dir> <work-dir> <paths-array> <detail-var>  -- fill <paths-array> with the files inside
+# a claimed tree whose named entries a claim before the owner-permissions mask wrote narrower than `rwx`
+# (ai_tools_project_permissions__find_paths_with_narrow_acl_entries). The candidates are the files ai-tools-setfacl's
+# walk reaches and does not regroup: its skip list and `.git` pruned, this project's '!'-excluded subtrees
+# (SCAN_EXCLUSIONS) and owner-only directories pruned, held by the operator, in the sandbox group, with a group or other
+# bit. A sandbox-owned file is left out: its owner may set its ACL, so the sandbox account could plant narrow entries
+# and have every re-claim offer a walk that resets the operator's own chmods across the tree; an operator-owned file's
+# ACL is the operator's to set (tests/boundary/access.sh). A hit is then dropped wherever the walk would skip it,
+# so listing it would put it on every re-claim: under an excluded or disabled line by the registry's own covering match
+# (ai_tools_conf__is_path_excluded over SCAN_EXCLUSIONS, each glob-free one beside the path `realpath -e` gives it
+# as the loader adds it for the helper; the walk's `find` prunes the lines naming a path under the root only to save
+# work), and where the caller's secret_patterns_loaded (dynamic scope) says the owner's patterns loaded and a component
+# of it matches them. Returns 1, with <detail-var> naming why, when the walk, the ACL reader or the covering match did
+# not complete; the hits it did read stay in the array.
+narrow_acl_entry_scan() {
+    local dir="$1" work="$2" exclusion resolved status=0 excluded_status path operator_uid sandbox_gid reader_detail=""
+    local -n _narrow_acl_scan_paths="$3" _narrow_acl_scan_detail="$4"
+    # `.git` is pruned as a directory, the `--with-git` pass's; a worktree's or a submodule's `.git` file is
+    # a candidate, as the walk grants it.
+    local -a skip=( -path "${dir}/.git" -type d -prune -o -type d ! -perm /077 -prune ) candidates=() narrow=() covering=()
+    _narrow_acl_scan_paths=() _narrow_acl_scan_detail=""
+    for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
+        [[ "${exclusion}" == "${dir}"/* ]] && skip+=( -o -path "${exclusion}" -prune )
+    done
+    AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=()
+    ai_tools_skip_dirs__build_find_expression setfacl '' "${dir}" 2>/dev/null || true
+    { LC_ALL=C find "${dir}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]}" \( "${skip[@]}" \) -o \
+        -type f -user "${OWNER_USER}" -group "${SANDBOX_GROUP}" -perm /077 -print0 \
+        > "${work}/entries.walk" 2> "${work}/entries.walk.err"; } 2>/dev/null || status=$?
+    if (( status != 0 )) || [[ ! -f "${work}/entries.walk.err" || -s "${work}/entries.walk.err" ]]; then
+        _narrow_acl_scan_detail="the entries walk $(drift_walk_failure "${status}" "${work}/entries.walk.err")"
+    fi
+    if ! drift_walk_read "${work}/entries.walk" candidates; then
+        [[ -n "${_narrow_acl_scan_detail}" ]] || _narrow_acl_scan_detail="the entries walk's output could not be read"
+        return 1
+    fi
+    (( ${#candidates[@]} )) || { [[ -z "${_narrow_acl_scan_detail}" ]]; return; }
+    # The identities claim_verify_group resolves, read the same way.
+    operator_uid="$(id -u "${OWNER_USER}" 2>/dev/null)" || operator_uid=""
+    sandbox_gid="$(getent group "${SANDBOX_GROUP}" 2>/dev/null | cut -d: -f3)" || sandbox_gid=""
+    if ! claim_write_list "${work}/entries.list" "${candidates[@]}" \
+            || ! ai_tools_project_permissions__find_paths_with_narrow_acl_entries "${work}/entries.list" "${work}" \
+                "${dir}" "${operator_uid}" "${sandbox_gid}" narrow reader_detail; then
+        [[ -n "${_narrow_acl_scan_detail}" ]] \
+            || _narrow_acl_scan_detail="$(ai_tools_log__sanitize "${reader_detail:-the path list for the ACL reader could not be written}")"
+    fi
+    for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
+        covering+=("${exclusion}")
+        ai_tools_conf__has_glob_characters "${exclusion}" && continue
+        resolved="$(realpath -e -- "${exclusion}" 2>/dev/null)" || continue
+        [[ "${resolved}" == "${exclusion}" ]] || covering+=("${resolved}")
+    done
+    for path in "${narrow[@]}"; do
+        excluded_status=0
+        ai_tools_conf__is_path_excluded "${path}" covering || excluded_status=$?
+        case "${excluded_status}" in
+            0) continue ;;
+            1) ;;
+            *) [[ -n "${_narrow_acl_scan_detail}" ]] \
+                   || _narrow_acl_scan_detail="whether a registry line covers a path could not be read: $(ai_tools_log__sanitize "${path}")"
+               continue ;;
+        esac
+        [[ "${secret_patterns_loaded:-false}" == true ]] && is_secret_drift_path "${dir}" "${path}" && continue
+        _narrow_acl_scan_paths+=("${path}")
+    done
+    [[ -z "${_narrow_acl_scan_detail}" ]]
 }
 
 # label_drift_scan <dir> <work-dir> <paths-array> <types-map> <detail-var>  -- fill <paths-array> with the paths inside
@@ -1919,8 +1990,9 @@ grant_ancestor_traversal() {
 # The clone is created with its ACL stripped (clone_privately), so the walk then gives every opened path the access ACL
 # the clone area's default ACL would have given it at creation, and every directory that default ACL itself: the named
 # and `group::` entries as the default holds them, and the mask the kernel derives from the create mode -- `rwx`
-# on a directory and on a file with an execute bit, `rw-` on any other file, which is what `chmod g+rwX` leaves
-# after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries and would open every file
+# on a directory and on a file with an owner execute bit, `rw-` on any other file, the rule ai-tools-setfacl applies
+# to a claimed file. A umask-077 create does not leave a group or other execute bit, so this is also what `chmod g+rwX`
+# leaves after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries and would open every file
 # to execute, so each class takes its mask explicitly under `-n`. `user::` and `other::` keep the bits the create's
 # umask 077 left.
 normalize_clone() {
@@ -1948,8 +2020,8 @@ normalize_clone() {
     done <<< "${area_acl}"
     [[ -n "${defaults}" ]] || return 0
     find "${d}" -xdev "${prune[@]}" -type d -exec setfacl -n -m "${access}${access:+,}m::rwx,${defaults}" {} +
-    find "${d}" -xdev "${prune[@]}" -type f -perm /111 -exec setfacl -n -m "${access}${access:+,}m::rwx" {} +
-    find "${d}" -xdev "${prune[@]}" -type f ! -perm /111 -exec setfacl -n -m "${access}${access:+,}m::rw-" {} +
+    find "${d}" -xdev "${prune[@]}" -type f -perm -u+x -exec setfacl -n -m "${access}${access:+,}m::rwx" {} +
+    find "${d}" -xdev "${prune[@]}" -type f ! -perm -u+x -exec setfacl -n -m "${access}${access:+,}m::rw-" {} +
 }
 
 # find_pattern_literal <output-variable> <path>  -- set <output-variable> to <path> escaped for find's `-path`/`-name`
@@ -2056,16 +2128,16 @@ run_reclaim() {
     sudo "${RECLAIM_BIN}" "$@" "${d}"
 }
 
-# run_setfacl <dir> <with_git>  -- apply the project's group-permission ACL on <dir> via the root helper (sudo,
-# password); when <with_git> is true, also pass --with-git so the helper normalizes the .git tree too. Returns its
-# status.
+# run_setfacl <dir> <with_git> [skip_drifted]  -- apply the project's group-permission ACL on <dir> via the root
+# helper (sudo, password); when <with_git> is true, also pass --with-git so the helper normalizes the .git tree too,
+# and when <skip_drifted> is true, --skip-drifted so the walk leaves each path with a foreign group as it is. Returns
+# its status.
 run_setfacl() {
-    local d="$1" with_git="${2:-false}"
-    if ${with_git}; then
-        sudo "${SETFACL_BIN}" --with-git "${d}"
-    else
-        sudo "${SETFACL_BIN}" "${d}"
-    fi
+    local d="$1" with_git="${2:-false}" skip_drifted="${3:-false}"
+    local -a flags=()
+    ${with_git} && flags+=(--with-git)
+    ${skip_drifted} && flags+=(--skip-drifted)
+    sudo "${SETFACL_BIN}" "${flags[@]+"${flags[@]}"}" "${d}"
 }
 
 # run_unclaim <dir> <target-group> [helper-flag...]  -- clear the agent ACL, regroup <dir> to <target-group>, and remove
@@ -2295,19 +2367,21 @@ claim_relabel() {
     fi
 }
 
-# claim_setfacl <dir> <with_git>  -- apply the group-permission ACL via the root helper so files the projects user's git
-# checkout/merge writes under a restrictive umask stay group- accessible; when <with_git> is true the helper also
-# normalizes the .git tree (group + setgid + ACL) so the operator's commits stay agent-accessible. Best-effort,
+# claim_setfacl <dir> <with_git> [skip_drifted]  -- apply the group-permission ACL via the root helper so files
+# the projects user's git checkout/merge writes under a restrictive umask stay group- accessible; when <with_git> is
+# true the helper also normalizes the .git tree (group + setgid + ACL) so the operator's commits stay agent-accessible,
+# and when <skip_drifted> is true the walk leaves the group drift the operator declined to repair as it is. Best-effort,
 # mirroring claim_relabel: warns with the manual command (never dies) when sudo is missing or fails.
 claim_setfacl() {
-    local d="$1" with_git="${2:-false}" flag="" note=""
+    local d="$1" with_git="${2:-false}" skip_drifted="${3:-false}" flag="" note=""
     ${with_git} && { flag=" --with-git"; note=" (incl. .git)"; }
+    ${skip_drifted} && flag+=" --skip-drifted"
     if ! command -v sudo >/dev/null 2>&1; then
         warn "sudo not found -- cannot apply the project ACL automatically"
         say  "      ${C_BOLD}sudo ${SETFACL_BIN}${flag} ${d}${C_RST}"
         return 0
     fi
-    if run_setfacl "${d}" "${with_git}"; then
+    if run_setfacl "${d}" "${with_git}" "${skip_drifted}"; then
         say "    group-permission ACL: applied${note}"
     else
         warn "could not apply the project ACL -- run it by hand:"
@@ -2348,7 +2422,8 @@ is_secret_drift_path() {
     declare -F ai_tools_secret_patterns__is_secret_basename >/dev/null 2>&1 || return 1
     local _part
     local -a _parts=()
-    IFS=/ read -r -a _parts <<< "${2#"$1"/}"
+    # Split on `/` alone: a read would stop at a line feed in a name and match the path on its first line only.
+    mapfile -d / -t _parts < <(printf '%s' "${2#"$1"/}")
     for _part in "${_parts[@]}"; do
         [[ -n "${_part}" ]] && ai_tools_secret_patterns__is_secret_basename "${_part}" && return 0
     done
@@ -2435,7 +2510,7 @@ claim_load_libraries() {
             ai_tools_records_base__get_exit_status ai_tools_records_tsv__write_record \
             ai_tools_records_tsv__frame_item_components ai_tools_project_permissions__check_label_batch \
             ai_tools_project_permissions__check_label ai_tools_project_permissions__read_lstat_outcomes \
-            ai_tools_project_permissions__check_group; do
+            ai_tools_project_permissions__check_group ai_tools_project_permissions__find_paths_with_narrow_acl_entries; do
         declare -F "${function}" >/dev/null 2>&1 || loaded=false
     done
     if ! ${loaded}; then
@@ -2475,10 +2550,10 @@ _claim_attention()  { _CLAIM_CODE="$1"; _CLAIM_SEVERITY=attention; }
 _claim_unreadable() { _CLAIM_CODE="$1"; _CLAIM_SEVERITY=unreadable; }
 
 # claim_write_row <finding> <subject-type> <kind> <path> <detail>  -- record one outcome of the claim's checks and fold
-# its severity into the report state the exit is read from. <kind> is the row's one item component: `label` or `group`
-# for a drift row, and `git` or `filemode` for the `error` row of a step the invoker could not read; the operator is
-# the one the run acts for. Under `--format tsv` the row goes to fd 3 as a record; on the page it is an outcome_record
-# line whose first field is the finding without its kind.
+# its severity into the report state the exit is read from. <kind> is the row's one item component: `label`, `group`
+# or `narrow-acl-entries` for a drift row, and `git` or `filemode` for the `error` row of a step the invoker could not
+# read; the operator is the one the run acts for. Under `--format tsv` the row goes to fd 3 as a record; on the page it
+# is an outcome_record line whose first field is the finding without its kind.
 claim_write_row() {
     local finding="$1" subject_type="$2" kind="$3" path="$4" detail="$5" item=""
     case "${finding}" in
@@ -2490,6 +2565,10 @@ claim_write_row() {
         group-not-fixed)  _claim_attention  MSG-T6G3 "group-not-fixed" ;;
         group-unverified) _claim_unreadable MSG-D3K4 "group-unverified" ;;
         group-gone)       _claim_info       MSG-B6S7 "group-gone" ;;
+        narrow-acl-entries-fixed)      _claim_info       MSG-N2Y5 "narrow-acl-entries-fixed" ;;
+        narrow-acl-entries-not-fixed)  _claim_attention  MSG-J9P2 "narrow-acl-entries-not-fixed" ;;
+        narrow-acl-entries-unverified) _claim_unreadable MSG-Y6B5 "narrow-acl-entries-unverified" ;;
+        narrow-acl-entries-gone)       _claim_info       MSG-M4X2 "narrow-acl-entries-gone" ;;
         scan-capped)      _claim_attention  MSG-B7P8 "scan-capped" ;;
         error)            _claim_unreadable MSG-Q6X2 "error" ;;
         *) claim_write_row error directory "${kind}" "${path}" "no code for the finding '${finding}'"; return 0 ;;
@@ -2644,13 +2723,19 @@ claim_verify_group() {
 # dependencies, caches) relative to <base>, honoring the relative artifact exclusions that re-open a subtree
 # to the walks. The single predicate behind both the claim's "drift I cannot repair" split and the unclaim's "residue
 # the default walk will not reach" split, so one skip contract decides both. Returns 1 when the skip list is
-# unavailable, which treats every hit as reachable -- the fail-soft direction for a walk-cost optimization.
+# unavailable, which treats every hit as reachable -- the fail-soft direction for a walk-cost optimization. The walks
+# prune a skip-listed name as a directory only, so the last component counts only when <path> is a directory:
+# a worktree's `.git` pointer file is reachable. The type is read by the path, and the split it decides is which block
+# of the claim lists the hit.
 under_skip_listed_name() {
     local _base="$1" _path="$2" _rel _seg _name _s _x
     [[ "${#AI_TOOLS_SKIP_DIRS__NAMES[@]}" -gt 0 ]] || return 1
     _rel="${_path#"${_base}"/}"
     # Split on `/` alone: a read would stop at a line feed in the name and judge the path on its first line.
     mapfile -d / -t _seg < <(printf '%s' "${_rel}")
+    if (( ${#_seg[@]} )) && [[ ! -d "${_path}" || -L "${_path}" ]]; then
+        unset '_seg[-1]'
+    fi
     for _name in "${AI_TOOLS_SKIP_DIRS__NAMES[@]}"; do
         for _s in "${_seg[@]}"; do
             if [[ "${_s}" == "${_name}" ]]; then
@@ -2770,8 +2855,9 @@ inspect_parse_record() {
 # `--verify` it writes a `state` record per tree token (read_project_tree_state's five, `pristine` and `root-mode`),
 # the drift and sealed-setgid paths with a `scan` record per scan it ran, and the unreadable ancestor configuration;
 # `--scan-group` and `--scan-label` say the project is registered, and each drift scan then runs where this read's own
-# `owngap false` or `labelled true` allows it, the conditions a re-claim scans under. Stdin carries `exclude <path>`
-# records, which the scans prune as SCAN_EXCLUSIONS. With `--verify` it reads `label <path>` and `group <path>` records
+# `owngap false` or `labelled true` allows it, the conditions a re-claim scans under, the entries scan
+# under `--scan-group` where `acl false` holds as well. Stdin carries `exclude <path>` records, which the scans prune
+# as SCAN_EXCLUSIONS. With `--verify` it reads `label <path>`, `group <path>` and `narrow-acl-entries <path>` records
 # and writes one `verify` record per path. A reading that could not be made is a record (`unknown`, `incomplete`,
 # `not-made`) and exits 0; a gate refusal, a library that did not load, an input record that did not decode, a path
 # that is not a directory and a command line it does not parse exit non-zero, so the claim reads the tree as not read.
@@ -2813,7 +2899,8 @@ cmd_project_inspect() {
             fi
             case "${fields[0]}:${verify}" in
                 exclude:false)            SCAN_EXCLUSIONS+=("${fields[1]}") ;;
-                label:true|group:true)    verify_kinds+=("${fields[0]}"); verify_paths+=("${fields[1]}") ;;
+                label:true|group:true|narrow-acl-entries:true)
+                    verify_kinds+=("${fields[0]}"); verify_paths+=("${fields[1]}") ;;
                 *) die "projects inspect: an input record is not one this mode reads" ;;
             esac
         done
@@ -2824,16 +2911,16 @@ cmd_project_inspect() {
 }
 
 # inspect_write_verify_records  -- the `--verify` half of cmd_project_inspect: check each path its caller read from
-# stdin (verify_kinds, verify_paths, by dynamic scope) with claim_verify_label or claim_verify_group, and write one
-# `verify <kind> <path> <outcome> <detail> <present>` record per path, <present> the group path's owner:group and mode
-# as this account reads them after the check (`?` where it cannot, empty for a label path), which the claim compares
-# with the reading before the repair.
+# stdin (verify_kinds, verify_paths, by dynamic scope) with claim_verify_label, or with claim_verify_group for a group
+# or an entries path, whose repair is the same walk, and write one `verify <kind> <path> <outcome> <detail> <present>`
+# record per path, <present> the path's owner:group and mode as this account reads them after the check (`?` where it
+# cannot, empty for a label path), which the claim compares with the reading before the repair.
 inspect_write_verify_records() {
     local index
-    local -a label_paths=() group_paths=() label_outcomes=() group_outcomes=() group_details=()
+    local -a label_paths=() group_paths=() group_kinds=() label_outcomes=() group_outcomes=() group_details=()
     for index in "${!verify_paths[@]}"; do
         if [[ "${verify_kinds[index]}" == label ]]; then label_paths+=("${verify_paths[index]}")
-        else group_paths+=("${verify_paths[index]}"); fi
+        else group_paths+=("${verify_paths[index]}"); group_kinds+=("${verify_kinds[index]}"); fi
     done
     if (( ${#label_paths[@]} )); then
         claim_verify_label label_paths label_outcomes
@@ -2846,8 +2933,8 @@ inspect_write_verify_records() {
         local present
         for index in "${!group_paths[@]}"; do
             present="$(stat -c '%U:%G %a' -- "${group_paths[index]}" 2>/dev/null)" || present='?'
-            inspect_write_record verify group "${group_paths[index]}" "${group_outcomes[index]:-unverified}" \
-                "${group_details[index]:-}" "${present}"
+            inspect_write_record verify "${group_kinds[index]}" "${group_paths[index]}" \
+                "${group_outcomes[index]:-unverified}" "${group_details[index]:-}" "${present}"
         done
     fi
 }
@@ -2904,6 +2991,22 @@ inspect_write_tree_records() {
                 "$(claim_subject_type "${scanned_path}")" "${repair_reach}" "${secret}"
         done
         inspect_write_record scan group "${status}" "${detail}"
+    fi
+
+    # The entries an earlier claim wrote are read only where the ACL step is in place: where it is pending, the claim
+    # walks the tree anyway.
+    if ${scan_group} && [[ "${owngap}" == false && "${acl}" == false ]]; then
+        local -a paths_with_narrow_acl_entries=()
+        local narrow_acl_entries_written=0
+        status=complete detail=""
+        narrow_acl_entry_scan "${d}" "${CLAIM_WORK}" paths_with_narrow_acl_entries detail || status=incomplete
+        for scanned_path in "${paths_with_narrow_acl_entries[@]}"; do
+            (( narrow_acl_entries_written <= CLAIM_SCAN_CAP )) || break
+            narrow_acl_entries_written=$(( narrow_acl_entries_written + 1 ))
+            owner_group_mode_before="$(stat -c '%U:%G %a' -- "${scanned_path}" 2>/dev/null)" || owner_group_mode_before='?'
+            inspect_write_record narrow-acl-entry-path "${scanned_path}" "${owner_group_mode_before}"
+        done
+        inspect_write_record scan narrow-acl-entries "${status}" "${detail}"
     fi
 
     if ${scan_label} && [[ "${labelled}" == true ]]; then
@@ -3016,6 +3119,7 @@ claim_read_owner_inspection() {
     # one would read as a complete scan that found no path.
     local -a required_scans=(sealed-setgid ancestor-config)
     ${listed} && [[ "${owngap}" == false ]] && required_scans+=(group)
+    ${listed} && [[ "${owngap}" == false && "${acl}" == false ]] && required_scans+=(narrow-acl-entries)
     ${listed} && [[ "${labelled}" == true ]] && required_scans+=(label)
     for token in "${required_scans[@]}"; do
         [[ -n "${scan_seen[${token}]+set}" ]] && continue
@@ -3063,6 +3167,13 @@ claim_apply_inspect_record() {
                     else skipped_capped=true; fi ;;
                 *) return 1 ;;
             esac ;;
+        narrow-acl-entry-path:3)
+            PATH_DETAIL_BEFORE["${fields[1]}"]="${fields[2]}"
+            if (( ${#paths_with_narrow_acl_entries[@]} < CLAIM_SCAN_CAP )); then
+                paths_with_narrow_acl_entries+=("${fields[1]}"); narrow_acl_entry_before+=("${fields[2]}")
+            else
+                narrow_acl_entry_capped=true
+            fi ;;
         label-drift:6)
             [[ "${fields[5]}" == secret ]] && DRIFT_SECRET_PATHS["${fields[1]}"]=1
             if (( ${#label_drift[@]} < CLAIM_SCAN_CAP )); then
@@ -3079,6 +3190,9 @@ claim_apply_inspect_record() {
                 group)
                     [[ "${fields[2]}" == complete ]] \
                         || group_scan_detail="${fields[3]:-the group scan as ${OWNER_USER} did not complete}" ;;
+                narrow-acl-entries)
+                    [[ "${fields[2]}" == complete ]] \
+                        || narrow_acl_entry_scan_detail="${fields[3]:-the entries scan as ${OWNER_USER} did not complete}" ;;
                 label)
                     [[ "${fields[2]}" == complete ]] \
                         || label_scan_detail="${fields[3]:-the label scan as ${OWNER_USER} did not complete}" ;;
@@ -3093,19 +3207,23 @@ claim_apply_inspect_record() {
     esac
 }
 
-# claim_read_owner_verification <label-outcomes> <group-outcomes> <group-details> <group-present>  -- after the Apply
-# block, check each path in the claim's label_drift and drift lists (dynamic scope) through the owner-side read's
-# --verify mode, and fill the arrays index for index with the outcome tokens claim_write_row records, the check's
-# reason, and each group path's owner:group and mode as the owner read them after the check (`?` where it was not read).
-# An outcome missing for a path, a record that does not decode, an outcome outside the set and a child that exits
-# non-zero each leave every path without one `unverified`, and write one `error` row naming the pass, so the report
-# state reads 5 and never `fixed`.
+# claim_read_owner_verification <label-outcomes> <group-outcomes> <group-details> <group-present>
+# <narrow-acl-outcomes> <narrow-acl-details>  -- after the Apply block, check each path in the claim's label_drift,
+# drift and paths_with_narrow_acl_entries lists (dynamic scope) through the owner-side read's --verify mode, and fill
+# the arrays index for index with the outcome tokens claim_write_row records, the check's reason, and each group path's
+# owner:group and mode as the owner read them after the check (`?` where it was not read). An outcome missing
+# for a path, a record that does not decode, an outcome outside the set and a child that exits non-zero each leave every
+# path without one `unverified`, and write one `error` row naming the pass, so the report state reads 5 and never
+# `fixed`.
 claim_read_owner_verification() {
     local -n _owner_label_outcomes="$1" _owner_group_outcomes="$2" _owner_group_details="$3" _owner_group_present="$4"
+    local -n _owner_narrow_acl_outcomes="$5" _owner_narrow_acl_details="$6"
     local fd pid status=0 line path encoded failure="" index
     local -a fields=()
     local -A label_outcome_by_path=() group_outcome_by_path=() group_detail_by_path=() group_present_by_path=()
+    local -A narrow_acl_outcome_by_path=() narrow_acl_detail_by_path=()
     _owner_label_outcomes=() _owner_group_outcomes=() _owner_group_details=() _owner_group_present=()
+    _owner_narrow_acl_outcomes=() _owner_narrow_acl_details=()
     if [[ -z "${SELF_PATH}" ]]; then
         failure="the path of the ai-tools command did not resolve"
     elif ! ( for path in "${label_drift[@]}"; do
@@ -3115,6 +3233,10 @@ claim_read_owner_verification() {
              for path in "${drift[@]}"; do
                  ai_tools_records_tsv__encode_field encoded "${path}" || exit 1
                  printf 'group\t%s\n' "${encoded}"
+             done
+             for path in "${paths_with_narrow_acl_entries[@]}"; do
+                 ai_tools_records_tsv__encode_field encoded "${path}" || exit 1
+                 printf 'narrow-acl-entries\t%s\n' "${encoded}"
              done ) > "${CLAIM_WORK}/verify.in" 2>/dev/null; then
         failure="the drifted paths could not be written for projects inspect --verify"
     else
@@ -3134,6 +3256,8 @@ claim_read_owner_verification() {
                 group) group_outcome_by_path["${fields[2]}"]="${fields[3]}"
                        group_detail_by_path["${fields[2]}"]="${fields[4]}"
                        group_present_by_path["${fields[2]}"]="${fields[5]}" ;;
+                narrow-acl-entries) narrow_acl_outcome_by_path["${fields[2]}"]="${fields[3]}"
+                                    narrow_acl_detail_by_path["${fields[2]}"]="${fields[4]}" ;;
                 *) failure="projects inspect --verify printed a kind the claim does not read" ;;
             esac
         done
@@ -3145,6 +3269,7 @@ claim_read_owner_verification() {
     # whole.
     if [[ -n "${failure}" ]]; then
         label_outcome_by_path=() group_outcome_by_path=() group_detail_by_path=() group_present_by_path=()
+        narrow_acl_outcome_by_path=() narrow_acl_detail_by_path=()
     fi
     for index in "${!label_drift[@]}"; do
         path="${label_drift[index]}"
@@ -3165,6 +3290,17 @@ claim_read_owner_verification() {
             _owner_group_outcomes[index]=unverified
             _owner_group_details[index]="the check was not made as ${OWNER_USER}"
             _owner_group_present[index]='?'
+            [[ -n "${failure}" ]] || failure="projects inspect --verify did not report every path"
+        fi
+    done
+    for index in "${!paths_with_narrow_acl_entries[@]}"; do
+        path="${paths_with_narrow_acl_entries[index]}"
+        if [[ -n "${narrow_acl_outcome_by_path[${path}]+set}" ]]; then
+            _owner_narrow_acl_outcomes[index]="${narrow_acl_outcome_by_path[${path}]}"
+            _owner_narrow_acl_details[index]="${narrow_acl_detail_by_path[${path}]}"
+        else
+            _owner_narrow_acl_outcomes[index]=unverified
+            _owner_narrow_acl_details[index]="the check was not made as ${OWNER_USER}"
             [[ -n "${failure}" ]] || failure="projects inspect --verify did not report every path"
         fi
     done
@@ -3241,6 +3377,8 @@ cmd_project_claim() {
     local filemode="" owngap="" acl="" labelled="" git="" inspect_pristine="" root_mode=""
     local -a drift=() drift_before=() drift_types=() drift_skipped=()
     local group_scan_detail="" group_capped=false skipped_capped=false
+    local -a paths_with_narrow_acl_entries=() narrow_acl_entry_before=()
+    local narrow_acl_entry_scan_detail="" narrow_acl_entry_capped=false
     local -a label_drift=() label_subject_types=()
     local -A label_drift_types=()
     local label_scan_detail="" label_capped=false
@@ -3285,6 +3423,13 @@ cmd_project_claim() {
     local need_filemode=false; [[ "${filemode}" == false ]] && need_filemode=true
     local need_acl=false; [[ "${acl}" == true ]] && need_acl=true
     local need_git=false; [[ "${git}" == true ]] && need_git=true
+    # Files whose named entries an earlier claim wrote narrower than rwx take the ACL step's walk again, behind
+    # the proceed confirm and the gate: the walk can widen a file whose owner gained a permission since.
+    local needs_acl_entry_repair=false; (( ${#paths_with_narrow_acl_entries[@]} )) && needs_acl_entry_repair=true
+    # A project an earlier release claimed carries the entries on most of its files, so the list usually stops
+    # at CLAIM_SCAN_CAP; the count then says so rather than naming the cap as the total.
+    local narrow_acl_entry_path_count="${#paths_with_narrow_acl_entries[@]}"
+    ! ${narrow_acl_entry_capped} || narrow_acl_entry_path_count="more than ${CLAIM_SCAN_CAP}"
     # A step the owner-side read records as `unknown` is not applied (cli.rule.md, Claim in place).
     local git_unreadable=false filemode_unreadable=false
     [[ "${git}" == unknown ]] && git_unreadable=true
@@ -3363,10 +3508,13 @@ cmd_project_claim() {
     claim_scan_rows() {
         [[ -z "${label_scan_detail}" ]] || claim_write_row error directory label "${d}" "${label_scan_detail}"
         [[ -z "${group_scan_detail}" ]] || claim_write_row error directory group "${d}" "${group_scan_detail}"
+        [[ -z "${narrow_acl_entry_scan_detail}" ]] || claim_write_row error directory narrow-acl-entries "${d}" "${narrow_acl_entry_scan_detail}"
         ! ${label_capped} || claim_write_row scan-capped directory label "${d}" \
             "the label scan stopped at ${CLAIM_SCAN_CAP} paths; re-claim once these are settled"
         ! ${group_capped} || claim_write_row scan-capped directory group "${d}" \
             "the group scan stopped at ${CLAIM_SCAN_CAP} paths; re-claim once these are settled"
+        ! ${narrow_acl_entry_capped} || claim_write_row scan-capped directory narrow-acl-entries "${d}" \
+            "the entries scan stopped at ${CLAIM_SCAN_CAP} paths; re-claim once these are settled"
         ! ${git_unreadable} || claim_write_row error directory git "${d}/.git" \
             "not read as ${OWNER_USER}; .git sharing was not checked"
         ! ${filemode_unreadable} || claim_write_row error directory filemode "${d}/.git" \
@@ -3380,12 +3528,14 @@ cmd_project_claim() {
     unreadable_steps_note() {
         ${git_unreadable} || ${filemode_unreadable} || return 0
         [[ "${CLAIM_FORMAT}" == tsv ]] && return 0
-        local _owner_command_prefix="" _quoted_project_path
+        local _owner_command_prefix="" _quoted_project_path _skip_flag=""
         [[ -n "${FOR_OPERATOR}" ]] && _owner_command_prefix="sudo -u ${OWNER_USER} -H "
         _quoted_project_path="$(_quote_path "${d}")"
+        # The by-hand walk leaves the group drift the operator declined as the claim's own walk did.
+        ! ${skip_drifted:-false} || _skip_flag=" --skip-drifted"
         say "      ${C_DIM}not checked, since ${OWNER_USER} cannot read them; to finish them by hand:${C_RST}"
         ! ${git_unreadable} \
-            || say "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git ${_quoted_project_path}${C_RST}   ${C_DIM}(shares .git history)${C_RST}"
+            || say "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git${_skip_flag} ${_quoted_project_path}${C_RST}   ${C_DIM}(shares .git history)${C_RST}"
         ! ${filemode_unreadable} \
             || say "      ${C_BOLD}${_owner_command_prefix}git -C ${_quoted_project_path} config core.filemode true${C_RST}"
     }
@@ -3397,13 +3547,26 @@ cmd_project_claim() {
     # A re-scan of the tree is not what decides `fixed`: a path can be missing from one because it was capped, failed,
     # or excluded (cli.rule.md). The ways to settle a not-fixed path follow the rows.
     claim_drift_records() {
-        (( ${#label_drift[@]} || ${#drift[@]} )) || { claim_scan_rows; return 0; }
+        (( ${#label_drift[@]} || ${#drift[@]} || ${#paths_with_narrow_acl_entries[@]} )) || { claim_scan_rows; return 0; }
         local _i _outcome _detail _left_label=false _left_group=false _mixed=0 _group_fixed _label_fixed
         local -a _label_outcomes=() _group_outcomes=() _group_details=() _group_present=()
+        local -a _narrow_acl_outcomes=() _narrow_acl_details=()
         local -A _label_by_path=()
         [[ "${CLAIM_FORMAT}" == tsv ]] || say "  interior drift:"
         claim_scan_rows
-        claim_read_owner_verification _label_outcomes _group_outcomes _group_details _group_present
+        claim_read_owner_verification _label_outcomes _group_outcomes _group_details _group_present \
+            _narrow_acl_outcomes _narrow_acl_details
+        # An entries path is settled by the walk the step runs, so a not-fixed row is a walk that did not take,
+        # which the Apply block has named with its command.
+        for _i in "${!paths_with_narrow_acl_entries[@]}"; do
+            _outcome="${_narrow_acl_outcomes[_i]:-unverified}"
+            case "${_outcome}" in
+                fixed) _detail="its named entries are rwx" ;;
+                gone)  _detail="no entry at the path" ;;
+                *)     _detail="${_narrow_acl_details[_i]:-}" ;;
+            esac
+            claim_write_row "narrow-acl-entries-${_outcome}" file narrow-acl-entries "${paths_with_narrow_acl_entries[_i]}" "${_detail}"
+        done
         if (( ${#label_drift[@]} )); then
             for _i in "${!label_drift[@]}"; do
                 _outcome="${_label_outcomes[_i]:-unverified}"
@@ -3473,7 +3636,7 @@ cmd_project_claim() {
     # marker. ──
     local heavy=false
     local -a head=("${d}")
-    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label}; then
+    if [[ "${owngap}" == true ]] || ${need_acl} || ${need_label} || ${needs_acl_entry_repair}; then
         heavy=true
     fi
     # Not said on a pristine tree (cli.rule.md, `projects create`). The warning is what the operator sees of the fact
@@ -3518,7 +3681,8 @@ cmd_project_claim() {
     if [[ "${listed}" == true && "${safedir}" == true && "${owngap}" == false ]] \
             && ! ${need_filemode} && ! ${need_acl} && ! ${need_label} && ! ${need_git} \
             && ! ${git_unreadable} && ! ${filemode_unreadable} \
-            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 && ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
+            && (( ${#drift[@]} == 0 && ${#label_drift[@]} == 0 && ${#paths_with_narrow_acl_entries[@]} == 0 \
+                  && ${#TRAVERSAL_GRANT_PATHS[@]} == 0 )); then
         skip_listed_note
         sealed_setgid_note
         ancestor_config_note
@@ -3535,7 +3699,7 @@ cmd_project_claim() {
     # and the traverse grant count once answered yes, so here they decide only whether the overview announces it.
     local need_gate=false
     if [[ "${listed}" != true || "${owngap}" == true ]] \
-            || ${need_acl} || ${need_git} || ${need_label}; then
+            || ${need_acl} || ${need_git} || ${need_label} || ${needs_acl_entry_repair}; then
         need_gate=true
     fi
     # A pristine tree has no secret-named file to find (cli.rule.md, `projects create`).
@@ -3550,6 +3714,8 @@ cmd_project_claim() {
     ${need_filemode} && say "    - set git core.filemode true"
     [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
     ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
+    ${needs_acl_entry_repair} \
+        && say "    - apply the group-permission ACL again: ${narrow_acl_entry_path_count} file(s) carry an earlier claim's entries"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
     (( ${#label_drift[@]} )) \
         && say "    - SELinux type differs on ${#label_drift[@]} path(s) -- you will be asked to relabel the tree (default no)"
@@ -3574,6 +3740,15 @@ cmd_project_claim() {
     sealed_setgid_note
     ancestor_config_note
     note_live_session
+
+    # The files listed here are the step's whole reason; the walk it runs covers the tree. An owner's chmod g+x
+    # over entries written rwx does not show here, so the step does not reset a deliberate one on every re-claim.
+    if ${needs_acl_entry_repair}; then
+        headline_warn "NOTICE: ACL entries from an earlier claim" \
+            "${narrow_acl_entry_path_count} file(s) carry the ACL entries a claim by an earlier release wrote: yours and the agent's give read and write alone, so a chmod g+x on one does not reach the agent. The pending ACL step writes them again across the tree, so the agent gets what you have on each file and later chmods reach it."
+        path_listing "file(s)" "${paths_with_narrow_acl_entries[@]}"
+        ! ${narrow_acl_entry_capped} || say "        ${C_DIM}(list capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
+    fi
 
     # Heavy steps close the Review block behind the proceed confirm, the one prompt `--yes` pre-answers; a pristine tree
     # skips it with the warnings it authorizes.
@@ -3695,7 +3870,7 @@ cmd_project_claim() {
     # block would read as work done. ──
     local apply_steps=false
     if [[ "${safedir}" != true || "${owngap}" == true ]] || ${need_filemode} || ${need_acl} || ${do_git} \
-            || ${need_label} || ${do_drift} || ${do_label_drift} || ${TRAVERSAL_GRANT_CONFIRMED}; then
+            || ${need_label} || ${do_drift} || ${do_label_drift} || ${needs_acl_entry_repair} || ${TRAVERSAL_GRANT_CONFIRMED}; then
         apply_steps=true
     fi
     if ${apply_steps}; then headline "Applying claim steps" "${d}"; fi
@@ -3720,8 +3895,12 @@ cmd_project_claim() {
             reg_ownership "${d}" force || note_root_failure || stopped=true
         fi
     fi
-    if ! ${stopped} && { ${need_acl} || ${do_git} || ${do_drift}; }; then
-        claim_setfacl "${d}" "${do_git}" || note_root_failure || stopped=true
+    # The walk regroups every path with a foreign group unless told otherwise, and it also runs for the ACL and `.git`
+    # steps; where the group scan ran and its repair was not accepted, it leaves those paths as the scan found them.
+    local skip_drifted=false
+    if ${scan_wanted} && [[ "${owngap}" == false ]] && ! ${do_drift}; then skip_drifted=true; fi
+    if ! ${stopped} && { ${need_acl} || ${do_git} || ${do_drift} || ${needs_acl_entry_repair}; }; then
+        claim_setfacl "${d}" "${do_git}" "${skip_drifted}" || note_root_failure || stopped=true
     fi
     if ! ${stopped} && { ${need_label} || ${do_label_drift}; }; then
         claim_relabel "${d}" || note_root_failure || stopped=true

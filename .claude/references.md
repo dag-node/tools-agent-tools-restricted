@@ -223,6 +223,10 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | t6g3 | [MSG-T6G3](../src/usr/local/bin/ai-tools.sh) | group-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
 | d3k4 | [MSG-D3K4](../src/usr/local/bin/ai-tools.sh) | group-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
 | b6s7 | [MSG-B6S7](../src/usr/local/bin/ai-tools.sh) | group-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
+| n2y5 | [MSG-N2Y5](../src/usr/local/bin/ai-tools.sh) | narrow-acl-entries-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_info |
+| j9p2 | [MSG-J9P2](../src/usr/local/bin/ai-tools.sh) | narrow-acl-entries-not-fixed | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
+| y6b5 | [MSG-Y6B5](../src/usr/local/bin/ai-tools.sh) | narrow-acl-entries-unverified | src/usr/local/bin/ai-tools.sh |  | _claim_unreadable |
+| m4x2 | [MSG-M4X2](../src/usr/local/bin/ai-tools.sh) | narrow-acl-entries-gone | src/usr/local/bin/ai-tools.sh |  | _claim_info |
 | b7p8 | [MSG-B7P8](../src/usr/local/bin/ai-tools.sh) | scan-capped | src/usr/local/bin/ai-tools.sh |  | _claim_attention |
 | q6x2 | [MSG-Q6X2](../src/usr/local/bin/ai-tools.sh) | error | src/usr/local/bin/ai-tools.sh | tests/integration/cli-flags.sh | _claim_unreadable |
 | u8g4 | [MSG-U8G4](../src/usr/local/bin/ai-tools.sh) | this project directory is owned by ${owner}, and the claim grants it to ${OWNER_USER}. | src/usr/local/bin/ai-tools.sh | tests/integration/cli.sh | die |
@@ -716,6 +720,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q6n6 | [MSG-Q6N6](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | cannot load ${SECRET_PATTERNS_LIB}, which decides which paths are secrets -- no ACL was granted under ${canonical}; reinstall the ai-tools package | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | f3u3 | [MSG-F3U3](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | FATAL: project-permissions.lib.sh built no ACL specification for ${PROJECTS_USER} | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |
 | c9z6 | [MSG-C9Z6](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | left ${owneronly} owner-only path(s) (0600/0700) out of the sandbox account's reach | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh | tests/unit/setfacl.sh | warn |
+| x6t6 | [MSG-X6T6](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | left ${drifted} path(s) with a group other than ${GROUP} as they are, without the project ACL | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh | tests/unit/setfacl.sh | warn |
 | m6h3 | [MSG-M6H3](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | the project directory itself is owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ -- no ACL was applied, and the agent gets no access to this tree | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh | tests/unit/setfacl.sh | warn |
 | k8m2 | [MSG-K8M2](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | left ${thirdparty} path(s) owned by neither ${PROJECTS_USER} nor @SANDBOX_USER@ untouched -- the agent gets no access to them | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh | tests/unit/setfacl.sh | warn |
 | j8r8 | [MSG-J8R8](../src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh) | under .git, ${git_owneronly} owner-only path(s) were NOT shared (0600/0700) -- git history stays out of the sandbox account's reach | src/usr/local/libexec/ai-tools/ai-tools-setfacl.sh |  | warn |

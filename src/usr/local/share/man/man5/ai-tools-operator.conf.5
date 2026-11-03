@@ -501,6 +501,15 @@ skips none of that category.
 Skipping bounds how much of a tree those
 walks traverse. It is a cost setting: the agent reaches a skipped directory
 through the ordinary filesystem permissions, exactly as it reaches any other.
+The project's own
+.B .git
+directory stays out of the claim's walks and the per-turn hand-back sweeps
+whatever
+.B SKIP_VCS_DIRS
+holds: the claim's
+.B .git
+question decides whether the agent gets the history, and the hand-back of what the agent writes there waits for
+the session's start and end.
 .B Defaults:
 .IP
 .EX

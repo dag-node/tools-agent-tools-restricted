@@ -751,6 +751,107 @@ else
         fail "projects inspect without --scan-group printed '$(grep -v '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
     fi
 
+    # `.git` in the group scan: a directory of that name is pruned, the `--with-git` pass's, while a worktree's `.git`
+    # pointer file is a path the walk grants, so one with a foreign group is drift the repair reaches, under the default
+    # skip list too, which prunes `.git` as a directory only. The project's own `.git` and a nested one each hold
+    # a foreign-group file, a file moved in beside them is the control that the scan reached the tree, and a moved-in
+    # `node_modules` directory is the control that a skip-listed directory still reads as one.
+    in_gitdrift="${in_work}/git-drift"
+    mkdir -p "${in_gitdrift}/.git" "${in_gitdrift}/sub/.git" "${in_gitdrift}/wt" "${in_gitdrift}/deps/node_modules"
+    : > "${in_gitdrift}/.git/HEAD"; : > "${in_gitdrift}/sub/.git/HEAD"; : > "${in_gitdrift}/moved.txt"
+    printf 'gitdir: /elsewhere/.git/worktrees/wt\n' > "${in_gitdrift}/wt/.git"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${in_gitdrift}"
+    chmod 0664 "${in_gitdrift}/.git/HEAD" "${in_gitdrift}/sub/.git/HEAD" "${in_gitdrift}/moved.txt" "${in_gitdrift}/wt/.git"
+    chmod 0775 "${in_gitdrift}/deps/node_modules"
+    chgrp "${SANDBOX_GROUP}" "${in_gitdrift}" "${in_gitdrift}/sub" "${in_gitdrift}/wt" "${in_gitdrift}/deps"
+    chmod 2770 "${in_gitdrift}" "${in_gitdrift}/sub" "${in_gitdrift}/wt" "${in_gitdrift}/deps"
+    in_out="$(inspect_run "${in_gitdrift}" "${in_work}/empty.in" --scan-group)" || true
+    if grep -qF -- "group-drift|${in_gitdrift}/moved.txt|" <<< "${in_out}"; then
+        pass "control: the group scan lists the moved-in file beside the .git paths"
+    else
+        fail "control: the group scan did not list the moved-in file -- the case below is not evidence: '$(tr '\n' '~' <<<"${in_out}")'"
+    fi
+    if grep -qF -- "group-drift|${in_gitdrift}/wt/.git|" <<< "${in_out}" \
+            && ! grep -qF -- "/.git/HEAD|" <<< "${in_out}" && inspect_has "${in_out}" "scan|group|complete|''|"; then
+        pass "the group scan lists a worktree's foreign-group .git pointer file, and nothing under a .git directory"
+    else
+        fail "the group scan's .git paths: '$(grep '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+    if grep -F -- "group-drift|${in_gitdrift}/deps/node_modules|" <<< "${in_out}" | grep -qF -- "|skip-listed|"; then
+        pass "control: a moved-in node_modules directory reads skip-listed"
+    else
+        fail "control: the node_modules directory's record is not skip-listed -- the case below is not evidence: '$(grep '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+    if grep -F -- "group-drift|${in_gitdrift}/wt/.git|" <<< "${in_out}" | grep -qF -- "|reachable|"; then
+        pass "the .git pointer file reads reachable, so the claim asks about its repair"
+    else
+        fail "the .git pointer file's record: '$(grep -F -- "${in_gitdrift}/wt/.git|" <<<"${in_out}" | tr '\n' '~')'"
+    fi
+
+    # The entries an earlier claim wrote: a claimed tree (the sandbox group, setgid, the default ACL in place) holding
+    # one file whose named entries are rw-, the one record; beside it the same entries on a file the walk does not reach
+    # -- under the skip list, under an owner-only directory, under an excluded subtree, a secret-named one
+    # under a fixture patterns file, and one under a parent whose name holds a line feed -- a file under a glob
+    # exclusion whose text starts outside the project root, which the registry's covering match reads as covering it,
+    # a file the sandbox account holds, whose ACL that account sets itself, and a file carrying the walk's own entries,
+    # rwx under a rw- mask, none of them a record. The drift tree of the cap case, whose root does not carry a default
+    # ACL, is the control that the scan runs only where the ACL step is in place.
+    in_out="$(inspect_run "${in_drift}" "${in_work}/drift.in" --scan-group)" || true
+    if inspect_has "${in_out}" "state|acl|true|" && ! grep -q '^scan|narrow-acl-entries|' <<< "${in_out}"; then
+        pass "control: with the ACL step pending the entries scan is not run"
+    else
+        fail "projects inspect ran the entries scan over a tree whose ACL step is pending"
+    fi
+    in_entries="${in_work}/entries"
+    mkdir -p "${in_entries}/node_modules/pkg" "${in_entries}/private" "${in_entries}/excl" "${in_entries}/globbed" \
+        "${in_entries}/"$'odd\npart'
+    in_entry_files=(narrow walked node_modules/pkg/narrow private/narrow excl/narrow deploy.pem agent-owned
+        globbed/narrow $'odd\npart/key.pem')
+    for in_name in "${in_entry_files[@]}"; do : > "${in_entries}/${in_name}"; chmod 0660 "${in_entries}/${in_name}"; done
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${in_entries}"
+    chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${in_entries}/agent-owned"
+    chmod 2770 "${in_entries}" "${in_entries}/node_modules" "${in_entries}/node_modules/pkg" "${in_entries}/excl" \
+        "${in_entries}/globbed" "${in_entries}/"$'odd\npart'
+    chmod 0700 "${in_entries}/private"
+    setfacl -m "g:${SANDBOX_GROUP}:rwx,d:g:${SANDBOX_GROUP}:rwx,d:u:${PROJECTS_USER}:rwx" "${in_entries}"
+    for in_name in "${in_entry_files[@]}"; do
+        [[ "${in_name}" == walked ]] && continue
+        setfacl -m "u:${PROJECTS_USER}:rw-,g:${SANDBOX_GROUP}:rw-" "${in_entries}/${in_name}"
+    done
+    setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${in_entries}/walked"
+    printf 'exclude\t%s\n' "${in_entries}/excl" "${in_work}/*/globbed" > "${in_work}/entries.in"
+    printf '*.pem\n' > "${in_work}/secret-patterns"; chmod 0644 "${in_work}/secret-patterns"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${in_work}/entries.in" "${in_work}/secret-patterns"
+    # inspect_run under the fixture patterns file, which marks *.pem secret.
+    inspect_run_with_patterns() { AI_TOOLS_SECRET_PATTERNS_FILE="${in_work}/secret-patterns" inspect_run "$@"; }
+    # Control: without the glob line the globbed file is one of the records, so its absence from the next run is
+    # the exclusion's.
+    printf 'exclude\t%s\n' "${in_entries}/excl" > "${in_work}/entries-noglob.in"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${in_work}/entries-noglob.in"
+    in_out="$(inspect_run_with_patterns "${in_entries}" "${in_work}/entries-noglob.in" --scan-group)" || true
+    if grep -qF -- "narrow-acl-entry-path|$(printf '%q' "${in_entries}/globbed/narrow")|" <<< "${in_out}"; then
+        pass "control: without the glob line the globbed file is a record"
+    else
+        fail "control: the globbed file is not a record without its glob line -- the case below is not evidence: '$(grep '^narrow-acl-entry-path' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+    in_out="$(inspect_run_with_patterns "${in_entries}" "${in_work}/entries.in" --scan-group)" || true
+    if [[ "$(grep -c '^narrow-acl-entry-path|' <<< "${in_out}" || true)" == 1 ]] \
+            && grep -qF -- "narrow-acl-entry-path|$(printf '%q' "${in_entries}/narrow")|" <<< "${in_out}" \
+            && inspect_has "${in_out}" "scan|narrow-acl-entries|complete|''|"; then
+        pass "the entries scan records the operator's file whose entries are narrow, and none the walk does not reach or the sandbox account holds"
+    else
+        fail "projects inspect --scan-group over the entries tree printed '$(grep -e '^narrow-acl-entry-path' -e '^scan|entries' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+    # The same entries on a file in the sandbox group, read as the walk would leave them: rwx under the mask,
+    # so the chmod g+x the owner makes later reaches the agent, and the scan no longer lists it.
+    setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${in_entries}/narrow"
+    in_out="$(inspect_run "${in_entries}" "${in_work}/entries.in" --scan-group)" || true
+    if [[ "$(grep -c '^narrow-acl-entry-path|' <<< "${in_out}" || true)" == 0 ]] && inspect_has "${in_out}" "scan|narrow-acl-entries|complete|''|"; then
+        pass "after the walk's entries, the file is no longer listed"
+    else
+        fail "projects inspect still listed entries after the walk's state: '$(grep -e '^narrow-acl-entry-path' -e '^scan|entries' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+
     # A sealed setgid directory named with a line feed: one record, its path decoded whole, its owner's reading beside
     # it, under a complete scan.
     if [[ -n "${third_group}" ]]; then
@@ -807,10 +908,11 @@ in_parse() {  # in_parse <stream-file> <child-status> [verify]
          claim_run_inspect() { cat "${stream}"; return "${child_status}"; }
          d=/proj
          if [[ "${mode}" == verify ]]; then
-             label_drift=(/proj/l1 /proj/l2); drift=(/proj/g1)
-             claim_read_owner_verification labels groups details present >/dev/null
+             label_drift=(/proj/l1 /proj/l2); drift=(/proj/g1); paths_with_narrow_acl_entries=(/proj/e1)
+             claim_read_owner_verification labels groups details present entries entry_details >/dev/null
              printf "verify=%s\n" "$(printf "%s " "${labels[@]}")"
              printf "present=%s\n" "${present[0]:-}"
+             printf "entries=%s\n" "${entries[0]:-}"
              rc=0; ai_tools_records_base__get_exit_status || rc=$?; printf "exit=%s\n" "${rc}"
              exit 0
          fi
@@ -818,7 +920,7 @@ in_parse() {  # in_parse <stream-file> <child-status> [verify]
          drift=() drift_before=() drift_types=() drift_skipped=() group_scan_detail="" group_capped=false
          skipped_capped=false label_drift=() label_subject_types=(); declare -A label_drift_types=()
          label_scan_detail="" label_capped=false sealed_setgid=() ancestor_configs=() sealed_setgid_scan_result=complete
-         ancestor_config_scan_result=complete
+         ancestor_config_scan_result=complete paths_with_narrow_acl_entries=() narrow_acl_entry_before=() narrow_acl_entry_scan_detail="" narrow_acl_entry_capped=false
          listed=true; [[ "${mode}" == unlisted ]] && listed=false
          rc=0; claim_read_owner_inspection "${listed}" || rc=$?
          if [[ "${mode}" == detail ]]; then
@@ -828,16 +930,19 @@ in_parse() {  # in_parse <stream-file> <child-status> [verify]
              exit 0
          fi
          printf "rc=%s failure=%s\n" "${rc}" "${INSPECT_FAILURE}"
-         printf "state=%s/%s/%s/%s/%s/%s/%s drift=%s\n" "${filemode}" "${git}" "${owngap}" "${acl}" "${labelled}" \
-             "${inspect_pristine}" "${root_mode}" "$(printf "%q" "${drift[0]:-}")"' \
+         printf "state=%s/%s/%s/%s/%s/%s/%s drift=%s entries=%s\n" "${filemode}" "${git}" "${owngap}" "${acl}" \
+             "${labelled}" "${inspect_pristine}" "${root_mode}" "$(printf "%q" "${drift[0]:-}")" \
+             "$(printf "%q" "${paths_with_narrow_acl_entries[0]:-}")"' \
         _ "${CLI}" "$1" "$2" "${3:-}"
 }
 in_stream="${in_work}/stream"
 # The base carries every record a listed claim requires but the ancestor-configuration scan, which each stream adds
-# in the form it is about: owngap false asks for the group scan, labelled na does not ask for the label scan.
+# in the form it is about: owngap false asks for the group scan, with acl false the entries scan, and labelled na does
+# not ask for the label scan.
 printf '%s\n' 'state	filemode	false' 'state	git	true' 'state	owngap	false' 'state	acl	false' \
     'state	labelled	na' 'state	pristine	false' 'state	root-mode	750' \
     'group-drift	/proj/a\tb	op:dev 664	file	reachable	secret' 'scan	group	complete	' \
+    'narrow-acl-entry-path	/proj/e1	op:ai-tools 660' 'scan	narrow-acl-entries	complete	' \
     'scan	sealed-setgid	complete	' > "${in_stream}.base"
 { cat "${in_stream}.base"; printf 'scan\tancestor-config\tcomplete\t\n'; } > "${in_stream}"
 grep -v root-mode "${in_stream}" > "${in_stream}.missing"
@@ -846,6 +951,7 @@ grep -v root-mode "${in_stream}" > "${in_stream}.missing"
 grep -v $'^scan\tsealed-setgid\t' "${in_stream}" > "${in_stream}.no-sealed-setgid"
 cp "${in_stream}.base" "${in_stream}.no-ancestor-config"
 grep -v $'^scan\tgroup\t' "${in_stream}" > "${in_stream}.no-group"
+grep -v $'^scan\tnarrow-acl-entries\t' "${in_stream}" > "${in_stream}.no-narrow-acl-entries"
 sed $'s/^state\tlabelled\tna$/state\tlabelled\ttrue/' "${in_stream}" > "${in_stream}.no-label"
 # A second record for one scan kind, and for one state token.
 { cat "${in_stream}"; printf 'scan\tsealed-setgid\tcomplete\t\n'; } > "${in_stream}.scan-twice"
@@ -853,7 +959,7 @@ sed $'s/^state\tlabelled\tna$/state\tlabelled\ttrue/' "${in_stream}" > "${in_str
 # A verify record carries six fields: the kind, the path, the outcome, the check's reason, and the owner's reading
 # of a group path after the check.
 printf '%b' 'verify\tlabel\t/proj/l1\tfixed\t\t\n' 'verify\tgroup\t/proj/g1\tnot-fixed\tnot repaired\top:dev 664\n' \
-    > "${in_stream}.verify"
+    'verify\tnarrow-acl-entries\t/proj/e1\tfixed\t\top:ai-tools 660\n' > "${in_stream}.verify"
 # The listing's readings: a sealed-setgid path the owner measured, and an ancestor-configuration check not made.
 { cat "${in_stream}.base"; printf 'sealed-setgid\t/proj/sealed\top:other 2700\n'
   printf 'scan\tancestor-config\tnot-made\tthe ancestor-config library did not load\n'; } > "${in_stream}.detail"
@@ -862,8 +968,8 @@ in_out="$(in_parse "${in_stream}" 0)" || true
 if [[ "${in_out}" == *"rc=98"* || "${in_out}" == *"rc=99"* ]]; then
     skip "the inspect stream's parser" "the installed CLI predates the owner-side read"
 else
-    if [[ "${in_out}" == "rc=0 failure="$'\n'"state=false/true/false/false/na/false/750 drift=$'/proj/a\tb'" ]]; then
-        pass "a complete stream fills every state token and the drift list, a tab in a path decoded"
+    if [[ "${in_out}" == "rc=0 failure="$'\n'"state=false/true/false/false/na/false/750 drift=$'/proj/a\tb' entries=/proj/e1" ]]; then
+        pass "a complete stream fills every state token and the drift lists, a tab in a path decoded"
     else
         fail "the parser over a complete stream printed '$(tr '\n' '~' <<<"${in_out}")'"
     fi
@@ -875,7 +981,7 @@ else
     if [[ "${in_out}" == "rc=1 failure=a record of projects inspect did not decode"* ]]; then
         pass "a record that does not decode is a tree not read"
     else fail "the parser over an undecodable record printed '$(tr '\n' '~' <<<"${in_out}")'"; fi
-    for in_scan in sealed-setgid ancestor-config group label; do
+    for in_scan in sealed-setgid ancestor-config group narrow-acl-entries label; do
         in_out="$(in_parse "${in_stream}.no-${in_scan}" 0)" || true
         if [[ "${in_out}" == "rc=1 failure=projects inspect did not report its ${in_scan} scan"* ]]; then
             pass "a stream missing the ${in_scan} scan the claim asked for is a tree not read"
@@ -896,7 +1002,7 @@ else
         pass "a child that exits non-zero is a tree not read, its status named"
     else fail "the parser over a child exiting 4 printed '$(tr '\n' '~' <<<"${in_out}")'"; fi
     in_out="$(in_parse "${in_stream}.verify" 0 verify)" || true
-    if [[ "${in_out}" == "verify=fixed unverified "$'\n'"present=op:dev 664"$'\n'"exit=5" ]]; then
+    if [[ "${in_out}" == "verify=fixed unverified "$'\n'"present=op:dev 664"$'\n'"entries=fixed"$'\n'"exit=5" ]]; then
         pass "a verify stream missing one path reads that path unverified alone, the owner's present reading kept, exit 5"
     else fail "the verify parser printed '$(tr '\n' '~' <<<"${in_out}")'"; fi
     in_out="$(in_parse "${in_stream}.detail" 0 detail)" || true
@@ -1219,6 +1325,8 @@ else
         printf "created_entries=%s\n" "$(getfacl -p -c -- "${area}/created" | grep -cE "^(user|group):[^:]+:|^default:")"
         normalize_clone "${area}/control" >/dev/null 2>&1
         normalize_clone "${area}/created" >/dev/null 2>&1
+        printf "created_plain_mask=%s\n" "$(getfacl -p -c -- "${area}/created/plain.txt" | sed -n "s/^mask:://p")"
+        printf "created_run_mask=%s\n" "$(getfacl -p -c -- "${area}/created/run.sh" | sed -n "s/^mask:://p")"
         acl_tree() { ( cd "$1" && find . -print0 | sort -z | xargs -0 getfacl -p -- ); }
         control_tree="$(acl_tree "${area}/control")"; created_tree="$(acl_tree "${area}/created")"
         printf "control_named=%s\n" "$(grep -c "^group:ai-ops:" <<< "${control_tree}")"
@@ -1248,6 +1356,13 @@ else
         pass "normalize_clone opens a private clone to the ACL the area gives a clone created under it"
     else
         fail "normalize_clone: the opened trees $(cp_value trees) ($(sed -n 's/^diff=//p' <<< "${cp_out}" | tr '\n' '|' || true))"
+    fi
+    # The mask follows the owner execute bit, the rule ai-tools-setfacl applies to a claimed file: a data file rw-,
+    # a script rwx.
+    if [[ "$(cp_value created_plain_mask)" == rw- && "$(cp_value created_run_mask)" == rwx ]]; then
+        pass "normalize_clone gives a data file the mask rw- and a script the mask rwx"
+    else
+        fail "normalize_clone: plain.txt mask '$(cp_value created_plain_mask)', run.sh mask '$(cp_value created_run_mask)' (want rw-, rwx)"
     fi
 fi
 

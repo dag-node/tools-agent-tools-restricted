@@ -2,22 +2,26 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-setfacl
 # Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write an approved tree
-# whatever either party's umask: an access + inherited-default ACL granting rwX to the @SANDBOX_GROUP@ group (the
-# agent's access to operator-written files) and to the resolved operator (the operator's access to agent-written files),
-# others denied, built by project-permissions.lib.sh, the specification the claim's verifier reads too.
-# Under `--with-git` a second pass normalizes `.git` the same way -- group, setgid on its directories and the same ACL
-# -- so the operator's commits stay agent-readable.
+# whatever either party's umask: an access + inherited-default ACL granting the @SANDBOX_GROUP@ group (the agent's
+# access to operator-written files) and the resolved operator (the operator's access to agent-written files) rwx,
+# under a mask copying the owner's permissions, so each path gives them what its owner has, others denied, built
+# by project-permissions.lib.sh, the specification the claim's verifier reads too. Under `--with-git` a second pass
+# normalizes `.git` the same way -- group, setgid on its directories and the same ACL -- so the operator's commits stay
+# agent-readable.
 #
-# The walk skips secret-named, '!'-excluded, skip-list and foreign-owned paths, and never grants an owner-only path
-# (0600/0700; `_safe_setfacl` returns 2 on ai_tools_owner_only__is_owner_only): it strips the sandbox residue such
-# a path carries instead, and a skipped directory takes its subtree with it, no grant inside being reachable through it.
-# What the seal is, what the strip removes and why `setfacl -m` on a sealed path would grant are owner-only.lib.sh's.
-# Every skip is counted and reported: on the project ROOT it means the sandbox account has no way into the tree,
+# The walk skips secret-named, '!'-excluded, skip-list and foreign-owned paths and the project's `.git` (whatever
+# the skip list holds; the `--with-git` pass is its one route), and never grants an owner-only path (0600/0700;
+# `_safe_setfacl` returns 2 on ai_tools_owner_only__is_owner_only): it strips the sandbox residue such a path carries
+# instead, and a skipped directory takes its subtree with it, no grant inside being reachable through it. What the seal
+# is, what the strip removes and why `setfacl -m` on a sealed path would grant are owner-only.lib.sh's. Every skip is
+# counted and reported: on the project ROOT it means the sandbox account has no way into the tree,
 # and under `--with-git` it means the history the operator asked to share was not shared.
 #
 # Alongside the ACL, the walk normalizes the primary group of a DRIFTED path -- group-accessible yet not group
 # @SANDBOX_GROUP@ (it arrived by rename, inheriting neither the setgid group nor the default ACL) -- so a re-claim's
-# drift scan (acl_drift_scan in the CLI) finds the tree settled.
+# drift scan (acl_drift_scan in the CLI) finds the tree settled. Under `--skip-drifted` the main walk leaves a drifted
+# path as it is, its group and its ACL both, and reports how many it left: the claim passes it on a re-claim whose group
+# repair the operator declined, since the walk also runs for the steps the operator accepted.
 #
 # Runs as root via sudo under `atr projects claim`; CAP_FOWNER lets it ACL files the operator does not own. Installed
 # 750 root:root. Its domain rule is cli.rule.md.
@@ -40,13 +44,15 @@ warn() {
     printf 'ai-tools-setfacl: %s\n' "${_warn_text}" >&2
 }
 
-# Args: an optional --with-git flag (anywhere) enables the one-shot .git normalization
-# pass; the remaining argument is the absolute project path.
+# Args: an optional --with-git flag (anywhere) enables the one-shot .git normalization pass, and an optional
+# --skip-drifted leaves drifted paths out of the main walk; the remaining argument is the absolute project path.
 WITH_GIT=false
+SKIP_DRIFTED=false
 TARGET=""
 for arg in "$@"; do
     case "${arg}" in
         --with-git) WITH_GIT=true ;;
+        --skip-drifted) SKIP_DRIFTED=true ;;
         -*) warn MSG-C3V2 "unknown option: ${arg}"; exit 2 ;;
         *)  if [[ -z "${TARGET}" ]]; then
                 TARGET="${arg}"
@@ -56,8 +62,8 @@ for arg in "$@"; do
     esac
 done
 [[ -n "${TARGET}" ]] \
-    || { printf 'usage: ai-tools-setfacl [--with-git] <absolute-project-path>\n' >&2; exit 2; }
-readonly TARGET WITH_GIT
+    || { printf 'usage: ai-tools-setfacl [--with-git] [--skip-drifted] <absolute-project-path>\n' >&2; exit 2; }
+readonly TARGET WITH_GIT SKIP_DRIFTED
 
 # Operator-identity resolver (operator.lib.sh): resolves the operator that owns the project. A missing lib leaves
 # ai_tools_operator__resolve_owner a fail-closed stub, so the tree is left untouched.
@@ -218,7 +224,11 @@ _is_allowed  "${canonical}" || exit 0
 # follow the symlink and ACL an arbitrary target (e.g. /etc) as root. Pin the inode with an open fd and operate
 # through /proc/self/fd, re-checking it is still the same inode, at <path> (ai_tools_safe_paths__is_pinned_fd_at_path,
 # safe-paths.lib.sh). Directories get the access AND default ACL; regular files the access ACL only. Mirrors
-# ai-tools-setgid's pinned-fd apply. Returns 0 on apply, 1 when skipped or on error.
+# ai-tools-setgid's pinned-fd apply. Returns 0 on apply, 1 when skipped or on error. Under `gitfile` (the project's
+# `.git` entry, which the main walk hands over by name) the pinned object takes the ACL only as a regular file,
+# the pointer a worktree or a submodule carries, and returns 5 as anything else: a `.git` directory is the `--with-git`
+# pass's. The type is read from the pinned inode, so a `.git` swapped between a file and a directory cannot have
+# the directory treated as the pointer.
 _safe_setfacl() {
     local path="$1" normalize="${2:-}" expect_ident fd got_ident got_uid got_grp got_mode got_ftype
     expect_ident="$(stat -c '%d:%i' "${path}" 2>/dev/null)" || return 1
@@ -232,6 +242,10 @@ _safe_setfacl() {
         return 1
     fi
     ai_tools_safe_paths__is_pinned_fd_at_path "${fd}" "${path}" || { exec {fd}<&-; return 1; }
+    if [[ "${normalize}" == gitfile && "${got_ftype}" != "regular file" && "${got_ftype}" != "regular empty file" ]]; then
+        exec {fd}<&-
+        return 5
+    fi
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's or the sandbox account's own
     # files are eligible; anything else is left untouched. Returns 3, not 1, so the walk can tell a third-party owner
     # from a stat failure and report it. Without that split, a claim whose every path was foreign-owned closes
@@ -263,6 +277,13 @@ _safe_setfacl() {
     if [[ "${normalize}" == "normalize" ]]; then
         fix_group=true
     elif [[ "${got_grp}" != "${GROUP}" ]] && (( 8#${got_mode} & 077 )); then
+        # Under `--skip-drifted` the operator declined this repair, so the path keeps its group and does not take
+        # an entry: an ACL alone would give the agent the access the declined repair was asked about. Returns 4
+        # for the walk's count.
+        if ${SKIP_DRIFTED}; then
+            exec {fd}<&-
+            return 4
+        fi
         fix_group=true
     fi
     if ${fix_group}; then
@@ -270,13 +291,21 @@ _safe_setfacl() {
         [[ "${got_ftype}" == directory ]] \
             && { chmod -- g+s "/proc/self/fd/${fd}" 2>/dev/null || rc=1; }
     fi
+    # The mask is the owner's permissions (ai_tools_project_permissions__get_owner_permissions), written explicitly
+    # under `setfacl -n`, so the named entries, `rwx` as on a path created later under the default ACL, give the agent
+    # what the owner has: a read-only file stays read-only to it, and the owner's later `chmod g+x` or `g-x` changes its
+    # execute. A plain `-m` recalculates the mask to the union of the group-class entries, which a file created
+    # under a default ACL inherits with `x` (the clone area's among them). A directory's default set keeps `rwx`,
+    # the access a path created inside it inherits under the mask its create mode sets.
+    local path_mask=""
+    ai_tools_project_permissions__get_owner_permissions path_mask "${got_mode}" || { exec {fd}<&-; return 1; }
     case "${got_ftype}" in
         directory)
-            setfacl    -m "${ACL_SPEC}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
+            setfacl -n -m "${ACL_SPEC},mask::${path_mask}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
             setfacl -d -m "${ACL_SPEC}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
             ;;
         "regular file"|"regular empty file")
-            setfacl    -m "${ACL_SPEC}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
+            setfacl -n -m "${ACL_SPEC},mask::${path_mask}" "/proc/self/fd/${fd}" 2>/dev/null || rc=1
             ;;
         *)  # symlink / fifo / device / socket -- never ACL these
             exec {fd}<&-
@@ -297,17 +326,23 @@ declare -a expr=( "${canonical}" -xdev "${AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION[@]
 declare -i applied=0
 find "${expr[@]}" 2>/dev/null \
     | { declare -a skip=()
-        declare -i owneronly=0 thirdparty=0 rc=0
+        declare -i owneronly=0 thirdparty=0 drifted=0 rc=0
         declare root_thirdparty=false
         _under_skip() { local p; for p in "${skip[@]:-}"; do
             [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
         while IFS= read -r -d '' p; do
             _under_skip "${p}" && continue
+            # The project's `.git` is the `--with-git` pass's alone, the share the claim asks about: its subtree is
+            # pruned here by name whatever the skip list holds, since an operator may clear SKIP_VCS_DIRS and a skip
+            # list that did not load is empty. The entry itself goes to _safe_setfacl as `gitfile`, which grants
+            # a worktree's or a submodule's pointer file like any other file and leaves a directory alone.
+            mode_arg=""
+            if [[ "${p}" == "${canonical}/.git" ]]; then skip+=("${p}"); mode_arg=gitfile; fi
             if _is_excluded "${p}" || _is_secret_name "${p}"; then
                 [[ -d "${p}" ]] && skip+=("${p}")     # skip the whole subtree of a dir
                 continue
             fi
-            rc=0; _safe_setfacl "${p}" || rc=$?
+            rc=0; _safe_setfacl "${p}" "${mode_arg}" || rc=$?
             case "${rc}" in
                 0) applied=$(( applied + 1 )) ;;
                 2) owneronly=$(( owneronly + 1 ))
@@ -319,6 +354,7 @@ find "${expr[@]}" 2>/dev/null \
                    # The project root decides whether the ACL grant happened at all -- see the same split
                    # in ai-tools-setgid.
                    [[ "${p}" == "${canonical}" ]] && root_thirdparty=true ;;
+                4) drifted=$(( drifted + 1 )) ;;
             esac
         done
         # The counts are local to this subshell (pipe); log them here.
@@ -328,6 +364,11 @@ find "${expr[@]}" 2>/dev/null \
             warn MSG-C9Z6 "left ${owneronly} owner-only path(s) (0600/0700) out of the sandbox account's reach"
             ai_tools_log__coded info "${_warn_code}" \
                 "left ${owneronly} owner-only path(s) under ${canonical} out of the agent's reach"
+        fi
+        if (( drifted )); then
+            warn MSG-X6T6 "left ${drifted} path(s) with a group other than ${GROUP} as they are, without the project ACL"
+            ai_tools_log__coded info "${_warn_code}" \
+                "left ${drifted} drifted path(s) under ${canonical} as they are (--skip-drifted)"
         fi
         # Surfaced for the same reason as the setgid walk's: the owner guard is the one skip that can leave a claim
         # reporting success having granted no access.

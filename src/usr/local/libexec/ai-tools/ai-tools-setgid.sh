@@ -16,7 +16,8 @@
 #
 # Owner-only directories are the exception: the operator sealed them, so they are left out of the agent's group,
 # the sandbox residue they carry is stripped, and their subtree is skipped with them -- see owner-only.lib.sh,
-# which `ai-tools-{setfacl,lockdown,chown}` share.
+# which `ai-tools-{setfacl,lockdown,chown}` share. The project's `.git` is left out too, whatever the skip list holds:
+# sharing it is `ai-tools-setfacl --with-git`'s, behind the claim's own question.
 #
 # Idempotent: applies only the dirs that need it, safe to run every session start.
 #
@@ -255,6 +256,10 @@ find "${expr[@]}" 2>/dev/null \
         declare root_thirdparty=false
         while IFS= read -r -d '' d; do
             _under_skip "${d}" && continue
+            # The project's `.git` is ai-tools-setfacl `--with-git`'s alone, the share the claim asks about: pruned here
+            # whatever the skip list holds, since an operator may clear SKIP_VCS_DIRS and a skip list that did not load
+            # is empty.
+            if [[ "${d}" == "${canonical}/.git" ]]; then skip+=("${d}"); continue; fi
             if _is_excluded "${d}" || _is_secret_name "${d}"; then
                 skip+=("${d}"); continue
             fi

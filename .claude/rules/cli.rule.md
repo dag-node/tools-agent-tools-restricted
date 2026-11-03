@@ -996,16 +996,40 @@ did reach.
 
 Root-level state cannot see a path inside a claimed tree that lacks what the claim gave the rest of it, and a rename is
 how one arrives: `mv` keeps a file's group, its ACL-less mode and its SELinux type, where creation under the setgid,
-default-ACL, labelled parents inherits all three. A re-claim therefore runs two read-only, unprivileged scans in its
-owner-side read, as the tree's owner, each
-leaving out owner-only paths ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) and `!`-excluded
-subtrees as out of reach by intent:
+default-ACL, labelled parents inherits all three. A re-claim therefore runs read-only, unprivileged scans in its
+owner-side read, as the tree's owner, each leaving out owner-only paths
+([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) and `!`-excluded subtrees as out of reach
+by intent:
 
 - **Group and ACL** (`acl_drift_scan`, when ownership is in place): shared-looking paths with a foreign group,
   the predicate `ai-tools-setfacl` skips on, so the scan does not report a path the repair would decline. The hits split
   on the shared skip list: the claim walks leave a skip-listed directory's contents alone, so hits there get
   an informational block naming the remedies that reach them, which [ownership-and-hooks](ownership-and-hooks.rule.md)
   states with the categories.
+- **Entries** (`narrow_acl_entry_scan`, when ownership and the ACL step are both in place): the files whose operator
+  or sandbox-group entry is written narrower than `rwx`, read from the kernel's access-ACL value. Only a claim
+  before the owner-permissions mask writes one (`rw-` on a file without an execute bit, under a mask that leaves
+  the access in effect the model gives); the owner's later `chmod g+x` does not reach the agent through it.
+  The candidates are the operator's files that `ai-tools-setfacl`'s walk reaches and does not regroup,
+  and a secret-named one is left out, since the walk skips it. A file the sandbox account holds is left out too: its
+  owner sets its ACL, so the account could plant narrow entries and have every re-claim offer a walk that resets
+  the operator's own `chmod g-x` across the tree, while an operator-owned file's ACL is the operator's to set. Each
+  candidate is reached from the project root one component at a time without following a symlink, and its owner, group,
+  type and ACL are read from the object reached: a file swapped in under the name is read as what it is, and a directory
+  on the way turned into a symlink is a read the scan could not make. An owner-only object is not a hit, since the walk
+  leaves it sealed. **The scan decides only whether the walk is offered, and the agent can induce the offer**: a file it
+  narrows while it owns it reaches the operator through the handback with its ACL, and a rename moves another
+  of the operator's files into a listed name. Neither grants the agent anything: the offer stays behind the proceed
+  confirm with the list shown and the secret gate, and the walk re-validates each path as root. The step is held
+  to that bound and not to a scan the agent cannot influence; what it costs is a walk the operator confirms,
+  which resets the operator's own `chmod g-x` across the tree. A hit under an excluded or disabled line,
+  by the registry's own covering match (a glob whose text starts outside the root among them), and one
+  with a secret-named component, split on `/` alone, are dropped, since the walk skips both and listing either would put
+  the step on every re-claim. The scan reads entries and not modes: a `670` file is the state a deliberate `chmod g+x`
+  leaves, and is not reported. Unlike the drift kinds this is a **pending step**, under the proceed confirm, since its
+  repair is the ACL step's walk, which only narrows or follows the owner's own permissions on a file in the sandbox
+  group; it takes the secret gate as that step does, and the walk it runs over the tree also settles the mode states
+  an earlier walk left (`670`, `460`, `570`).
 - **SELinux type** (`label_drift_scan`, when the root is labelled): the paths whose type is not the one the claim's
   relabel would apply, asked of the policy through a dry run of that relabel (`restorecon -n -F`, unprivileged),
   so every loaded module's types are covered. Only a type difference counts; why a difference in the SELinux user
@@ -1016,8 +1040,8 @@ read**: a part of the tree it could not read makes it incomplete, so it writes a
 the drift it did read, and does not read as a complete scan of a smaller tree. `CLAIM_SCAN_CAP` bounds the paths
 the claim asks about; past it the claim writes a `scan-capped` row ([records](records.rule.md) states the row),
 the group kind capped after the skip-list split so paths the repair cannot reach do not take the places of ones it can.
-A first claim, one with the setgid step pending, or an unlabelled root skips the matching scan: its normal walk repairs
-the whole tree.
+A first claim, one with the setgid or the ACL step pending, or an unlabelled root skips the matching scan: its normal
+walk repairs the whole tree.
 
 **Each kind is its own question, asked under its own list**, so the answer follows the paths it is about, and each
 defaults to no, since each can widen the agent's access. A relabel leaves owner, group and mode alone, so it gives
@@ -1032,19 +1056,23 @@ and its type each refuse the agent on their own; so on an enforcing host the gro
 when the relabel did not run and every path on its list is also on the relabel list, and where exactly one repair took
 the claim adds one line counting those paths. A path in either list whose name, or a directory containing it inside
 the project, matches the owner's secret patterns is marked `[secret]` by the owner-side read, with one line saying
-the gate makes it owner-only before a repair runs; the mark reads `secret-patterns.lib.sh` and is advisory, so where
-the library does not load no path is marked. Either repair answered
-yes joins the secret gate like any other access-granting step, which is why the gate follows both questions. A declined
-repair does not stop the claim.
+the gate makes it owner-only before a repair runs; the mark reads `secret-patterns.lib.sh` and is advisory,
+so where the library does not load no path is marked. Either repair answered yes joins the secret gate like any other
+access-granting step, which is why the gate follows both questions. A declined repair does not stop the claim.
+A declined group repair also holds for the walk `ai-tools-setfacl` makes for the ACL step and the `.git` share,
+which by default regroups every path with a foreign group: wherever the group scan ran and the repair was not accepted,
+the claim passes `--skip-drifted`, and the walk leaves each such path's group and ACL as the scan found them, the paths
+the cap left unlisted among them.
 
 **After the Apply block the claim checks each drifted path on its own**, as the owner, in the owner-side read's
-`--verify` pass, against the postconditions its repair establishes (`claim_verify_label`, `claim_verify_group`;
+`--verify` pass, against the postconditions its repair establishes (`claim_verify_label`, `claim_verify_group`,
+which an entries path takes too, its repair being the same walk and its check reading the entries as written;
 the contracts are the doc comments in `project-permissions.lib.sh`). A pass that exits non-zero, a record that does not
 decode, and a path it does not answer leave each path without an outcome `unverified`, under one `error` row naming
-the pass. A re-scan does not decide `fixed`, since a path can be missing from one because
-the scan was capped, failed, or excludes it; a check that cannot be read yields `unverified` and never `fixed`,
-a confirmed absence yields `gone`, and the group check reads owner, group, mode and ACL from one pinned object, so its
-result is an observation of that object rather than a guarantee against a later change.
+the pass. A re-scan does not decide `fixed`, since a path can be missing from one because the scan was capped, failed,
+or excludes it; a check that cannot be read yields `unverified` and never `fixed`, a confirmed absence yields `gone`,
+and the group check reads owner, group, mode and ACL from one pinned object, so its result is an observation
+of that object rather than a guarantee against a later change.
 
 <a id="ref-table-x8q5"></a>**The outcome a re-claim reports per drifted path**
 
