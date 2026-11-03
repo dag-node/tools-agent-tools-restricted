@@ -250,35 +250,48 @@ file.
 
 The group grant and the mask leave a path's mode at the owner's digit repeated in the group's and `0` for other,
 and an unclaim normalizes them, since the pre-claim mode is not recorded, which is why the claim's page says to back
-up first. A walk is a claim that runs `ai-tools-setfacl`; the after-unclaim column is the state with no walk run since
-the row's:
+up first. A walk is a claim that runs `ai-tools-setfacl`. The table reads left to right: the mode a path holds while
+the project is claimed, what the agent may do with it, what a later walk makes of it, and what an unclaim
+after that walk leaves; where an unclaim with no walk in between leaves something else, the cell says so.
+An after-unclaim `750` is for a path whose own `group::` entry holds `r-x` — one created after the claim, or one
+the claim found at `750` or wider — and a file the claim found as a data file does not get group execute back: `740`
+there, and `745` for a `755`. The cases that do not follow from the group column are in bold.
 
 <a id="ref-table-b5v7"></a>**A path's mode before, during and after a claim**
 
-| before the walk | after the walk | after unclaim |
-|---|---|---|
-| `600`, `700`, `400` | never opened: the owner-only seal ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) | unchanged |
-| `640`, `644`, `660`, `664`, `666`, `670` | `660` | `640` |
-| `750`, `755`, `775`, `777` | `770` | `750` |
-| `711`, `731` / `701` | `770` | `710` / `700` |
-| `620`, `604` | `660` | `600` |
-| `444` | `440` | `440` |
-| `555` | `550` | `550` |
-| created after the claim with `0666`, `0644` | `660`, `640` (the create mode's group digit under the default ACL; a walk makes it `660`) | `640` |
-| created after the claim with `0777`, `0755` | `770`, `750` (a walk makes it `770`) | `750` |
-| the owner's `chmod g-x` on a `770` file | `760` (a walk makes it `770`) | `740` |
-| the owner's `chmod g+x` on a `660` file with no owner execute bit | `670` (a walk makes it `660`: the agent's execute follows the owner's) | `640` |
-| the owner's `chmod 750` or `chmod 644` on a claimed file | `750` / `644` (the middle digit is the agent's access until a walk makes it `770` / `660`) | `750` / `640` |
-| the owner's `chmod a-w` on the files and `chmod +t` on their directory | `440` files in a `3770` directory: the agent reads them and adds files of its own; the mode keeps it from writing the owner's and the sticky bit from renaming or deleting them | kept |
-| the owner's `chmod 755` on a claimed file | `755` (a walk makes it `770`) | `755`: the file's other bits stay, and the project's directories, at `other::---`, keep other accounts from reaching it |
+| The path | Mode | The agent | After a walk | After unclaim |
+|---|---|---|---|---|
+| found at `600`, `700`, `400` | as found: the owner-only seal ([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)) | no access | as found | as found |
+| found at `640`, `644`, `660`, `664`, `666`, `670` | `660` | read, write | `660` | `640` |
+| found at `750`, `755`, `775`, `777` | `770` | read, write, run | `770` | `750` |
+| found at `711`, `731` / `701` | `770` | read, write, run | `770` | `710` / `700` |
+| found at `620`, `604` | `660` | read, write | `660` | `600` |
+| found at `444` / `555` | `440` / `550` | read / read, run | `440` / `550` | `440` / `550` |
+| created later in an editor, or checked out by git as `100644` | `660` | read, write | `660` | `640` |
+| **created `0644` by a program** (`install -m 644`), the agent's included | `640` | **read only, its own output included** | **`660`, read, write** | `640` |
+| checked out by git as `100755` | `770` | read, write, run | `770` | `750` |
+| **created `0755` by a program**, a build's output, the agent's included | `750` | **read, run, no write** | `770` | `750` |
+| **a script the agent makes executable in the same command** | `770` | read, write, run; **the owner can run it too** | `770` | `750` |
+| the owner's `chmod ug+x` | `770` | read, write, run | `770` | `750` |
+| **the owner's `chmod g-x`** on a `770` file | `760` | read, write | **`770`, the agent runs it again** | `750`; **`740` with no walk** |
+| the owner's `chmod ug-x` | `660` | read, write | `660` | `640` |
+| **the owner's `chmod g+x`** on a file the owner cannot run | `670` | **read, write, run: the one way the agent runs a file the owner cannot** | **`660`, no run: a walk follows the owner's execute bit** | `640` |
+| the owner's `chmod a-w` | `440` | read; **it can still replace the file while it can write the directory** | `440` | `440` |
+| **the owner's `chmod g-w`** | `640` | read | **`660`, the agent writes again** | `640` |
+| **the owner's `chmod a-w` on the files and `chmod +t` on their directory** | `440` files, `3770` directory | reads them and adds files of its own; **cannot write, rename or delete the owner's, nor rename or delete its own once they are handed back**, and still writes a file whose group column holds `w` | kept | `440` files, `1750` directory: group write and setgid go, the sticky bit stays |
+| the owner's `chmod 600`, or `chmod 700` on a directory | `600` / `700` | no access | `600` / `700` | `600` / `700` |
+| the owner's `chmod 770` / `chmod 660` | as set | read, write (and run) | as set | `750` / `640` |
+| **the owner's `chmod 750`** | `750` | **read, run, no write** | `770` | `750` |
+| **the owner's `chmod 755`** | `755` | **read, run, no write** | `770` | `750`; **`755` with no walk: the file keeps its other bits, and the project's directories, at `other::---`, keep other accounts from reaching it** |
+| **the owner's `chmod 644`** | `644` | **read only** | `660` | `640`; **`644` with no walk** |
 
-An unclaim gives the group the read and execute of the path's own `group::` entry, without write, and without execute
-where the owner has none: for a path that existed before the claim that entry holds its group bits from then,
-and for a path created later the default its directory held, `r-x` under a `750` project directory. The mask hides
-the entry from `ls -l` while the project is claimed, so a `640` file the owner later makes `ug+x` unclaims to `740`.
-The handback does not change this table for a file the operator owns. On an agent-written file it removes the group's
-`x` when the owner has none, and the other bits, then gives the file to the operator, so the file keeps the mode it was
-created with otherwise.
+An unclaim gives the group the read and execute of the path's own `group::` entry that the mask leaves it, since
+`setfacl -b` keeps the entry under the mask, without write, and without execute where the owner has none: for a path
+that existed before the claim that entry holds its group bits from then, and for a path created later the default its
+directory held, `r-x` under a `750` project directory. The mask hides the entry from `ls -l` while the project is
+claimed. The handback does not change this table for a file the operator owns. On an agent-written file it removes
+the group's `x` when the owner has none, and the other bits, then gives the file to the operator, so the file keeps
+the mode it was created with otherwise.
 
 World access goes at claim time and does not come back: the claim pins `other::---`, so `644` becomes `660` at once
 and the unclaim drops group write and leaves `640`. `ls -l` shows the ACL **mask** in the group column, so effective

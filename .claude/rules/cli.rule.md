@@ -1073,7 +1073,7 @@ or excludes it; a check that cannot be read yields `unverified` and never `fixed
 and the group check reads owner, group, mode and ACL from one pinned object, so its result is an observation
 of that object rather than a guarantee against a later change.
 
-<a id="ref-table-x8q5"></a>**The outcome a re-claim reports per drifted path**
+**The outcome a re-claim reports per drifted path**
 
 | outcome | meaning | report state |
 |---|---|---|

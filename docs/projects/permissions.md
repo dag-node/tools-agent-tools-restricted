@@ -46,28 +46,16 @@ and the agent keeps reading it through the group. World access is removed
 on the way. A directory the agent created while writing comes back with it,
 keeping the group's access; a directory that was already yours is left alone.
 
-The return happens inside claimed paths only, and acts on a path only while
-the sandbox account still owns it — the state an agent write leaves behind —
-so a file you wrote yourself, which you already own, is not touched.
-A secret-named file is the one exception, and comes back yours alone
-([Lockdown](lockdown.md)). `atr projects handback` runs the same pass
-on demand, for what a killed session left behind ([Handback](handback.md)).
-The hooks that return each file, and the helper they call, are
-[ownership-and-hooks](../../.claude/rules/ownership-and-hooks.rule.md).
+A secret-named file comes back yours alone ([Lockdown](lockdown.md)).
+`atr projects handback` runs the same pass on demand, for what a killed session
+left behind ([Handback](handback.md)).
 
 ## You and the agent co-write one tree
 
 A claim writes two grants on the project, and the pair is what makes a shared
 tree work without either side joining the other's group: one gives the agent
 access to the files **you** write, and the other gives you access to the files
-**the agent** writes. Each grant is umask-independent, so a file's access does
-not depend on which side created it or on what either account's umask was
-at the time. World access stays closed. You stay out of the sandbox group
-and the sandbox account stays out of yours, which keeps each side to one
-permission tier: you do not gain blanket read of the agent's own session state,
-and your access does not wait on the handback having run yet. The grants,
-and the check a re-claim reads them with, are
-[ref-section-h7d3](../../.claude/rules/cli.rule.md#ref-section-h7d3).
+**the agent** writes.
 
 <a id="ref-diagram-j7k9"></a>**The two grants on a claimed project**
 
@@ -94,16 +82,13 @@ src="../static/diagrams/two-grants-light.svg"> </picture>
 runs skips it: a file or directory with no group and no other bits is your
 standing "keep this private" signal, a sealed directory takes its whole subtree
 with it, and the claim reports how many paths it left alone
-([Lockdown](lockdown.md) has the seal). The label step types the whole tree,
-that path included; its mode keeps the agent out whatever its label.
+([Lockdown](lockdown.md) has the seal).
 
 **World access is removed at claim time and does not come back.** A claim
 closes other-access on every path it touches, and an unclaim then drops
 the agent's write without restoring the world's read. A tree that needs to stay
 world-readable is not a candidate for a claim in place — use a sandbox clone
-([Clone](clone.md)). What each path's permissions become at a claim
-and after an unclaim, mode by mode, is
-[ref-table-b5v7](../../.claude/rules/ownership-and-hooks.rule.md#ref-table-b5v7).
+([Clone](clone.md)).
 
 Watching a claim with `ls -l` can mislead: with an ACL on a path, the group
 column shows the ACL **mask**, and the only visible hint that an ACL exists is
@@ -117,8 +102,7 @@ chmod g-x scripts/build.sh    # only you can, until a claim walks the project
 ls -l scripts/build.sh        # -rwxrwx---+ : the group column is the agent's
 ```
 
-On a file whose `ls -l` line ends in `+`, the group column is what the agent
-gets right now. A claim sets it from your own permissions on the file,
+A claim sets the group column from your own permissions on the file,
 so the agent can do what you can: read and write, and run a file you can run.
 After the claim, `chmod ug+x` and `chmod g-x` change the agent's execute,
 and change only the bit you name; `chmod u+x` alone does not give the agent
@@ -132,52 +116,27 @@ for build output once the `buildexec` policy group is enabled
 the agent wrote. On a host without confinement it decides for every file.
 
 A *walk* is a claim that applies the project's permissions again to every file
-([What walks the project](#what-walks-the-project)). What a walk makes of each
-mode you set, and what an unclaim after it leaves, is
+([What walks the project](#what-walks-the-project)). The usual cases:
+
+| You want | Run | Mode | The agent | After unclaim |
+|---|---|---|---|---|
+| you and the agent edit it | — (a file you create), or `chmod ug-x` | `660` | read, write | `640` |
+| you and the agent run it | `chmod ug+x`, or commit it as `100755` | `770` | read, write, run | `750`; `740` for a file that was a data file before the claim |
+| the agent cannot reach a file | `chmod 600` | `600` | no access | `600` |
+| the agent cannot reach a directory | `chmod 700` | `700` | no access to it or anything inside | `700` |
+
+Every other case — a file a program creates, `chmod g-x` and `g+x`, read-only
+files and a sticky directory, a numeric mode, and what a later walk changes —
+is
 [ref-table-b5v7](../../.claude/rules/ownership-and-hooks.rule.md#ref-table-b5v7).
-Three cases do not follow from the group column: a file a program creates
-`0644` or `0755` is read-only to the agent until a walk; `chmod g-x` keeps
-the agent from running a script only until a walk, which follows your own
-execute bit; and `chmod g+x` on a file you cannot run is the one way the agent
-runs something you do not, and only until the next walk.
-
-To keep the agent out of a file, make it owner-only: a tracked file only until
-git changes it. To keep your files in a directory from being changed,
-`chmod a-w` the files and `chmod +t` the directory: the agent reads them
-and adds files of its own, while the mode keeps it from writing yours
-and the sticky bit from renaming or deleting them. The agent cannot write
-into a read-only file, but a directory it can write lets it delete or rename
-the file and put its own in its place. The sticky bit stops the delete
-and the rename alone: in a sticky directory the agent can still write
-into a file whose group column holds `w`, such as a `660` one. The files need
-to be read-only as well, or kept out of the project. A file the agent writes
-comes back to you with the access it gave itself, so a script it made
-executable is one you can run too, and a file a program it runs creates
-read-only is read-only to it until a walk.
-
-A numeric mode replaces the agent's access with its middle digit,
-so `chmod 750` and `chmod 644` each take the agent's write until the next walk.
-The last digit sets the file's own bits for other accounts, but a claim closes
-every directory in the project to them, so they still cannot reach the file.
-Use the symbolic form.
-
-A walk writes both grants again and sets the agent's access to your own
-permissions on the file, so the agent gets what you have: read and write,
-and run where you can run it. An unclaim gives each file's group the read,
-and the run, it had when the file was claimed or created, without write: `640`
-on a file you cannot run and `750` on one you can, as most files had,
-and `440`, `550` and owner-only files as they are. A file whose group could
-only read before the claim stays that way, so a `640` file you made `ug+x`
-unclaims to `740`, and a `711` one to `710`.
+Use the symbolic form: a numeric mode replaces the agent's access with its
+middle digit.
 
 Git keeps one permission bit per file, whether you can run it. A checkout,
 a pull or a branch switch that changes a tracked file writes it as a new file,
-so the file takes the first table's access from that bit, whatever mode you had
-set: a tracked file you made `600` comes back `660`, and the agent can read
-and write it. An untracked file, such as a `.env` git ignores, keeps its mode,
-and a `700` directory keeps the files git writes inside it out of the agent's
-reach. Every mode, step by step, is
-[ref-table-b5v7](../../.claude/rules/ownership-and-hooks.rule.md#ref-table-b5v7).
+so the file takes the access the table gives from that bit: `770` for a file
+committed as `100755`, and `660` for one committed without it, whatever `chmod`
+you made since.
 
 ## Files you move into a claimed project
 
@@ -202,23 +161,6 @@ own, right under the list of files it found:
   and the group the file had loses it. No leaves each file as it is,
   through every step of the claim, the `.git` share among them.
 
-Which flag pre-answers which question, and what a run without a terminal does,
-is on [Claim](claim.md). On an enforcing host the group question is not asked
-when the relabel did not run and every file on its list is also on the relabel
-list: those files would keep a type the agent is refused, so a group change
-alone would share none of them. A file whose name, or whose directory inside
-the project, matches your secret patterns is marked `[secret]`; accepting
-either repair locks it owner-only first, so neither repair shares it.
-
-After the claim, each file is checked again and listed on one line with its
-outcome, the kind and what it was before (`man ai-tools` names each outcome).
-A file listed under each kind opens to the agent only once it is fixed
-for each; where you answered yes to one question and no to the other, the claim
-says how many files that leaves closed. The exit codes those rows fold
-to, and `--format tsv` for a script, are on [Claim](claim.md); the rows
-themselves are
-[ref-table-x8q5](../../.claude/rules/cli.rule.md#ref-table-x8q5).
-
 Say no to the group and ACL, and keep the file as it is, when:
 
 | The file | Example | Keep it that way with |
@@ -229,9 +171,7 @@ Say no to the group and ACL, and keep the file as it is, when:
 
 A `!` line for the file in your project registry keeps a re-claim from asking
 about it again (`man 5 ai-tools-project-registry`). It does not stop a later
-relabel from resetting the file's SELinux type. A `!` line, a group
-and `chmod 600` each hold for a file git does not track; a file git tracks
-takes the project's access again whenever git writes it.
+relabel from resetting the file's SELinux type.
 
 Each question covers every file in its list. To act on only some of them,
 relabel those yourself — you own them, so it does not need `sudo`:
@@ -241,39 +181,21 @@ restorecon -F ~/src/api/data/report.csv
 ```
 
 For the group and ACL, `chmod 600` the files to leave out, or give them a `!`
-line, then re-claim and answer yes. Both hold for a file git does not track.
-A file git tracks takes the project's access again whenever git writes it
-([Which files you and the agent can
-run](#which-files-you-and-the-agent-can-run)), so keep such a file
-in a directory you made `700`, or outside the project. The claim does not ask
-about a file with no group or other bits: it leaves such a file out of both
-scans. The scans, and what each question changes, are
-[ref-section-a9b2](../../.claude/rules/cli.rule.md#ref-section-a9b2).
-
-A moved-in file under a build or dependency directory (`node_modules`, `bin`,
-`obj`) keeps its group: the claim does not walk those directories. The notice
-names the `operator.conf` settings that open one to the claim
-([Claim](claim.md)).
-
-A file the coding agent moves in from `/tmp` comes back to you like any file it
-writes, and keeps the temporary-file SELinux type until you re-claim
-the project: the re-claim lists it under SELinux type, and the relabel gives it
-the project's type.
+line, then re-claim and answer yes.
 
 ## What walks the project
 
-A walk sets each file's permissions from your own, as the tables under [Which
-files you and the agent can run](#which-files-you-and-the-agent-can-run) show.
-These run one:
+A walk sets each file's permissions from your own, as the table under [Which
+files you and the agent can run](#which-files-you-and-the-agent-can-run) shows.
 
-| You run | Walks the project |
+| You run | Walks the project? |
 |---|---|
-| `atr projects claim` on a project not claimed yet | yes |
-| `atr projects create` | yes, over the new directory |
-| "Claim here" on the screen a session shows in a directory not claimed yet | yes |
-| `atr projects claim` on a claimed project, answering yes to the `.git` question or to a group and ACL repair | yes |
-| `atr projects claim` when it lists files under *ACL entries from an earlier claim* and you apply the pending steps, or pass `-y` | yes |
-| `atr projects claim` on a claimed project with no question to ask, or where you answer no | no |
-| a session, the handback after each write, `atr projects handback`, `lockdown`, `enable`, `disable`, `unclaim`, `remove` | no |
+| `atr projects create` | yes |
+| `atr projects claim` on an unclaimed project | yes |
+| "Claim here" on the screen a session shows in an unclaimed directory | yes |
+| `atr projects claim` on a claimed project | only where you answer yes to the `.git` question or to a group and ACL repair, or apply the pending step for *ACL entries from an earlier claim*; `-y` applies that step and answers neither question |
 
-`--for <operator>` follows the same rows as the command without it.
+No other command walks the project: not a session or the handback after each
+write, and not `atr projects handback`, `lockdown`, `enable`, `disable`,
+`unclaim` or `remove`. `--for <operator>` follows the same rows as the command
+without it.

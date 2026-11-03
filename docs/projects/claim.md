@@ -26,27 +26,39 @@ the grants themselves are
 
 ## The blocks, in the order they run
 
-```text
-Apply these pending steps to the tree in place? [y/N] (default: No):
-```
-
 A claim is a sequence of self-contained blocks, each with its own headline, its
-own list and its own decision: **Review**, which ends in that proceed confirm
-over exactly the steps it listed; **Interior drift**, on a re-claim only
-([Permissions](permissions.md) says when to say no); **Reachability**; **Secret
-lockdown**, the run's first `sudo` prompt; **`.git` history**; and **Apply**,
-which ends in the closing `claimed` line. A first claim skips the drift blocks:
-its normal walks repair the whole tree. The blocks and what closes each one are
+own list and its own decision. In the order they appear on the page:
+
+1. **Review** — the pending steps, the notices about the tree, the drift
+   reports of a re-claim, then the proceed confirm, which covers exactly
+   the steps listed:
+
+   ```text
+   Apply these pending steps to the tree in place? [y/N] (default: No):
+   ```
+
+2. **Interior drift** — on a re-claim only, one block per kind of file
+   that kept what it had where it came from. Both questions default to No,
+   since each can widen what the agent reads. Each is asked under its own list
+   of paths. When to say no is on [Permissions](permissions.md).
+3. **Reachability** — the traverse grant on a parent directory
+   whose permissions keep the sandbox account out, default No.
+4. **Secret lockdown** — the scan for secret-named files, and the run's first
+   `sudo` prompt. Locking what it finds defaults to Yes; declining stops
+   the claim ([Lockdown](lockdown.md)).
+5. **`.git` history** — whether the agent may read the repository's history,
+   default Yes.
+6. **Apply** — the approved steps, one result line each, then one outcome line
+   per drifted file, then the closing `claimed` line.
+
+A first claim skips the drift blocks: its normal walks repair the whole tree.
+The blocks and what closes each one are
 [ref-list-g6f5](../../.claude/rules/cli.rule.md#ref-list-g6f5).
 
 ## What answers a question
 
-Every yes/no question states its default; Enter, and a run without a terminal,
-take it (`man ai-tools`). `-y` answers the proceed confirm and the SELinux type
-question, and only those; a question that widens access — the traverse grant,
-the group and ACL repair — defaults to No and is answered at the prompt alone.
-The full matrix, question by question, is
-[ref-table-s7c5](../../.claude/rules/cli.rule.md#ref-table-s7c5).
+Every question states its default, which Enter and a run without a terminal
+take; `man ai-tools` lists the questions `-y` answers.
 
 ## Reachability: a parent that keeps the agent out
 
@@ -136,8 +148,10 @@ Two more notices name what the claim saw and left alone:
 Where your account can read the sandbox account's sessions, a claim whose label
 step is pending says so in the same block, before it asks for a password,
 when an agent session, the toolchain update, or a step run as the sandbox
-account is live. On a host where it cannot, the refusal of the label step is
-the first report, after the password:
+account is live
+([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
+On a host where it cannot, the refusal of the label step is the first report,
+after the password:
 
 ```text
 NOTICE: a process of the sandbox account is running
@@ -148,9 +162,8 @@ NOTICE: a process of the sandbox account is running
 ```
 
 The label step walks the tree as root, and is refused while an agent session,
-the toolchain update, or a step run as the sandbox account is live
-([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)). Let
-each session end with `/exit` and the toolchain update finish, or end them all
+the toolchain update, or a step run as the sandbox account is live. Let each
+session end with `/exit` and the toolchain update finish, or end them all
 with `atr stop`, then claim again: the re-run applies the label alone.
 
 The claim's permission walks, which set the group, the ACL and the secret scan,
@@ -222,8 +235,10 @@ The claim resolves the path as you, with or without `--for`, so a project
 under a directory you cannot enter is refused, naming that directory.
 Under `--for` the refusal also names a location both accounts reach
 and, where the directory belongs to the target, the traverse-only `setfacl`
-that lets you enter it. The tree itself is read as `svc-ci`, so a claim
-over a tree only that account can read completes ([Service
+that lets you enter it. The tree itself is read as `svc-ci`,
+through `sudo -u svc-ci`, so a claim over a tree only that account can read
+completes; one more password prompt can precede the review on a host
+whose `sudo` does not cache the password ([Service
 accounts](../operators/service-accounts.md)). A refusal names `svc-ci`'s
 registry as `~svc-ci/.config/ai-tools/project-registry`, and each command it
 prints carries `--for svc-ci`.

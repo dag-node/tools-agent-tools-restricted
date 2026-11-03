@@ -19,12 +19,11 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | w9g8 | [ref-section-w9g8](rules/cli.rule.md#ref-section-w9g8) | What a stamp is read for | .claude/rules/cli.rule.md | .claude/rules/updater.rule.md |  |
 | z3p9 | [ref-section-z3p9](rules/cli.rule.md#ref-section-z3p9) | Acting for another operator (`--for`) | .claude/rules/cli.rule.md | docs/operators/service-accounts.md |  |
 | v2n3 | [ref-section-v2n3](rules/cli.rule.md#ref-section-v2n3) | The project registry and the state machine | .claude/rules/cli.rule.md | docs/projects/disable.md, docs/projects/enable.md, src/usr/local/lib/ai-tools/conf.lib.sh |  |
-| h7d3 | [ref-section-h7d3](rules/cli.rule.md#ref-section-h7d3) | Claim in place | .claude/rules/cli.rule.md | docs/projects/claim.md, docs/projects/permissions.md, src/usr/local/bin/ai-tools.sh |  |
+| h7d3 | [ref-section-h7d3](rules/cli.rule.md#ref-section-h7d3) | Claim in place | .claude/rules/cli.rule.md | docs/projects/claim.md, src/usr/local/bin/ai-tools.sh |  |
 | g6f5 | [ref-list-g6f5](rules/cli.rule.md#ref-list-g6f5) | The claim's blocks, in run order | .claude/rules/cli.rule.md | .claude/rules/messaging.rule.md, docs/projects/claim.md |  |
-| s7c5 | [ref-table-s7c5](rules/cli.rule.md#ref-table-s7c5) | What answers each question a claim asks | .claude/rules/cli.rule.md | .claude/rules/messaging.rule.md, docs/projects/claim.md |  |
+| s7c5 | [ref-table-s7c5](rules/cli.rule.md#ref-table-s7c5) | What answers each question a claim asks | .claude/rules/cli.rule.md | .claude/rules/messaging.rule.md |  |
 | b9q6 | [ref-table-b9q6](rules/cli.rule.md#ref-table-b9q6) | A failed root step, per verb | .claude/rules/cli.rule.md | docs/projects/unclaim.md |  |
-| a9b2 | [ref-section-a9b2](rules/cli.rule.md#ref-section-a9b2) | Interior drift | .claude/rules/cli.rule.md | docs/projects/permissions.md, src/usr/local/lib/ai-tools/project-permissions.lib.sh |  |
-| x8q5 | [ref-table-x8q5](rules/cli.rule.md#ref-table-x8q5) | The outcome a re-claim reports per drifted path | .claude/rules/cli.rule.md | docs/projects/permissions.md |  |
+| a9b2 | [ref-section-a9b2](rules/cli.rule.md#ref-section-a9b2) | Interior drift | .claude/rules/cli.rule.md | src/usr/local/lib/ai-tools/project-permissions.lib.sh |  |
 | d7d5 | [ref-section-d7d5](rules/cli.rule.md#ref-section-d7d5) | Reachability | .claude/rules/cli.rule.md | docs/projects/claim.md |  |
 | x8s5 | [ref-section-x8s5](rules/cli.rule.md#ref-section-x8s5) | Create | .claude/rules/cli.rule.md | .claude/rules/tests.rule.md, docs/projects/create.md |  |
 | k3v7 | [ref-section-k3v7](rules/cli.rule.md#ref-section-k3v7) | Remove | .claude/rules/cli.rule.md | .claude/rules/tests.rule.md, docs/projects/remove.md, src/usr/local/bin/ai-tools.sh |  |
@@ -38,7 +37,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | f2p3 | [ref-section-f2p3](rules/launch.rule.md#ref-section-f2p3) | An agent entrypoint started from inside a session | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md |  |
 | p3k8 | [ref-section-p3k8](rules/launch.rule.md#ref-section-p3k8) | The ordering is read, not assumed | .claude/rules/launch.rule.md | .claude/rules/cli.rule.md, src/usr/local/lib/ai-tools/path-order.lib.sh |  |
 | f6z3 | MSG-F6Z3 | example | .claude/rules/messaging.rule.md |  |  |
-| y9z4 | [ref-section-y9z4](rules/ownership-and-hooks.rule.md#ref-section-y9z4) | Setgid normalization | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md, CLAUDE.md |  |
+| y9z4 | [ref-section-y9z4](rules/ownership-and-hooks.rule.md#ref-section-y9z4) | Setgid normalization | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md, CLAUDE.md, src/usr/local/libexec/ai-tools/ai-tools-setgid.sh |  |
 | b5v7 | [ref-table-b5v7](rules/ownership-and-hooks.rule.md#ref-table-b5v7) | A path's mode before, during and after a claim | .claude/rules/ownership-and-hooks.rule.md | .claude/rules/cli.rule.md, docs/projects/permissions.md |  |
 | d2n3 | [ref-section-d2n3](rules/providers.rule.md#ref-section-d2n3) | The gate-side read of the project registry | .claude/rules/providers.rule.md | .claude/rules/launch.rule.md, src/usr/local/lib/ai-tools/conf.lib.sh |  |
 | x4z9 | [ref-section-x4z9](rules/providers.rule.md#ref-section-x4z9) | The uid a trust predicate reads is the reader's uid map's | .claude/rules/providers.rule.md | .claude/rules/launch.rule.md, .claude/rules/tests.rule.md, .claude/rules/updater.rule.md, src/opt/ai-tools/bin/ai-tools-run.sh, src/usr/local/lib/ai-tools/conf.lib.sh, tests/integration/ai-tools-run.sh, tests/integration/systemd.sh, tests/unit/conf.sh |  |

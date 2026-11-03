@@ -36,11 +36,17 @@ to close, is
 
 ## What you point at decides what happens
 
-A claimed project is unclaimed; a directory with claimed projects nested
-under it lists them, and one confirm covers each, unclaimed outermost-first;
-a path inside a project, an excluded path and an unregistered tree are refused,
-naming the command that works — unless the tree still carries the agent's
-permissions, where `--force` is offered. The outcomes are
+| What you pointed at | What happens |
+|---|---|
+| a claimed project | unclaimed |
+| a directory with claimed projects nested under it | they are listed, one confirm covers all, each is unclaimed outermost-first |
+| a path *inside* a claimed project | refused, naming the nearest claimed parent and the command that works |
+| an excluded path (`!`) | refused: it is not a project |
+| a path the registry does not cover, without any agent permissions on it | refused: no part of this tree was claimed |
+| a path the registry does not cover, still carrying agent permissions | reported, and `--force` offered |
+| any target, while another line of your registry cannot be written back | refused before any change, naming the line |
+
+The codes behind each outcome are
 [ref-table-d9g9](../../.claude/rules/cli.rule.md#ref-table-d9g9).
 
 A **disabled** project is asked about first: the hand-back cannot run while
