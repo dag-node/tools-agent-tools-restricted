@@ -888,7 +888,7 @@ else
         fail "setup: gpg did not add a signing subkey to the certify-only primary"
     fi
 
-    asset_signing_gen_key EXPIRED expired 1d 20200101T000000
+    asset_signing_gen_key EXPIRED expired 1d 20190101T000000
     sign_manifest expired
     if [[ " $(manifest_keywords "${ASSET_KEYS_DIR}/expired.gpg")" == *" EXPKEYSIG "* ]]; then
         expect_signature 2 "signed, before its expiry, by a key the keyring holds as expired" \
