@@ -2723,13 +2723,19 @@ claim_verify_group() {
 # dependencies, caches) relative to <base>, honoring the relative artifact exclusions that re-open a subtree
 # to the walks. The single predicate behind both the claim's "drift I cannot repair" split and the unclaim's "residue
 # the default walk will not reach" split, so one skip contract decides both. Returns 1 when the skip list is
-# unavailable, which treats every hit as reachable -- the fail-soft direction for a walk-cost optimization.
+# unavailable, which treats every hit as reachable -- the fail-soft direction for a walk-cost optimization. The walks
+# prune a skip-listed name as a directory only, so the last component counts only when <path> is a directory:
+# a worktree's `.git` pointer file is reachable. The type is read by the path, and the split it decides is which block
+# of the claim lists the hit.
 under_skip_listed_name() {
     local _base="$1" _path="$2" _rel _seg _name _s _x
     [[ "${#AI_TOOLS_SKIP_DIRS__NAMES[@]}" -gt 0 ]] || return 1
     _rel="${_path#"${_base}"/}"
     # Split on `/` alone: a read would stop at a line feed in the name and judge the path on its first line.
     mapfile -d / -t _seg < <(printf '%s' "${_rel}")
+    if (( ${#_seg[@]} )) && [[ ! -d "${_path}" || -L "${_path}" ]]; then
+        unset '_seg[-1]'
+    fi
     for _name in "${AI_TOOLS_SKIP_DIRS__NAMES[@]}"; do
         for _s in "${_seg[@]}"; do
             if [[ "${_s}" == "${_name}" ]]; then

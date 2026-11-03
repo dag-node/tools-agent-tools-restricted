@@ -752,16 +752,19 @@ else
     fi
 
     # `.git` in the group scan: a directory of that name is pruned, the `--with-git` pass's, while a worktree's `.git`
-    # pointer file is a path the walk grants, so one with a foreign group is drift. The project's own `.git`
-    # and a nested one each hold a foreign-group file, and a file moved in beside them is the control that the scan
-    # reached the tree.
-    in_gitdrift="${in_work}/git-drift"; mkdir -p "${in_gitdrift}/.git" "${in_gitdrift}/sub/.git" "${in_gitdrift}/wt"
+    # pointer file is a path the walk grants, so one with a foreign group is drift the repair reaches, under the default
+    # skip list too, which prunes `.git` as a directory only. The project's own `.git` and a nested one each hold
+    # a foreign-group file, a file moved in beside them is the control that the scan reached the tree, and a moved-in
+    # `node_modules` directory is the control that a skip-listed directory still reads as one.
+    in_gitdrift="${in_work}/git-drift"
+    mkdir -p "${in_gitdrift}/.git" "${in_gitdrift}/sub/.git" "${in_gitdrift}/wt" "${in_gitdrift}/deps/node_modules"
     : > "${in_gitdrift}/.git/HEAD"; : > "${in_gitdrift}/sub/.git/HEAD"; : > "${in_gitdrift}/moved.txt"
     printf 'gitdir: /elsewhere/.git/worktrees/wt\n' > "${in_gitdrift}/wt/.git"
     chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${in_gitdrift}"
     chmod 0664 "${in_gitdrift}/.git/HEAD" "${in_gitdrift}/sub/.git/HEAD" "${in_gitdrift}/moved.txt" "${in_gitdrift}/wt/.git"
-    chgrp "${SANDBOX_GROUP}" "${in_gitdrift}" "${in_gitdrift}/sub" "${in_gitdrift}/wt"
-    chmod 2770 "${in_gitdrift}" "${in_gitdrift}/sub" "${in_gitdrift}/wt"
+    chmod 0775 "${in_gitdrift}/deps/node_modules"
+    chgrp "${SANDBOX_GROUP}" "${in_gitdrift}" "${in_gitdrift}/sub" "${in_gitdrift}/wt" "${in_gitdrift}/deps"
+    chmod 2770 "${in_gitdrift}" "${in_gitdrift}/sub" "${in_gitdrift}/wt" "${in_gitdrift}/deps"
     in_out="$(inspect_run "${in_gitdrift}" "${in_work}/empty.in" --scan-group)" || true
     if grep -qF -- "group-drift|${in_gitdrift}/moved.txt|" <<< "${in_out}"; then
         pass "control: the group scan lists the moved-in file beside the .git paths"
@@ -773,6 +776,16 @@ else
         pass "the group scan lists a worktree's foreign-group .git pointer file, and nothing under a .git directory"
     else
         fail "the group scan's .git paths: '$(grep '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+    if grep -F -- "group-drift|${in_gitdrift}/deps/node_modules|" <<< "${in_out}" | grep -qF -- "|skip-listed|"; then
+        pass "control: a moved-in node_modules directory reads skip-listed"
+    else
+        fail "control: the node_modules directory's record is not skip-listed -- the case below is not evidence: '$(grep '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
+    fi
+    if grep -F -- "group-drift|${in_gitdrift}/wt/.git|" <<< "${in_out}" | grep -qF -- "|reachable|"; then
+        pass "the .git pointer file reads reachable, so the claim asks about its repair"
+    else
+        fail "the .git pointer file's record: '$(grep -F -- "${in_gitdrift}/wt/.git|" <<<"${in_out}" | tr '\n' '~')'"
     fi
 
     # The entries an earlier claim wrote: a claimed tree (the sandbox group, setgid, the default ACL in place) holding

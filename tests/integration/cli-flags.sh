@@ -603,6 +603,13 @@ drive_rows() {
         out_line_has_text group-not-fixed "${R}/pw/.git"
     expect "control: the earlier claim's entries make the ACL step's walk run" out_has_row narrow-acl-entries-not-fixed
     expect "the declined repair passes --skip-drifted to that walk"   cli_called ai-tools-setfacl "^--skip-drifted${T}${R}/pw$"
+    # The same re-claim on a terminal answering yes to the group question: the walk runs without `--skip-drifted`,
+    # after the secret gate, so the pointer takes the group and the project ACL.
+    cli_stub_reset; drive cli_tty 'y\n' ai-tools.projects.claim "$(f yes)" "${R}/pw"
+    expect "control: the terminal run lists the pointer"              out_has_text "${R}/pw/.git"
+    expect "control: the terminal run asks the group question"        out_has_text "Move these 1 path(s) to group"
+    expect "the accepted repair runs the walk without --skip-drifted" cli_called ai-tools-setfacl "^${R}/pw$"
+    expect "the accepted repair takes the secret gate first"          before ai-tools-lockdown "^--gate${T}--${T}" ai-tools-setfacl "."
 
     # A project an earlier release claimed: one file carrying that release's entries, rw- for the operator
     # and the sandbox group. The re-claim lists it as a pending step under the proceed confirm, so a run without
