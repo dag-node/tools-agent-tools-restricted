@@ -241,7 +241,7 @@ _is_allowed() {
 }
 
 _is_allowed  "${target}" || die MSG-V7Y7 "not an allowed project: ${target} (see ${ALLOWLIST})"
-_is_excluded "${target}" && die MSG-J3F9 "excluded in the allowlist: ${target}; nothing to do"
+_is_excluded "${target}" && die MSG-J3F9 "excluded in the project registry: ${target}; nothing to do"
 
 # ── Shared secret matcher ────────────────────────────────────────────────────
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/secret-patterns.lib.sh

@@ -21,18 +21,17 @@ starts there afterwards, and the ownership handback stops with it.
 
 ## It normalizes; it does not restore
 
-The group owner of every path moves from the agent's group to yours (or
-to the group `--group` names), every extended ACL entry is cleared — the ones
-that predated the claim included — group write and the setgid bit
-on directories go, and the label reverts. The pre-claim permissions are not
-recorded, so back up first; the claim and the forced unclaim each say
-so before asking. World access the claim removed does not come back,
-and an owner-only path is untouched at both ends ([Permissions](permissions.md)
-has what each path ends at). New files then take their mode from the creating
-account's umask again, which the claim's default ACL had been overriding (the
-[permissions cheatsheet](../linux-permissions-cheatsheet.txt) covers a default
-ACL replacing the umask). What comes off, and why the group owner is the route
-that has to close, is
+Back up first: the pre-claim permissions are not recorded, and the claim
+and the forced unclaim each say so before asking. What comes off each path —
+the group owner, every extended ACL entry, group write, the setgid bit
+on directories and the label — is `man ai-tools`; world access the claim
+removed does not come back, and an owner-only path is untouched at both ends
+([Permissions](permissions.md) has what each path ends at). New files then take
+their mode from the creating account's umask again, which the claim's default
+ACL had been overriding (the [permissions
+cheatsheet](../linux-permissions-cheatsheet.txt) covers a default ACL replacing
+the umask). What comes off, and why the group owner is the route that has
+to close, is
 [ref-section-m5n5](../../.claude/rules/cli.rule.md#ref-section-m5n5).
 
 ## What you point at decides what happens
@@ -45,8 +44,9 @@ that has to close, is
 | an excluded path (`!`) | refused: it is not a project |
 | a path the registry does not cover, without any agent permissions on it | refused: no part of this tree was claimed |
 | a path the registry does not cover, still carrying agent permissions | reported, and `--force` offered |
+| any target, while another line of your registry cannot be written back | refused before any change, naming the line |
 
-The outcomes are
+The codes behind each outcome are
 [ref-table-d9g9](../../.claude/rules/cli.rule.md#ref-table-d9g9).
 
 A **disabled** project is asked about first: the hand-back cannot run while

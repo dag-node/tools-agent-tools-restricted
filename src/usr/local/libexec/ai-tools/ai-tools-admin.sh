@@ -5,10 +5,10 @@
 # config (the OPERATORS list, the ai-ops group, the sandbox account's linger; the loaded optional SELinux policy groups)
 # while the ai-tools CLI is unprivileged and refuses to run as root.
 #
+#   ```bash
 #   atr admin operators                          # list (the zero-argument default)
 #   atr admin operators add [user]               # default: $SUDO_USER
 #   atr admin operators remove <user>
-#   ```bash
 #   atr admin selinux groups                     # show core + optional group state
 #   atr admin selinux groups enable <name>...    # load prebuilt (stable) groups
 #   atr admin selinux groups disable <name>      # unload one
@@ -18,7 +18,11 @@
 #   atr admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   atr admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #   atr admin system post-upgrade --check        # findings as a record stream; silent, exit 0 when clean
+#   atr admin system layout                      # every installed path, with the drift each carries
+#   atr admin system layout reconcile            # restore each drifted path to its row
 #   atr admin status                             # the host's health, read as root
+#   atr admin assets                             # the asset sets, and what each enabled agent links
+#   atr admin assets enable --set <name>         # enable a set in every enabled agent
 #   atr admin stop                               # stop every agent session, through the stop helper
 #   atr admin dotnet bootstrap                   # a domain a provider package contributes
 #   ```
@@ -37,7 +41,7 @@
 # linger, and offers to wire the PATH ordering line. The seed comes first so that an account enrolled here holds
 # the project registry every later command resolves it through; a first enrolment that cannot write one is refused
 # with the host unchanged. `remove` reverses the host-side membership (drops the name from OPERATORS and ai-ops),
-# leaving the user's own allowlist and config. `list` prints the current operators.
+# leaving the user's own registry and config. `list` prints the current operators.
 #
 # `selinux groups` toggles the optional policy groups, all off by default. It loads the COMPILED ai_tools_<group>.pp
 # that ai-tools-selinux (or a checkout's install-selinux.sh build) staged under AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR
@@ -64,10 +68,10 @@
 # as an executable fragment at /usr/local/lib/ai-tools/admin-commands.d/<name> and this tool discovers it. The basename
 # is the domain token -- the same name the provider takes in agents.d/integrations.d and in operator.conf. Dispatch is
 # an exec, not a source, so a fragment keeps its own `set -euo pipefail`, root guard and logging. A fragment is honored
-# only while it passes the same trust predicate as every other provider input (root-owned, not group/other-writable,
-# and so is its directory), and one claiming a name base owns is refused rather than merged; both refusals are reported.
-# INSTALLATION, not enablement, decides whether a command exists -- what a command reports still names the enablement
-# state, and `system bootstrap --scope full` reads the enabled set instead.
+# only while it and its directory pass the provider trust predicate, and one claiming a name base owns is refused rather
+# than merged; both refusals are reported (providers.rule.md, the admin-commands.d seam). INSTALLATION, not enablement,
+# decides whether a command exists -- what a command reports still names the enablement state,
+# and `system bootstrap --scope full` reads the enabled set instead.
 #
 # `system entrypoints relabel` reconciles each enabled agent's entrypoint after a toolchain change, through the root
 # helper ai-tools-relabel-agent: it verifies the binary against the checksum its vendor signed and records the result
@@ -76,8 +80,8 @@
 # signed manifest: the unattended callers (ai-tools-relabel.service, the agent package's %post) may answer
 # from an unchanged pin, and an administrator asking for a reconcile is asking for the fetch.
 #
-# `status` reports this host's health as root: the same resource `ai-tools status` reports to an operator, completed
-# with the three readings that vantage point prints as `?` -- the sandbox account's own `systemd --user units`,
+# `status` reports this host's health as root: the same resource `atr status` reports to an operator, completed
+# with the readings that vantage point prints as `?` -- among them the sandbox account's own `systemd --user units`,
 # whose bus root reaches over the machine transport; the entrypoint pin, in a state directory a non-operator has no
 # traverse bit on; and the SELinux type each agent path carries right now, inside a 0750 toolchain. Every verdict comes
 # from the same services.lib.sh registry both reports and the launch wrapper's pre-launch warning read, so the two
@@ -90,7 +94,9 @@
 # registry -- and every treatment shows what it would change, confirms, backs the file up before writing, and names each
 # path it touched. The copy itself is never removed: each block names the one to delete, once the operator has merged
 # what they want from it. The from-source installer reaches the same end through its own keep-or-reset prompts and dated
-# .bak/.shipped sidecars; this is the RPM-side equivalent.
+# .bak/.shipped sidecars; this is the RPM-side equivalent. The same command migrates each enrolled operator's registry
+# an earlier release wrote (_pu_registry_migrate), and under `--check` writes a `registry-unmigrated` finding per legacy
+# file and `registry-invalid` for one format 1.0 does not carry.
 #
 # Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
@@ -661,7 +667,7 @@ path_order_explain() {
             "" \
             "    ${winner}" \
             "" \
-            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project allowlist, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}, so that directory has to come first on the PATH." \
+            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project registry, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}, so that directory has to come first on the PATH." \
             "" \
             "ai-tools ships one line that deduplicates the PATH and ranks the root-owned directories ahead of the nvm shims. It is appended after the nvm init, changes nothing else about the shell, and is undone by deleting it." ;;
     clear)
@@ -2351,14 +2357,11 @@ _pu_kind_migrate() {
 
 # _pu_registry_migrate <root>: migrate every enrolled operator's `~/.config/ai-tools/allowed-projects`
 # to `~/.config/ai-tools/project-registry` (the plan and the write are ai_tools_conf__plan_registry_migration
-# and ai_tools_conf__migrate_registry, conf.lib.sh), one block per operator, on every run, the unattended one included:
-# each entry keeps its kind and its written path, so the migration does not change what a session reaches, and until it
-# lands every `projects` verb refuses. The plan is printed row by row first -- the line each entry becomes, a whole-line
-# comment the canonical form drops, an entry it cannot carry -- and a plain `!` line no project encloses with the `%`
-# line that disables it in format 1.0, since that reading is the one the migration changes and only the operator knows
-# which was meant. A registry no reader accepts, legacy or current, is named and left as written; a legacy file the gate
-# refuses only for an exclusion through a link still migrates, and the block names the line after its rows. Root
-# writes through the operator's own 0700 directory, and the new file takes the source's owner and mode.
+# and ai_tools_conf__migrate_registry, conf.lib.sh), one block per operator, on every run, the unattended one included.
+# What the migration keeps, drops and names is conf.lib.sh's (NOTE-Q2D8); this block prints the plan row by row first,
+# names a registry no reader accepts, legacy or current, and leaves it as written, migrates a legacy file the gate
+# refuses only for an exclusion through a link and names the line after its rows, and writes as root
+# through the operator's own 0700 directory, the new file taking the source's owner and mode.
 _pu_registry_migrate() {
     local root="$1" user uid state path verdict number raw hint sidecar rc scratch notes registry
     while IFS=$'\t' read -r user uid state path; do

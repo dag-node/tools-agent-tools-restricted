@@ -31,7 +31,8 @@ that already runs.
   - [Push](projects/push.md) — send a clone's commits to the branch it tracks.
   - [List](projects/list.md) — what each line of the project registry is,
     and the cleanup it suggests.
-  - [Disable](projects/disable.md) — park a project so no session starts there.
+  - [Disable](projects/disable.md) — disable a project so no session starts
+    there.
   - [Enable](projects/enable.md) — lift a disable.
   - [Unclaim](projects/unclaim.md) — take the agent's access away and keep
     the files.

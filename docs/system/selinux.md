@@ -35,7 +35,7 @@ disabled or the policy never installed, launches with file permissions alone
 and warns at every launch until `AI_TOOLS_REQUIRE_SELINUX=no` declares
 that on purpose. The requirement is in force while the key is absent, so only
 an explicit `no` turns it off. Every option is
-in [`ai-tools-operator.conf(5)`](../../src/usr/local/share/man/man5/ai-tools-operator.conf.5).
+in `man 5 ai-tools-operator.conf`.
 
 The supported host runs the **targeted** policy on Enterprise Linux 9 or 10
 with operators logging in unconfined, the EL default. The policy grants
@@ -46,8 +46,7 @@ so a host that confines its operators to a login domain of their own —
 to the attribute and give it the same file access. Launching a session
 from such a login is not validated yet: the launch path is measured
 for unconfined logins only, and a read denied there refuses the launch instead
-of running the session unconfined. An `atr admin selinux` command that declares
-the domain is planned.
+of running the session unconfined.
 
 ## A stale label after a toolchain update
 
@@ -125,10 +124,10 @@ refused that until the `tmpmap` group is loaded. The SELinux Boolean
 and every file type, so the two look related and are not interchangeable: load
 the group and leave the Boolean off. A launch refuses while that Boolean is
 on, unless `AI_TOOLS_SELINUX_BOOLEANS` declares it,
-as [`ai-tools-operator.conf(5)`](../../src/usr/local/share/man/man5/ai-tools-operator.conf.5)
-describes. A mistake in that list — a misspelled Boolean, a value that is not
-`on` or `off` — costs a launch, never confinement: the launch refuses until
-the line is fixed, and no entry in it changes a Boolean on the host.
+as `man 5 ai-tools-operator.conf` describes. A mistake in that list —
+a misspelled Boolean, a value that is not `on` or `off` — costs a launch, never
+confinement: the launch refuses until the line is fixed, and no entry in it
+changes a Boolean on the host.
 
 Policy layout, the optional groups, and the bring-up loop for a new denial are
 in [`selinux/README.md`](../../selinux/README.md). What the domain guarantees

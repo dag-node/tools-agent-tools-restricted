@@ -55,6 +55,19 @@ as the implementation changes without a docs page going stale, because no docs p
 a command, a configuration key, or a guarantee. A sentence naming a library function, a file mode, a label,
 or a `file:line` fails that test, and its home is the rule.
 
+**A table or a list an operator reads by what they want stays on the page.** A table whose rows are what an operator
+types or wants — the access `chmod g-x` leaves the agent, what an unclaim does with each target — or a list of the steps
+a command walks the operator through answers the first triage question, the modes in its cells included, and is
+the page's form for that fact. Where prose restates a table's rows, the prose is cut, never the table; the rule keeps
+its own table of the mechanism behind each row, and the page links it.
+
+**A link that leaves the installed documentation is rewritten when the package is built.** The package installs `docs/`
+and `README.md` alone, and a page links a rule, `CLAUDE.md` or a source file by its relative path, which `ref-index.sh`
+checks and relinks and GitHub resolves at the ref being read. The RPM build rewrites each such link in the copy it
+installs to the same path at the release's tag (`packaging/rewrite-doc-links.py`), so an installed link reaches
+the version installed. A man page names a docs page by its installed path
+(`/usr/share/doc/ai-tools/docs/projects/index.md`) and does not name a rule or a source file.
+
 **The obligation that creates.** A change altering a command, adding or removing a configuration key, or changing
 a guarantee updates the docs page in the same commit. A change to a mechanism does not, and does not have to be checked
 against `docs/` at all.

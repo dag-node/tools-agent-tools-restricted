@@ -22,8 +22,8 @@
 # which refuses a verb whose root helper this caller does not hold a sudo grant for, before sudo prompts for a password
 # it will then reject; require_runas_target, which refuses a --for run whose filesystem steps sudo will not run
 # as the target; and require_for_target, which validates a --for run and re-points the registry at its target. A help
-# request is answered ahead of all of them, after the sourced-guard, from help.lib.sh; `--version`, `projects list`
-# and `providers list` stay open to any user.
+# request is answered after the principal guards and ahead of all of them, from help.lib.sh; `--version`,
+# `projects list` and `providers list` stay open to any user.
 #
 # The principal guard refuses the sandbox account outright and allows root only the verbs that write no operator state
 # (ROOT_ALLOWED_VERBS): the reports -- `audit` needs root by construction, since the trail it reads is 700 root:root --
@@ -142,7 +142,7 @@ readonly BOOTSTRAP_EXEMPT_VERBS=("status" "audit" "stop" "--help" "--version")
 readonly OPERATOR_VERBS=("projects create" "projects claim" "projects unclaim" "projects remove"
                          "projects enable" "projects disable" "projects clone" "projects push"
                          "projects lockdown" "projects handback" "projects inspect")
-# FOR_ALLOWED_VERBS -- what --for accepts: the verbs whose whole effect is decided by WHICH operator's allowlist covers
+# FOR_ALLOWED_VERBS -- what --for accepts: the verbs whose whole effect is decided by WHICH operator's registry covers
 # the path. Elsewhere the flag is REFUSED rather than ignored (see
 # require_for_target).
 readonly FOR_ALLOWED_VERBS=("projects claim" "projects create" "projects unclaim" "projects remove"
@@ -150,14 +150,13 @@ readonly FOR_ALLOWED_VERBS=("projects claim" "projects create" "projects unclaim
                             "projects list")
 # COLLECTIONS -- the plural nouns a verb follows. A bare one is its `list`, the grammar's zero-argument default.
 readonly COLLECTIONS=(projects providers)
-# OPTION_SPELLINGS -- the option spelling of each command, from the releases before the resource grammar, and the two
-# short options that went with them, each mapped to what it runs: a command path, or for `-g` the long option it stands
-# for. Every key is kept for compatibility, since the typed command surface is the one interface an operator's own
-# scripts bind to, and the collection form is the preferred one: rewrite_option_spelling applies the table ahead
-# of every gate, so every verb table and the dispatch see the command path alone and no key sits in a dispatch arm
-# or in the help, and note_option_spellings names the preferred form. One row per line:
-# tools/generators/option-spellings.sh reads the rows by text to generate docs/option-spellings.md,
-# and tests/unit/cli-verbs.sh holds every value to a dispatched
+# OPTION_SPELLINGS -- the option spelling the CLI still accepts for each command, and the two short options beside them,
+# each mapped to what it runs: a command path, or for `-g` the long option it stands for. Every key is kept
+# for compatibility, since the typed command surface is the one interface an operator's own scripts bind
+# to, and the collection form is the preferred one: rewrite_option_spelling applies the table ahead of every gate,
+# so every verb table and the dispatch see the command path alone and no key sits in a dispatch arm or in the help,
+# and note_option_spellings names the preferred form. One row per line: tools/generators/option-spellings.sh reads
+# the rows by text to generate docs/option-spellings.md, and tests/unit/cli-verbs.sh holds every value to a dispatched
 # path.
 declare -rA OPTION_SPELLINGS=(
     [--list]="projects list"
@@ -296,12 +295,13 @@ unset _forless_args _forless_arg _for_value_refused
 # published, so the unknown-command line a stranger gets would read as a typo. It is a pointer and not an alias:
 # the command reconciles a root-owned pin and a file context, so it runs as root, which this CLI refuses.
 #
-# It answers ahead of every gate on purpose. The bootstrap gate would otherwise send an unprovisioned host
-# to the provisioning command, and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs
-# printed -- with a list of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented
-# code for a rejected command line (ai-tools(1)).
+# It answers after the sandbox-account refusal and the `--for` value check, and ahead of the bootstrap gate and the root
+# guard, on purpose. The bootstrap gate would otherwise send an unprovisioned host to the provisioning command,
+# and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs printed -- with a list
+# of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented code for a rejected
+# command line (ai-tools(1)).
 if [[ "${1:-}" == "--relabel" ]]; then
-    echo "ai-tools: --relabel is now a root command:" >&2
+    echo "ai-tools: --relabel is a root command:" >&2
     echo "              atr admin system entrypoints relabel" >&2
     exit 2
 fi
@@ -399,11 +399,12 @@ AI_TOOLS_LOG_OPERATOR="${OWNER_USER}"
 
 # The registry this run reads and writes, ALLOWLIST, and its state, REGISTRY_STATE (`current`, `legacy` or `none`), are
 # set once conf.lib.sh is loaded: ai_tools_conf__resolve_registry decides which of the operator's two names is the file.
-# With `--for`, require_for_target re-points ALLOWLIST at a root-side SNAPSHOT of the target's file: a registry is 0600
-# inside a 0700 .config/ai-tools, so one operator cannot read another's at all, and every decision made from it would
-# otherwise read an unreadable file as an empty one. One resolution point for readers AND writers
+# With `--for`, load_target_registry_snapshot points ALLOWLIST at a root-side SNAPSHOT of the target's file: a registry
+# is 0600 inside a 0700 .config/ai-tools, so one operator cannot read another's at all, and every decision made from it
+# would otherwise read an unreadable file as an empty one. One resolution point for readers AND writers
 # (reg_allow/unreg_allow), so a fixture test that sets AI_TOOLS_ALLOWLIST never mutates the operator's real registry.
-# Root-only test hook -- see the GITCONFIG note for why the override grants the CLI's operator caller no new capability.
+# An operator-settable test hook here -- see the GITCONFIG note for why the override grants the CLI's operator caller no
+# new capability.
 ALLOWLIST=""
 REGISTRY_STATE=none
 
@@ -1280,9 +1281,10 @@ reg_allow() {
 }
 
 # die_unregistrable_name <dir> [<remedy>]  -- refuse a project whose path the registry grammar cannot carry: a glob
-# character would make its project line one the grammar refuses, and that line would refuse the whole file for every
-# reader, the launch gate included. <remedy> replaces the rename-then-claim one, for a verb whose directory does not
-# exist yet. ai-tools-allowlist prints this code for a `--for` run.
+# character, a control character or both quote characters would make its project line one the grammar refuses,
+# and that line would refuse the whole file for every reader, the launch gate included. <remedy> replaces
+# the rename-then-claim one, for a verb whose directory does not exist yet. ai-tools-allowlist prints this code
+# for a `--for` run.
 die_unregistrable_name() {
     die MSG-Z9R2 "this directory's name cannot be written as a registry line: $1" \
         "A project's registry path does not carry '*', '?', '[', a control character, or both a single and a double quote, and this one does. ${2:-Rename the directory, then claim it.}"
@@ -2941,8 +2943,8 @@ inspect_write_verify_records() {
 
 # inspect_write_tree_records  -- the read half of cmd_project_inspect over its caller's <d>, scan_group and scan_label
 # (dynamic scope). The drift records are capped at CLAIM_SCAN_CAP + 1 per kind and reach, so the claim tells exactly
-# the cap from more than the cap (records.rule.md, Caps); what a path is before a repair, its subject type and its
-# secret mark are read here, at collection.
+# the cap from more than the cap (records.rule.md, ref-section-g4k3); what a path is before a repair, its subject type
+# and its secret mark are read here, at collection.
 inspect_write_tree_records() {
     local filemode owngap acl labelled git pristine=false root_mode
     # IFS pinned (see join_words).
@@ -3430,7 +3432,7 @@ cmd_project_claim() {
     # at CLAIM_SCAN_CAP; the count then says so rather than naming the cap as the total.
     local narrow_acl_entry_path_count="${#paths_with_narrow_acl_entries[@]}"
     ! ${narrow_acl_entry_capped} || narrow_acl_entry_path_count="more than ${CLAIM_SCAN_CAP}"
-    # A step the owner-side read records as `unknown` is not applied (cli.rule.md, Claim in place).
+    # A step the owner-side read records as `unknown` is not applied (cli.rule.md, ref-section-h7d3).
     local git_unreadable=false filemode_unreadable=false
     [[ "${git}" == unknown ]] && git_unreadable=true
     [[ "${filemode}" == unknown ]] && filemode_unreadable=true
@@ -3713,7 +3715,7 @@ cmd_project_claim() {
     [[ "${safedir}" == true  ]] || say "    - add git safe.directory"
     ${need_filemode} && say "    - set git core.filemode true"
     [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
-    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
+    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwx, masked to your own permissions on each path)"
     ${needs_acl_entry_repair} \
         && say "    - apply the group-permission ACL again: ${narrow_acl_entry_path_count} file(s) carry an earlier claim's entries"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
@@ -3750,8 +3752,8 @@ cmd_project_claim() {
         ! ${narrow_acl_entry_capped} || say "        ${C_DIM}(list capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
     fi
 
-    # Heavy steps close the Review block behind the proceed confirm, the one prompt `--yes` pre-answers; a pristine tree
-    # skips it with the warnings it authorizes.
+    # Heavy steps close the Review block behind the proceed confirm, which `--yes` pre-answers with the SELinux type
+    # question; a pristine tree skips it with the warnings it authorizes.
     if ${heavy} && ! ${fresh}; then
         ${ASSUME_YES} || confirm "Apply these pending steps to the tree in place?" n \
             || die "aborted"
@@ -3975,6 +3977,15 @@ refuse_unresolved_parent() {
 # alone and the second by its default where no one is. A claim that stops after the mkdir leaves the tree named, with
 # the claim that finishes it (remove_run_files). The refusals, the modes it sets and the claim questions it infers are
 # cli.rule.md's.
+#
+# `.git` stays out of the agent's reach until the `.git` question shares it. `git init` builds `.git` under the owner's
+# umask, so under `022` it carries other bits, and under a setgid parent -- the clone area among them --
+# in that parent's group with any default ACL the parent carries. The create therefore strips every extended entry
+# and the default ACL under `.git` (`setfacl -R -b`), regroups it to the owner's primary group, and clears group write
+# and the other bits, all as the owner and before the root opens to 0750. Group write is cleared explicitly, because
+# `-b` turns the mask it strips into the group bits, and a `002` umask, the default a user-private-group login takes,
+# has git build `.git` group-writable. The setgid and ACL walks skip `.git`, so only `ai-tools-setfacl --with-git` opens
+# it; a step that fails warns, and the claim's headline for the question says a decline leaves `.git` as git made it.
 cmd_project_create() {
     local a path=""
     for a in "$@"; do
@@ -3985,7 +3996,7 @@ cmd_project_create() {
                 else die_usage MSG-Z5Y7 "projects create takes a single path"; fi ;;
         esac
     done
-    [[ -n "${path}" ]] || die MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
+    [[ -n "${path}" ]] || die_usage MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
         "To claim a directory that already exists, use:" \
         "       $(format_projects_command claim "") <path>"
 
@@ -4218,12 +4229,13 @@ die_path_required() {
 }
 
 # discover_project <verb>  -- print the project the current directory is in, for a verb run without a path: walk from
-# the canonical current directory upward and stop at the first directory a registry entry names. A `%`, `!`
-# or glob line covering a directory on the way, one that does not name it, refuses: the verb would otherwise act
-# on a tree from inside a part of it no session starts in. A `!` line naming a directory on the way refuses
-# the same way. Reaching `/` with no entry exits 2. The walk checks every directory between the current one
-# and the project, where the launch gate checks the current directory alone, so a glob matching only an intermediate
-# directory stops this walk and does not stop a launch (cli.rule.md).
+# the canonical current directory upward and stop at the first directory a registry entry names. A `%`, `!` or glob line
+# covering a directory on the way, one that does not name it, refuses: the verb would otherwise act on a tree
+# from inside a part of it no session starts in. A `!` line naming a directory on the way refuses the same way. Reaching
+# `/` with no entry exits 2. The walk checks every directory between the current one and the project, where the launch
+# gate checks the current directory alone; a glob matching a directory on the way covers everything under it
+# (ai_tools_conf__find_covering_path), so it stops this walk as it stops a launch there
+# (cli.rule.md).
 discover_project() {
     local verb="$1" d root
     d="$(pwd -P)"
@@ -4380,10 +4392,10 @@ unclaim_one() {
     if ${entry_active}; then
         local files_note=""
         ${handback_missing} && files_note=" Its files were not handed back either, so they still carry group ${SANDBOX_GROUP}."
-        headline_warn "WARNING: the allowlist entry was not disabled" \
+        headline_warn "WARNING: the registry entry was not disabled" \
             "${d} is still enabled in ${REGISTRY_DISPLAY_PATH}, so a session can still start there.${files_note} The lines above name what completes the reversal."
         ai_tools_log__structured warning \
-            "unclaim of ${d} incomplete (allowlist entry not disabled, still active)" \
+            "unclaim of ${d} incomplete (registry entry not disabled, still active)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
@@ -4391,7 +4403,7 @@ unclaim_one() {
         headline_warn "WARNING: disabled, but the files were not handed back" \
             "${d} is ${entry_word}, so no session can launch there, and its line stays for the unclaim that completes the reversal. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
         ai_tools_log__structured warning \
-            "unclaim of ${d} incomplete (allowlist entry disabled; filesystem hand-back did NOT run)" \
+            "unclaim of ${d} incomplete (registry entry disabled; filesystem hand-back did NOT run)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
@@ -4604,11 +4616,11 @@ cmd_unclaim_unlisted() {
 # cmd_project_unclaim <path> [--force] [--full] [--dry-run] [-y|--yes] [--group <group>]  -- undo an in-place claim:
 # revert the SELinux label, drop both registries, and behind a default-yes confirm hand the tree back to a target group
 # through ai-tools-unclaim, with the agent's write access revoked; the directory itself is left on disk. The target is
-# classified against the project registry first (cli.rule.md, Unclaim), and a protected system path is refused up front,
-# whatever the mode: the backstop reads the path alone, so `--force` does not relax it. A disabled target is answered up
-# front (offer_reenable). `-y`/`--yes` pre-answers the default-NO confirm in every mode and is not read by the hand-back
-# or skip-listed questions, which ask on their own terms; `--group` names the hand-back group outright, so a script
-# never depends on the prompt's no-tty fallback.
+# classified against the project registry first (cli.rule.md, ref-section-m5n5), and a protected system path is refused
+# up front, whatever the mode: the backstop reads the path alone, so `--force` does not relax it. A disabled target is
+# answered up front (offer_reenable). `-y`/`--yes` pre-answers the default-NO confirm in every mode and is not read
+# by the hand-back or skip-listed questions, which ask on their own terms; `--group` names the hand-back group outright,
+# so a script never depends on the prompt's no-tty fallback.
 cmd_project_unclaim() {
     # `--force` swaps the allowlist gate for the helper's per-path residue gate (ai-tools-unclaim's header) and does not
     # relax any other gate.
@@ -4649,7 +4661,7 @@ cmd_project_unclaim() {
     # registry snapshot, the run's first sudo.
     if ${force} && [[ -n "${FOR_OPERATOR}" ]]; then
         die MSG-B5K3 "--for cannot be combined with --force" \
-            "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
+            "an unlisted tree has no registry entry naming its owner, so the unclaim is bound to" \
             "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
             "       project without --force"
     fi
@@ -4682,8 +4694,8 @@ cmd_project_unclaim() {
     # between what the operator asked for and what ran, and ai-tools(1) states the refusal. The registered unclaim is
     # one word away.
     if ${force}; then
-        die "--force does not apply here -- this path is covered by the allowlist: ${targets[0]}" \
-            "       --force reaches a tree the allowlist does not name; unclaim a registered project without it:" \
+        die "--force does not apply here -- this path is covered by the project registry: ${targets[0]}" \
+            "       --force reaches a tree the project registry does not name; unclaim a registered project without it:" \
             "       $(format_projects_command unclaim "${targets[0]}")"
     fi
 
@@ -4849,7 +4861,8 @@ die_remove_incomplete() {
 # A project's authorization is an EXACT registry entry, enabled or disabled; a clone's is its place, its owner and its
 # shape (remove_clone). The verb does not take `--force`. Teardown in either kind is registries first, deletion last,
 # so a failed deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be
-# deleted (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name challenge of either kind.
+# deleted (cli.rule.md, ref-section-k3v7). `-y` pre-answers the default-NO confirm of either kind and the in-place
+# kind's typed-name challenge; the clone kind does not ask for a typed name.
 cmd_project_remove() {
     local a path="" assume_yes=false
     local -a remedy=()
@@ -5050,7 +5063,7 @@ cmd_project_remove() {
 # entry (the lockdown scan acts only on an allowlisted path; rolled back on a failed gate), the secret gate, then --
 # past the gate alone -- relabel, normalize (pruning the locked paths), and register. A declined or failed gate leaves
 # the clone on disk, private and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed:
-# cli.rule.md, Sandbox clone). The relabel and the normalize run once, while the root is still owner-only
+# cli.rule.md, ref-section-u9a9). The relabel and the normalize run once, while the root is still owner-only
 # (clone_is_private), in that order (relabel_clone states why), and the relabel before the guard comes off: a clone
 # that could not be labelled stops the create the same way, since the agent cannot enter a clone opened unlabelled
 # and a resume over an opened clone does not label it.
@@ -5932,7 +5945,7 @@ status_path_order() {
     case "${state}" in
         shadowed)
             say "      typing that name starts an agent OUTSIDE the sandbox: as you, with your"
-            say "      credentials and home, and no allowlist, confinement or ownership handback"
+            say "      credentials and home, and no project registry, confinement or ownership handback"
             say "      ${C_BOLD}atr admin operators add ${INVOKING_USER}${C_RST}"
             return 1 ;;
         # Reaching the wrapper without the ordering line is right today and right by accident: the next thing
@@ -6678,9 +6691,6 @@ cmd_project_list() {
             safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
         fi
     }
-    # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
-    # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
-    # the removal command deletes.
     # _record_unreadable_entry <label> <entry>  -- when an ancestor of <entry> is a directory the invoker cannot enter,
     # append a block naming it and return 0; return 1 otherwise. realpath fails alike for such a path and for one that
     # is gone, so this is read first: an entry the invoker cannot read is not reported stale, and is not given
@@ -6693,6 +6703,9 @@ cmd_project_list() {
         [[ -z "${FOR_OPERATOR}" ]] || cleanup+=( "      ${FOR_OPERATOR}'s own atr projects reads it" )
         return 0
     }
+    # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
+    # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
+    # the removal command deletes.
     _reconcile() {
         local e="$1" k="$2" sdy="$3" raw="$4" e_real
         _record_unreadable_entry "${e}" "${e}" && return 0
@@ -7221,14 +7234,16 @@ require_runas_target() {
         "This is a separate sudoers question from the ai-tools helpers: a host can grant every one of those and still restrict which accounts you may act as."
 }
 
-# refresh_target_allowlist_snapshot -- point ALLOWLIST at a private copy of the --for target's registry, read through
-# the root helper: first by load_target_registry_snapshot, once the verb's own checks have passed, and again after each
-# write. The copy is read-only input for THIS run: every mutation goes back through the helper, which re-reads the real
-# file, so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow refresh it after theirs.
-# The helper refuses a target with no allowlist file, and its refusal reaches the terminal on stderr, so a failed read
-# ends the run with a line naming the target under the helper's own text and code. The file exists only once the helper
-# has answered: mktemp creates it 0600, and the EXIT trap removes it, so another operator's project list does
-# not outlive the command.
+# FN-K9Y2: refresh_target_allowlist_snapshot
+#
+# refresh_target_allowlist_snapshot -- point ALLOWLIST at a private copy of the --for target's registry, read
+# through the root helper: first by load_target_registry_snapshot, once the verb's own checks have passed, and again
+# after each write. The copy is read-only input for THIS run: every mutation goes back through the helper,
+# which re-reads the real file, so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow
+# refresh it after theirs. The helper refuses a target with no allowlist file, and its refusal reaches the terminal
+# on stderr, so a failed read ends the run with a line naming the target under the helper's own text and code. The file
+# exists only once the helper has answered: mktemp creates it 0600, and the EXIT trap removes it, so another operator's
+# project list does not outlive the command.
 ALLOWLIST_SNAPSHOT=""
 refresh_target_allowlist_snapshot() {
     local entries
@@ -7269,8 +7284,8 @@ remove_run_files() {
 # Every refusal here, like every refusal a verb makes of its own command line, precedes the snapshot, which is
 # the run's first sudo: a command that is going to be refused must not first prompt the operator for a password.
 #
-# --for is accepted only on the verbs whose whole effect is decided by WHICH operator's allowlist covers the path:
-# the registry pair, the two per-project root helpers that gate on allowlist coverage, and the listing. Elsewhere it is
+# --for is accepted only on the verbs whose whole effect is decided by WHICH operator's registry covers the path:
+# the registry pair, the two per-project root helpers that gate on registry coverage, and the listing. Elsewhere it is
 # REFUSED rather than ignored -- a `projects clone --for` that silently cloned as the invoker would leave the tree owned
 # by the wrong operator with no output to show the flag was disregarded.
 #
@@ -7316,6 +7331,8 @@ require_for_target() {
     REGISTRY_DISPLAY_PATH="~${FOR_OPERATOR}/.config/ai-tools/project-registry"
 }
 
+# FN-R7N4: load_target_registry_snapshot
+#
 # load_target_registry_snapshot  -- read a --for target's registry into this run's snapshot and validate it,
 # the run's first sudo; a no-op without --for and once the snapshot exists. Each verb FOR_ALLOWED_VERBS names calls it
 # after its own command-line checks and before its first registry read, after its path resolution too where the path

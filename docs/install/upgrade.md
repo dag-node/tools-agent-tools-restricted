@@ -36,6 +36,31 @@ collection form; [option spellings](../option-spellings.md) lists each one.
 Installing offline from a release archive, and what an upgrade preserves, are
 in [ref-section-f5q2](../rpm-packaging.md#ref-section-f5q2).
 
+## The project registry after 0.27
+
+```bash
+atr admin system post-upgrade
+```
+
+A registry an earlier release wrote, `~/.config/ai-tools/allowed-projects`,
+still starts sessions after the upgrade, and every `atr projects` command
+except `atr projects list` refuses until that command migrates it
+to `~/.config/ai-tools/project-registry`. The migration keeps every entry
+with its kind and its path, writes the new file in the order every later write
+leaves it in, and renames the old file to a dated `.bak`; it runs unattended
+too, and the upgrade's own output names it while a file remains. One kind
+of line needs you: an earlier release spelled a disabled project with `!`,
+the same text as an excluded path, so the migration keeps each `!` line
+as an excluded path and names every one no project encloses. Change such a line
+to `%` if it was a disabled project, and keep the `!` if the subtree is to stay
+excluded (`man 5 ai-tools-project-registry`).
+
+A project an earlier release claimed can carry grants written without execute
+on its files. The next `atr projects claim` lists the files that carry them
+under *ACL entries from an earlier claim*, and applying the pending steps,
+or `-y`, walks the project and sets each file's access from your own
+permissions ([Permissions](../projects/permissions.md)).
+
 ## Every installed path is restored to its owner, mode and ACL
 
 ```bash
@@ -145,7 +170,8 @@ ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-p
 An upgrade of `ai-tools-selinux` restores the SELinux labels of the trees it
 covers. The ones the agent's account writes into — the toolchain, its caches,
 each agent's config directory, the sandbox clones — are restored only while no
-session of that account and no toolchain update is running
+agent session, no toolchain update and no step run as that account is live,
+and while the host's sessions could be read
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
 An upgrade made while one runs completes and prints that warning once. Let each
 session end with `/exit` and the update finish, or end them all

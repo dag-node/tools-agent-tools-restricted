@@ -7,14 +7,14 @@ choosing between a sandbox clone and an in-place claim, and the recovery paths
 of either, see `docs/projects/index.md` in the source repository.)
 
 ```bash
-# everything runs as the operator — no sudo needed
+# run as the operator; the clone's secret scan asks for your sudo password
 cd /path/to/original/repo          # a normal checkout with a remote
-atr projects clone            # clone it into sandbox-projects/, push a branch
+atr projects clone .               # clone it into sandbox-projects/, push a branch
 
 cd /var/opt/ai-tools/sandbox-projects/<name>
 claude                             # agent edits and commits here
 
-atr projects push             # send the agent's commits to the remote branch
+atr projects push                  # send the agent's commits to the remote branch
 ```
 
 `atr projects clone` does three things: creates a branch (default
@@ -26,7 +26,7 @@ historical objects), and registers the clone so Claude Code may run there.
 Every input has a default and an optional flag, so the command is scriptable:
 
 ```
-atr projects clone [path] \
+atr projects clone DIRECTORY \
     --from <ref>      # branch/ref to fork from   (default: current branch)
     --branch <name>   # full sandbox branch name   (default: sandbox/<leaf of --from>)
     --dir <name>      # clone directory name       (default: repo basename)
@@ -86,11 +86,13 @@ in depth:
   Either form prompts for the operator's sudo password.
 
 `atr projects clone` runs this lockdown on the fresh clone **before** granting
-the agent any access: the clone is born owner-only, and only after the lockdown
-gate passes is it opened to the agent group and registered. When the operator
-declines, or lockdown fails, the create stops fail-closed — the clone stays
-private and unregistered, with a guard `CLAUDE.md` written into it (any
-existing `CLAUDE.md` is preserved as `CLAUDE.md.bak`); re-running
+the agent any access: the clone is created owner-only, and only
+after the lockdown gate passes is it labelled and opened to the agent group.
+The registry entry the lockdown acts on is written ahead of the gate
+and removed again when the gate or the label fails. When the operator declines,
+or lockdown fails, the create stops fail-closed — the clone stays private
+and unregistered, with a guard `CLAUDE.md` written into it (any existing
+`CLAUDE.md` is preserved as `CLAUDE.md.bak`); re-running
 `atr projects clone <clone>` resumes securing and registering it, removing
 the guard and restoring the original.
 

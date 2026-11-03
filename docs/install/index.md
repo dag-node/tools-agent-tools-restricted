@@ -70,11 +70,12 @@ and `atr admin operators add <account>` enrols an account as an operator
 an unattended provision passes the choice as `--agents agent-<name>`
 ([Agents](../agents/index.md)). Only then does a project get claimed
 for that operator ([Projects](../projects/index.md)) — `atr projects create`
-for a new tree, which does not ask any questions because a tree that did not
-exist has no permissions, secrets or history to review,
-and `atr projects claim` for one you already have, which reviews all three
-before granting anything. The front page carries both commands as a quick
-start.
+for a new tree, which skips the permission review and the secret scan, since
+a tree that did not exist does not hold any file to review, and asks only
+about `.git` and about a parent directory the agent cannot enter,
+and `atr projects claim` for one you already have, which reviews permissions,
+secrets and history before granting anything. The front page carries both
+commands as a quick start.
 
 The skills every session loads come from the asset set
 [`core`](https://github.com/dag-node/ai-tools-assets/tree/develop/sets/core),

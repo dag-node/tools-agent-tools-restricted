@@ -127,7 +127,7 @@ independent of each other and run before the first project:
 atr admin system bootstrap             # Node, nvm, the coding agent you pick, the update timer
 atr admin assets enable --set core     # the core skills, in every enabled coding agent
 atr admin operators add "$(id -un)"    # enrol yourself: operator.conf + ai-ops
-atr projects create ~/src/demo              # a new project, claimed, no prompts
+atr projects create ~/src/demo         # a new project, claimed; asks about .git
 cd ~/src/demo && claude
 ```
 
@@ -153,7 +153,7 @@ send. The reasoning in full is in [About this project](docs/about/index.md).
 
 - **Launches only in approved projects** — the wrapper refuses to start
   the agent unless the working directory is one your project registry names;
-  a `%` line parks a project and a `!` line carves a subdirectory back out —
+  a `%` line disables a project and a `!` line carves a subdirectory back out —
   see [docs/sessions/index.md](docs/sessions/index.md).
 - **Ownership hand-back and shared access** — files the agent writes come back
   to you as the session goes, and a pair of ACL entries lets you both write one
@@ -169,8 +169,8 @@ send. The reasoning in full is in [About this project](docs/about/index.md).
   [docs/sessions/index.md](docs/sessions/index.md).
 - **Operation logging** — every component logs to journald, and the root
   helpers additionally to files only root can read, so a session's own account
-  of itself is reconciled against a trail it cannot write. `sudo atr audit`
-  reads both — see [docs/system/logs.md](docs/system/logs.md).
+  of itself is reconciled against a trail it cannot write. `atr audit` reads
+  both — see [docs/system/logs.md](docs/system/logs.md).
 - **A working stop** — `atr stop` terminates every agent session on the host
   and everything it spawned, by cgroup and without a password, so an unattended
   detector reaches it too. What each outcome means and what a stop cannot undo

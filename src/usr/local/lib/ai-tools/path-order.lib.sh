@@ -4,9 +4,9 @@
 # Where an operator's shell finds an agent launcher. Every wrapper this project ships lives in /usr/local/bin and is
 # the only route into the sandbox, so a launcher of the same name earlier on that operator's PATH -- an agent they
 # installed under their own nvm -- starts an UNCONFINED session as them, holding their credentials and their home
-# and outside the allowlist, the SELinux domain and the ownership handback. path-order.sh ranks /usr/local/bin first
-# and is what settles it; this library reads which of the two an account gets, so the question can be asked
-# with the stake named and re-checked afterwards. What each state means is launch.rule.md's PATH ordering section.
+# and outside the project registry, the SELinux domain and the ownership handback. path-order.sh ranks /usr/local/bin
+# first and is what settles it; this library reads which of the two an account gets, so the question can be asked
+# with the stake named and re-checked afterwards. What each state means is launch.rule.md's (ref-section-p3k8).
 #
 # The decision is pure (ai_tools_path_order__evaluate) and the probing is separate, the split confinement.lib.sh makes
 # for the launch decision, so the truth table is driven in tests/unit/path-order.sh against no account at all.
@@ -260,7 +260,7 @@ ai_tools_path_order__repoint_user() {
 #
 # It exists for `atr admin system bootstrap`, which reports what a freshly provisioned host still owes and does not hold
 # a loop of its own. An account this reading could not be taken for is left unnamed, because a report that guessed would
-# name a host it could not read, and the operator's own `ai-tools status` answers precisely.
+# name a host it could not read, and the operator's own `atr status` answers precisely.
 ai_tools_path_order__find_shadowed_operators() {
     local user pair launcher
     for user in "$@"; do

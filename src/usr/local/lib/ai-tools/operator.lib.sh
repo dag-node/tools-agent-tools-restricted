@@ -23,14 +23,14 @@
 #   - ai_tools_operator__load_operator   -> the PRIMARY operator (OPERATORS[0]); for components that need
 #                                 "an operator" (the launch path, the CLI, the symlink/relabel
 #                                 helpers), not a per-path owner.
-#   - ai_tools_operator__resolve_owner   -> the operator who owns a given path (their allowlist covers it,
+#   - ai_tools_operator__resolve_owner   -> the operator who owns a given path (their registry covers it,
 #                                 nearest-ancestor-owner tie-break); for the handback helpers that
 #                                 restore ownership of agent-written project files.
 #
 # The per-path helpers source this lib best-effort and, when it is absent, define a fail-closed
 # ai_tools_operator__resolve_owner stub that leaves the owner unresolved -- so a missing lib skips the operation (the
 # path stays as found) instead of acting on the wrong identity. Each calls resolve_owner on the path it acts on, then
-# acts as that owner; a path no operator's allowlist covers is left untouched.
+# acts as that owner; a path no operator's registry covers is left untouched.
 
 # Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the second
 # pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
@@ -130,9 +130,9 @@ ai_tools_operator__list_unmigrated_registries() {
 # the path and no '!' exclusion overrides it. The file is read and the exclusions matched by the one loader and matcher
 # every reader shares (ai_tools_conf__load_allowlist / ai_tools_conf__is_path_excluded, conf.lib.sh), so a line denotes
 # the same paths here as in the launch gate and in the helpers' own walks; without the library no path is covered,
-# and a read the loader refuses covers none either. Exclusions are checked first and win; a plain (non-glob) allow path
-# also covers its
-# contents.
+# and a read the loader refuses covers none either. Exclusions are checked first and win, and a match the library does
+# not make (MSG-V9S2, the finder's own status) leaves the path uncovered too; a plain (non-glob) allow path also covers
+# its contents.
 ai_tools_operator__is_covered_by_allowlist() {
     local file="$1" path="$2" dir
     declare -F ai_tools_conf__load_allowlist >/dev/null 2>&1 || return 1

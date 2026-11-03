@@ -76,7 +76,7 @@ RUN sed -i \
         dnf rpm-build rpm-sign gnupg2 systemd-rpm-macros make sed tar gzip findutils createrepo_c \
         selinux-policy-devel policycoreutils \
         systemd dbus-broker sudo shadow-utils passwd util-linux procps-ng libselinux-utils \
-        git curl which glibc-langpack-en groff-base ${EXTRA_PACKAGES} \
+        git curl which glibc-langpack-en groff-base python3 ${EXTRA_PACKAGES} \
     && microdnf clean all
 
 # Source tree for `make rpm` + the test suite. Copy the build inputs explicitly (a

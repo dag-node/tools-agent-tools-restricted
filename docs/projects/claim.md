@@ -57,22 +57,8 @@ The blocks and what closes each one are
 
 ## What answers a question
 
-Every yes/no question states its default; Enter, and a run without a terminal,
-take it (`man ai-tools`). Which flag or variable pre-answers which question:
-
-- `-y` answers the proceed confirm and the SELinux type question, and only
-  those. It does not answer the traverse grant, the group and ACL repair,
-  the secret lockdown or the `.git` question, which ask on their own terms.
-- `AI_TOOLS_ASSUME_YES=1` answers the `.git` history question alone:
-  the SELinux type question does not take it, and the lockdown runs
-  through `sudo`, which does not pass it on. A question that widens access
-  defaults to No, and the environment does not answer it.
-- Without a terminal, the SELinux type question runs only with `-y`;
-  the traverse grant is declined, and the claim prints the command to run
-  by hand.
-
-The full matrix, question by question, is
-[ref-table-s7c5](../../.claude/rules/cli.rule.md#ref-table-s7c5).
+Every question states its default, which Enter and a run without a terminal
+take; `man ai-tools` lists the questions `-y` answers.
 
 ## Reachability: a parent that keeps the agent out
 
@@ -135,16 +121,17 @@ NOTICE: configuration above this project the agent cannot read
       /home/you/src/Directory.Build.props
 ```
 
-A build toolchain collects configuration by walking from the project toward
-`/`. A session reaches the project and not the directories enclosing it,
-so a file found there is opened, denied, and the build stops with an error
-naming a path outside the project. .NET is where this shows up today
-(`.editorconfig`, `Directory.Build.props`, `Directory.Packages.props`,
-`global.json`, `NuGet.config`); a project built with another toolchain does not
-raise the notice. The claim reports the files and changes none of them, since
-every step it performs acts inside the project, and a launch reports them
-again. A file moved into the project is readable to the agent; one left outside
-it is not.
+A build toolchain that reads configuration from the directories enclosing
+a project — .NET reads `.editorconfig`, `Directory.Build.props`,
+`Directory.Packages.props`, `global.json` and `NuGet.config` that way — cannot
+open such a file from a session, which reaches the project and not its parents,
+so the build stops with an error naming a path outside the project; a project
+built with another toolchain does not raise the notice. Which files each
+toolchain reads is
+[ref-section-t8k3](../../.claude/rules/dotnet.rule.md#ref-section-t8k3).
+The claim reports the files and changes none of them, since every step it
+performs acts inside the project, and a launch reports them again. A file moved
+into the project is readable to the agent; one left outside it is not.
 
 Two more notices name what the claim saw and left alone:
 
@@ -161,8 +148,10 @@ Two more notices name what the claim saw and left alone:
 Where your account can read the sandbox account's sessions, a claim whose label
 step is pending says so in the same block, before it asks for a password,
 when an agent session, the toolchain update, or a step run as the sandbox
-account is live. On a host where it cannot, the refusal of the label step is
-the first report, after the password:
+account is live
+([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
+On a host where it cannot, the refusal of the label step is the first report,
+after the password:
 
 ```text
 NOTICE: a process of the sandbox account is running
@@ -173,18 +162,16 @@ NOTICE: a process of the sandbox account is running
 ```
 
 The label step walks the tree as root, and is refused while an agent session,
-the toolchain update, or a step run as the sandbox account is live
-([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)). Let
-each session end with `/exit` and the toolchain update finish, or end them all
+the toolchain update, or a step run as the sandbox account is live. Let each
+session end with `/exit` and the toolchain update finish, or end them all
 with `atr stop`, then claim again: the re-run applies the label alone.
 
-The claim's permission walks, which set the group, the ACL and the secret
-scan, skip an owner-only path, and one an excluded line (`!`) of your project
+The claim's permission walks, which set the group, the ACL and the secret scan,
+skip an owner-only path, and one an excluded line (`!`) of your project
 registry covers, and report each as a count. Either mark is also how you stop
 a path being reported again. The label step types the whole tree, those paths
-included. A `!` line written after a claim does not take back the access that
-claim granted under it; making the path owner-only does
-([Permissions](permissions.md)).
+included; what a `!` line keeps out, and what it does not take back, is
+`man 5 ai-tools-project-registry`.
 
 ## Re-claiming
 
@@ -248,12 +235,13 @@ The claim resolves the path as you, with or without `--for`, so a project
 under a directory you cannot enter is refused, naming that directory.
 Under `--for` the refusal also names a location both accounts reach
 and, where the directory belongs to the target, the traverse-only `setfacl`
-that lets you enter it. The tree itself is read as `svc-ci`, through
-`sudo -u svc-ci`, so a claim over a tree only that account can read completes;
-one more password prompt can precede the review on a host whose `sudo` does
-not cache the password. A refusal names `svc-ci`'s registry
-as `~svc-ci/.config/ai-tools/project-registry`, and each command it prints
-carries `--for svc-ci`.
+that lets you enter it. The tree itself is read as `svc-ci`,
+through `sudo -u svc-ci`, so a claim over a tree only that account can read
+completes; one more password prompt can precede the review on a host
+whose `sudo` does not cache the password ([Service
+accounts](../operators/service-accounts.md)). A refusal names `svc-ci`'s
+registry as `~svc-ci/.config/ai-tools/project-registry`, and each command it
+prints carries `--for svc-ci`.
 
 ## Exit status
 

@@ -15,10 +15,8 @@ atr projects disable ~/src/api
 
 Turns the `@` that opens the project's line in your project registry
 into a `%`. The line keeps its end-of-line comment, and `projects enable` turns
-the `%` back. Every command that changes the file rewrites all of it in one
-order, which is in `man 5 ai-tools-project-registry`, so a file you edited
-by hand takes that order at the first write, and after that a disable
-and an enable leave it as it was.
+the `%` back; the order every write leaves the file in is
+`man 5 ai-tools-project-registry`.
 
 ```text
 # ~/.config/ai-tools/project-registry
@@ -33,7 +31,7 @@ and an enable leave it as it was.
 |---|---|
 | `@ /home/you/src/api` | an enabled project: sessions may start there |
 | `% /home/you/src/api` | a disabled project: no session starts there; the permissions and the label stay |
-| `! /home/you/src/api/vendor` | an excluded path: no session starts in the subtree and the hand-back skips it, wherever the line sits; it does not take back access a claim already granted ([Enable](enable.md)) |
+| `! /home/you/src/api/vendor` | an excluded path: no session starts in the subtree, wherever the line sits (`man 5 ai-tools-project-registry`) |
 
 Each command reads the path's state before it acts, which is
 how `projects claim` on a disabled project offers to enable it instead
@@ -51,11 +49,10 @@ permissions and its label, so `projects enable` does not grant any access
 that was not already granted, and neither command runs a secret scan
 or prompts.
 
-**Disabling is not an access boundary.** The agent's access to a claimed tree
-is its group, its ACLs and its label, and a session started in any project you
-claimed reaches every other project you claimed through them.
-`projects unclaim`, once its hand-back has run, is what takes that access
-off a tree ([Unclaim](unclaim.md)).
+**Disabling is not an access boundary.** The registry decides where a session
+starts, not what it reaches ([Sessions](../sessions/index.md));
+`projects unclaim`, once its hand-back has run, is what takes the agent's
+access off a tree ([Unclaim](unclaim.md)).
 
 What stops with the launches is the handback: while the project is disabled,
 files written under it are **not** restored to you, and `projects lockdown`,

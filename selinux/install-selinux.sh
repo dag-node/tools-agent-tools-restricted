@@ -16,7 +16,9 @@
 #   sudo ./install-selinux.sh rebuild              recompile core from source (.te/.fc) + reload + relabel
 #   sudo ./install-selinux.sh relabel              re-apply labels (after Node upgrade)
 #   sudo ./install-selinux.sh remove               drop every local rule naming an ai_tools type, unload all
-#                                                  ai_tools* modules, revert labels; exit 1 while a module stays loaded
+#                                                  ai_tools* modules, revert labels; refuses before its first
+#                                                  policy-store write while a process of the sandbox account is live,
+#                                                  and exits 1 while a module stays loaded
 #   sudo ./install-selinux.sh enable-group <name>  compile + load one optional policy group
 #   sudo ./install-selinux.sh disable-group <name> unload one policy group
 #   sudo ./install-selinux.sh list-groups          show group availability and state
@@ -866,6 +868,8 @@ for_each_project() {
     done < "${ALLOWLIST}"
 }
 
+# _restore_home_state_labels: restore the labels under each of the account's own state trees (HOME_STATE), each behind
+# the live-session reading _restore_account_tree_labels makes.
 _restore_home_state_labels() {
     local p
     for p in "${HOME_STATE[@]}"; do

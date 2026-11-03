@@ -464,21 +464,21 @@ ai_tools_project_permissions__check_group() {
 # ai_tools_project_permissions__find_paths_with_narrow_acl_entries <list-file> <work-dir> <root> <operator-uid>
 # <sandbox-gid> <paths-array> <detail-var>  -- read the access ACL of each NUL-separated path in <list-file>, each one
 # under the directory <root>, and fill <paths-array>, in list order, with the paths carrying a `user:<operator-uid>`
-# or `group:<sandbox-gid>` entry written narrower than `rwx`: the entries a claim before the owner-permissions mask
-# wrote (`rw-` on a file without an execute bit), which a mask hides in effect and which keep the owner's later
-# `chmod g+x` from reaching the agent. <root> is opened once, and each path is reached from it one component at a time,
-# every component opened `O_PATH | O_NOFOLLOW` relative to the one before, so a directory on the way swapped
-# for a symlink after the caller listed the path is not followed; every fact the answer rests on is then read
-# from the final object, which is a hit only while it is a regular file held by <operator-uid> in <sandbox-gid>
-# with a group or other bit: an owner-only file is the operator's seal, which the walk leaves alone, so listing one
-# would put it on every re-claim. The ACL is the kernel's `system.posix_acl_access` value, read through `/proc/self/fd`
-# (an `O_PATH` descriptor does not need read permission) and decoded from its binary form (a version-2 header, then
-# 8-byte tag, permission and id entries, acl(5)), so a path is read as bytes and no tool's escaping of a name is parsed.
-# A path without an access ACL, on a filesystem without ACLs, or no longer present is not a hit. Returns 0 when every
-# path was read. Returns 1 with <detail-var> naming why -- a path outside <root>, a directory on its way that is no
-# longer one (a symlink swapped in among them), a path that could not be opened or read, an ACL that does not decode,
-# python3 failing, an identity that is not a number -- and <paths-array> holding the hits read before it: an unread path
-# is not one without the entries. `-I` as for the lstat reader.
+# or `group:<sandbox-gid>` entry written narrower than `rwx`: the entries a claim made before the owner-permissions mask
+# wrote (`rw-` on a file without an execute bit), which a walk resets (cli.rule.md, ref-section-a9b2). <root> is opened
+# once, and each path is reached from it one component at a time, every component opened `O_PATH | O_NOFOLLOW` relative
+# to the one before, so a directory on the way swapped for a symlink after the caller listed the path is not followed;
+# every fact the answer rests on is then read from the final object, which is a hit only while it is a regular file held
+# by <operator-uid> in <sandbox-gid> with a group or other bit: an owner-only file is the operator's seal,
+# which the walk leaves alone, so listing one would put it on every re-claim. The ACL is the kernel's
+# `system.posix_acl_access` value, read through `/proc/self/fd` (an `O_PATH` descriptor does not need read permission)
+# and decoded from its binary form (a version-2 header, then 8-byte tag, permission and id entries, acl(5)), so a path
+# is read as bytes and no tool's escaping of a name is parsed. A path without an access ACL, on a filesystem without
+# ACLs, or no longer present is not a hit. Returns 0 when every path was read. Returns 1 with <detail-var> naming why --
+# a path outside <root>, a directory on its way that is no longer one (a symlink swapped in among them), a path
+# that could not be opened or read, an ACL that does not decode, python3 failing, an identity that is not a number --
+# and <paths-array> holding the hits read before it: an unread path is not one without the entries. `-I`
+# as for the lstat reader.
 ai_tools_project_permissions__find_paths_with_narrow_acl_entries() {
     local _list="$1" _work="$2" _root="$3" _operator_uid="$4" _sandbox_gid="$5" _status=0 _first=""
     local -n _narrow_paths="$6" _narrow_detail="$7"

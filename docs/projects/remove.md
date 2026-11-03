@@ -66,29 +66,25 @@ Delete this project directory and everything in it? [y/N] (default: No):
 ```
 
 Then the project's name, typed out. A run with no terminal answers neither,
-so a delete needs an operator at the prompt — unless you pass `-y`,
-which answers the confirmation and the typed name and is the only thing
-that does: `AI_TOOLS_ASSUME_YES` does not answer a default-No question,
-and the typed name has no default.
+so a delete needs an operator at the prompt, or `-y`, the only thing
+that answers both (`man ai-tools`).
 
 ## Registries first, the tree last
 
-The label and the registry entry go first, then the `safe.directory`
-entry, and the tree is deleted last. A deletion that then fails leaves a tree
+The label and the registry entry go first, then the `safe.directory` entry,
+and the tree is deleted last. A deletion that then fails leaves a tree
 whose own registry entry is gone and no longer authorizes a launch there.
 Where the project is nested in an enabled project and no disabled or excluded
-line covers it, that project's entry still authorizes a launch there, and the
-warning names it.
-A session already running keeps its access until it ends, and the files left
-keep their group grant, since the command does not hand them back before
-deleting them. The warning says whether the label step completed; where it
-did not, the relabel command printed with the failure still applies to the
-tree. A host with SELinux disabled has no label step. Remove what is left by
-hand: the command prints the `rm -rf` to run, and under `--for` the account to
-run it as. The reverse order would leave a half-deleted tree the agent still
-reaches.
-The registry step is the one that has to complete: where the entry cannot be
-removed, the command stops and prints the line to delete by hand.
+line covers it, that project's entry still authorizes a launch there,
+and the warning names it. A session already running keeps its access until it
+ends, and the files left keep their group grant, since the command does not
+hand them back before deleting them. The warning says whether the label step
+completed; where it did not, the relabel command printed with the failure still
+applies to the tree. A host with SELinux disabled has no label step. Remove
+what is left by hand: the command prints the `rm -rf` to run, and under `--for`
+the account to run it as. The registry step is the one that has to complete:
+where the entry cannot be removed, the command stops and prints the line
+to delete by hand.
 
 While an agent session, the toolchain update, or a step run as the sandbox
 account is live, the label cannot be reverted, and the command stops
@@ -101,15 +97,14 @@ then run the removal again.
 Pointed at a clone under the sandbox area, the command removes it when it is
 a directory directly inside that area, owned by you or by the operator you act
 for, holding a `.git` directory with a `HEAD` file, and asks one default-No
-confirm. The command does not run git to check that the directory is a clone,
-so a directory of that shape is removed on your confirm whether
-`atr projects clone` made it or not. It then takes the order [Registries first,
-the tree last](#registries-first-the-tree-last) states, the clone's own lines
-going with it; a clone no line names is reported as having had no entry
-when its deletion fails. A commit not yet pushed goes with it, and the command
-does not count them: run `atr projects push` first to keep your work
-([Push](push.md)). The remote branch stays for others to merge. `-y` answers
-that one confirm, on the same terms ([Clone](clone.md)).
+confirm. It does not run git to check, so a directory of that shape is removed
+on your confirm whether `atr projects clone` made it or not. It then takes
+the order [Registries first, the tree last](#registries-first-the-tree-last)
+states, the clone's own lines going with it; a clone no line names is reported
+as having had no entry when its deletion fails. A commit not yet pushed goes
+with it, and the command does not count them: run `atr projects push` first
+to keep your work ([Push](push.md)). The remote branch stays for others
+to merge. `-y` answers that one confirm, on the same terms ([Clone](clone.md)).
 
 ## For another operator
 

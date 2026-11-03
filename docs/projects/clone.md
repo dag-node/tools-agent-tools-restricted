@@ -52,16 +52,18 @@ reference.
 The clone is created private to you, so a credential checked into the tip
 commit is unreadable to the sandbox account until the scan has run. The secret
 scan then runs over every directory of the clone, a checked-in `node_modules`
-included, and only past it is the clone labelled, opened to the agent
-and registered, with the locked files kept yours alone. Declining the lockdown,
-or a lockdown that failed, stops the command with the clone on disk, private
-and unregistered, and a guard `CLAUDE.md` inside it that tells a session
-to wait until the lockdown runs. A clone SELinux could not label stops
-the command too, before anything in it is opened, with the clone private
-and unregistered. On a host where SELinux runs without the `ai-tools-selinux`
-policy, the command says the clone is not labelled and goes on; installing
-the policy labels it. Your real `CLAUDE.md`, where there is one, is kept beside
-it as `CLAUDE.md.bak`. The gate and the order it imposes are
+included, and only past it is the clone labelled and opened to the agent,
+with the locked files kept yours alone. The registry entry the scan needs is
+written ahead of it and removed again when the scan or the label fails.
+Declining the lockdown, or a lockdown that failed, stops the command
+with the clone on disk, private and unregistered, and a guard `CLAUDE.md`
+inside it that tells a session to wait until the lockdown runs. A clone SELinux
+could not label stops the command too, before anything in it is opened,
+with the clone private and unregistered. On a host where SELinux runs without
+the `ai-tools-selinux` policy, the command says the clone is not labelled
+and goes on; installing the policy labels it. Your real `CLAUDE.md`,
+where there is one, is kept beside it as `CLAUDE.md.bak`. The gate
+and the order it imposes are
 [ref-section-u9a9](../../.claude/rules/cli.rule.md#ref-section-u9a9).
 
 ## Resume a clone that stopped

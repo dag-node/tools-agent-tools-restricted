@@ -77,9 +77,11 @@ Two things to know:
 - A setgid bit set to some third group is taken as deliberate and kept.
   The claim reports it rather than clearing it; clear it with `chmod g-s` if it
   was not intended.
-- To keep every walk out of a subtree whatever its mode, add an excluded line,
-  `!` and the path, to `~/.config/ai-tools/project-registry`. The line does not
-  take back the access a claim already granted there; the owner-only mode does.
+- To keep the claim's permission walks and the hand-back out of a subtree
+  whatever its mode, add an excluded line, `!` and the path,
+  to `~/.config/ai-tools/project-registry`; the label step still types it,
+  and `man 5 ai-tools-project-registry` states what the line does not take
+  back.
 
 ## What the patterns do not cover
 

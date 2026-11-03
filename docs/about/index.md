@@ -60,8 +60,22 @@ writable, an entrypoint whose SELinux label does not verify, a toolchain
 whose npm signatures do not check out — each one costs a capability and is
 reported, and none of them grants one. So there is no state the agent can
 arrange that improves its own position, only states that shut it down.
-Which decision each predicate governs, and what each failure yields, are
-in [ref-section-e7n8](../../CLAUDE.md#ref-section-e7n8).
+
+| What is decided | Decided by | When that input fails |
+|---|---|---|
+| where a session may start | your project registry, and the refusal of system directories and home roots | no launch |
+| which program may start it | a launcher an enabled agent package names, at a versioned path in the sandbox toolchain | no launch |
+| whether the toolchain holds only the enabled agents | the packages of agents installed and not enabled | no launch of any agent until provisioning removes them |
+| whether the session is confined | a probe of the SELinux transition before the launch, required unless `operator.conf` sets `AI_TOOLS_REQUIRE_SELINUX=no` | no launch |
+| which providers it gets | manifests and fragments root owns and no one else can write | the default set, never every provider |
+| which shared skills and subagents it loads | `AI_TOOLS_ASSETS`, and each set's signature by the key its package pins | the set is not linked |
+| which files the handback may change | the sandbox account's ownership, checked again as root | the file is left as it is |
+| which names count as secrets | your `secret-patterns` file, or the shipped baseline where you have none | an unreadable file keeps the baseline, and every command that changes a tree refuses |
+| which toolchain is activated | npm registry signatures | the previous version stays |
+| which agent binary may start a session | its checksum against a root-owned pin | no launch |
+
+The predicate behind each row is
+[ref-section-e7n8](../../CLAUDE.md#ref-section-e7n8).
 
 Each of those refusals is tested from both ends: once that the refusal fires,
 and once — running *as* the sandbox account — that the agent cannot create

@@ -37,11 +37,11 @@ The third line is optional and recommended once every enabled agent carries
 a pin: with `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` an agent binary that no
 reconcile has pinned does not start, a state the launch would otherwise accept
 turned into a refusal that names its fix
-([Strictness](../system/entrypoint-verification.md#strictness)). SELinux
-confinement is required without a line: a session starts only where SELinux is
-enforcing and the confinement policy is loaded, so a host whose policy drifted
-refuses the launch instead of running the session unconfined, and a host
-without SELinux at all launches with a warning until
+([ref-section-z7m9](../system/entrypoint-verification.md#ref-section-z7m9)).
+SELinux confinement is required without a line: a session starts only
+where SELinux is enforcing and the confinement policy is loaded, so a host
+whose policy drifted refuses the launch instead of running the session
+unconfined, and a host without SELinux at all launches with a warning until
 `AI_TOOLS_REQUIRE_SELINUX=no` declares it DAC-only ([SELinux
 confinement](../system/selinux.md)).
 
