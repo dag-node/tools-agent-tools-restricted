@@ -6182,8 +6182,9 @@ status_entrypoint_label() {
                      say "      nothing to label and no session of it starts; reinstall the package:"
                      say "      ${C_BOLD}atr admin system bootstrap${C_RST} ${C_DIM}(its output names an install that did not complete)${C_RST}"
                  elif [[ "${reason}" == live-session ]]; then
-                     say "      its config directory was not labelled while a session ran and carries a type the"
-                     say "      agent cannot write; once none runs: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
+                     say "      its config directory was not labelled while a process of the sandbox account was"
+                     say "      live, or its sessions could not be read, and carries a type the agent cannot write;"
+                     say "      once none is live: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  else
                      say "      the last reconciliation could not apply this agent's labels; the label its"
                      say "      entrypoint carries now is read by: ${C_BOLD}atr admin status${C_RST}"
@@ -6191,12 +6192,13 @@ status_entrypoint_label() {
                  fi
                  return 1 ;;
         # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet -- or the config
-        # directory's walk left while a session ran, over a directory an earlier run labelled. None is a fault, so none
-        # is coloured or counted; the last names the run that completes it.
+        # directory's walk left while a process of the sandbox account was live, over a directory an earlier run
+        # labelled. None is a fault, so none is coloured or counted; the last names the run that completes it.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
                      "${reason:-nothing to label}" "${C_RST}"
                  if [[ "${reason}" == live-session ]]; then
-                     say "      ${C_DIM}the config directory was not relabelled while a session ran; once none runs:${C_RST}"
+                     say "      ${C_DIM}the config directory was not relabelled while a process of the sandbox account was${C_RST}"
+                     say "      ${C_DIM}live, or its sessions could not be read; once none is live:${C_RST}"
                      say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  fi ;;
         # No record at all: this host has not run a reconciliation since the record was introduced, or the state

@@ -381,11 +381,11 @@ render_label_report() {
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
-            # The library left a recursive relabel for a run with no session live; the entrypoint half still ran.
-            # The type is kept for the agent's closing line, which says whether the agent can write it.
+            # The library left a recursive relabel for a run with no process of the sandbox account live; the entrypoint
+            # half still ran. The type is kept for the agent's closing line, which says whether the agent can write it.
             live)  agent_live_type["${subject}"]="${detail}"
-                   say "${subject}: ${wanted} (${detail}) -- not relabelled while a session runs"
-                   ai_tools_log__info "${subject}: ${wanted} (${detail}) not relabelled, a session of the sandbox account is live" ;;
+                   say "${subject}: ${wanted} (${detail}) -- not relabelled: a process of the sandbox account is live, or its sessions could not be read"
+                   ai_tools_log__info "${subject}: ${wanted} (${detail}) not relabelled, a process of the sandbox account is live or its sessions could not be read" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"
                    warn MSG-X7F9 "labelling skipped for ${subject} -- ${detail} ${wanted}"
                    ai_tools_log__warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
