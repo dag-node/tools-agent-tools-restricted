@@ -9,8 +9,8 @@ everything after that: journald for every component, root-only files
 for the privileged helpers.
 
 ```bash
-sudo atr audit                      # findings in the last 7 days
-sudo atr audit --since '2 days ago' # any window date(1) understands
+atr audit                      # findings in the last 7 days
+atr audit --since '2 days ago' # any window date(1) understands
 ```
 
 It reads all three trails and reports what refused, was rejected, was stranded,
@@ -32,7 +32,7 @@ hand-back carry the *parent's* identity, and neither of those two trails tells
 the child apart. The kernel does:
 
 ```bash
-sudo atr audit                         # the records, classified
+atr audit                              # the records, classified
 sudo ausearch -m AVC -ts today | grep -A8 'granted.*execute_no_trans'   # raw
 ```
 

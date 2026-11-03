@@ -267,6 +267,9 @@ the row's:
 | created after the claim with `0666`, `0644` | `660`, `640` (the create mode's group digit under the default ACL; a walk makes it `660`) | `640` |
 | created after the claim with `0777`, `0755` | `770`, `750` (a walk makes it `770`) | `750` |
 | the owner's `chmod g-x` on a `770` file | `760` (a walk makes it `770`) | `740` |
+| the owner's `chmod g+x` on a `660` file with no owner execute bit | `670` (a walk makes it `660`: the agent's execute follows the owner's) | `640` |
+| the owner's `chmod 750` or `chmod 644` on a claimed file | `750` / `644` (the middle digit is the agent's access until a walk makes it `770` / `660`) | `750` / `640` |
+| the owner's `chmod a-w` on the files and `chmod +t` on their directory | `440` files in a `3770` directory: the agent reads them and adds files of its own; the mode keeps it from writing the owner's and the sticky bit from renaming or deleting them | kept |
 | the owner's `chmod 755` on a claimed file | `755` (a walk makes it `770`) | `755`: the file's other bits stay, and the project's directories, at `other::---`, keep other accounts from reaching it |
 
 An unclaim gives the group the read and execute of the path's own `group::` entry, without write, and without execute

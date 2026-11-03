@@ -26,51 +26,25 @@ the grants themselves are
 
 ## The blocks, in the order they run
 
+```text
+Apply these pending steps to the tree in place? [y/N] (default: No):
+```
+
 A claim is a sequence of self-contained blocks, each with its own headline, its
-own list and its own decision. In the order they appear on the page:
-
-1. **Review** — the pending steps, the notices about the tree, the drift
-   reports of a re-claim, then the proceed confirm, which covers exactly
-   the steps listed:
-
-   ```text
-   Apply these pending steps to the tree in place? [y/N] (default: No):
-   ```
-
-2. **Interior drift** — on a re-claim only, one block per kind of file
-   that kept what it had where it came from. Both questions default to No,
-   since each can widen what the agent reads. Each is asked under its own list
-   of paths. When to say no is on [Permissions](permissions.md).
-3. **Reachability** — the traverse grant on a parent directory
-   whose permissions keep the sandbox account out, default No.
-4. **Secret lockdown** — the scan for secret-named files, and the run's first
-   `sudo` prompt. Locking what it finds defaults to Yes; declining stops
-   the claim ([Lockdown](lockdown.md)).
-5. **`.git` history** — whether the agent may read the repository's history,
-   default Yes.
-6. **Apply** — the approved steps, one result line each, then one outcome line
-   per drifted file, then the closing `claimed` line.
-
-A first claim skips the drift blocks: its normal walks repair the whole tree.
-The blocks and what closes each one are
+own list and its own decision: **Review**, which ends in that proceed confirm
+over exactly the steps it listed; **Interior drift**, on a re-claim only
+([Permissions](permissions.md) says when to say no); **Reachability**; **Secret
+lockdown**, the run's first `sudo` prompt; **`.git` history**; and **Apply**,
+which ends in the closing `claimed` line. A first claim skips the drift blocks:
+its normal walks repair the whole tree. The blocks and what closes each one are
 [ref-list-g6f5](../../.claude/rules/cli.rule.md#ref-list-g6f5).
 
 ## What answers a question
 
 Every yes/no question states its default; Enter, and a run without a terminal,
-take it (`man ai-tools`). Which flag or variable pre-answers which question:
-
-- `-y` answers the proceed confirm and the SELinux type question, and only
-  those. It does not answer the traverse grant, the group and ACL repair,
-  the secret lockdown or the `.git` question, which ask on their own terms.
-- `AI_TOOLS_ASSUME_YES=1` answers the `.git` history question alone:
-  the SELinux type question does not take it, and the lockdown runs
-  through `sudo`, which does not pass it on. A question that widens access
-  defaults to No, and the environment does not answer it.
-- Without a terminal, the SELinux type question runs only with `-y`;
-  the traverse grant is declined, and the claim prints the command to run
-  by hand.
-
+take it (`man ai-tools`). `-y` answers the proceed confirm and the SELinux type
+question, and only those; a question that widens access — the traverse grant,
+the group and ACL repair — defaults to No and is answered at the prompt alone.
 The full matrix, question by question, is
 [ref-table-s7c5](../../.claude/rules/cli.rule.md#ref-table-s7c5).
 
@@ -135,16 +109,17 @@ NOTICE: configuration above this project the agent cannot read
       /home/you/src/Directory.Build.props
 ```
 
-A build toolchain collects configuration by walking from the project toward
-`/`. A session reaches the project and not the directories enclosing it,
-so a file found there is opened, denied, and the build stops with an error
-naming a path outside the project. .NET is where this shows up today
-(`.editorconfig`, `Directory.Build.props`, `Directory.Packages.props`,
-`global.json`, `NuGet.config`); a project built with another toolchain does not
-raise the notice. The claim reports the files and changes none of them, since
-every step it performs acts inside the project, and a launch reports them
-again. A file moved into the project is readable to the agent; one left outside
-it is not.
+A build toolchain that reads configuration from the directories enclosing
+a project — .NET reads `.editorconfig`, `Directory.Build.props`,
+`Directory.Packages.props`, `global.json` and `NuGet.config` that way — cannot
+open such a file from a session, which reaches the project and not its parents,
+so the build stops with an error naming a path outside the project; a project
+built with another toolchain does not raise the notice. Which files each
+toolchain reads is
+[ref-section-t8k3](../../.claude/rules/dotnet.rule.md#ref-section-t8k3).
+The claim reports the files and changes none of them, since every step it
+performs acts inside the project, and a launch reports them again. A file moved
+into the project is readable to the agent; one left outside it is not.
 
 Two more notices name what the claim saw and left alone:
 
@@ -178,13 +153,12 @@ the toolchain update, or a step run as the sandbox account is live
 each session end with `/exit` and the toolchain update finish, or end them all
 with `atr stop`, then claim again: the re-run applies the label alone.
 
-The claim's permission walks, which set the group, the ACL and the secret
-scan, skip an owner-only path, and one an excluded line (`!`) of your project
+The claim's permission walks, which set the group, the ACL and the secret scan,
+skip an owner-only path, and one an excluded line (`!`) of your project
 registry covers, and report each as a count. Either mark is also how you stop
 a path being reported again. The label step types the whole tree, those paths
-included. A `!` line written after a claim does not take back the access that
-claim granted under it; making the path owner-only does
-([Permissions](permissions.md)).
+included; what a `!` line keeps out, and what it does not take back, is
+`man 5 ai-tools-project-registry`.
 
 ## Re-claiming
 
@@ -248,12 +222,11 @@ The claim resolves the path as you, with or without `--for`, so a project
 under a directory you cannot enter is refused, naming that directory.
 Under `--for` the refusal also names a location both accounts reach
 and, where the directory belongs to the target, the traverse-only `setfacl`
-that lets you enter it. The tree itself is read as `svc-ci`, through
-`sudo -u svc-ci`, so a claim over a tree only that account can read completes;
-one more password prompt can precede the review on a host whose `sudo` does
-not cache the password. A refusal names `svc-ci`'s registry
-as `~svc-ci/.config/ai-tools/project-registry`, and each command it prints
-carries `--for svc-ci`.
+that lets you enter it. The tree itself is read as `svc-ci`, so a claim
+over a tree only that account can read completes ([Service
+accounts](../operators/service-accounts.md)). A refusal names `svc-ci`'s
+registry as `~svc-ci/.config/ai-tools/project-registry`, and each command it
+prints carries `--for svc-ci`.
 
 ## Exit status
 

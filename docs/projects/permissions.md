@@ -122,10 +122,7 @@ gets right now. A claim sets it from your own permissions on the file,
 so the agent can do what you can: read and write, and run a file you can run.
 After the claim, `chmod ug+x` and `chmod g-x` change the agent's execute,
 and change only the bit you name; `chmod u+x` alone does not give the agent
-anything. On a project an earlier release claimed, this holds once a re-claim
-has applied the project's permissions again: the re-claim lists the files
-whose grants that release wrote without execute, and asks before it walks
-the project.
+anything.
 
 On a host with SELinux confinement, the default, the agent runs a project
 script through its interpreter (`bash build.sh`) and does not run it directly,
@@ -134,70 +131,35 @@ for build output once the `buildexec` policy group is enabled
 ([SELinux](../system/selinux.md)), and it matters to you for the files
 the agent wrote. On a host without confinement it decides for every file.
 
-The tables read left to right: what a case leaves, what a later walk makes
-of it, and what an unclaim after that walk leaves. A *walk* is a claim
-that applies the project's permissions again to every file ([What walks
-the project](#what-walks-the-project)). Where an unclaim with no walk
-in between leaves something else, the cell says so. The cases that do not
-follow from the group column are in bold.
+A *walk* is a claim that applies the project's permissions again to every file
+([What walks the project](#what-walks-the-project)). What a walk makes of each
+mode you set, and what an unclaim after it leaves, is
+[ref-table-b5v7](../../.claude/rules/ownership-and-hooks.rule.md#ref-table-b5v7).
+Three cases do not follow from the group column: a file a program creates
+`0644` or `0755` is read-only to the agent until a walk; `chmod g-x` keeps
+the agent from running a script only until a walk, which follows your own
+execute bit; and `chmod g+x` on a file you cannot run is the one way the agent
+runs something you do not, and only until the next walk.
 
-**Files you and the agent edit together**
+To keep the agent out of a file, make it owner-only: a tracked file only until
+git changes it. To keep your files in a directory from being changed,
+`chmod a-w` the files and `chmod +t` the directory: the agent reads them
+and adds files of its own, while the mode keeps it from writing yours
+and the sticky bit from renaming or deleting them. The agent cannot write
+into a read-only file, but a directory it can write lets it delete or rename
+the file and put its own in its place. The sticky bit stops the delete
+and the rename alone: in a sticky directory the agent can still write
+into a file whose group column holds `w`, such as a `660` one. The files need
+to be read-only as well, or kept out of the project. A file the agent writes
+comes back to you with the access it gave itself, so a script it made
+executable is one you can run too, and a file a program it runs creates
+read-only is read-only to it until a walk.
 
-| The file | Mode | The agent | After a walk | After unclaim |
-|---|---|---|---|---|
-| a data file you had before the claim (`640`, `644`, `660`, `664`) | `660` | read, write | `660` | `640` |
-| a file created later in an editor, or checked out by git as `100644` | `660` | read, write | `660` | `640` |
-| **a file a program creates `0644`** (`install -m 644`) | `640` | **read only** | **`660`, read, write** | `640` |
-
-**Scripts and programs**
-
-| You want | Run | Mode | The agent | After a walk | After unclaim |
-|---|---|---|---|---|---|
-| you and the agent run it | `chmod ug+x`, or commit it as `100755` | `770` | read, write, run | `770` | `750` |
-| **only you run it** | `chmod g-x` | `760` | read, write | **`770`, the agent can run it again** | `750`; **`740` with no walk** |
-| nobody runs it | `chmod ug-x` | `660` | read, write | `660` | `640` |
-| **the agent runs it and you do not** | `chmod g+x` on a data file | `670` | **read, write, run** | **`660`, no run: a walk follows your own execute bit** | `640` |
-| **a program a build creates `0755`** | — | `750` | **read, run, no write** | `770` | `750` |
-
-`chmod g+x` on a file you cannot run is the one way the agent runs something
-you do not, and only until the next walk.
-
-**Read-only and private**
-
-| You want | Run | Mode | The agent | After a walk | After unclaim |
-|---|---|---|---|---|---|
-| nobody writes it | `chmod a-w` | `440` | read; **it can still replace the file while it can write the directory** | `440` | `440` |
-| **the agent only reads it** | `chmod g-w` | `640` | read | **`660`, the agent writes again** | `640` |
-| **nobody changes your files in a directory** | `chmod a-w` on the files and `chmod +t` on the directory | `440` files, `3770` directory | reads them, adds files of its own; **cannot write, rename or delete yours, nor rename or delete its own once they come back to you** | kept | kept |
-| the agent cannot reach it | `chmod 600`, or `chmod 700` on a directory | `600` | no access; **a tracked file only until git changes it** | `600` | `600` |
-
-The agent cannot write into a read-only file, but a directory it can write lets
-it delete or rename the file and put its own in its place. The sticky bit stops
-the delete and the rename alone: in a sticky directory the agent can still
-write into a file whose group column holds `w`, such as a `660` one. The files
-need to be read-only as well, or kept out of the project.
-
-**Files the agent writes**, after they come back to you
-
-| The agent writes | Mode | The agent | After a walk | After unclaim |
-|---|---|---|---|---|
-| a file, the usual way | `660` | read, write | `660` | `640` |
-| **a script it makes executable in the same command** | `770` | read, write, run; **you can run it too** | `770` | `750` |
-| **a file a program creates `0644` / `0755`** | `640` / `750` | **read / read, run: no write to its own output** | `660` / `770` | `640` / `750` |
-
-**Numeric modes replace the agent's access with their middle digit**
-
-| Run | Mode | The agent | After a walk | After unclaim |
-|---|---|---|---|---|
-| `chmod 770` / `chmod 660` | as set | read, write (and run) | as set | `750` / `640` |
-| **`chmod 750`** | `750` | **read, run, no write** | `770` | `750` |
-| **`chmod 755`** | `755` | **read, run, no write** | `770` | `750`; **`755` with no walk: the file keeps its other bits, and the directories still block other accounts** |
-| **`chmod 644`** | `644` | **read only** | `660` | `640`; **`644` with no walk, the same** |
-
-The real cost of a numeric mode is the agent's write. The last digit sets
-the file's own bits for other accounts, but a claim closes every directory
-in the project to them, so they still cannot reach the file. Use the symbolic
-form.
+A numeric mode replaces the agent's access with its middle digit,
+so `chmod 750` and `chmod 644` each take the agent's write until the next walk.
+The last digit sets the file's own bits for other accounts, but a claim closes
+every directory in the project to them, so they still cannot reach the file.
+Use the symbolic form.
 
 A walk writes both grants again and sets the agent's access to your own
 permissions on the file, so the agent gets what you have: read and write,
@@ -248,16 +210,8 @@ alone would share none of them. A file whose name, or whose directory inside
 the project, matches your secret patterns is marked `[secret]`; accepting
 either repair locks it owner-only first, so neither repair shares it.
 
-After the claim, each file is checked again and listed on one line
-with the kind and what it was before:
-
-| Outcome | Meaning |
-|---|---|
-| `fixed` | the file has what the claim gives it |
-| `not-fixed` | it does not — you said no, or the repair did not take |
-| `unverified` | the claim could not read the file's state |
-| `gone` | the file no longer exists |
-
+After the claim, each file is checked again and listed on one line with its
+outcome, the kind and what it was before (`man ai-tools` names each outcome).
 A file listed under each kind opens to the agent only once it is fixed
 for each; where you answered yes to one question and no to the other, the claim
 says how many files that leaves closed. The exit codes those rows fold
@@ -318,9 +272,8 @@ These run one:
 | `atr projects create` | yes, over the new directory |
 | "Claim here" on the screen a session shows in a directory not claimed yet | yes |
 | `atr projects claim` on a claimed project, answering yes to the `.git` question or to a group and ACL repair | yes |
-| `atr projects claim` on a project an earlier release claimed, when it lists files under *ACL entries from an earlier claim* and you apply the pending steps, or pass `-y` | yes |
+| `atr projects claim` when it lists files under *ACL entries from an earlier claim* and you apply the pending steps, or pass `-y` | yes |
 | `atr projects claim` on a claimed project with no question to ask, or where you answer no | no |
-| `sudo /usr/local/libexec/ai-tools/ai-tools-setfacl <project>`, with `--with-git` to include `.git` | yes |
 | a session, the handback after each write, `atr projects handback`, `lockdown`, `enable`, `disable`, `unclaim`, `remove` | no |
 
 `--for <operator>` follows the same rows as the command without it.

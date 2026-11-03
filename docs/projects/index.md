@@ -17,17 +17,15 @@ atr projects list                      # what is registered, and how
 ```
 
 Run every command as your own user: the `ai-tools` CLI calls `sudo` itself
-for the steps that need root and prompts for your password there. Every command
-that registers, releases, disables or deletes a project takes its directory
-as an argument, and `.` names the one you are in: `atr projects claim .`.
-`projects handback`, `projects lockdown` and `projects push` may leave it
-out, and then act on the project the current directory is in. Every yes/no
-question states its default, which Enter and a run without a terminal take
-(`man ai-tools`). Two pages under this category describe a property
-of a claimed tree rather than a command: [Permissions](permissions.md),
-for what owns a file the agent wrote and how you and the agent share one tree,
-and [Lockdown](lockdown.md), for what a claim locks away before it grants
-anything.
+for the steps that need root and prompts for your password there. A command
+that changes what is registered takes its directory as an argument, and `.`
+names the one you are in: `atr projects claim .`; which commands may leave it
+out is `man ai-tools`. Every yes/no question states its default, which Enter
+and a run without a terminal take (`man ai-tools`). Two pages under this
+category describe a property of a claimed tree rather than a command:
+[Permissions](permissions.md), for what owns a file the agent wrote and how you
+and the agent share one tree, and [Lockdown](lockdown.md), for what a claim
+locks away before it grants anything.
 
 ## Choose a model first
 
@@ -37,9 +35,8 @@ exposure. Once claimed, the whole tree is in the agent's reach except
 for a path that is owner-only. Every path the claim walks loses world access
 and gains the agent, and the world access does not come back at an unclaim
 ([Permissions](permissions.md)). An excluded line (`!`) of your project
-registry keeps sessions from starting under it and the claim's permission
-walks out of it; it does not take back access a claim already granted there,
-which making the path owner-only does.
+registry keeps sessions from starting under it, and does not take back access
+a claim already granted there (`man 5 ai-tools-project-registry`).
 
 **Create a sandbox clone** when the tree, its history, or its surroundings
 should stay out of reach. The clone is shallow, so the agent does not read
@@ -85,11 +82,11 @@ yours again, and for `projects unclaim` when you want the agent out.
 
 Your project registry, `~/.config/ai-tools/project-registry`, decides
 where a session may start and which written files come back to you; it does not
-decide what a running session may read. Each line is a project, a disabled
-project (`%`) or an excluded path (`!`), and a line the file's grammar refuses
-stops every session and every `projects` command until it is fixed
-(`man 5 ai-tools-project-registry`). Once a session runs, the permissions
-on the tree and its files are what confine it, which is why every command here
-that grants access locks secret-named files down first, and why declining
-that lockdown stops the command. [The boundary, and what is
+decide what a running session may read ([Sessions](../sessions/index.md)). Each
+line is a project, a disabled project (`%`) or an excluded path (`!`),
+and a line the file's grammar refuses stops every session and every `projects`
+command until it is fixed (`man 5 ai-tools-project-registry`). Once a session
+runs, the permissions on the tree and its files are what confine it, which is
+why every command here that grants access locks secret-named files down first,
+and why declining that lockdown stops the command. [The boundary, and what is
 out of scope](../about/scope.md) states it in full.

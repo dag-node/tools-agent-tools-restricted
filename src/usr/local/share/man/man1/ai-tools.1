@@ -122,6 +122,7 @@ An operator holding only the two launches agent sessions and reads the reports.
 The commands that reach a root helper need the grant as well: every
 .B projects
 command other than
+.BR "projects list" ,
 .B "projects push"
 and the plain form of
 .B "projects enable"
@@ -543,11 +544,13 @@ Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret gate s
 applies.
 .RE
 .IP
-The clone is born owner-only; tip-commit secrets are locked down first, under every
-directory of the clone, and only past
-that gate is the clone opened to the agent and registered. A declined or failed lockdown
-stops fail-closed \(em the clone stays private and unregistered; re-run this command on
-the clone path to resume securing it.
+The clone is created owner-only; tip-commit secrets are locked down first, under
+every directory of the clone, and only past that gate is the clone labelled,
+opened to the agent and registered. A declined or failed lockdown, and a clone
+the SELinux policy could not label, stop fail-closed \(em the clone stays
+private and unregistered; re-run this command on the clone path to resume
+securing it. Where SELinux runs without the ai-tools policy the clone is
+created unlabelled and the command says so.
 .TP
 .B projects push \fR[\fIDIRECTORY\fR]
 Push the sandbox clone's commits to the remote branch it tracks
@@ -583,7 +586,7 @@ Without
 .I DIRECTORY
 it hands back the project the current directory is in.
 .TP
-.B stop
+.B stop \fR[\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-force\fR] [\fB\-\-all\fR]
 Terminate every running agent session and everything it spawned. This is the one control
 that acts on a session
 .BR "already running" :
@@ -599,11 +602,13 @@ manager, and signalling it is root's to do. The bare command needs
 \(em the operators group holds a
 .B NOPASSWD
 rule for exactly that form, so a detector with no human present can reach it \(em while
-every option,
-.B \-\-all
+every option \(em
+.BR \-\-dry\-run ,
+.BR \-y ,
+.B \-\-force
 and
-.B \-y
-included, falls outside the rule and prompts. Why it is granted this way:
+.B \-\-all
+\(em falls outside the rule and prompts. Why it is granted this way:
 .IR /usr/share/doc/ai\-tools/docs/sessions/stop.md .
 .IP
 It is
@@ -673,6 +678,12 @@ and which pass ended it are all recorded in
 and journald. What each outcome means, and what a stop leaves in place:
 .IR /usr/share/doc/ai\-tools/docs/sessions/stop.md .
 .RS
+.TP
+.B \-\-dry\-run
+List the sessions a run would terminate, and terminate none of them.
+.TP
+.BR \-y ", " \-\-yes
+Skip the confirmation.
 .TP
 .B \-\-all
 Accepted and inert: every run already terminates every agent session. Like every other
@@ -836,9 +847,12 @@ beside it is checked as on any command. Answered ahead of every gate, like
 .BR \-y ", " \-\-yes
 For
 .BR "projects claim" :
-pre-answer only the proceed prompt; the secret-lockdown, git-history, and
-ancestor-traversal questions still ask. For
+pre-answer the proceed prompt and the SELinux type question; the group and ACL
+repair, the secret-lockdown, git-history and ancestor-traversal questions
+still ask. For
 .BR "projects lockdown" :
+skip the confirmation. For
+.BR stop :
 skip the confirmation.
 For
 .BR "projects unclaim" :
@@ -849,14 +863,14 @@ pre-answer
 .I both
 the confirmation and the typed-name challenge \(em the only thing that does, since
 .B AI_TOOLS_ASSUME_YES
-never answers a default-NO question and the challenge has no default at all. It
-then requires an explicit
-.IR DIRECTORY ,
-so an unattended removal cannot inherit the current directory. For a sandbox
-clone it pre-answers the one confirm the clone kind asks, on the same terms.
+never answers a default-NO question and the challenge has no default at all.
+For a sandbox clone it pre-answers the one confirm the clone kind asks, on the
+same terms.
 .TP
 .B \-\-dry\-run
 For
+.BR stop :
+list the sessions a run would terminate, and terminate none of them. For
 .BR "projects lockdown" :
 report what would be locked, and what would be stripped from the paths you have
 already sealed by mode, without changing anything. For

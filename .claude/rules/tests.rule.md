@@ -36,13 +36,14 @@ sweep](#fixture-names-and-the-residue-sweep) gives it, which is what lets it run
 failed file's transcript at the end and keeps the directory `tests/run.sh`'s header names.
 
 Every run closes with its NOTE, SKIP and FAIL rows grouped by file, in that order, so the failures sit beside
-the overall line. `AI_TOOLS_TEST_TRANSCRIPTS` names a directory the run creates and keeps, holding each file's
-transcript, `results.tsv` and `run-info.txt`; the header states their columns and keys. The run refuses a name
-that already exists, a symlink among them, because root writes every file into it. `run-info.txt` reads the checkout's
-commit from `.git` as data rather than through git, since git run as root over a tree the sandbox account co-writes
-executes what its config names. The container selftest writes the directory into a mount
-`make rpmtest-<distro> TEST_RESULTS=<dir>` makes, named for the run's UTC start and distribution, and CI uploads it
-with an `origin.txt` naming the commit, the ref and the run.
+the overall line. Each CI selftest leg uploads the transcripts as one zip named for its distribution, the runner image
+and the time the suite started, with an `origin.txt` naming the commit and the run. `AI_TOOLS_TEST_TRANSCRIPTS` names
+a directory the run creates and keeps, holding each file's transcript, `results.tsv` and `run-info.txt`; the header
+states their columns and keys. The run refuses a name that already exists, a symlink among them, because root writes
+every file into it. `run-info.txt` reads the checkout's commit from `.git` as data rather than through git, since git
+run as root over a tree the sandbox account co-writes executes what its config names. The container selftest writes
+the directory into a mount `make rpmtest-<distro> TEST_RESULTS=<dir>` makes, named for the run's UTC start
+and distribution, and CI uploads it with an `origin.txt` naming the commit, the ref and the run.
 
 The harness carries a fourth emitter for that reason. `skip` records a check that could not run, and reaching the notice
 is the point of it. `note` records a fact about the run that is not a verdict — `references.sh` names which tool it

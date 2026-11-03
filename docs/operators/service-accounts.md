@@ -38,17 +38,16 @@ to the operator who made it and pushes with that operator's git credentials.
   to a new login session, so enrol the account before its first job starts.
 - **See its projects and the host**: `atr projects` lists its project registry,
   and `atr status` reports the sandbox's health.
-- **Park and unpark its own projects** with `atr projects disable`
+- **Disable and enable its own projects** with `atr projects disable`
   and `projects enable`.
 - **Stop every session on the host** with `atr stop`, which does not ask
   for a password. It is the shutdown rung of the escalation ladder
-  in the governance framework of the asset set `core`
-  (`/opt/ai-tools/skills/ai-tools-agent-governance/references/framework.md`
-  where `core` is enabled), and it is granted without a password
-  so that an unattended monitor can reach it.
-- **Not claim, clone, unclaim, lock down or reclaim.** Each of those reaches
-  a root helper over `sudo`. The refusal names the command an operator
-  with a sudo grant runs for it.
+  in the governance framework of the asset set `core` (its
+  `ai-tools-agent-governance` skill, where `core` is enabled), and it is
+  granted without a password so that an unattended monitor can reach it.
+- **Not create, claim, clone, unclaim, remove, lock down or hand back.** Each
+  of those reaches a root helper over `sudo`. The refusal names the command
+  an operator with a sudo grant runs for it.
 
 The account needs a home directory, since its project registry lives
 under `~/.config/ai-tools`. A home with no `~/.config` in it yet — the usual

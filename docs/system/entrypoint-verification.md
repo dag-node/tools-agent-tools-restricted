@@ -195,7 +195,7 @@ and `UNCHANGED` stays what the pin claims. It also costs maintenance
 the project does not take on for you — `cosign` installed and current, and its
 Sigstore trust root kept fresh, since the certificate chain it checks rotates.
 
-## Strictness
+## Strictness <a id="ref-section-z7m9"></a>
 
 By default a **mismatch** always refuses the launch, and an **unpinned**
 entrypoint launches normally. Unpinned is not a suspicious state — it is also

@@ -47,9 +47,7 @@ sudo AI_TOOLS_TEST_TRANSCRIPTS="/var/tmp/ai-tools-tests-$(date -u +%Y%m%dT%H%M%S
 The directory holds each file's transcript, `results.tsv` with one row
 per file, and `run-info.txt`, which records when and on what host the run ran,
 the commit it ran from and the release installed. The runner refuses a name
-that already exists. Each CI selftest leg uploads the same files as one zip
-named for its distribution, the runner image and then the time the suite
-started, with an `origin.txt` naming the commit and the run.
+that already exists.
 
 The deployment under test may come from `dnf` — a from-source install is not
 required, and the suite is run on demand rather than by any package scriptlet.

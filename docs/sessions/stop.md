@@ -2,6 +2,14 @@
 
 [Sessions](index.md) · **Stop** — [all docs](../index.md)
 
+How `atr stop` ends every agent session already running on this host
+and everything it spawned, what each outcome means, and what to do next.
+
+```bash
+atr stop              # terminate every agent session on this host
+atr stop --dry-run    # list what would be terminated, change nothing
+```
+
 `atr stop` terminates agent sessions that are **already running**,
 and everything they spawned. It is not how you finish a session you are done
 with — `/exit` inside the session is, and it lets the session run its own
@@ -21,11 +29,6 @@ written for a reviewer or a contributor in [the stop
 rule](../../.claude/rules/stop.rule.md).
 
 ## One form
-
-```
-atr stop              # terminate every agent session on this host
-atr stop --dry-run    # list what would be terminated, change nothing
-```
 
 Run it as yourself, not under `sudo` — the CLI reaches the root helper on its
 own, and the bare form runs without a password at all, so an unattended

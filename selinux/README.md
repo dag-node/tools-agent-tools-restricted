@@ -45,8 +45,7 @@ shipped member; a host that confines its operators to a login domain
 with the `ipp_ai_tools_add_operator_domain` interface, which the package
 installs at `/usr/share/selinux/devel/include/distributed/ai_tools.if`.
 A launch from such a login is not validated yet and fails closed
-where the launch path is denied a read. An `atr admin selinux` command
-that declares the domain is planned.
+where the launch path is denied a read.
 
 You cannot confine a complex app (Node + git + the Bash tool) correctly
 by guessing rules — the rule set must be *observed*. The policy here was

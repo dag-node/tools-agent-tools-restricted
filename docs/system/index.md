@@ -63,7 +63,7 @@ Where an `OVERDUE` line reads `SKIPPED (sessions)`, end every session — let
 each finish, or `atr stop` ends them all — and the next session start cleans
 it. `atr admin status` also shows how much each cache holds now.
 
-`sudo atr audit` is the other starting point — it reads the trails and reports
+`atr audit` is the other starting point — it reads the trails and reports
 what refused, was rejected, was stranded, or was flagged over a window you give
 it. There are three trails, and the audit keeps them apart on purpose: journald
 carries what a session itself logs, the root-only files

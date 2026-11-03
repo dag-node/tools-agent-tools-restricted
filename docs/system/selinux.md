@@ -46,8 +46,7 @@ so a host that confines its operators to a login domain of their own —
 to the attribute and give it the same file access. Launching a session
 from such a login is not validated yet: the launch path is measured
 for unconfined logins only, and a read denied there refuses the launch instead
-of running the session unconfined. An `atr admin selinux` command that declares
-the domain is planned.
+of running the session unconfined.
 
 ## A stale label after a toolchain update
 
