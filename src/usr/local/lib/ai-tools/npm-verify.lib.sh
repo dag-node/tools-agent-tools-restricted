@@ -41,15 +41,18 @@
 #   2  unable to verify (not root-eligible, npm too old, offline, no global packages, or an
 #      unsigned-registry package) -- not a tamper signal; the caller WARNS and continues,
 #      matching the best-effort posture of the rest of the updater
-# Detail (which package failed) goes to stderr, which both callers route to the journal. The functions print no secret
-# and take no agent-supplied argument.
+# Detail goes to stderr, which both callers route to the journal: the packages that failed, and for each invalid
+# signature (the first 20) npm's own `code`, `keyid` and `integrity`: the inputs npm checked, which a reader compares
+# with the registry's keys endpoint and the package's published integrity. The functions print no secret and take no
+# agent-supplied argument.
 #
 # ── What npm prints is untrusted ─────────────────────────────────────────────
 # npm, the tree it reads and the audit JSON it writes are the sandbox account's, so a package name or an error line
 # from them reaches a terminal or the journal only through the shared allowlist sanitizer: log.lib.sh's
-# ai_tools_log__sanitize for npm's own error line, and the same printable-ASCII allowlist inside the verdict's node
-# parser for the package names. log.lib.sh loads best-effort from this library's directory; without it npm's error line
-# is left out of the report rather than printed raw.
+# ai_tools_log__sanitize for npm's own error line, and the same printable-ASCII allowlist inside the verdict's parser
+# for the package names. A detail field takes that allowlist without the space, and at most 160 characters, so a value
+# cannot carry a second `key=` into the line. log.lib.sh loads best-effort from this library's directory; without it
+# npm's error line is left out of the report rather than printed raw.
 
 [[ -n "${_AI_TOOLS_NPM_VERIFY__LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_NPM_VERIFY__LOADED=1
@@ -79,6 +82,8 @@ ai_tools_npm_verify__evaluate_audit() {
     token="$(printf '%s' "${audit_json}" | /usr/bin/python3 -I -c '
 import json, sys
 
+DETAIL_WIDTH, DETAIL_ENTRIES = 160, 20
+
 
 def printable(value):
     return "".join(c if " " <= c <= "~" else "?" for c in str(value))
@@ -88,6 +93,16 @@ def name_of(entry):
     if isinstance(entry, dict) and entry.get("name"):
         return printable(str(entry["name"]) + "@" + str(entry.get("version") or "?"))
     return printable(entry)
+
+
+def token(value):
+    text = "".join(c if "!" <= c <= "~" else "?" for c in str(value))
+    return (text[:DETAIL_WIDTH] + "...") if len(text) > DETAIL_WIDTH else text
+
+
+def detail_of(entry):
+    return " ".join(key + "=" + (token(entry[key]) if entry.get(key) not in (None, "") else "?")
+                    for key in ("code", "keyid", "integrity"))
 
 
 try:
@@ -101,6 +116,11 @@ if (not isinstance(document, dict) or not isinstance(document.get("invalid"), li
 invalid, missing = document["invalid"], document["missing"]
 if invalid:
     sys.stderr.write("npm-verify: invalid signature: " + ", ".join(name_of(e) for e in invalid) + "\n")
+    detailed = [e for e in invalid if isinstance(e, dict)]
+    for entry in detailed[:DETAIL_ENTRIES]:
+        sys.stderr.write("npm-verify:   " + name_of(entry) + ": " + detail_of(entry) + "\n")
+    if len(detailed) > DETAIL_ENTRIES:
+        sys.stderr.write("npm-verify:   and %d more\n" % (len(detailed) - DETAIL_ENTRIES))
 if missing:
     sys.stderr.write("npm-verify: unsigned (no registry signature): " + ", ".join(name_of(e) for e in missing) + "\n")
 sys.stdout.write("INVALID" if invalid else ("MISSING" if missing else "OK"))

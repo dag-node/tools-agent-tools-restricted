@@ -822,12 +822,13 @@ over agent-controlled files as root. `nvm-update.sh` runs it directly; `ai-tools
 sandbox-account step; and the impure entry `ai_tools_npm_verify__verify_signatures` refuses to run as root
 as a fail-closed backstop. The pure decision `ai_tools_npm_verify__evaluate_audit` — no npm, no filesystem, no privilege
 — is split out and unit-tested over the audit-output truth table (`tests/unit/npm-verify.sh`), mirroring
-`confinement.lib.sh`'s pure verdict. That verdict parses its JSON with `node`, which on most hosts exists only
-in the sandbox toolchain, so the root-run test resolves that one binary the way the launch wrapper resolves the agent
-binary — one `readlink` hop through a stable launcher symlink to the active version's `bin` — and runs the verdict
-as the sandbox account through `runuser`, with that directory alone on its `PATH`: the binary is that account's
-to replace, and root does not execute it ([tests](tests.rule.md)). Resolving from `PATH` alone would skip the file
-on a fully provisioned host, which strict mode reports as no coverage.
+`confinement.lib.sh`'s pure verdict. That verdict parses its JSON with the host's `/usr/bin/python3` in isolated mode,
+so it does not execute any file of the toolchain and the root-run test drives it directly ([tests](tests.rule.md)).
+
+An invalid signature is reported with the packages that failed and, for each of the first 20, npm's own `code`, `keyid`
+and `integrity`, the inputs npm checked, so the journal holds what a reader compares with the registry's keys endpoint
+and the package's published integrity. Each field passes the printable-ASCII allowlist without the space, capped at 160
+characters, since the audit JSON is the sandbox account's to write.
 
 The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the install scripts, the prune
 and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired
