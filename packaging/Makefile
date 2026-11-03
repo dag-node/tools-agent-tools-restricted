@@ -59,7 +59,7 @@ POLICY_SRC = $(patsubst $(ROOT)/%,%,$(wildcard $(ROOT)/selinux/policy/*.te \
 # Each subpackage carries its own licence text via %license, and the GPL policy subpackage conveys
 # the GPL text with the binary it covers, so both LICENSE and LICENSES/ are payload.
 CONTENT = src docs $(POLICY_SRC) \
-          packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION README.md \
+          packaging/$(NAME).spec packaging/$(NAME).sysusers packaging/VERSION packaging/rewrite-doc-links.py README.md \
           LICENSE LICENSES REUSE.toml
 
 # Container smoke test: the shared RpmBase recipe parameterized by a distribution's base image,

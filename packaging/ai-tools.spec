@@ -30,6 +30,8 @@ BuildRequires:  systemd-rpm-macros
 BuildRequires:  selinux-policy-devel
 BuildRequires:  policycoreutils
 BuildRequires:  make
+# %%build rewrites the installed documentation's links into the source tree (packaging/rewrite-doc-links.py).
+BuildRequires:  python3
 
 # Shell/Python scripts only: no ELF, so suppress the debuginfo subpackage and the
 # binary build-root policy steps (ldconfig/strip) that do not apply to a noarch package.
@@ -305,6 +307,9 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 # group or adding a layout module touches the registry or a manifest and no line of this spec.
 make -C selinux/policy \
     $(bash selinux/policy/shipped-modules.sh src/usr/local/lib/ai-tools/integrations.d | sed 's/$/.pp/')
+# The package installs docs/ and README.md alone, so each link they make into a rule, CLAUDE.md or a source file
+# is rewritten to the same path at this release's tag, and an installed link reaches the version installed.
+python3 -I packaging/rewrite-doc-links.py --base %{url} --version %{version} --release '%{?rpm_release}' .
 
 %install
 # The /opt control plane and the /var trees ship root:ai-tools and stay that way: root (not the
