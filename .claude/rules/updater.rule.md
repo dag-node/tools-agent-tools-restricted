@@ -826,10 +826,17 @@ as a fail-closed backstop. The pure decision `ai_tools_npm_verify__evaluate_audi
 `confinement.lib.sh`'s pure verdict. That verdict parses its JSON with the host's `/usr/bin/python3` in isolated mode,
 so it does not execute any file of the toolchain and the root-run test drives it directly ([tests](tests.rule.md)).
 
-An invalid signature is reported with the packages that failed and, for each of the first 20, npm's own `code`, `keyid`
-and `integrity`, the inputs npm checked, so the journal holds what a reader compares with the registry's keys endpoint
-and the package's published integrity. Each field passes the printable-ASCII allowlist without the space, capped at 160
-characters, since the audit JSON is the sandbox account's to write.
+An invalid signature is reported with the packages that failed and, for each of the first 20, npm's own `code`, `keyid`,
+`integrity` and `message`, the inputs npm checked and its account of the failure, so the journal holds what a reader
+compares with the registry's keys endpoint and the package's published integrity. Each field passes the printable-ASCII
+allowlist without the space, capped at 160 characters, since the audit JSON is the sandbox account's to write;
+the message keeps the space, closes the line, and is quoted with every quote inside it replaced.
+
+**An invalid signature is audited once more** after a pause, since a registry's answer can be inconsistent for a moment
+while the installed tree is not, and both audits are reported. Only a second verified result clears the first: it means
+every installed package verified against the registry's key, which a tampered tarball does not. Every other second
+answer keeps the invalid verdict, so an audit that cannot run the second time does not move a tamper to unable
+to verify.
 
 The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the install scripts, the prune
 and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired

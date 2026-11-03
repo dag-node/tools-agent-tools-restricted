@@ -42,20 +42,28 @@
 #      unsigned-registry package) -- not a tamper signal; the caller WARNS and continues,
 #      matching the best-effort posture of the rest of the updater
 # Detail goes to stderr, which both callers route to the journal: the packages that failed, and for each invalid
-# signature (the first 20) npm's own `code`, `keyid` and `integrity`: the inputs npm checked, which a reader compares
-# with the registry's keys endpoint and the package's published integrity. The functions print no secret and take no
-# agent-supplied argument.
+# signature (the first 20) npm's own `code`, `keyid`, `integrity` and `message`: the inputs npm checked, which a reader
+# compares with the registry's keys endpoint and the package's published integrity, and npm's account of the failure.
+# The functions print no secret and take no agent-supplied argument.
+#
+# ── An invalid signature is audited twice ────────────────────────────────────
+# A registry's answer can be inconsistent for a moment while the installed tree is not, so the probe audits once more
+# after a pause when the first verdict is INVALID, and reports both. Only a second OK clears the first verdict; every
+# other second answer keeps status 1, so an audit that cannot run the second time does not turn a tamper into status 2.
 #
 # ── What npm prints is untrusted ─────────────────────────────────────────────
 # npm, the tree it reads and the audit JSON it writes are the sandbox account's, so a package name or an error line
 # from them reaches a terminal or the journal only through the shared allowlist sanitizer: log.lib.sh's
 # ai_tools_log__sanitize for npm's own error line, and the same printable-ASCII allowlist inside the verdict's parser
 # for the package names. A detail field takes that allowlist without the space, and at most 160 characters, so a value
-# cannot carry a second `key=` into the line. log.lib.sh loads best-effort from this library's directory; without it
-# npm's error line is left out of the report rather than printed raw.
+# cannot carry a second `key=` into the line; `message`, which is prose, keeps the space, closes the line, and is quoted
+# with every `"` inside it replaced. log.lib.sh loads best-effort from this library's directory; without it npm's error
+# line is left out of the report rather than printed raw.
 
 [[ -n "${_AI_TOOLS_NPM_VERIFY__LOADED:-}" ]] && return 0
 readonly _AI_TOOLS_NPM_VERIFY__LOADED=1
+# The pause before the one re-audit an invalid signature gets.
+readonly _AI_TOOLS_NPM_VERIFY__RETRY_PAUSE_SECONDS=5
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${BASH_SOURCE[0]%/*}/log.lib.sh" 2>/dev/null || true
 # The identity check the probe makes of its own process (ai_tools_sandbox_exec__is_sandbox_account): best-effort source,
@@ -100,9 +108,16 @@ def token(value):
     return (text[:DETAIL_WIDTH] + "...") if len(text) > DETAIL_WIDTH else text
 
 
+def quoted(value):
+    text = printable(value).replace("\"", "?")
+    return "\"" + ((text[:DETAIL_WIDTH] + "...") if len(text) > DETAIL_WIDTH else text) + "\""
+
+
 def detail_of(entry):
-    return " ".join(key + "=" + (token(entry[key]) if entry.get(key) not in (None, "") else "?")
-                    for key in ("code", "keyid", "integrity"))
+    fields = [key + "=" + (token(entry[key]) if entry.get(key) not in (None, "") else "?")
+              for key in ("code", "keyid", "integrity")]
+    message = quoted(entry["message"]) if entry.get("message") not in (None, "") else "?"
+    return " ".join(fields + ["message=" + message])
 
 
 try:
@@ -207,6 +222,25 @@ ai_tools_npm_verify__verify_signatures() {
     # Dispatch the pure verdict. It emits the per-package detail to stderr; we log the outcome.
     local token rc
     token="$(ai_tools_npm_verify__evaluate_audit "${audit_json}")" && rc=0 || rc=$?
+
+    # An invalid signature is audited once more after a pause, since the registry's answer can be inconsistent
+    # for a moment while the installed tree is not. Only a second OK clears the first verdict: OK means every installed
+    # package verified against the registry's key, which a tampered tarball does not. Every other second answer --
+    # invalid, unsigned, empty, unreadable -- keeps INVALID, so an audit that cannot run the second time does not turn
+    # a tamper into the warn-and-proceed status.
+    if [[ "${token}" == INVALID ]]; then
+        printf '%s auditing once more in %ss, since a registry answer can be inconsistent for a moment\n' "${_p}" \
+            "${_AI_TOOLS_NPM_VERIFY__RETRY_PAUSE_SECONDS}" >&2
+        sleep "${_AI_TOOLS_NPM_VERIFY__RETRY_PAUSE_SECONDS}"
+        audit_json="$(cd "${workdir}" && npm audit signatures --json 2>/dev/null)" || true
+        if [[ "$(ai_tools_npm_verify__evaluate_audit "${audit_json}")" == OK ]]; then
+            printf '%s the second audit verified every signature -- the first answer is not read as tamper\n' \
+                "${_p}" >&2
+            token=OK rc=0
+        else
+            printf '%s the second audit did not verify every signature\n' "${_p}" >&2
+        fi
+    fi
     case "${token}" in
         OK)      printf '%s all global package signatures verified\n' "${_p}" >&2 ;;
         INVALID) printf '%s INVALID signature detected -- treating as tamper (fail closed)\n' "${_p}" >&2 ;;

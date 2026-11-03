@@ -86,13 +86,14 @@ else
     fail "the verdict printed a package name unsanitized: $(printf '%q' "${verdict_err}")"
 fi
 
-# An invalid entry is reported with npm's own code, keyid and integrity, the fields verify-signatures.js writes,
-# on a line of its own under the package; a field npm left out reads as `?`. The verdict is unchanged by the detail.
+# An invalid entry is reported with npm's own code, keyid, integrity and message, the fields verify-signatures.js
+# writes, on a line of its own under the package; a field npm left out reads as `?`. The verdict is unchanged
+# by the detail.
 expect "an invalid entry carrying npm's detail" INVALID 1 \
     '{"invalid":[{"name":"corepack","version":"0.36.0","code":"EINTEGRITYSIGNATURE","keyid":"SHA256:abc","integrity":"sha512-xyz"}],"missing":[]}'
 detail_err="$(as_verdict_account '{"invalid":[{"name":"corepack","version":"0.36.0","code":"EINTEGRITYSIGNATURE","keyid":"SHA256:abc","integrity":"sha512-xyz"},{"name":"b","version":"1.0.0","code":"EINTEGRITYSIGNATURE"}],"missing":[]}' 2>&1 >/dev/null || true)"
-if [[ "${detail_err}" == *$'\nnpm-verify:   corepack@0.36.0: code=EINTEGRITYSIGNATURE keyid=SHA256:abc integrity=sha512-xyz\n'* ]]; then
-    pass "an invalid entry is reported with its code, keyid and integrity"
+if [[ "${detail_err}" == *$'\nnpm-verify:   corepack@0.36.0: code=EINTEGRITYSIGNATURE keyid=SHA256:abc integrity=sha512-xyz message=?\n'* ]]; then
+    pass "an invalid entry is reported with its code, keyid and integrity, and an absent message as ?"
 else
     fail "the invalid entry's detail line is not as npm wrote it: $(printf '%q' "${detail_err}")"
 fi
@@ -123,6 +124,15 @@ if [[ "${detail_lines}" == 20 && "${detail_err}" == *$'\nnpm-verify:   and 1 mor
     pass "the detail stops at 20 entries and counts the rest, the summary naming all 21"
 else
     fail "the detail for 21 entries printed ${detail_lines} line(s): $(printf '%q' "${detail_err}")"
+fi
+
+# npm's message is prose, so it keeps its spaces, closes the line, and is quoted with every quote inside it replaced:
+# a message cannot end the quoting early or carry an escape byte.
+detail_err="$(as_verdict_account '{"invalid":[{"name":"p","version":"1.0.0","code":"EATTESTATIONVERIFY","message":"attestation \"x\" did not verify\u001b[2J"}],"missing":[]}' 2>&1 >/dev/null || true)"
+if [[ "${detail_err}" == *'integrity=? message="attestation ?x? did not verify?[2J"'* && "${detail_err}" != *$'\033'* ]]; then
+    pass "npm's message closes the detail line, quoted, with its quotes and escape byte replaced"
+else
+    fail "npm's message reached the report as: $(printf '%q' "${detail_err}")"
 fi
 
 # Fail-closed backstop: the impure verifier refuses to run as root (this suite is root), so it returns "unable
@@ -175,5 +185,54 @@ elif [[ "${rc}" -eq 2 && "${out}" == *"npm does not start (Error: Cannot find mo
 else
     fail "an npm that does not start read as rc ${rc}: $(tr '\n\033' '|?' <<<"${out}")"
 fi
+
+# An invalid signature is audited once more, and only a second OK clears it. npm is a shell function answering each
+# `audit signatures` call with the next answer given and counting the calls, and `sleep` is a no-op, so the pause does
+# not slow the run. The probe prints the count after the verifier returns.
+audit_retry_probe() {
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    bash -c 'first="$2" second="$3"
+             state="$(mktemp -d)"; trap "rm -rf -- \"${state}\"" EXIT
+             mkdir "${state}/global"; printf 0 > "${state}/audits"
+             npm() {
+                 case "$1" in
+                     --version) printf "10.0.0\n" ;;
+                     root) printf "%s\n" "${state}/global" ;;
+                     ls) printf "{}" ;;
+                     audit) local n; n=$(( $(<"${state}/audits") + 1 )); printf "%s" "${n}" > "${state}/audits"
+                            if (( n == 1 )); then printf "%s" "${first}"; else printf "%s" "${second}"; fi ;;
+                 esac
+             }
+             node() { printf "{\"p\":\"1.0.0\"}"; }
+             sleep() { :; }
+             source "$1"; rc=0; ai_tools_npm_verify__verify_signatures || rc=$?
+             printf "audits=%s\n" "$(<"${state}/audits")"; exit "${rc}"' _ "${LIB}" "$1" "$2"
+}
+invalid_audit='{"invalid":[{"name":"p","version":"1.0.0","code":"EINTEGRITYSIGNATURE"}],"missing":[]}'
+clean_audit='{"invalid":[],"missing":[]}'
+# expect_retry <desc> <first-answer> <second-answer> <exp-rc> <exp-audits> [<text the report carries>]
+expect_retry() {
+    local desc="$1" first="$2" second="$3" exp_rc="$4" exp_audits="$5" text="${6:-}" rc=0 out
+    if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+        out="$(as_sandbox bash -c "$(declare -f audit_retry_probe); LIB=$(printf '%q' "${LIB}") audit_retry_probe $(
+            printf '%q' "${first}") $(printf '%q' "${second}")" 2>&1)" || rc=$?
+    elif ai_tools_sandbox_exec__is_sandbox_account 2>/dev/null; then
+        out="$(audit_retry_probe "${first}" "${second}" 2>&1)" || rc=$?
+    else
+        skip "${desc}" "the probe runs as the sandbox account, which needs root or that account"; return 0
+    fi
+    if [[ "${rc}" -eq "${exp_rc}" && "${out}" == *"audits=${exp_audits}"* && "${out}" == *"${text}"* ]]; then
+        pass "${desc} (rc ${rc}, ${exp_audits} audit(s))"
+    else
+        fail "${desc}: rc ${rc}, expected ${exp_rc} after ${exp_audits} audit(s): $(tr '\n\033' '|?' <<<"${out}")"
+    fi
+}
+expect_retry "a clean first audit is not repeated" "${clean_audit}" "${invalid_audit}" 0 1
+expect_retry "an invalid signature a second audit verifies is cleared" "${invalid_audit}" "${clean_audit}" 0 2 \
+    "the second audit verified every signature"
+expect_retry "an invalid signature a second audit repeats stays a tamper" "${invalid_audit}" "${invalid_audit}" 1 2 \
+    "the second audit did not verify every signature"
+expect_retry "an invalid signature a second audit cannot read stays a tamper, not unable to verify" \
+    "${invalid_audit}" "" 1 2 "the second audit did not verify every signature"
 
 finish
