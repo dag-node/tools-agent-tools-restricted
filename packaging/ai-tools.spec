@@ -1851,6 +1851,70 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Tue Nov 03 2026 dagnode <tools@dagnode.com> - 0.28.0-1
+- CHANGE: Your project registry moves to ~/.config/ai-tools/project-registry. After the upgrade
+  run 'atr admin system post-upgrade': it migrates every enrolled operator's allowed-projects
+  unattended, keeps the old file as a dated .bak, and names each top-level '!' line with the '%'
+  line that disables it. Until it runs, sessions start from the old file and every 'atr projects'
+  command but the listing refuses (MSG-J6S8).
+- CHANGE: The registry opens with '# ai-tools-project-registry-format: 1.0', and each entry is its
+  sign, a space and the path: '@' a project, '%' a disabled project, '!' an excluded path wherever
+  it sits. A line the grammar does not read refuses the file for every reader (MSG-B8U2), and every
+  'atr projects' write rewrites it sorted, a nested entry under the one that encloses it. A '!'
+  line 0.27.0 wrote for a disabled project stays an excluded path until you rewrite it.
+- CHANGE: 'atr projects claim', 'clone', 'unclaim', 'remove', 'enable' and 'disable' require their
+  path, and '.' names the current directory; a run without one is refused at exit 2 (MSG-K7D9).
+  'handback', 'lockdown' and 'push' without a path act on the project the current directory is in.
+  'projects unclaim --keep-entry' is gone: an unclaim whose hand-back did not run disables the entry.
+- SECURITY: A recursive relabel of a tree the sandbox account can write -- a claim's label, an
+  unclaim's or a removal's revert, an agent config directory, the install-time restores -- runs only
+  while no process of that account is live, since a live one could redirect a walk by path. While
+  one is, the step is refused before any write and names 'atr stop' and the re-run: a claim applies
+  its other steps and exits 1, a removal stops with the tree as it was (MSG-H8V6, MSG-S3B9).
+- SECURITY: A claimed file gives the agent what its owner has: a read-only file stays read-only and
+  a text file is not executable to it. Before, a file created in the clone area claimed as
+  executable, and a read-only one as writable. A re-claim lists the files an earlier claim granted
+  otherwise and walks them on your confirm; a sandbox clone an earlier release opened keeps them
+  until 'sudo /usr/local/libexec/ai-tools/ai-tools-setfacl <clone>' runs.
+- SECURITY: The project's own .git stays out of the claim's walks and the per-turn sweep whatever
+  SKIP_VCS_DIRS holds, so 'SKIP_VCS_DIRS=[]' no longer shares it with the agent; the claim's .git
+  question is the way to. A group repair you decline stays declined through that share.
+- SECURITY: An excluded path written as a glob covers every directory under the one it matches, so
+  a session no longer starts below it. A configuration library that cannot make the match refuses
+  the launch (MSG-T6U6) where it read the path as not excluded.
+- SECURITY: A sandbox clone is created private under the clone area's default ACL, so a checked-in
+  credential stays unreadable to the agent until the secret gate has run; a clone root that does
+  not take its label stops the create. Before, a new clone was group-readable from the start.
+- NEW: 'atr' is the short command over the two programs: 'atr <command>' runs ai-tools, and
+  'atr admin <command>' runs ai-tools-admin, as root directly and through sudo otherwise. The install
+  refuses to replace another program answering to atr (MSG-W5Z8).
+- NEW: Every command answers its own help: '--help' anywhere ahead of '--', or 'help' where a
+  command goes, prints it and runs nothing, and 'atr admin help' asks no password. An unknown command
+  names the help to run, at exit 2. Bash completion covers atr, ai-tools and ai-tools-admin.
+- NEW: 'atr projects claim --for' and 'projects create --for' read the tree as the target operator,
+  so a tree only its owner can read is claimed in full. A location the invoker cannot enter is
+  refused by name (MSG-D4Z6) with the traverse grant that opens it, and a target outside ai-ops or
+  without a registry is refused before the first write.
+- NEW: 'atr projects create' asks whether the agent may read .git (default yes, and yes without
+  a terminal), and a create that stops names the directory and the claim that finishes it.
+- FIX: 'atr projects remove' drops the registry entry ahead of the trust entry, reads a clone's .git
+  as data without running git over it, and prints its label revert; a removal that leaves paths
+  behind names what it left and the entry that still covers them. 'projects push' refuses when git
+  cannot count the commits ahead (MSG-H6R3), where it reported the clone up to date.
+- FIX: 'atr projects list' offers a safe.directory removal only for a tree you hold, names a trust
+  rule or an expanded path by its form, tells an entry it cannot read from a stale one, and each
+  removal it prints removes what it names.
+- FIX: A claim or an unclaim leaves /opt/ai-tools/.gitconfig at its owner, mode and SELinux type.
+  Before, every safe.directory edit left it reported as label drift until the next reconcile.
+- FIX: The selinux package's erase drops the local file-context rules the unload refuses on, waits
+  for no live process of the sandbox account, and names a module it left loaded; an upgrade replaces
+  a former module that was split into several groups.
+- FIX: A printed command quotes its path, so one holding a space pastes as one word. A source
+  install requires the ACL tools, creates /opt/ai-tools/bin, and places the sysusers fragment.
+- DOCS: ai-tools-project-registry(5) replaces ai-tools-allowed-projects(5), and
+  docs/projects/permissions.md walks through what a claim gives each file and what a later claim,
+  a git rewrite and an unclaim leave.
+
 * Sun Oct 25 2026 dagnode <tools@dagnode.com> - 0.27.0-1
 - CHANGE: The toolchain updater and 'sudo ai-tools-admin system bootstrap' run a package's install
   scripts only after the npm registry signature over the installed tree has verified, so a tampered
