@@ -4321,6 +4321,8 @@ unclaim_one() {
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
             # The gate's refusal came after sudo authenticated, so the steps after it are attempted without asking.
             (( relabel_status == RELABEL_LIVE_SESSION_STATUS )) || note_root_failure || stopped=true
+        else
+            say "    SELinux label: reverted"
         fi
     fi
 
@@ -5009,6 +5011,7 @@ cmd_project_remove() {
             note_root_failure || cleanup_stopped=true
         else
             label_outcome=completed
+            say "    SELinux label: reverted"
         fi
     fi
     unreg_allow "${d}"
