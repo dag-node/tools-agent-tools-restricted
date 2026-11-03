@@ -648,8 +648,9 @@ a repository file, so a run outside a checkout skips.
 Its last section covers the page's own editorial rule — the catalog documents what the tree emits and leaves development
 material out — by driving the citation filter over a **fixture** catalog, which `man-messages.sh print` renders
 from an index named on its command line. What the fixture supplies is the citation the tree does not hold: a Markdown
-file under `tests/`, alongside a document, a shipped man page, and a source file. A document renders as its path
-and a man page as a `.BR` cross-reference, while a test and a source file are dropped whatever their extension.
+file under `tests/`, alongside a document, a shipped man page, and a source file. A document renders at the path
+the package installs it and a man page as a `.BR` cross-reference, while a rule, a test and a source file are dropped
+whatever their extension.
 
 Every section so far pairs a page with what it documents. Two more hold each page to the way a page is **written**,
 against the font and placeholder rules whose home is `references/man-pages.md` in the `ai-tools-technical-writing`

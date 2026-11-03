@@ -208,8 +208,9 @@ pointers() {
             src/usr/local/share/man/*)
                 name="${entry##*/}"; section="${name##*.}"; name="${name%.*}"
                 out+="${out:+,\n}.BR ${name} (${section})" ;;
-            .claude/rules/*.md|docs/*.md|README.md)
-                out+="${out:+,\n}.I ${entry}" ;;
+            # A man page names the documentation as the package installs it; the rules are not installed.
+            docs/*.md|README.md)
+                out+="${out:+,\n}.I /usr/share/doc/ai\\-tools/${entry//-/\\-}" ;;
             *) continue ;;
         esac
     done
