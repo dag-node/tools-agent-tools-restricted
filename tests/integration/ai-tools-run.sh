@@ -19,6 +19,10 @@
 # on matchpathcon of the real /opt/ai-tools/.nvm path, so any end-to-end check must write a deliberately mislabelled
 # file into the production toolchain tree, which this suite runs against on enforcing hosts -- an interrupted run could
 # leave that leftover behind. The pure decision is covered hermetically in tests/unit/confinement.sh instead.
+#
+# run.sh: serial
+#
+# Serial under `run.sh -j`: it probes the fixed v0.0.1 version directory inside the live toolchain.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

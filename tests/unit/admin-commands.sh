@@ -154,10 +154,29 @@ fi
 
 # ── `--help` lists the domain and the summary its manifest declares ───────────────────────────
 run_admin --help
-if [[ "${out}" == *"demo <command>"* && "${out}" == *"the demo provider"* ]]; then
-    pass "--help lists the installed domain with its manifest summary"
+if [[ "${out}" == *"Provider commands:"* && "${out}" == *"demo COMMAND"* && "${out}" == *"the demo provider"* ]]; then
+    pass "--help lists the installed domain with its manifest summary under Provider commands:"
 else
     fail "--help did not list the domain and its summary: ${out}"
+fi
+
+# A bare run prints the help on stdout and exits 0, for root and, ahead of the root check, for the projects user,
+# who runs the checkout's copy: the installed helper sits in a root-only directory, which is why an operator reaches it
+# through atr.
+run_admin
+if [[ "${STATUS}" -eq 0 && "${out}" == *"Agent Tools Restricted -- host administration"* ]]; then
+    pass "a bare run prints the help and exits 0"
+else
+    fail "a bare run did not print the help at exit 0 (exit ${STATUS}): ${out}"
+fi
+bare_status=0
+bare_out="$(runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ADMIN_COMMANDS_DIR="${CMD_DIR}" \
+    bash "${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" 2>/dev/null)" \
+    || bare_status=$?
+if [[ "${bare_status}" -eq 0 && "${bare_out}" == *"Usage:"* ]]; then
+    pass "a bare run by the projects user prints the help on stdout and exits 0"
+else
+    fail "a bare run by the projects user exited ${bare_status}: ${bare_out}"
 fi
 
 # A domain whose manifest omits the summary is still listed: the fragment's presence is what creates the command,
@@ -165,7 +184,7 @@ fi
 reset_fixtures
 write_fragment nosummary
 run_admin --help
-if [[ "${out}" == *"nosummary <command>"* ]]; then
+if [[ "${out}" == *"nosummary COMMAND"* ]]; then
     pass "a domain with no admin_summary is still listed"
 else
     fail "a domain whose manifest omits the summary went unlisted: ${out}"
@@ -355,21 +374,39 @@ else
     fail "a fragment reached the dispatch for 'status' (exit ${STATUS}): ${out}"
 fi
 
+# `help` is answered ahead of the root check, so a fragment of that name could only be listed and never reached:
+# the bare word prints what `--help` prints, and the fragment is refused as a base name.
+reset_fixtures
+write_fragment help
+run_admin --help
+help_option_out="${out}"
+assert_msg MSG-U6P9 "${out}" "a fragment named 'help' is refused as a base name"
+run_admin help
+if [[ ! -f "${MARKER}" && "${STATUS}" -eq 0 && "${out}" == "${help_option_out}" ]]; then
+    pass "'help' prints what --help prints, and no fragment named 'help' is exec'd"
+else
+    fail "'help' (exit ${STATUS}) did not print the --help summary, or reached a fragment: ${out}"
+fi
+
 # The base command does not take an argument, and refuses one rather than ignoring it: a report that dropped what it was
 # asked about would read as an answer to the question.
 run_admin status --everything
 refused "status refuses an argument with exit 2 rather than reporting on the whole host" MSG-T6S6 2
 
 # Every name the top-level dispatch answers must be reserved, or a provider could contribute a domain that `--help`
-# lists and the dispatch silently shadows.
+# lists and the dispatch silently shadows. The reserved set is the help library's, read through its predicate.
+HELP_LIB="${ROOT}/src/usr/local/lib/ai-tools/help.lib.sh"
+[[ -r "${HELP_LIB}" ]] || HELP_LIB="/usr/local/lib/ai-tools/help.lib.sh"
+is_reserved() { bash -c 'source "$1" && ai_tools_help__is_base_command "$2"' _ "${HELP_LIB}" "$1"; }
 arms="$(awk '/^case "\$1" in/{f=1} f' "${HELPER}" | grep -oE '^    [a-z][a-z0-9-]*\)' | tr -d ' )')"
-reserved="$(grep -oE '^readonly -a BASE_COMMANDS=\(.*\)' "${HELPER}" | sed -e 's/.*(//' -e 's/).*//')"
 unreserved=()
 for arm in ${arms}; do
-    grep -qw -- "${arm}" <<<"${reserved}" || unreserved+=("${arm}")
+    is_reserved "${arm}" || unreserved+=("${arm}")
 done
-if [[ -z "${arms}" || -z "${reserved}" ]]; then
-    fail "could not extract the dispatch arms or the reserved names"
+if is_reserved demo; then
+    fail "the reserved-name predicate accepts a name no row holds (demo), so its verdicts carry no information"
+elif [[ -z "${arms}" ]] || ! grep -qx stop <<<"${arms}"; then
+    fail "could not extract the dispatch arms, or the stop arm is missing: ${arms//$'\n'/ }"
 elif [[ "${#unreserved[@]}" -eq 0 ]]; then
     pass "every top-level dispatch arm is a reserved base name"
 else
@@ -382,8 +419,8 @@ write_fragment demo
 printf '#!/bin/sh\ntouch "%s"\n' "${MARKER}" > "${CMD_DIR}/Bad.Name"
 chown root:root "${CMD_DIR}/Bad.Name"; chmod 750 "${CMD_DIR}/Bad.Name"
 run_admin --help
-if [[ "${out}" != *"Bad.Name <command>"* ]]; then
-    pass "a fragment whose name is not a bare lower-case word is not a domain"
+if [[ "${out}" == *"demo COMMAND"* && "${out}" != *"Bad.Name COMMAND"* ]]; then
+    pass "a fragment whose name is not a bare lower-case word is not a domain (demo listed beside it)"
 else
     fail "an out-of-charset fragment name was listed as a domain: ${out}"
 fi
@@ -399,7 +436,7 @@ refused "a path-shaped command name is an unknown command, never a path" MSG-N2A
 reset_fixtures
 write_fragment inert 640
 run_admin --help
-if [[ "${out}" == *"inert <command>"* ]]; then
+if [[ "${out}" == *"inert COMMAND"* ]]; then
     pass "a non-executable fragment is still listed as a domain"
 else
     fail "a non-executable fragment went unlisted: ${out}"
@@ -411,7 +448,7 @@ refused "dispatching a non-executable fragment fails rather than running it" MSG
 reset_fixtures
 rm -rf "${CMD_DIR}"
 run_admin --help
-if [[ "${STATUS}" -eq 0 && "${out}" == *"system post-upgrade"* && "${out}" != *"Providers"* ]]; then
+if [[ "${STATUS}" -eq 0 && "${out}" == *"system post-upgrade"* && "${out}" != *"Provider commands:"* ]]; then
     pass "a host with no admin-commands.d prints the base surface and no refusal"
 else
     fail "an absent directory was not silent (exit ${STATUS}): ${out}"
@@ -477,6 +514,25 @@ if [[ "${STATUS}" -eq 1 ]]; then
 else
     fail "expected exit 1 after a failed integration, got ${STATUS}"
 fi
+
+# The full scope reads the same discovery as the dispatch: a group-writable fragment beside the trusted one refuses
+# the set under the set-wide gate, and the trusted fragment's bootstrap does not run.
+reset_fixtures
+write_fragment withboot
+write_fragment weakboot 766
+# shellcheck disable=SC2016  # $1 is the inner shell's own positional, passed after the `_`
+env AI_TOOLS_ADMIN_COMMANDS_DIR="${CMD_DIR}" AI_TOOLS_INTEGRATIONS_DIR="${MANIFEST_DIR}" \
+    bash -c 'source "$1"
+             ai_tools_providers__list_enabled_integrations() { printf "%s\n" withboot; }
+             bootstrap_integrations' _ "${HELPER}" \
+    > "${FIXTURE_ROOT}/out" 2>&1 && STATUS=0 || STATUS=$?
+out="$(cat "${FIXTURE_ROOT}/out")"
+if [[ "${out}" != *"fragment withboot ran"* && "${STATUS}" -eq 1 ]]; then
+    pass "full scope runs no bootstrap while a fragment beside it is not root's alone"
+else
+    fail "full scope ran a bootstrap beside a group-writable fragment (exit ${STATUS}): ${out}"
+fi
+assert_msg MSG-D9U7 "${out}" "the full-scope refusal is named"
 
 # ── every fragment this repo ships declares itself ──────────────────────────────────────────
 # The packaging half: a shipped command that lost its declaration would be refused on the host rather than here,

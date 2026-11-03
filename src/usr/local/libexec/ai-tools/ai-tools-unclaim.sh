@@ -16,9 +16,10 @@
 # and the tree carries plain Unix permissions under the new group. `.git`, which the main walk skips with the other
 # heavy trees, is reverted by a dedicated pass, so git history is revoked with the rest.
 #
-# Invoked as root via sudo by `ai-tools projects unclaim`: root is what a chgrp to an arbitrary group, and a change
-# to a file the projects user does not own, need. The path and the target group the CLI passes are re-validated here,
-# and the path must resolve at or under a registered project (allowed-projects) or the helper is a no-op.
+# Invoked as root via sudo by `atr projects unclaim`: root is what a chgrp to an arbitrary group, and a change to a file
+# the projects user does not own, need. The path and the target group the CLI passes are re-validated here, and the path
+# must resolve at or under a registered project (the operator's project registry) or the helper is a no-op. A registry
+# the loader refuses, a line the grammar refuses among the reasons, does not list any project.
 #
 # Two modes, differing ONLY in which paths they accept -- never in what they do to a path they accept, so one reversal
 # is described once and tested once:
@@ -86,7 +87,7 @@ TARGET="${1:?${USAGE}}"
 TARGET_GROUP="${2:?${USAGE}}"
 shift 2
 
-# `--unlisted`: act on a tree that is NOT in any allowed-projects (a claimed project copied or moved elsewhere and never
+# `--unlisted`: act on a tree that is NOT in any project registry (a claimed project copied or moved elsewhere and never
 # unclaimed). It swaps one gate for another rather than removing one: the allowlist-membership check is skipped,
 # and every path must instead carry the ai-tools residue fingerprint (_is_residue) to be touched at all.
 # The protected-paths backstop, the owner guard, the hardlink guard, and the secret/'!' skips all still apply,
@@ -222,13 +223,21 @@ source /usr/local/lib/ai-tools/conf.lib.sh
 declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
-# The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
-# read, or whose exclusion the loader refuses, leaves both arrays empty, so the target is not listed.
+# The one read every reader of the registry makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
+# read, one whose exclusion the loader refuses (status 2), and one holding a line the grammar refuses (status 3) each
+# leave both arrays empty, so the target is not listed.
 ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match every
-# reader of the allowlist makes).
-_is_excluded() { ai_tools_conf__is_path_excluded "$1" exclusion_patterns; }
+# _is_excluded <abs-path>: 0 if covered by a '!' or '%' line (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match
+# every reader of the registry makes).
+#   A match the library could not make (a status other than 0 or 1, MSG-V9S2 on stderr) ends the run with exit 1
+#   before the path is unclaimed: read as "not excluded" it would act on a path an exclusion covers.
+_is_excluded() {
+    local -i excluded_rc=0
+    ai_tools_conf__is_path_excluded "$1" exclusion_patterns || excluded_rc=$?
+    (( excluded_rc <= 1 )) || exit 1
+    return "${excluded_rc}"
+}
 
 # _is_allowed <abs-path>: 0 if at or under an allowed directory.
 _is_allowed() {
@@ -241,7 +250,7 @@ _is_allowed() {
 }
 
 # Refuse a '!'-excluded target outright, and in the default mode a target outside every registered project: unclaim must
-# never modify permissions outside allowed-projects. Same gate as `ai-tools-{setgid,setfacl}` (a silent no-op
+# never modify permissions outside the project registry. Same gate as `ai-tools-{setgid,setfacl}` (a silent no-op
 # on a foreign target). The management CLI runs the hand-back BEFORE it drops the allowlist entry, so a legitimate
 # unclaim still resolves its owner and stays listed here. `--unlisted` swaps this whole-tree gate for the per-path
 # residue gate in _safe_unclaim; it never runs with neither.
@@ -438,10 +447,24 @@ fi
 # a forced restorecon resets the tree to the default its location resolves to. Gated on the root actually carrying
 # the label, so a tree that never had it is not relabelled as a side effect of unclaiming. Best-effort: a label left
 # behind is a defence-in-depth gap, not an access grant -- the DAC reversal has already removed the agent's reach.
+# The tree was a claimed project, so the walk runs only while no process of the sandbox account is live, read
+# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md,
+# ref-section-e6c6).
 if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" ]] \
         && command -v restorecon >/dev/null 2>&1; then
     if [[ "$(stat -c '%C' "${canonical}" 2>/dev/null)" == *:ai_tools_project_t:* ]]; then
-        if restorecon -RF -- "${canonical}" 2>/dev/null; then
+        sessions_state=unreadable
+        # shellcheck source=SCRIPTDIR/../../lib/ai-tools/sessions.lib.sh
+        if source /usr/local/lib/ai-tools/sessions.lib.sh 2>/dev/null \
+                && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
+            sessions_state="$(ai_tools_sessions__read_live_session_state)"
+        fi
+        if [[ "${sessions_state}" != none ]]; then
+            warn MSG-T6T2 "left the SELinux label under ${canonical} as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -RF ${canonical}"
+            ai_tools_log__coded warning "${_warn_code}" \
+                "left the SELinux label under ${canonical}: a session of the sandbox account was live" \
+                "AI_TOOLS_RESULT=skipped"
+        elif restorecon -RF -- "${canonical}" 2>/dev/null; then
             ai_tools_log__structured info \
                 "reset SELinux label under ${canonical} (was ai_tools_project_t)" "AI_TOOLS_RESULT=ok"
         else

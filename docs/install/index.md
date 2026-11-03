@@ -17,7 +17,7 @@ conventions. SELinux in enforcing mode with the targeted policy is
 where the session's own domain applies; a host without it runs in a DAC-only
 posture instead, and says so at every launch until the operator declares it
 ([SELinux](../system/selinux.md)). The install itself needs the network once,
-for `sudo ai-tools-admin system bootstrap`, which fetches the Node toolchain
+for `atr admin system bootstrap`, which fetches the Node toolchain
 and the agent; after that a systemd timer keeps both current
 ([Upgrade](upgrade.md)). Run without a route to the download hosts,
 that command says so, applies every step that does not need a download,
@@ -63,25 +63,25 @@ DAC-only deployment.
 ## After the packages are on
 
 Two root commands finish the setup, and they are independent of each other:
-`sudo ai-tools-admin system bootstrap` asks which installed agent this host
-runs, installs the toolchain with that agent's package, and enables the update
-timer, and `sudo ai-tools-admin operators add <account>` enrols an account
-as an operator ([Operators](../operators/index.md)). No agent is on until you
-pick one; an unattended provision passes the choice as `--agents agent-<name>`
+`atr admin system bootstrap` asks which installed agent this host runs,
+installs the toolchain with that agent's package, and enables the update timer,
+and `atr admin operators add <account>` enrols an account as an operator
+([Operators](../operators/index.md)). No agent is on until you pick one;
+an unattended provision passes the choice as `--agents agent-<name>`
 ([Agents](../agents/index.md)). Only then does a project get claimed
-for that operator ([Projects](../projects/index.md)) —
-`ai-tools projects create` for a new tree, which does not ask any questions
-because a tree that did not exist has no permissions, secrets or history
-to review, and `ai-tools projects claim` for one you already have,
-which reviews all three before granting anything. The front page carries both
-commands as a quick start.
+for that operator ([Projects](../projects/index.md)) — `atr projects create`
+for a new tree, which does not ask any questions because a tree that did not
+exist has no permissions, secrets or history to review,
+and `atr projects claim` for one you already have, which reviews all three
+before granting anything. The front page carries both commands as a quick
+start.
 
 The skills every session loads come from the asset set
 [`core`](https://github.com/dag-node/ai-tools-assets/tree/develop/sets/core),
 which the install pulls and leaves off until you enable it:
 
 ```bash
-sudo ai-tools-admin assets enable --set core
+atr admin assets enable --set core
 ```
 
 [Sessions](../sessions/index.md) covers what a session then loads, and your own

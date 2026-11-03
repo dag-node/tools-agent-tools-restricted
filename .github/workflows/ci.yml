@@ -31,7 +31,9 @@ jobs:
     # Each job's bound is about twice its slowest duration, rounded up to a multiple of 5 minutes, over the push run
     # of develop at b5d3c859 and the pull request run that moved CI to ubuntu-26.04 (2026-10-13): shellcheck 158 s,
     # typesafe-client 8 s, assets-conformance 15 s, dev-tools 27 s, selftest-matrix 6 s, and an rpm-selftest leg 801 s
-    # (el9; el10 730 s, fc44 696 s). The release job keeps its own bound.
+    # (el9; el10 730 s, fc44 696 s). An el10 leg took 1149 s on 2026-11-01 with the suite running one file at a time
+# (1028 s of it); tests/run.sh runs four at a time, and a leg is bounded at 15.
+    # The release job keeps its own bound.
     timeout-minutes: 10
     steps:
       # A job that does not run a git command against the remote checks out without storing the token in .git/config.
@@ -237,7 +239,7 @@ jobs:
     # drop-in in the step below answers that.
     runs-on: ubuntu-26.04
     # Per leg.
-    timeout-minutes: 30
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -297,9 +299,14 @@ jobs:
         id: relver
         run: echo "release=0.${{ github.run_number }}.git$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
+      # TEST_RESULTS mounts test-results/ into the selftest container, where the suite keeps every transcript,
+      # results.tsv and run-info.txt under a directory named for the run's UTC start and distribution.
       - name: make -C packaging rpmtest-${{ matrix.distro }}
         if: steps.scope.outputs.run == 'true'
-        run: make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} OCI="sudo podman"
+        run: |
+          mkdir -p test-results
+          make -C packaging rpmtest-${{ matrix.distro }} RPM_RELEASE=${{ steps.relver.outputs.release }} \
+              OCI="sudo podman" TEST_RESULTS="${PWD}/test-results"
 
       - name: Record that el10 passed this tree
         id: marker
@@ -312,11 +319,55 @@ jobs:
 
       - name: Upload the el10 marker
         if: steps.marker.outputs.name != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.marker.outputs.name }}
           path: selftest-marker/el10
           overwrite: true
+          retention-days: 14
+
+      # `if: always()`, so a failed or timed-out leg keeps whatever the suite wrote. origin.txt names the run
+      # the results came from; run-info.txt beside each transcript set names when and on what the suite ran.
+      # upload-artifact packs the directory into one zip, named atr-test-results-<dist>-<runner image>-<UTC start>:
+      # a stable prefix, then the suite's start, so saved results sort by distribution and runner image and then
+      # by time. The image (ImageOS, set on GitHub-hosted runners, else RUNNER_OS) stays the same from run to run
+      # where the runner's own name does not; the runner's name, the release and the run are in origin.txt. The record
+      # time stands in where the suite wrote no directory.
+      - name: Record the test results' origin
+        id: results
+        if: always() && steps.scope.outputs.run == 'true'
+        env:
+          DIST: ${{ matrix.dist }}
+          RELEASE: ${{ steps.relver.outputs.release }}
+        run: |
+          mkdir -p test-results
+          sudo chown -R "$(id -u):$(id -g)" test-results
+          {
+            printf 'repository=%s\n' "${GITHUB_REPOSITORY}"
+            printf 'commit=%s\n' "${GITHUB_SHA}"
+            printf 'ref=%s\n' "${GITHUB_REF}"
+            printf 'event=%s\n' "${GITHUB_EVENT_NAME}"
+            printf 'run=%s/%s/actions/runs/%s/attempts/%s\n' "${GITHUB_SERVER_URL}" "${GITHUB_REPOSITORY}" \
+                "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+            printf 'dist=%s\n' "${DIST}"
+            printf 'release=%s\n' "${RELEASE}"
+            printf 'runner=%s %s %s\n' "${RUNNER_NAME:-}" "${ImageOS:-${RUNNER_OS:-}}" "${ImageVersion:-}"
+            printf 'recorded=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > test-results/origin.txt
+          stamp="$(find test-results -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+              | sed -n 's/^.*-\([0-9]\{8\}T[0-9]\{6\}Z\)$/\1/p' | sort | head -n1)"
+          [[ -n "${stamp}" ]] || stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          runner="$(printf '%s-%s' "${ImageOS:-${RUNNER_OS:-runner}}" "${RUNNER_ARCH:-}" | tr '[:upper:]' '[:lower:]' \
+              | tr -cd 'a-z0-9.-')"
+          echo "name=atr-test-results-${DIST}-${runner}-${stamp}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the test results
+        if: always() && steps.results.outputs.name != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ${{ steps.results.outputs.name }}
+          path: test-results/
+          if-no-files-found: ignore
           retention-days: 14
 
       # `if: always()` so a failed selftest still surfaces the RPMs that caused it --
@@ -335,7 +386,7 @@ jobs:
 
       - name: Upload dev RPM artifacts
         if: always() && steps.scope.outputs.run == 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ai-tools-rpms-${{ matrix.dist }}-${{ steps.relver.outputs.release }}
           path: dist-rpms/*.rpm
@@ -620,7 +671,7 @@ jobs:
       # Uploaded before the publish steps, so a failed publish still leaves the verified RPMs
       # downloadable.
       - name: Upload signed RPMs as a workflow artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ai-tools-signed-rpms
           path: dist-rpms/

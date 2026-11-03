@@ -6,20 +6,22 @@
 [Handback](handback.md) · [Permissions](permissions.md) — [all
 docs](../index.md)
 
-How `ai-tools projects claim` registers a tree you already have, what it asks
+How `atr projects claim` registers a tree you already have, what it asks
 in the order it asks, what each answer grants, and what a re-claim repairs.
 
 ```bash
 cd ~/src/existing
-ai-tools projects claim
+atr projects claim .
 ```
 
-Registers the tree in your allowlist and in git's `safe.directory` list, gives
-the agent access to it through the shared group and the grants a claim writes,
-and marks the tree as one the confined session may read. It runs only the steps
-that are missing, so a re-claim over a fully claimed tree is a quiet no-op.
-Which files the agent can then open, and which you keep, is
-on [Permissions](permissions.md); the grants themselves are
+The directory is required, and `.` names the one you are in; a claim without
+one is refused with exit 2. Registers the tree in your project registry
+and in git's `safe.directory` list, gives the agent access to it
+through the shared group and the grants a claim writes, and marks the tree
+as one the confined session may read. It runs only the steps that are missing,
+so a re-claim over a fully claimed tree is a quiet no-op. Which files the agent
+can then open, and which you keep, is on [Permissions](permissions.md);
+the grants themselves are
 [ref-section-h7d3](../../.claude/rules/cli.rule.md#ref-section-h7d3).
 
 ## The blocks, in the order they run
@@ -99,8 +101,8 @@ Declining leaves every parent as it was, and the claim goes on: the closing
 line says the agent may be unable to enter the project. A run without
 a terminal declines, and prints the `setfacl` line for each parent so you can
 apply it by hand. A parent you do not own, or a system directory, is not
-offered at all: the claim says why and names `ai-tools projects clone`
-as the way in. The grant is
+offered at all: the claim says why and names `atr projects clone` as the way
+in. The grant is
 [ref-section-d7d5](../../.claude/rules/cli.rule.md#ref-section-d7d5).
 
 ## Secret lockdown before any access
@@ -154,16 +156,40 @@ Two more notices name what the claim saw and left alone:
   those trees. Where one of them is really source, name it in `operator.conf`
   (the notice names the key, `SKIP_ARTIFACT_DIRS_EXCLUDED_PATHS_RELATIVE`)
   and claim again; for ownership alone inside them, run
-  `ai-tools projects handback --full`.
+  `atr projects handback --full`.
 
-An owner-only path, and one named on a `!` line of your allowlist, is skipped
-by every step and reported as a count. Either mark is also how you stop a path
-being reported again.
+Where your account can read the sandbox account's sessions, a claim whose label
+step is pending says so in the same block, before it asks for a password,
+when an agent session, the toolchain update, or a step run as the sandbox
+account is live. On a host where it cannot, the refusal of the label step is
+the first report, after the password:
+
+```text
+NOTICE: a process of the sandbox account is running
+  ... The SELinux label step walks the tree as root, and the helper refuses
+  that step while one is live, where the claim runs it: the other steps apply,
+  the label is reported pending ...
+      atr stop
+```
+
+The label step walks the tree as root, and is refused while an agent session,
+the toolchain update, or a step run as the sandbox account is live
+([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)). Let
+each session end with `/exit` and the toolchain update finish, or end them all
+with `atr stop`, then claim again: the re-run applies the label alone.
+
+The claim's permission walks, which set the group, the ACL and the secret
+scan, skip an owner-only path, and one an excluded line (`!`) of your project
+registry covers, and report each as a count. Either mark is also how you stop
+a path being reported again. The label step types the whole tree, those paths
+included. A `!` line written after a claim does not take back the access that
+claim granted under it; making the path owner-only does
+([Permissions](permissions.md)).
 
 ## Re-claiming
 
 ```bash
-ai-tools projects claim    # from inside the project
+atr projects claim .    # from inside the project
 ```
 
 Running the claim again is the repair. It reads the tree, performs only
@@ -171,45 +197,73 @@ the steps that are missing, and is a no-op when none are. Run it after you move
 files in from elsewhere, after you change permissions by hand, or when a claim
 stopped part-way. A re-claim repairs group, permissions and the label; it does
 not hand files back, so a file the agent wrote stays owned by the sandbox
-account until you run `ai-tools projects handback` ([Handback](handback.md)).
+account until you run `atr projects handback` ([Handback](handback.md)).
 
 Files you moved in are the usual reason to need one: `mv` keeps a file's old
 group and type, so the agent cannot write that one file while everything
 around it works. The re-claim lists such files, asks about each kind under its
 list, and after the Apply block prints one line per file saying whether
 the repair took. The questions, when to say no, and what each outcome means are
-on [Permissions](permissions.md). `ai-tools projects claim --format tsv` writes
+on [Permissions](permissions.md). `atr projects claim --format tsv` writes
 those outcome lines to standard output as a record stream
 (`man 5 ai-tools-records`), with every other line on standard error
 and the questions still asked on the terminal, so a script reads the rows
 alone.
 
-## A parked entry
+## A disabled entry, and the paths a claim refuses
 
 `projects claim` on a project you disabled does not claim over it and does not
-add a second line: it reports the exclusion, shows the line, and offers
-to re-enable it behind a default-No confirm. Yes claims the project again
-with its line, and its comment, where they were ([Enable](enable.md)).
+add a second line: it reports that the project is disabled, shows the `%` line,
+and offers to re-enable it behind a default-No confirm. Yes claims the project
+again with its line, and its comment, where they were ([Enable](enable.md)).
+A disabled project that another line also covers, such as a `%` on a directory
+enclosing it, is refused instead, naming that line, and the re-enable is not
+offered.
+
+A claim refuses, before it writes anything:
+
+- a path an excluded line (`!`) names, since an excluded path is not a project;
+- a path inside a disabled project, or under an excluded or glob line, since
+  the steps that grant the agent access do not act there. The refusal shows
+  the line; for a `%` line it names the `atr projects enable` that lifts it.
+
+A directory with registered projects under it is claimed as one project,
+and the Review block names the projects it holds.
 
 ## For another operator
 
 ```bash
-ai-tools projects claim --for svc-ci /srv/projects/api
+atr projects claim --for svc-ci /srv/projects/api
 ```
 
-The entry lands in `svc-ci`'s allowlist, so files the agent writes there come
-back to that account and its own agent launches there without further setup.
-The tree has to be owned by that operator or by the sandbox account: a claim
-for an operator over a tree they do not own would register the project
+The entry lands in `svc-ci`'s project registry, so files the agent writes there
+come back to that account and its own agent launches there without further
+setup. The tree has to be owned by that operator or by the sandbox account:
+a claim for an operator over a tree they do not own would register the project
 and leave the agent without access to it, so the claim refuses it up front
 and names the `chown` that fixes it. The worked flow for a service account is
 on [Service accounts](../operators/service-accounts.md).
 
+The claim resolves the path as you, with or without `--for`, so a project
+under a directory you cannot enter is refused, naming that directory.
+Under `--for` the refusal also names a location both accounts reach
+and, where the directory belongs to the target, the traverse-only `setfacl`
+that lets you enter it. The tree itself is read as `svc-ci`, through
+`sudo -u svc-ci`, so a claim over a tree only that account can read completes;
+one more password prompt can precede the review on a host whose `sudo` does
+not cache the password. A refusal names `svc-ci`'s registry
+as `~svc-ci/.config/ai-tools/project-registry`, and each command it prints
+carries `--for svc-ci`.
+
 ## Exit status
 
-0 when the tree is claimed or there was no work; 1 when a root step failed,
-with the pending steps named — a re-run applies exactly those; 2 for a rejected
-command line (an unknown option, a `--format` other than `tsv`); 3
-when the path is a protected system directory or a home root; 4 when a drifted
-file was left as it was or a scan stopped early; 5 when a file's state or part
-of the tree could not be read. `man ai-tools` has the full list.
+0 when the tree is claimed or there was no work; 1 when the path was refused,
+the disabled project was not re-enabled, a root step failed, or the label step
+was refused while a session ran, the last two with the pending steps named —
+a re-run applies exactly those; 2 for a rejected command line (a missing
+directory, an unknown option, a `--format` other than `tsv`); 3 when the path
+is a protected system directory or a home root; 4 when a drifted file was left
+as it was or a scan stopped early; 5 when a file's state or part of the tree
+could not be read, and when the tree could not be read as its owner at all,
+in which case the claim leaves the tree and the registries as they were. `man
+ai-tools` has the full list.

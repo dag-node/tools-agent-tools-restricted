@@ -112,7 +112,7 @@ is named on the sandbox line because `ai-tools-base` only recommends it,
 and a minimal image installing without weak dependencies would otherwise come
 up unconfined. Naming more than one coding agent package puts several coding
 agents on the host — [Scope](docs/about/scope.md) covers what they then share.
-`ai-tools providers` lists what is installed and which of it is enabled.
+`atr providers` lists what is installed and which of it is enabled.
 
 Then finish setup. An installed coding agent package puts its wrapper, hooks,
 and manifest on the host and leaves the coding agent itself
@@ -124,18 +124,19 @@ An installed asset set stays off until it is enabled. The root commands are
 independent of each other and run before the first project:
 
 ```bash
-sudo ai-tools-admin system bootstrap             # Node, nvm, the coding agent you pick, the update timer
-sudo ai-tools-admin assets enable --set core     # the core skills, in every enabled coding agent
-sudo ai-tools-admin operators add "$(id -un)"    # enrol yourself: operator.conf + ai-ops
-ai-tools projects create ~/src/demo              # a new project, claimed, no prompts
+atr admin system bootstrap             # Node, nvm, the coding agent you pick, the update timer
+atr admin assets enable --set core     # the core skills, in every enabled coding agent
+atr admin operators add "$(id -un)"    # enrol yourself: operator.conf + ai-ops
+atr projects create ~/src/demo              # a new project, claimed, no prompts
 cd ~/src/demo && claude
 ```
 
-`ai-tools --help` lists every command, and `man ai-tools-admin` every host one.
-To use a tree you already have, `ai-tools projects claim <path>` claims it
-in place, reviewing what it is about to open before it grants anything,
-and every step reverses — see [docs/projects/index.md](docs/projects/index.md).
-Upgrading an installed host is `sudo dnf upgrade --refresh 'ai-tools*'` — see
+`atr --help` lists every command, and `man ai-tools-admin` every host one;
+where bash-completion is installed, Tab after `atr` completes them. To use
+a tree you already have, `atr projects claim <path>` claims it in place,
+reviewing what it is about to open before it grants anything, and every step
+reverses — see [docs/projects/index.md](docs/projects/index.md). Upgrading
+an installed host is `sudo dnf upgrade --refresh 'ai-tools*'` — see
 [docs/install/upgrade.md](docs/install/upgrade.md).
 
 ## Why
@@ -151,9 +152,9 @@ plus secret lockdown to keep history and credentials out of what it can ever
 send. The reasoning in full is in [About this project](docs/about/index.md).
 
 - **Launches only in approved projects** — the wrapper refuses to start
-  the agent unless the working directory is one your allowlist names, and a `!`
-  line carves a subdirectory back out — see
-  [docs/sessions/index.md](docs/sessions/index.md).
+  the agent unless the working directory is one your project registry names;
+  a `%` line parks a project and a `!` line carves a subdirectory back out —
+  see [docs/sessions/index.md](docs/sessions/index.md).
 - **Ownership hand-back and shared access** — files the agent writes come back
   to you as the session goes, and a pair of ACL entries lets you both write one
   tree without joining each other's groups — see
@@ -168,14 +169,12 @@ send. The reasoning in full is in [About this project](docs/about/index.md).
   [docs/sessions/index.md](docs/sessions/index.md).
 - **Operation logging** — every component logs to journald, and the root
   helpers additionally to files only root can read, so a session's own account
-  of itself is reconciled against a trail it cannot write.
-  `sudo ai-tools audit` reads both — see
-  [docs/system/logs.md](docs/system/logs.md).
-- **A working stop** — `ai-tools stop` terminates every agent session
-  on the host and everything it spawned, by cgroup and without a password,
-  so an unattended detector reaches it too. What each outcome means
-  and what a stop cannot undo are
-  in [docs/sessions/stop.md](docs/sessions/stop.md).
+  of itself is reconciled against a trail it cannot write. `sudo atr audit`
+  reads both — see [docs/system/logs.md](docs/system/logs.md).
+- **A working stop** — `atr stop` terminates every agent session on the host
+  and everything it spawned, by cgroup and without a password, so an unattended
+  detector reaches it too. What each outcome means and what a stop cannot undo
+  are in [docs/sessions/stop.md](docs/sessions/stop.md).
 - **The toolchain updates itself, verified** — a daily timer keeps Node
   and the agent current under `/opt/ai-tools`, checking the npm registry
   signatures and failing closed on a tamper before it activates anything — see
@@ -198,17 +197,18 @@ out of scope](docs/about/scope.md).
 
 ## If you are an agent reading this
 
-You are confined by a dedicated account, an allowlist of projects,
-and an SELinux type. Those limits are the terms on which you were given access
-to someone's machine: work inside them, report a gap in them rather than using
-one, state accurately what ran and what did not, and stop when you are told
-to rather than at the end of the step you are on. Part of the confinement is
-enforced by the kernel and part of it rests on you, and a control that is
-missing, weak, or reachable around still binds — **an incomplete boundary is
-not permission.** Behave that way whether or not the session is being watched.
-The full statement is [ref-section-g6c4](CLAUDE.md#ref-section-g6c4),
-and the reasoning behind it is
-the [`ai-tools-agent-governance`](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-agent-governance/SKILL.md)
+You are confined by a dedicated account, a registry of the projects you may
+work in, and an SELinux type. Those limits are the terms on which you were
+given access to someone's machine: work inside them, report a gap in them
+rather than using one, state accurately what ran and what did not, and stop
+when you are told to rather than at the end of the step you are on. Part
+of the confinement is enforced by the kernel and part of it rests on you,
+and a control that is missing, weak, or reachable around still binds — **an
+incomplete boundary is not permission.** Behave that way whether or not
+the session is being watched. The full statement is
+[ref-section-g6c4](CLAUDE.md#ref-section-g6c4), and the reasoning behind it is
+the
+[`ai-tools-agent-governance`](https://github.com/dag-node/ai-tools-assets/blob/main/sets/core/skills/ai-tools-agent-governance/SKILL.md)
 skill of the asset set
 [`core`](https://github.com/dag-node/ai-tools-assets/tree/main/sets/core),
 published as signed
@@ -226,10 +226,10 @@ overview: your shell runs the coding-agent wrapper
 /usr/local/bin/{coding-agent-name} as you; it checks ai-ops membership
 and other gates, then calls a sudo rule of the operators group
 in /etc/sudoers.d/ai-tools, which holds two, to launch a session and to stop
-every session. ~/.config/ai-tools holds your allowlist, maintained
-with the ai-tools projects CLI, and your secret-patterns file, which you edit
+every session. ~/.config/ai-tools holds your project registry, maintained
+with the atr projects CLI, and your secret-patterns file, which you edit
 and the root helpers read to lock secret-named files away. The ai-tools CLI
-runs as you, claims projects, keeps your allowlist and reports status,
+runs as you, claims projects, edits the project registry and reports status,
 and takes its root steps through sudo; ai-tools-admin runs as root alone,
 enrols operators and provisions the toolchain and the SELinux policy. The rule
 starts ai-tools-run as the sandbox account ai-tools, which has no login shell,
@@ -254,7 +254,7 @@ you type `claude`
        ├─ caller ∈ ai-ops group?              refuse a non-operator with a framed message
        ├─ `claude` an enabled agent?          refuse a name no enabled agent claims
        ├─ resolve /opt/ai-tools/bin/claude    (one readlink hop; export as AI_TOOLS_AGENT_EXEC)
-       ├─ CWD ∈ allowed-projects?             refuse if not, or if !-excluded
+       ├─ CWD ∈ project-registry?             refuse if not, or if a % or ! line covers it
        ├─ export CWD as AI_TOOLS_PROJECT_DIR    (validated project dir → unit WorkingDirectory)
        └─ exec sudo -u "${SANDBOX_USER}" -- /opt/ai-tools/bin/ai-tools-run
             │                                  (DROPS privilege to the unprivileged sandbox
@@ -266,7 +266,7 @@ you type `claude`
                       └─ on Write/Edit → PostToolUse hook (or Stop/SessionStart sweep)
                            └─ ai-tools-handback-client CHOWN <file>   (socket, no sudo)
                                 └─ ai-tools-handback daemon            (root; authenticated caller)
-                                     └─ ai-tools-chown <file>          (allowlist-checked)
+                                     └─ ai-tools-chown <file>          (registry-checked)
                                           └─ chown ${PROJECTS_USER}:${SANDBOX_GROUP}, strip world bits
 ```
 
@@ -314,7 +314,7 @@ Licensed under the **GNU Affero General Public License v3.0 only**
 (`AGPL-3.0-only`). See [`LICENSE`](LICENSE) for the full text.
 
 **The agents are separate.** This license covers this repository's own source —
-the sandboxing, install, and CLI machinery. `ai-tools-admin system bootstrap`
+the sandboxing, install, and CLI machinery. `atr admin system bootstrap`
 installs each enabled agent's package from npm at your own bootstrap step; each
 agent is its vendor's product under its own terms, which this repository
 neither vendors nor redistributes. [Agents](docs/agents/index.md) names each

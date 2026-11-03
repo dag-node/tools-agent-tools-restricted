@@ -93,11 +93,11 @@ the permission arrays as the host wrote them ([An upgrade keeps host tuning and 
 hooks](#an-upgrade-keeps-host-tuning-and-still-lands-this-versions-hooks)), so an upgraded host adds it by hand.
 `ai_tools_settings_merge__find_ask_gaps` (`settings-merge.lib.sh`) names the entry a kept file lacks for an installed
 command, checked against a table there rather than a shipped copy, since a host may hold none after an upgrade. Three
-paths print it as a warning and none writes it: `install.sh` on a kept file, `ai-tools-admin system post-upgrade`
-whether or not a `.rpmnew` is waiting, and the agent package's rpm trigger on the typesafe package, which fires
-when either is installed or upgraded while the other is present, so the line shows in the `dnf` output.
-`tests/integration/hooks.sh` fails on the same gap. Codex's counterpart is a requirements rule marked `prompt`
-([agent-codex](agent-codex.rule.md)), which is not shipped.
+paths print it as a warning and none writes it: `install.sh` on a kept file, `atr admin system post-upgrade` whether
+or not a `.rpmnew` is waiting, and the agent package's rpm trigger on the typesafe package, which fires when either is
+installed or upgraded while the other is present, so the line shows in the `dnf` output. `tests/integration/hooks.sh`
+fails on the same gap. Codex's counterpart is a requirements rule marked `prompt` ([agent-codex](agent-codex.rule.md)),
+which is not shipped.
 
 ### Refused (`deny`)
 
@@ -332,9 +332,8 @@ outright and its hook declarations are current with no operator step.
 No rpm directive resolves the split on its own, because rpm has no vocabulary for merging one subtree of a file: plain
 `%config` would install the shipped file and move the host's aside to `.rpmsave`, reverting the permission rules
 the file was kept for, while `%config(noreplace)` alone leaves a newly shipped hook declared nowhere. The merge
-therefore runs on request — **`sudo ai-tools-admin system post-upgrade`**, through the same `settings-merge.lib.sh`
-entry point — and the agent package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits
-a config file.
+therefore runs on request — **`atr admin system post-upgrade`**, through the same `settings-merge.lib.sh` entry point —
+and the agent package's `%post` prints that pointer whenever a `.rpmnew` is present. No scriptlet edits a config file.
 
 The command runs the merge on a throwaway copy first, so the list it shows is the exact set of declarations the real
 merge adds rather than a promise of one. It then confirms, writes the dated `.bak`, and names that backup. **The

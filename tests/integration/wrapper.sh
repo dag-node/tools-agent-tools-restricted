@@ -5,9 +5,9 @@
 # as an operator types it. It proves the installed wrapper reaches the shared gates (launch-wrapper.lib.sh) in their
 # order -- the ai-ops operator gate, the launcher gate, the allowlist gate, and the symlink-existence guard --
 # against the REAL installed files, hermetically: the gates key the allowlist off ${HOME}, so the test points HOME
-# at a /tmp testdir with a controlled allowed-projects (no dependency on the operator's real allowlist, and no
-# dependency on whether the install dir is a project). Every wrapper run is detached via setsid so the /dev/tty claim
-# prompt can never fire -- the test never claims a project as a side effect. Each gate's own refusal set is driven
+# at a /tmp testdir with a controlled project registry (no dependency on the operator's real registry, and no dependency
+# on whether the install dir is a project). Every wrapper run is detached via setsid so the /dev/tty claim prompt can
+# never fire -- the test never claims a project as a side effect. Each gate's own refusal set is driven
 # in tests/unit/launch-wrapper.sh. Run as root via sudo.
 
 set -euo pipefail
@@ -29,11 +29,11 @@ mktestdir
 home="${TESTDIR}/home"
 approved="${TESTDIR}/approved"
 unapproved="${TESTDIR}/unapproved"
-# An excluded subdir UNDER the approved parent: the allowlist approves ${approved} but carves ${approved}/secret back
-# out with a '!' rule, exactly as ai-tools-chown honours it.
+# An excluded subdir UNDER the approved parent: the allowlist approves ${approved} but excludes ${approved}/secret
+# with a '!' line, exactly as ai-tools-chown honours it.
 excluded="${approved}/secret"
 mkdir -p "${home}/.config/ai-tools" "${approved}" "${unapproved}" "${excluded}"
-printf '%s\n' "${approved}" "!${excluded}" > "${home}/.config/ai-tools/allowed-projects"
+printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${approved}" "! ${excluded}" > "${home}/.config/ai-tools/project-registry"
 chmod -R 0755 "${home}" "${approved}" "${unapproved}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${unapproved}"
 
@@ -53,9 +53,9 @@ run_wrapper() {  # $1 = cwd
 }
 
 # gate_refused <output>: true when the output carries either allowlist-gate refusal code -- MSG-N2Z7 (this project is
-# not set up for the agent) or MSG-C9S6 (no allowlist file at all). For these assertions the two codes are one
-# situation, "the gate did not let the session start", and which of them fires depends on whether the fixture allowlist
-# exists; a check that the gate did NOT fire therefore matches on both codes.
+# not set up for the agent) or MSG-C9S6 (no registry file at all). For these assertions the two codes are one situation,
+# "the gate did not let the session start", and which of them fires depends on whether the fixture allowlist exists;
+# a check that the gate did NOT fire therefore matches on both codes.
 gate_refused() { grep -qxE 'MSG-N2Z7|MSG-C9S6' <<<"$1"; }
 
 # (0) Operator gate: the wrapper refuses anyone not in the ai-ops group BEFORE it reaches the
@@ -122,12 +122,12 @@ fi
 
 # (2b) A '!'-excluded subdir under the approved parent is refused (trust-chain step 2: never a
 #      '!'-excluded CWD). Exclusions override allows, so launching from ${approved}/secret must
-#      be blocked with the "excluded by '!' rule" refusal even though its parent is approved.
+#      be blocked with the excluded-path refusal even though its parent is approved.
 out_excl="$(run_wrapper "${excluded}")"
 assert_msg MSG-K8K2 "${out_excl}" "wrapper refuses a '!'-excluded subdir of an approved project"
 
 # (2c) The two halves of ai-tools.projects.disable meet HERE, and nowhere else: the verb's whole promise
-#      is that a parked project cannot be launched in, and that is this gate's decision, not the
+#      is that a disabled project cannot be launched in, and that is this gate's decision, not the
 #      CLI's. Both sides are covered apart -- the CLI writes the line (tests/integration/cli.sh),
 #      the wrapper honours a '!' CWD (case 2b) -- so what this asserts is that they agree about
 #      the same file: the CLI's own edit, read back by the deployed wrapper.
@@ -145,28 +145,27 @@ else
     # user's home through `getent passwd` -- on purpose, so no environment variable can redirect a registry write.
     # So the CLI is pointed at the fixture with AI_TOOLS_ALLOWLIST, the root-only hook the rest of the suite uses,
     # and HOME is kept as well so both agree on the file.
-    fixture_allowlist="${home}/.config/ai-tools/allowed-projects"
+    fixture_allowlist="${home}/.config/ai-tools/project-registry"
     run_cli() {  # $@ = CLI args, run as the operator against the fixture registry
         setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
             AI_TOOLS_ALLOWLIST="${fixture_allowlist}" \
             "${cli}" "$@" < /dev/null 2>&1 || true
     }
-    # The park assertion is ANCHORED to a whole line. A substring test for "!${approved}" also matches the fixture's own
-    # carve-out line (!${approved}/secret), so it would pass whether or not the verb did anything -- and then the launch
-    # assertion fails with no clue why.
+    # The disable assertion is ANCHORED to a whole line, so it reads the '%' line the verb writes and no line that
+    # merely begins with the project's path.
     cli_cmd ai-tools.projects.disable || exit 2
     disable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
     if grep -qi 'unknown command' <<<"${disable_out}"; then
         # A deployed CLI older than this test: an environment fact, not a defect to report as one.
         skip "disabled project refused at launch" "the installed ai-tools has no $(cli_cmd_text ai-tools.projects.disable) verb"
-    elif ! grep -qxF "!${approved}" "${fixture_allowlist}"; then
-        fail "ai-tools.projects.disable did not park the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
+    elif ! grep -qxF "% ${approved}" "${fixture_allowlist}"; then
+        fail "ai-tools.projects.disable did not disable the entry: $(printf '%s' "${disable_out}" | awk 'NF' | tail -3 | tr '\n' ' ')"
     else
-        pass "ai-tools.projects.disable parks the approved project in the wrapper's own allowlist"
+        pass "ai-tools.projects.disable disables the approved project in the wrapper's own allowlist"
 
         out_disabled="$(run_wrapper "${approved}")"
-        # By code, not by prose: the parked-project refusal has to be told from the carve-out one (MSG-K8K2/MSG-W2P3),
-        # which the gate reaches for a '!' entry of a different shape.
+        # By code, not by prose: the disabled-project refusal has to be told from the excluded-path one
+        # (MSG-K8K2/MSG-W2P3), which the gate reaches for a '!' entry of a different shape.
         assert_msg MSG-R2V6 "${out_disabled}" \
             "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
         # The refusal has to name the way back, or the operator's next move is a claim over a project that is already
@@ -178,7 +177,7 @@ else
         fi
 
         # And back: re-enabling must restore the launch, or the pair is a one-way door. This is the same assertion
-        # as case (2), made after a park/restore round trip rather than on a fresh allowlist -- so an edit that left
+        # as case (2), made after a disable/enable round trip rather than on a fresh allowlist -- so an edit that left
         # the line subtly different (moved, requoted, duplicated) shows up as a project that no longer launches.
         cli_cmd ai-tools.projects.enable || exit 2
         enable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
@@ -289,7 +288,7 @@ if ! provisioned_agent; then
     # The launcher gate precedes the CWD gates, so with no enabled agent the run stops there.
     skip_unprovisioned "wrapper protected-path consult"
 else
-    printf '%s\n' "/etc" > "${home}/.config/ai-tools/allowed-projects"
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "/etc" > "${home}/.config/ai-tools/project-registry"
     pp_out="$(run_wrapper /etc)"
     if grep -qxE 'MSG-C7C9|MSG-R7Z3' <<<"${pp_out}"; then
         # Either operator-gate refusal an enrolled-but-not-here operator can draw.
@@ -327,7 +326,7 @@ codex_wrapper=/usr/local/bin/codex
 if [[ ! -x "${codex_wrapper}" ]]; then
     skip "codex wrapper" "not installed at ${codex_wrapper} (the codex package is absent)"
 else
-    printf '%s\n' "${approved}" "!${excluded}" > "${home}/.config/ai-tools/allowed-projects"
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "@ ${approved}" "! ${excluded}" > "${home}/.config/ai-tools/project-registry"
     codex_enabled=0
     # shellcheck source=/dev/null
     if source /usr/local/lib/ai-tools/providers.lib.sh 2>/dev/null \

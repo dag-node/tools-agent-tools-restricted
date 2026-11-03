@@ -18,7 +18,7 @@
 # managed package's own once verify_toolchain_signatures has passed. updater.rule.md states what that covers.
 #
 # Every run records its outcome in a last-run stamp (see write_stamp), the only evidence an operator has of this unit's
-# health: it lives in the sandbox account's own `systemd --user` manager, which `ai-tools status` cannot query
+# health: it lives in the sandbox account's own `systemd --user` manager, which `atr status` cannot query
 # from the operator's session.
 #
 # The exit status classifies the run for the two readers that act on it -- that stamp, and the unit's Restart= policy:
@@ -75,7 +75,7 @@ die() {
 # skip <reason-token> <message> : end the run as TRANSIENT (see the header) -- the counterpart to die for a condition
 # this host did not cause and cannot fix, where the correct outcome is that the toolchain is left alone. It is a notice,
 # not an error: it exits EXIT_TRANSIENT, so the unit retries it, and records <reason-token> in the stamp,
-# so `ai-tools status` can say WHY a run made no change instead of reporting a failure the operator would go looking
+# so `atr status` can say WHY a run made no change instead of reporting a failure the operator would go looking
 # for.
 skip() { _run_skip_reason="$1"; shift
          echo "SKIP : $*" >&2; printf '%s\n' "$*" | systemd-cat -t "nvm-update-ai" -p notice 2>/dev/null || true
@@ -91,9 +91,9 @@ skip() { _run_skip_reason="$1"; shift
 # tolerates failure and the function always returns 0.
 #
 # TRIGGER says whether SYSTEMD started this run, which is what makes the run evidence about the TIMER rather than only
-# about the update: no state nvm-update.timer publishes is reachable from an operator session, so `ai-tools status`
-# infers its health from a run having happened -- and a run this script did by hand is no evidence about a schedule.
-# systemd sets INVOCATION_ID for every unit it starts, so its presence separates the two. A run started by hand
+# about the update: no state nvm-update.timer publishes is reachable from an operator session, so `atr status` infers
+# its health from a run having happened -- and a run this script did by hand is no evidence about a schedule. systemd
+# sets INVOCATION_ID for every unit it starts, so its presence separates the two. A run started by hand
 # THROUGH the manager (`systemctl --user start nvm-update.service`) is indistinguishable from a triggered one and counts
 # as `unit`; the inference is bounded to systemd-started runs, not to scheduled ones.
 #
@@ -111,7 +111,7 @@ write_stamp() {
     [[ -n "${INVOCATION_ID:-}" ]] && trigger=unit
 
     if [[ ! -f "${NVM_UPDATE_STAMP}" || ! -w "${NVM_UPDATE_STAMP}" ]]; then
-        warn "no writable last-run stamp at ${NVM_UPDATE_STAMP} -- 'ai-tools status' cannot report this unit; reinstall ai-tools-integration-nodejs to restore it"
+        warn "no writable last-run stamp at ${NVM_UPDATE_STAMP} -- 'atr status' cannot report this unit; reinstall ai-tools-integration-nodejs to restore it"
         return 0
     fi
 
@@ -191,7 +191,7 @@ source "${SANDBOX_EXEC_LIB}" 2>/dev/null || true
 if ! declare -F ai_tools_sandbox_exec__is_sandbox_account >/dev/null 2>&1; then
     die MSG-T2F4 "cannot confirm this runs as the sandbox account: ${SANDBOX_EXEC_LIB} did not load -- reinstall ai-tools-base"
 elif ! ai_tools_sandbox_exec__is_sandbox_account; then
-    die MSG-U5C4 "refusing to run as $(id -un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs -- start it in that account's user instance (sudo systemctl --user -M ai-tools@ start nvm-update.service) or provision through sudo ai-tools-admin system bootstrap"
+    die MSG-U5C4 "refusing to run as $(id -un 2>/dev/null || printf 'uid %s' "${EUID}"): this script sources nvm.sh and runs npm from the sandbox toolchain, which only the sandbox account runs -- start it in that account's user instance (sudo systemctl --user -M ai-tools@ start nvm-update.service) or provision through atr admin system bootstrap"
 fi
 # npm_output: pass npm's output (stdin) through ai_tools_log__sanitize_stream, or withhold it with one line saying so.
 npm_output() {
@@ -498,7 +498,7 @@ run_install_scripts() {
         log "  running the install scripts of ${pkg}"
         for script in preinstall install postinstall; do
             (cd "${package_dir}" && npm run --if-present "${script}") 2>&1 | tee -a "${capture}" | npm_output \
-                || die "the ${script} script of ${pkg} did not complete -- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm's output names, then run: sudo ai-tools-admin system bootstrap"
+                || die "the ${script} script of ${pkg} did not complete -- the package is installed without it, so an agent whose entrypoint such a script places is refused at launch until it runs; fix what npm's output names, then run: atr admin system bootstrap"
         done
     done
 }
@@ -760,7 +760,7 @@ main() {
         # point, so aborting here would strand a completed update over a symlink the operator can repoint by hand.
         # The scheduled timer run has the socket up and repoints normally.
         if ! /usr/local/bin/ai-tools-handback-client SYMLINK "${versioned_launcher}"; then
-            warn "failed to repoint ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher} via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_launcher} ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher} && ai-tools-admin system entrypoints relabel"
+            warn "failed to repoint ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher} via handback SYMLINK -- the toolchain is updated but the stable symlink may be stale; repoint it as root: ln -sfn ${versioned_launcher} ${AI_TOOLS_NVM_UPDATE__BIN_DIR}/${launcher} && atr admin system entrypoints relabel"
         fi
     done
 
@@ -776,7 +776,7 @@ main() {
     # its declared entrypoint is a FAULT: the same install on the same host leaves it incomplete until what npm's line
     # names is fixed, so it is decided ahead of the transient verdict, which a reader takes as a retry.
     (( incomplete_after == 0 )) \
-        || die MSG-U5N2 "the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) -- every launch of them is refused until that executable is installed; fix what npm names, then run: sudo ai-tools-admin system bootstrap"
+        || die MSG-U5N2 "the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) -- every launch of them is refused until that executable is installed; fix what npm names, then run: atr admin system bootstrap"
     # TRANSIENT rather than failed: no component is broken and that agent is left as it was.
     (( entrypoint_unverified == 0 )) \
         || skip unverified "${entrypoint_unverified} agent entrypoint(s) could not be verified against their vendor's signed release manifest -- not activated; the previously verified version stays in use"

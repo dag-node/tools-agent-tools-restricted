@@ -5,33 +5,37 @@
 # config (the OPERATORS list, the ai-ops group, the sandbox account's linger; the loaded optional SELinux policy groups)
 # while the ai-tools CLI is unprivileged and refuses to run as root.
 #
-#   sudo ai-tools-admin operators                          # list (the zero-argument default)
-#   sudo ai-tools-admin operators add [user]               # default: $SUDO_USER
-#   sudo ai-tools-admin operators remove <user>
+#   atr admin operators                          # list (the zero-argument default)
+#   atr admin operators add [user]               # default: $SUDO_USER
+#   atr admin operators remove <user>
 #   ```bash
-#   sudo ai-tools-admin selinux groups                     # show core + optional group state
-#   sudo ai-tools-admin selinux groups enable <name>...    # load prebuilt (stable) groups
-#   sudo ai-tools-admin selinux groups disable <name>      # unload one
-#   sudo ai-tools-admin system bootstrap                   # provision the sandbox account's toolchain
-#   sudo ai-tools-admin system bootstrap --scope full      # ... and every enabled integration
-#   sudo ai-tools-admin system bootstrap --agents agent-codex # ... enabling the named agent, unattended
-#   sudo ai-tools-admin system entrypoints relabel         # verify + relabel the agent entrypoints
-#   sudo ai-tools-admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
-#   sudo ai-tools-admin system post-upgrade --check        # findings as a record stream; silent, exit 0 when clean
-#   sudo ai-tools-admin status                             # the host's health, read as root
-#   sudo ai-tools-admin dotnet bootstrap                   # a domain a provider package contributes
+#   atr admin selinux groups                     # show core + optional group state
+#   atr admin selinux groups enable <name>...    # load prebuilt (stable) groups
+#   atr admin selinux groups disable <name>      # unload one
+#   atr admin system bootstrap                   # provision the sandbox account's toolchain
+#   atr admin system bootstrap --scope full      # ... and every enabled integration
+#   atr admin system bootstrap --agents agent-codex # ... enabling the named agent, unattended
+#   atr admin system entrypoints relabel         # verify + relabel the agent entrypoints
+#   atr admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
+#   atr admin system post-upgrade --check        # findings as a record stream; silent, exit 0 when clean
+#   atr admin status                             # the host's health, read as root
+#   atr admin stop                               # stop every agent session, through the stop helper
+#   atr admin dotnet bootstrap                   # a domain a provider package contributes
 #   ```
 #
 # The spelling is the project's command grammar (cli-grammar.rule.md): a bare-word command, a plural collection,
 # the verb after the noun, `list` as the zero-argument default, and a singular domain (`selinux`, `system`) where one is
-# needed. `--` introduces an option and never a command, which here is `--help`/`-h` and `--version`.
+# needed. `--` introduces an option and never a command, which here is `--help`/`-h` and `--version`. The command
+# surface is data in help.lib.sh, which renders the help and reads a command line as a help request ahead of the root
+# check: `-h` or `--help` anywhere, or `help` where a command word goes, prints the help of the path typed and does not
+# run the command, and a bare run prints the whole help.
 #
 # An operator is a login user (a human or a rootless service account) that drives the sandbox through the shared
 # ai-tools account. `add` is accumulating and idempotent: it seeds the user's config in `~/.config/ai-tools` (asking
 # before it creates a missing `.config`), appends the name to OPERATORS in /etc/ai-tools/operator.conf, adds the user
 # to the ai-ops group (the sudoers grant and the launch wrapper gate on membership), ensures the sandbox account's
 # linger, and offers to wire the PATH ordering line. The seed comes first so that an account enrolled here holds
-# the `allowed-projects` every later command resolves it through; a first enrolment that cannot write one is refused
+# the project registry every later command resolves it through; a first enrolment that cannot write one is refused
 # with the host unchanged. `remove` reverses the host-side membership (drops the name from OPERATORS and ai-ops),
 # leaving the user's own allowlist and config. `list` prints the current operators.
 #
@@ -105,15 +109,13 @@ readonly PATH_ORDER_LIB="/usr/local/lib/ai-tools/path-order.lib.sh"
 readonly RECORDS_TSV_LIB="/usr/local/lib/ai-tools/records-tsv.lib.sh"
 readonly ASSETS_LIB="/usr/local/lib/ai-tools/assets.lib.sh"
 readonly LAYOUT_LIB="/usr/local/lib/ai-tools/layout.lib.sh"
+readonly HELP_LIB="/usr/local/lib/ai-tools/help.lib.sh"
 # Where a provider package drops the command fragment carrying its own domain. The environment override is a root-only
 # test hook (tests.rule.md, ref-section-b4y9), so tests/unit/admin-commands.sh drives the dispatch against a fixture
 # tree. `--help` lists the domains through it ahead of the root check, so a non-root caller can point the LISTING
 # at another root-owned directory; the dispatch still needs root and each fragment still needs root ownership,
 # so the reach does not add a command. Unset in production.
 readonly ADMIN_COMMANDS_DIR="${AI_TOOLS_ADMIN_COMMANDS_DIR:-/usr/local/lib/ai-tools/admin-commands.d}"
-# The names base owns. A contributed fragment claiming one is refused, so no installed package can shadow a command
-# an administrator relies on.
-readonly -a BASE_COMMANDS=(operators selinux system status assets)
 # What an administrator does about a contributed command that is not root's alone. Stated once and shared by every
 # message that reports one, so the dispatch, the full-scope bootstrap and the help give one answer. It is deliberately
 # NOT "chmod it": a packaged command installs root-owned and unwritable by anyone else, so a file in that state is
@@ -126,6 +128,8 @@ readonly ADMIN_COMMANDS_TAMPER_REMEDY="a packaged command installs root-owned an
 # and the agent package's %post run the relabel helper as root themselves.
 readonly RELABEL_ENTRYPOINT_BIN="/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
 readonly BOOTSTRAP_BIN="/usr/local/libexec/ai-tools/ai-tools-bootstrap"
+# The session-stop helper `stop` execs, the one `atr stop` reaches through ai-tools; root reaches it directly.
+readonly STOP_BIN="/usr/local/libexec/ai-tools/ai-tools-stop"
 
 # Substituted at deploy time (install.sh install_subst from packaging/VERSION; the RPM from %{version}), and left
 # as the literal token in the checkout -- which `--version` reports as `dev`, the same value and the same fallback
@@ -164,19 +168,16 @@ reject() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-admin: %s\n' "$*" >&2
-    printf "try 'ai-tools-admin --help'\n" >&2
+    printf "try 'atr admin --help'\n" >&2
     exit 2
 }
 
-# reject_with_usage <message>: the refusal the LAST dispatch arm takes, at reject's own exit 2. It prints the command
-# surface rather than a pointer at `--help`, because a name that matched no base command and no contributed domain is
-# answered by the domain list this host actually has, which only usage() knows. Defined here so that surface
-# and the code naming the situation stay together.
-reject_with_usage() {
-    local code=""
-    if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
-    printf 'ai-tools-admin: %s\n\n' "$*" >&2
-    usage >&2
+# reject_unknown_command <code> <message>: the refusal for a command path no arm accepts, at reject's exit 2: the code
+# line and the one message line, which names the help command for the deepest path the help holds. Each arm writes its
+# own message, so each keeps its own code.
+reject_unknown_command() {
+    printf '%s\n' "$1" >&2
+    printf 'ai-tools-admin: %s\n' "$2" >&2
     exit 2
 }
 
@@ -192,143 +193,10 @@ coded_refusal() { printf '%s\n' "$1" "$2"; }
 # with <prefix> naming who the refusal is about ahead of the text.
 emit_coded() { "$1" "${2%%$'\n'*}" "${3-}${2#*$'\n'}"; }
 
-# usage: the command surface, grouped by domain. Orientation rather than reference -- every option, exit code
-# and example is in ai-tools-admin(8), and tests/unit/man.sh holds the two in agreement on the command set.
-#
-# Two heredocs with the contributed domains between them, by design: the FIRST one is the base command set, and it is
-# exactly what man.sh reads (it stops at the first EOF). The block between them is whatever this host installed,
-# so the page documents the seam rather than any one domain -- a domain a package contributes cannot be documented
-# by the package that does not ship it.
-usage() {
-    cat <<EOF
-ai-tools-admin -- administer the ai-tools host: operators, SELinux groups, the toolchain, upgrades
-
-  Operators
-    operators                        the enrolled operators
-    operators add [user]             enrol an operator (default: \$SUDO_USER)
-    operators remove <user>          withdraw an operator's enrolment
-  SELinux
-    selinux groups                   the core module and the optional groups
-    selinux groups enable <name>...  load prebuilt optional groups
-    selinux groups disable <name>    unload a loaded group
-  System
-    system bootstrap [--scope full]  provision the sandbox account and its toolchain
-      --agents NAME[,NAME...]        enable the named agents instead of asking which one
-    system entrypoints relabel       verify and relabel the agent entrypoints
-    system post-upgrade [--check]    reconcile the .rpmnew files an upgrade leaves; --check only reports
-      --all                          with --check: list the findings that need no action too
-      --format tsv                   with --check: the line format (the default)
-    system layout [list] [--check]   every installed path with its owner, mode, ACL and SELinux type, and what drifted
-      --all                          with --check: list the entries at their row too
-      --format tsv                   with --check: the line format (the default)
-    system layout reconcile          bring every installed path to its declared owner, mode, ACL and SELinux type
-      --without-rpm                  leave each package file whose content is not verified as it is
-  Assets
-    assets [list]                    each enabled asset's state and the links a reconcile would change
-    assets enable <id>...            enable assets, each <set>/<kind>/<name>, and reconcile
-      --set <set>                    instead: enable each valid asset a set holds now
-    assets disable <id>...           disable assets and remove their links
-    assets reconcile                 bring the asset view and each agent's links up to date
-  Health
-    status                           this host's services, assets, entrypoints and live labels
-EOF
-    usage_domains
-    cat <<'EOT'
-    --version                        the installed version
-    --help                           this summary
-
-  Run every command through sudo: each one administers the host and refuses a
-  non-root caller. The project lifecycle is the unprivileged ai-tools CLI, which
-  you run as yourself.
-
-  Every command, exit code and example:  man ai-tools-admin
-EOT
-}
-
-# usage_domains: the domain line each installed provider contributes, so the help an administrator reads
-# and the commands that dispatch cannot disagree -- both read admin_domains. The summary is the provider manifest's
-# admin_summary key (data, parsed not sourced), rather than each fragment being executed to ask it what it is;
-# a provider that declares none still gets its line.
-usage_domains() {
-    admin_domains
-    printf '\n'
-    [[ "${#ADMIN_DOMAINS[@]}" -gt 0 ]] || return 0
-    printf '  Providers\n'
-    local domain summary
-    for domain in "${ADMIN_DOMAINS[@]}"; do
-        summary=""
-        declare -F ai_tools_providers__read_provider_manifest_field >/dev/null 2>&1 \
-            && summary="$(ai_tools_providers__read_provider_manifest_field "${domain}" admin_summary || true)"
-        printf '    %-32s %s\n' "${domain} <command>" "${summary}"
-    done
-    # What the help shows and what runs stay one answer: while the set-wide gate holds these back, the listing says
-    # so rather than offering a command that refuses.
-    admin_commands_trusted \
-        || printf "    (refused: a file in that directory is not root's alone -- see the warning above)\n"
-    printf '\n'
-}
-
 # ── contributed command domains ──────────────────────────────────────────────────────────────
 # The seam that lets a provider package add a domain to this tool. Base cannot enumerate the integrations it ships
 # without, so the domain list is DISCOVERED -- and every way that discovery can fail leaves the command surface smaller,
 # never wider.
-
-# is_base_command <name>: succeed when base owns <name>.
-is_base_command() {
-    local candidate="$1" reserved
-    for reserved in "${BASE_COMMANDS[@]}"; do
-        [[ "${candidate}" == "${reserved}" ]] && return 0
-    done
-    return 1
-}
-
-# admin_domains: resolve the contributed domains this host has into ADMIN_DOMAINS, in filename order, and record
-# in ADMIN_COMMANDS_TAMPERED whether any entry failed the trust predicate. Both results are globals rather than stdout
-# because the caller must see the second one, and a $(...) capture would leave it behind in a subshell. Every refusal
-# goes to stderr.
-#
-# A fragment is honored only while ai_tools_conf__is_trusted holds for it AND for the directory holding it --
-# a group-writable directory lets a non-root writer unlink a root-owned file and put its own in that name, which here
-# would be a command root then executes. A name base owns is refused rather than merged, and a basename that is not
-# a bare lower-case word is skipped before it is ever joined to a path, so a separator or a traversal cannot address
-# a file outside the directory. The dispatch and `--help` both read this one function, so what an administrator is told
-# and what runs cannot disagree.
-#
-# The two rejections are different findings and are counted apart. A name this seam does not recognize (a README,
-# a backup, a base name) is a file that is not a command, and the set around it is unaffected. A file that group
-# or other may write is a broken assumption about the directory itself -- that only root decides what is run from it --
-# and it is what ADMIN_COMMANDS_TAMPERED carries to the conformance gate.
-ADMIN_DOMAINS=()
-ADMIN_COMMANDS_TAMPERED=0
-admin_domains() {
-    ADMIN_DOMAINS=()
-    ADMIN_COMMANDS_TAMPERED=0
-    [[ -d "${ADMIN_COMMANDS_DIR}" ]] || return 0
-    if ! ai_tools_conf__is_trusted "${ADMIN_COMMANDS_DIR}"; then
-        warn MSG-V5S5 "ignoring every contributed command: ${ADMIN_COMMANDS_DIR} is a symlink, is not root-owned, or is writable by group/other"
-        ADMIN_COMMANDS_TAMPERED=1
-        return 0
-    fi
-    local fragment domain
-    for fragment in "${ADMIN_COMMANDS_DIR}"/*; do
-        [[ -f "${fragment}" ]] || continue
-        domain="${fragment##*/}"
-        if [[ ! "${domain}" =~ ^[a-z][a-z0-9-]*$ ]]; then
-            warn MSG-H6J9 "skipping $(printf '%q' "${fragment}"): a contributed command is named for its provider, in bare lower-case"
-            continue
-        fi
-        if is_base_command "${domain}"; then
-            warn MSG-U6P9 "refusing ${fragment}: '${domain}' is a command ai-tools-admin owns and no package may replace it"
-            continue
-        fi
-        if ! ai_tools_conf__is_trusted "${fragment}"; then
-            warn MSG-D3P6 "refusing ${fragment}: it is a symlink, is not root-owned, or is writable by group/other, so what it runs is not root's decision alone"
-            ADMIN_COMMANDS_TAMPERED=1
-            continue
-        fi
-        ADMIN_DOMAINS+=( "${domain}" )
-    done
-}
 
 # admin_commands_trusted: the SET-WIDE gate, applied before any contributed command is run.
 #
@@ -339,7 +207,7 @@ admin_domains() {
 # in place and the administrator with no reason to act. Base's own commands are untouched by this, so the host stays
 # administrable while the finding is dealt with (ADMIN_COMMANDS_TAMPER_REMEDY).
 admin_commands_trusted() {
-    (( ADMIN_COMMANDS_TAMPERED == 0 ))
+    (( AI_TOOLS_HELP__ADMIN_COMMANDS_TAMPERED == 0 ))
 }
 
 # admin_command_check <domain>: succeed when the fragment carrying <domain> conforms to the interface this tool
@@ -494,13 +362,14 @@ admin_command_has_verb() {
 # twice over: its own arm matched first, and admin_domains refuses a fragment claiming one.
 contributed_dispatch() {
     local domain="$1"; shift
-    admin_domains
-    local known found=no
-    for known in "${ADMIN_DOMAINS[@]}"; do
+    ai_tools_help__read_admin_domains "${ADMIN_COMMANDS_DIR}"
+    local known found=no help_command
+    for known in "${AI_TOOLS_HELP__ADMIN_DOMAINS[@]}"; do
         [[ "${known}" == "${domain}" ]] && { found=yes; break; }
     done
     if [[ "${found}" != yes ]]; then
-        reject_with_usage MSG-N2A5 "unknown command: ${domain}"
+        help_command="$(ai_tools_help__format_help_command ai-tools-admin "${domain}")"
+        reject_unknown_command MSG-N2A5 "unknown command: ${domain} -- run '${help_command}'"
     fi
     admin_commands_trusted \
         || die MSG-A3P2 "refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above) -- ${ADMIN_COMMANDS_TAMPER_REMEDY}"
@@ -537,18 +406,54 @@ source "${PROVIDERS_LIB}" 2>/dev/null || true
 # shellcheck source=SCRIPTDIR/../../lib/ai-tools/path-order.lib.sh
 . "${PATH_ORDER_LIB}" || die_unsourced "${PATH_ORDER_LIB}"
 
+# The command surface as data, the help rendered from it, the reading of a command line as a help request,
+# and the contributed-domain discovery the dispatch and the help both read. Required: the dispatch cannot tell
+# a contributed domain from an unknown command without it. Sources conf.lib.sh itself, so it loads after it.
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/help.lib.sh
+. "${HELP_LIB}" || die_unsourced "${HELP_LIB}"
+
 # Executed, this administers a host and needs root. Sourced -- by tests/unit/admin-operator-add.sh, which drives one
 # function with sudo stubbed -- it does not assert anything about the host and only defines, stopping at the matching
 # guard that precedes the dispatch. Everything between the two is definitions, so the executed path still refuses
 # a non-root caller before any action.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    # `--help` and `--version` read no host state and leave the host as it is, so they answer any caller and are handled
-    # here, ahead of the root check: an operator meeting the tool gets the command surface rather than a refusal naming
-    # sudo without saying what to run under it. Both ignore any further argument.
-    case "${1:-}" in
-        --help|-h) usage; exit 0 ;;
-        --version) printf 'ai-tools-admin %s\n' "${AI_TOOLS_VERSION}"; exit 0 ;;
+    # A help request and `--version` read no host state and leave the host as it is, so they answer any caller here,
+    # ahead of the root check: an operator meeting the tool gets the command surface rather than a refusal naming sudo
+    # without saying what to run under it. ai_tools_help__resolve_request states what a help request is; a bare run is
+    # one. A help request on an unknown path continues with the path as typed, so the arm that refuses it names it
+    # under its own code, and one on a contributed domain continues to that domain, which answers its own help.
+    help_status=0
+    help_target="$(ai_tools_help__resolve_request ai-tools-admin "${ADMIN_COMMANDS_DIR}" -- "$@")" || help_status=$?
+    case "${help_status}" in
+        0)
+            if [[ "${help_target}" == - ]]; then
+                ai_tools_help__render ai-tools-admin "${ADMIN_COMMANDS_DIR}"
+            else
+                ai_tools_help__render_hint ai-tools-admin "${help_target}"
+            fi
+            exit 0 ;;
+        2)  IFS=' ' read -ra help_words <<<"${help_target}"; set -- "${help_words[@]}" ;;
+        3)  # The domain first, then its help flag ahead of every other word and of any `--`, so the fragment reads
+            # the line as a help request whichever form asked: `help DOMAIN ...`, `--help DOMAIN ...`, `DOMAIN ... -h`.
+            help_words=("${help_target}" --help)
+            help_seen_domain=0 help_seen_delimiter=0 help_first=1
+            for help_word in "$@"; do
+                if (( help_seen_delimiter == 0 )); then
+                    if [[ "${help_word}" == -- ]]; then help_seen_delimiter=1
+                    elif (( help_first == 1 )) && [[ "${help_word}" == help ]]; then help_first=0; continue
+                    elif [[ "${help_word}" == -h || "${help_word}" == --help ]]; then help_first=0; continue
+                    elif (( help_seen_domain == 0 )) && [[ "${help_word}" == "${help_target}" ]]; then
+                        help_seen_domain=1; help_first=0; continue
+                    fi
+                fi
+                help_first=0
+                help_words+=("${help_word}")
+            done
+            set -- "${help_words[@]}"
+            unset help_word help_seen_domain help_seen_delimiter help_first ;;
     esac
+    unset help_status help_target help_words
+    if [[ "${1-}" == --version ]]; then printf 'ai-tools-admin %s\n' "${AI_TOOLS_VERSION}"; exit 0; fi
     [[ "${EUID}" -eq 0 ]] || die MSG-D7D4 "run as root (sudo)"
 fi
 
@@ -643,21 +548,25 @@ ensure_config_home() {
     log "created ${cfg_home} $(stat -c '%a %U:%G' "${cfg_home}" 2>/dev/null)"
 }
 
-# seed_operator_config <user>: create the config an operator keeps in ~/.config/ai-tools -- allowed-projects (the launch
-# gate) and secret-patterns (which basenames are credentials) -- at 600 inside a 700 directory, so the sandbox account,
-# neither owner nor group member and unable to enter the directory, reads neither while the root helpers read both
-# on the operator's behalf. This is the one place either file is created for an operator, and both headers come
-# from conf.lib.sh, so an account enrolled on a packaged host gets what a from-source install writes.
+# seed_operator_config <user>: create the config an operator keeps in ~/.config/ai-tools --
+# `~/.config/ai-tools/project-registry` (the launch gate) and `~/.config/ai-tools/secret-patterns` (which basenames are
+# credentials) -- at 600 inside a 700 directory, so the sandbox account, neither owner nor group member and unable
+# to enter the directory, reads neither while the root helpers read both on the operator's behalf. This is the one place
+# either file is created for an operator, and both headers come from conf.lib.sh, so an account enrolled on a packaged
+# host gets what a from-source install writes.
 #
 # Each way it can come up short is reported where it happens and returns non-zero, so `op_add` decides what an enrolment
-# missing its `allowed-projects` becomes.
+# missing its `~/.config/ai-tools/project-registry` becomes. The registry is the file ai_tools_conf__resolve_registry
+# picks: a `~/.config/ai-tools/allowed-projects` an earlier release wrote stays the account's registry until
+# `system post-upgrade` migrates it, so `~/.config/ai-tools/project-registry` is not seeded beside it, and the line
+# names the command.
 seed_operator_config() {
     local user="$1" home group cfg status=0
     home="$(getent passwd "${user}" | cut -d: -f6)"
     group="$(id -gn "${user}")"
     if [[ -z "${home}" || ! -d "${home}" ]]; then
         warn MSG-R7U6 "no home directory on this host for ${user}; skipping the config seed"
-        warn "    create the home, then re-run: sudo ai-tools-admin operators add ${user}"
+        warn "    create the home, then re-run: atr admin operators add ${user}"
         return 1
     fi
     ensure_config_home "${user}" "${group}" "${home}" || return 1
@@ -666,7 +575,13 @@ seed_operator_config() {
         warn MSG-N2J8 "could not create ${cfg} at 700 ${user}:${group}"
         return 1
     fi
-    seed_config_file "${user}" "${group}" "${cfg}/allowed-projects"  ai_tools_conf__get_allowlist_seed       || status=1
+    local registry_state registry
+    IFS=$'\t' read -r registry_state registry < <(ai_tools_conf__resolve_registry "${cfg}")
+    if [[ "${registry_state}" == legacy ]]; then
+        warn MSG-A2P2 "the registry ${registry} is the allowed-projects an earlier release wrote, so ~/.config/ai-tools/project-registry is not seeded beside it -- migrate it with: atr admin system post-upgrade"
+    else
+        seed_config_file "${user}" "${group}" "${registry}" ai_tools_conf__get_allowlist_seed || status=1
+    fi
     seed_config_file "${user}" "${group}" "${cfg}/secret-patterns"   ai_tools_conf__get_secret_patterns_seed || status=1
     return "${status}"
 }
@@ -703,7 +618,7 @@ label_operator_config() {
         2) : ;;   # no SELinux layer on this host -- nothing to label, and not a fault
         *) warn MSG-N3T7 "could not label ${cfg} ${AI_TOOLS_RELABEL__OPERATOR_CONF_TYPE}${AI_TOOLS_RELABEL__FCONTEXT_ERROR:+ -- ${AI_TOOLS_RELABEL__FCONTEXT_ERROR}}"
            warn "    until it carries that type the ownership handback no-ops for ${user}'s projects"
-           warn "    repair: sudo ai-tools-admin operators add ${user}" ;;
+           warn "    repair: atr admin operators add ${user}" ;;
     esac
     return 0
 }
@@ -771,7 +686,7 @@ path_order_decline() {
     local user="$1" state="$2" launcher="$3" winner="$4" bashrc="$5" bashprof="$6"
     if [[ "${state}" == shadowed ]]; then
         warn MSG-W7J6 "typing ${launcher} in ${user}'s shell runs ${winner}, not ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}/${launcher} -- that agent runs unconfined, as ${user}"
-        warn "    add this line after the nvm init in ${bashrc} and ${bashprof}, or re-run: sudo ai-tools-admin operators add ${user}"
+        warn "    add this line after the nvm init in ${bashrc} and ${bashprof}, or re-run: atr admin operators add ${user}"
         warn "    ${AI_TOOLS_PATH_ORDER__GUARD}"
         return 0
     fi
@@ -892,7 +807,7 @@ report_operator_role() {
         return 0
     fi
     log "${user} holds no general sudo grant: it can launch agent sessions and read the reports, and cannot claim a project"
-    log "${user}: claim on its behalf from an operator that holds one -- ai-tools projects claim --for ${user} <path>"
+    log "${user}: claim on its behalf from an operator that holds one -- atr projects claim --for ${user} <path>"
 }
 
 op_add() {
@@ -900,6 +815,9 @@ op_add() {
     [[ -n "${user}" ]] || reject MSG-H2P9 "operators add: name a user, or run it through sudo so SUDO_USER is set"
     [[ "${user}" != "${SANDBOX_USER}" ]] || die MSG-C9C4 "an operator must not be the sandbox account ${SANDBOX_USER}"
     [[ "${user}" != "root" ]]            || die MSG-H3M6 "an operator must be a normal login user, not root"
+    # The name is held to the portable set before `id` reads it, so a word `id` would take as an option (`--version`) is
+    # refused here and not run.
+    ai_tools_conf__is_portable_name_valid "${user}" || reject MSG-J2S8 "operators add: not an account name: ${user}"
     id "${user}" &>/dev/null || die MSG-U8T8 "no such user: ${user}"
 
     ai_tools_operator__load_operators || true   # tolerate an unenrolled host (empty list)
@@ -910,9 +828,10 @@ op_add() {
     fi
 
     # The config is seeded BEFORE either fact that makes an operator, so an enrolment either completes or leaves
-    # the host as it found it. An account in `OPERATORS` and in `ai-ops` whose `allowed-projects` does not exist is
-    # refused at every launch, and does not resolve an owner in any root helper, while the enrolment reports success --
-    # so the refusal belongs here, ahead of the first write, where a re-run then enrols the account in full.
+    # the host as it found it. An account in `OPERATORS` and in `ai-ops` whose `~/.config/ai-tools/project-registry`
+    # does not exist is refused at every launch, and does not resolve an owner in any root helper, while the enrolment
+    # reports success -- so the refusal belongs here, ahead of the first write, where a re-run then enrols the account
+    # in full.
     #
     # A RECONCILING re-run carries on instead: the record already stands, this run did not write it, and withdrawing
     # an operator is `operators remove`'s decision. It repairs what it can, reports what it could not, and exits
@@ -920,7 +839,7 @@ op_add() {
     local seeded=0
     seed_operator_config "${user}" || seeded=1
     if (( seeded && ! enrolled )); then
-        die MSG-T4X9 "not enrolled: ${user}'s config in ~/.config/ai-tools could not be seeded, and without allowed-projects it cannot start a session or claim a project -- clear the reason above and re-run"
+        die MSG-T4X9 "not enrolled: ${user}'s config in ~/.config/ai-tools could not be seeded, and without ~/.config/ai-tools/project-registry it cannot start a session or claim a project -- clear the reason above and re-run"
     fi
 
     if (( ! enrolled )); then
@@ -962,8 +881,8 @@ op_add() {
     # reported several steps and one prompt back, and non-zero so an unattended caller reads it without parsing
     # the output.
     if (( seeded )); then
-        warn MSG-P9K2 "config not seeded for ${user}, which stays enrolled -- without allowed-projects in ~/.config/ai-tools it cannot start a session or claim a project"
-        warn "    re-run once the reason above is cleared: sudo ai-tools-admin operators add ${user}"
+        warn MSG-P9K2 "config not seeded for ${user}, which stays enrolled -- without ~/.config/ai-tools/project-registry it cannot start a session or claim a project"
+        warn "    re-run once the reason above is cleared: atr admin operators add ${user}"
         exit 1
     fi
 }
@@ -1107,9 +1026,22 @@ sel_disable() {
 # The one tree a group's .fc names is the sandbox-clone area (the dotnet group maps a clone's build output
 # to ai_tools_project_build_t), so that is what is restored; a claimed project's build rule is a per-project local rule
 # written at claim time and is not the group's.
+#
+# A clone is a tree the sandbox account can write, so the walk runs only while no process of that account is live, read
+# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md,
+# ref-section-e6c6). The group change stands either way; the skip names the walk to run once the sessions end.
 _restore_group_static_labels() {
-    local clones=/var/opt/ai-tools/sandbox-projects
+    local clones=/var/opt/ai-tools/sandbox-projects state=unreadable
     [[ -d "${clones}" ]] && command -v restorecon >/dev/null 2>&1 || return 0
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/sessions.lib.sh
+    if source /usr/local/lib/ai-tools/sessions.lib.sh 2>/dev/null \
+            && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
+        state="$(ai_tools_sessions__read_live_session_state)"
+    fi
+    if [[ "${state}" != none ]]; then
+        warn MSG-B9C4 "left the labels under ${clones} as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${clones}"
+        return 0
+    fi
     restorecon -FR "${clones}" >/dev/null 2>&1 \
         || warn MSG-C9W9 "could not restore labels under ${clones}; run: sudo restorecon -FR ${clones}"
     return 0
@@ -1136,7 +1068,7 @@ sel_list() {
         if ai_tools_selinux_groups__is_loaded "${name}"; then state='[LOADED]  '; else state='[disabled]'; fi
         printf '    %s %-9s %-15s %s\n' "${state}" "${name}" "(${stability})" "${desc}"
     done
-    printf '\n  toggle       : sudo ai-tools-admin selinux groups enable <name> | disable <name>\n'
+    printf '\n  toggle       : atr admin selinux groups enable <name> | disable <name>\n'
     printf '  experimental : not shipped prebuilt -- enable from a source checkout with\n'
     printf '                 sudo selinux/install-selinux.sh enable-group <name>\n'
 }
@@ -1200,13 +1132,13 @@ bootstrap_integrations() {
         log "no integration is enabled in ${OPERATOR_CONF} -- nothing further to provision"
         return 0
     fi
-    admin_domains
+    ai_tools_help__read_admin_domains "${ADMIN_COMMANDS_DIR}"
     admin_commands_trusted \
         || die MSG-D9U7 "refusing every contributed command while ${ADMIN_COMMANDS_DIR} holds a file that is not root's alone (named above); the toolchain itself is provisioned -- ${ADMIN_COMMANDS_TAMPER_REMEDY}"
     local integration known known_domain failed=0
     for integration in "${enabled[@]}"; do
         known=no
-        for known_domain in "${ADMIN_DOMAINS[@]}"; do
+        for known_domain in "${AI_TOOLS_HELP__ADMIN_DOMAINS[@]}"; do
             [[ "${known_domain}" == "${integration}" ]] && { known=yes; break; }
         done
         if [[ "${known}" != yes ]]; then
@@ -1820,7 +1752,7 @@ _pu_asset_report() {
         esac
     done
     if printf '%s\n' "${lines[@]}" | grep -qE '^(asset-missing|asset-unlinked)'; then
-        _pu_say info "sudo ai-tools-admin system bootstrap seeds and links them again"
+        _pu_say info "atr admin system bootstrap seeds and links them again"
     fi
 }
 
@@ -1952,6 +1884,8 @@ _pu_write_finding() {
         asset-unlinked)     _pu_attention MSG-N9S4 "asset-unlinked" ;;
         list-unmigrated)    _pu_attention MSG-P5K4 "list-unmigrated" ;;
         list-unmigratable)  _pu_attention MSG-S3D8 "list-unmigratable" ;;
+        registry-unmigrated) _pu_attention MSG-C2H5 "registry-unmigrated" ;;
+        registry-invalid)   _pu_attention MSG-G6H4 "registry-invalid" ;;
         error)              _pu_unreadable MSG-Y3J5 "error" ;;
         rpmnew-residual)    _pu_info MSG-J3X7 "rpmnew-residual" ;;
         copy-kept)          _pu_info MSG-W8F8 "copy-kept" ;;
@@ -1995,6 +1929,7 @@ _pu_run_check() {
     local -a new_keys=() entries=() files_with_baseline=()
     ai_tools_records_base__begin_report
     _pu_kind_findings "${root}"
+    _pu_registry_findings "${root}"
     exec {fd}< <(_pu_entries "${root}"); pid=$!
     mapfile -t -u "${fd}" files_with_baseline
     exec {fd}<&-
@@ -2144,6 +2079,81 @@ _pu_kind_findings() {
     done
     exec {fd}<&-
     _pu_wait_collector "${pid}" file "${file}" kind-plan
+}
+
+# _pu_registry_list <root>: `<operator>\t<uid>\t<state>\t<path>` per enrolled operator with a home on this host,
+# the registry ai_tools_conf__resolve_registry picks in that operator's ~/.config/ai-tools under <root> -- OPERATORS
+# read from <root>'s operator.conf (the AI_TOOLS_OPERATOR_CONF hook's file with no root), and each home from the account
+# database, so the suite prefixes both.
+_pu_registry_list() {
+    local root="$1" user home uid state path conf="$1/etc/ai-tools/operator.conf"
+    local -a operators=()
+    [[ -n "${root}" ]] || conf="${AI_TOOLS_OPERATOR_CONF:-${OPERATOR_CONF}}"
+    ai_tools_conf__read_list operators "${conf}" OPERATORS 2>/dev/null || return 0
+    for user in "${operators[@]}"; do
+        home="$(getent passwd "${user}" 2>/dev/null | cut -d: -f6)" || home=""
+        uid="$(id -u "${user}" 2>/dev/null)" || continue
+        [[ -n "${home}" ]] || continue
+        IFS=$'\t' read -r state path < <(ai_tools_conf__resolve_registry "${root}${home}/.config/ai-tools")
+        printf '%s\t%s\t%s\t%s\n' "${user}" "${uid}" "${state}" "${path}"
+    done
+}
+
+# _pu_read_registry_refusal <registry-file>: print, on one line, why the launch gate refuses <registry-file> -- the
+# library's refusal and its code, read through ai_tools_conf__check_registry as root, which takes the link rule from the
+# file's own owner -- and return the check's status. Prints nothing and returns 0 for a file the gate reads.
+_pu_read_registry_refusal() {
+    local out line rc=0 code="" text=""
+    out="$(ai_tools_conf__check_registry "$1" 2>&1 >/dev/null)" || rc=$?
+    (( rc )) || return 0
+    while IFS= read -r line; do
+        if [[ "${line}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="${line}"; elif [[ -n "${line}" ]]; then text="${line#conf: }"; fi
+    done <<< "${out}"
+    printf '%s%s' "${text:-$1 cannot be read}" "${code:+ (${code})}"
+    return "${rc}"
+}
+
+# _pu_registry_findings <root>: registry-unmigrated for each enrolled operator whose registry is
+# the `~/.config/ai-tools/allowed-projects` an earlier release wrote and the legacy grammar reads, and registry-invalid
+# for one no reader accepts, legacy or current, with the library's line. The source check is the migration's own (one
+# lstat, the operator's file at 600), made here without the write. Each file is then read as the launch gate reads it,
+# under the grammar the loader detects, so a line that grammar refuses, and an exclusion through a link the sandbox
+# account can change, are registry-invalid with the library's line. A legacy file whose exclusion crosses such a link is
+# registry-unmigrated as well, since the migration copies the line and the remedy is the same edit in either file.
+_pu_registry_findings() {
+    local root="$1" user uid state path kind owner mode reason refusal rc fd pid
+    exec {fd}< <(_pu_registry_list "${root}"); pid=$!
+    while IFS=$'\t' read -r -u "${fd}" user uid state path; do
+        case "${state}" in
+            legacy)
+                reason=""
+                IFS=: read -r kind owner mode < <(stat -c '%F:%u:%a' -- "${path}" 2>/dev/null) || kind=""
+                case "${kind}" in
+                    'regular file'|'regular empty file') ;;
+                    '') reason="${path} cannot be read" ;;
+                    *)  reason="${path} is a ${kind}, not a regular file" ;;
+                esac
+                [[ -n "${reason}" || "${owner}" == "${uid}" ]] || reason="${path} is held by uid ${owner}, not by ${user}"
+                [[ -n "${reason}" || "${mode}" == 600 ]] || reason="${path} is mode ${mode}, not 600"
+                rc=0; [[ -n "${reason}" ]] || refusal="$(_pu_read_registry_refusal "${path}")" || rc=$?
+                (( rc == 0 || rc == 2 )) || reason="${refusal}"
+                if [[ -n "${reason}" ]]; then
+                    _pu_write_finding registry-invalid file "${path}" "${reason}" "${user}"
+                else
+                    (( rc == 0 )) || _pu_write_finding registry-invalid file "${path}" "${refusal}" "${user}"
+                    _pu_write_finding registry-unmigrated file "${path}" "${user}: migrates to ${path%/*}/project-registry" "${user}"
+                fi ;;
+            current)
+                rc=0; refusal="$(_pu_read_registry_refusal "${path}")" || rc=$?
+                case "${rc}" in
+                    0) ;;
+                    2|3) _pu_write_finding registry-invalid file "${path}" "${refusal}" "${user}" ;;
+                    *) _pu_write_finding registry-invalid file "${path}" "${path} cannot be read" "${user}" ;;
+                esac ;;
+        esac
+    done
+    exec {fd}<&-
+    _pu_wait_collector "${pid}" file "${root}/etc/ai-tools/operator.conf" registries
 }
 
 # _pu_orphans <root>: each package copy whose file is gone, one path per line. rpm parks a copy only beside a file it
@@ -2335,8 +2345,70 @@ _pu_kind_migrate() {
     elif AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 "${RELABEL_ENTRYPOINT_BIN}"; then
         _pu_say ok "the enabled agents' entrypoints are reconciled (verified and labelled)"
     else
-        _pu_say err "the entrypoint reconciliation reported a problem above -- re-run it: sudo ai-tools-admin system entrypoints relabel"
+        _pu_say err "the entrypoint reconciliation reported a problem above -- re-run it: atr admin system entrypoints relabel"
     fi
+}
+
+# _pu_registry_migrate <root>: migrate every enrolled operator's `~/.config/ai-tools/allowed-projects`
+# to `~/.config/ai-tools/project-registry` (the plan and the write are ai_tools_conf__plan_registry_migration
+# and ai_tools_conf__migrate_registry, conf.lib.sh), one block per operator, on every run, the unattended one included:
+# each entry keeps its kind and its written path, so the migration does not change what a session reaches, and until it
+# lands every `projects` verb refuses. The plan is printed row by row first -- the line each entry becomes, a whole-line
+# comment the canonical form drops, an entry it cannot carry -- and a plain `!` line no project encloses with the `%`
+# line that disables it in format 1.0, since that reading is the one the migration changes and only the operator knows
+# which was meant. A registry no reader accepts, legacy or current, is named and left as written; a legacy file the gate
+# refuses only for an exclusion through a link still migrates, and the block names the line after its rows. Root
+# writes through the operator's own 0700 directory, and the new file takes the source's owner and mode.
+_pu_registry_migrate() {
+    local root="$1" user uid state path verdict number raw hint sidecar rc scratch notes registry
+    while IFS=$'\t' read -r user uid state path; do
+        case "${state}" in
+            current)
+                ai_tools_conf__check_registry "${path}" 2>/dev/null && continue
+                _PU_NAME="registry"
+                ai_tools_msg__headline "project registry -- ${user}" 1 "${path}"
+                { ai_tools_conf__check_registry "${path}" 2>&1 || true; } | sed 's/^/    /'
+                _pu_say err "no reader accepts this registry, so no session starts under it -- fix the line named above"
+                continue ;;
+            legacy) ;;
+            *) continue ;;
+        esac
+        _PU_NAME="registry"
+        ai_tools_msg__headline "project registry -- ${user}" 1 "${path}" \
+            "becomes ${path%/*}/project-registry, format 1.0: the marker, then each entry with its sign, in canonical order"
+        notes=0
+        while IFS=$'\t' read -r verdict number raw hint; do
+            case "${verdict}" in
+                marker) _pu_say info "new first line: ${raw}" ;;
+                keep)   _pu_say info "line ${number}: ${raw}" ;;
+                drop)   _pu_say info "line ${number}: ${raw} -- a comment line, dropped; format 1.0 carries a note at the end of an entry" ;;
+                refuse) _pu_say err "line ${number}: ${raw} -- ${hint}" ;;
+                note)   _pu_say act "line ${number}: ${raw} -- ${hint}"; notes=$(( notes + 1 )) ;;
+            esac
+        done < <(ai_tools_conf__plan_registry_migration "${path}" 2>/dev/null)
+        # Each `!` keeps its sign: one no project encloses excludes its path in either format, and only the operator
+        # knows whether it was a disabled project, so the block closes by counting them once.
+        if (( notes > 0 )); then
+            _pu_say act "${notes} '!' line(s) above read as excluded paths in format 1.0, so no session starts there, as before -- to keep one as a disabled project that atr projects enable restores, change its '!' to '%'"
+        fi
+        # Called in this shell, not a capture, so the refusal it leaves in AI_TOOLS_CONF__MIGRATION_REFUSAL is read
+        # here.
+        rc=0; scratch="$(mktemp)" || { _pu_say err "not migrated: a scratch file cannot be created"; continue; }
+        ai_tools_conf__migrate_registry "${path}" "${path%/*}/project-registry" "${uid}" > "${scratch}" 2>/dev/null || rc=$?
+        sidecar="$(cat "${scratch}")"; rm -f "${scratch}"
+        case "${rc}" in
+            0) _pu_say ok "written ${path%/*}/project-registry; the file as it was is saved as ${sidecar}" ;;
+            2|3) _pu_say err "not migrated: ${AI_TOOLS_CONF__MIGRATION_REFUSAL} -- fix it, then re-run atr admin system post-upgrade" ;;
+            *) _pu_say err "not migrated: ${AI_TOOLS_CONF__MIGRATION_REFUSAL} -- ${path} stays the registry; re-run atr admin system post-upgrade" ;;
+        esac
+        # The new file keeps every entry, so an exclusion through a link the gate refuses refuses it as it did the old
+        # one, and the same edit clears it in either.
+        registry="${path}"; (( rc == 0 )) && registry="${path%/*}/project-registry"
+        if ! ai_tools_conf__check_registry "${registry}" 2>/dev/null; then
+            { ai_tools_conf__check_registry "${registry}" 2>&1 || true; } | sed 's/^/    /'
+            _pu_say err "no reader accepts ${registry}, so no session starts under it -- fix the line named above"
+        fi
+    done < <(_pu_registry_list "${root}")
 }
 
 # _pu_report: the reconciliation itself, one block per file with a copy waiting, then the closing lines.
@@ -2348,6 +2420,7 @@ _pu_report() {
     local -a to_compare=() identical=()
 
     _pu_kind_migrate "${root}"
+    _pu_registry_migrate "${root}"
     local -a references=() entries=() clock_lines=()
     local entry line
     mapfile -t entries < <(_pu_entries "${root}")
@@ -2428,8 +2501,8 @@ _pu_report() {
 }
 
 # ── status ───────────────────────────────────────────────────────────────────────────────────
-# `ai-tools status` read from root's vantage -- one resource reported twice, not a second report. Which readings root
-# adds and why the two agree is .claude/rules/cli.rule.md; what this file contributes is the rendering, in the plain
+# `atr status` read from root's vantage -- one resource reported twice, not a second report. Which readings root adds
+# and why the two agree is .claude/rules/cli.rule.md; what this file contributes is the rendering, in the plain
 # bracket-token idiom the rest of this tool uses. The verdicts come from services.lib.sh and relabel.lib.sh, which emit
 # data and leave every consumer to format it.
 readonly SERVICES_LIB="/usr/local/lib/ai-tools/services.lib.sh"
@@ -2541,7 +2614,42 @@ status_operator_conf() {
     STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     meta="$(stat -c '%F, owner=%U:%G, mode=%a' -- "${operator_conf}" 2>/dev/null)" || meta="could not be stat-ed"
     st "NOT READABLE" "${SANDBOX_USER} cannot read ${operator_conf} (${meta}) -- sessions and the updater read the default-enabled providers alone, and each updater run fails"
-    detail "sudo ai-tools-admin system layout reconcile"
+    detail "atr admin system layout reconcile"
+    return 0
+}
+
+# status_registries: every enrolled operator's project registry, read as root through each 0700 config directory and
+# as the launch gate reads it (ai_tools_conf__check_registry): one no reader accepts or that cannot be read,
+# and a `~/.config/ai-tools/allowed-projects` an earlier release wrote, each count, with what clears it,
+# since the projects verbs refuse over both and a refused file stops every launch under it. An operator with no registry
+# is named and not counted, since enrolment seeds one.
+status_registries() {
+    local user uid state path rc
+    heading "Project registries"
+    while IFS=$'\t' read -r user uid state path; do
+        if [[ "${state}" == none ]]; then
+            st "n/a" "${user}: no registry at ${path}"
+            detail "atr admin operators add ${user}"
+            continue
+        fi
+        rc=0; ai_tools_conf__check_registry "${path}" 2>/dev/null || rc=$?
+        if (( rc != 0 )); then
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            if (( rc == 1 )); then
+                st "REFUSED" "${user}: ${path} cannot be read, so no session starts under it"
+            else
+                st "REFUSED" "${user}: ${path} holds a line no reader accepts, so no session starts under it"
+            fi
+            { ai_tools_conf__check_registry "${path}" 2>&1 || true; } \
+                | while IFS= read -r line; do detail "${line}"; done
+        elif [[ "${state}" == legacy ]]; then
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            st "NOT MIGRATED" "${user}: ${path} is the allowed-projects an earlier release wrote; the projects verbs refuse until it is migrated"
+            detail "atr admin system post-upgrade"
+        else
+            st OK "${user}: ${path} (format $(ai_tools_conf__read_registry_format "${path}"))"
+        fi
+    done < <(_pu_registry_list "")
     return 0
 }
 
@@ -2575,14 +2683,14 @@ status_provisioning() {
             st OK "${agent} provisioned (${launcher})"
         else
             st MISSING "${agent} has no launcher in ${LAUNCHER_LINK_DIR} -- it is not provisioned"
-            detail "sudo ai-tools-admin system bootstrap"
+            detail "atr admin system bootstrap"
         fi
     done
     return 0
 }
 
 # status_managed_files: per enabled agent, each managed file its manifest names (managed_files, ai-tools-providers(5))
-# whose live copy is not the shipped one -- the same reading `ai-tools status` makes, rendered in this tool's table.
+# whose live copy is not the shipped one -- the same reading `atr status` makes, rendered in this tool's table.
 # The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
 # a supported state and is not counted; a missing one is, since the package is then broken. Prints no line for a file
 # matching the shipped copy. Without the resolver status_provisioning has already said so; a resolver that loaded
@@ -2661,7 +2769,7 @@ status_entrypoints() {
         live="$(entrypoint_live_verdict "${agent}")"
         if [[ "${live}" == mismatch ]]; then
             st MISMATCH "${agent}  the installed entrypoint does not match its pin${version:+ (${version})} -- its sessions refuse to start"
-            detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
+            detail "atr admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         elif entrypoint_stale_mark "${agent}"; then
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
@@ -2676,10 +2784,10 @@ status_entrypoints() {
             st VERIFIED "${agent}  ${version}${age:+, ${age}}"
         elif [[ -e "${pin}" ]]; then
             st unverified "${agent}  its pin is present and carries no version this reader accepts"
-            detail "sudo ai-tools-admin system entrypoints relabel   (rewrites the pin)"
+            detail "atr admin system entrypoints relabel   (rewrites the pin)"
         elif [[ "${strict}" == yes ]]; then
             st UNVERIFIED "${agent}  this host requires verification, so its sessions will not launch"
-            detail "sudo ai-tools-admin system entrypoints relabel   (fetches the vendor's signed manifest)"
+            detail "atr admin system entrypoints relabel   (fetches the vendor's signed manifest)"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         else
             st unverified "${agent}  no pin -- launches are not blocked"
@@ -2742,7 +2850,7 @@ entrypoint_stale_mark() {
     version="$(ai_tools_services__read_stamp_field "${record}" VERSION)"
     age="$(ai_tools_services__format_age "$(ai_tools_services__read_stamp_age "${record}" DETECTED)")"
     st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${reason:-refused}${version:+, ${version}})${age:+, ${age}} -- its sessions refuse to start"
-    detail "sudo ai-tools-admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
+    detail "atr admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
     return 0
 }
 
@@ -2770,7 +2878,7 @@ status_labels() {
             ok)   st labelled "${agent}  its ${what} is ${actual} -- ${path}" ;;
             bad)  st "NOT LABELLED" "${agent}  its ${what} is '${actual}', NOT ${wanted} -- ${path}"
                   detail "its next session refuses to launch rather than run unconfined"
-                  detail "sudo ai-tools-admin system entrypoints relabel"
+                  detail "atr admin system entrypoints relabel"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
             none) st "n/a" "${agent}  its ${what} is not installed -- nothing to label" ;;
         esac
@@ -2810,7 +2918,7 @@ status_unit_search_path() {
             done <<< "${drift_out}"
             if (( open )); then
                 detail "${SANDBOX_USER}'s --user manager runs unconfined, so a unit left on this path would run with none of the properties a session unit sets"
-                detail "sudo ai-tools-admin system layout reconcile"
+                detail "atr admin system layout reconcile"
             fi ;;
         1)  st OK "root owns every directory down to ${home}/${CP_UNIT_SEARCH_PATH_CHAIN[-1]}" ;;
         *)  st UNREADABLE "the unit search path under ${home} could not be read -- reinstall ai-tools-base"
@@ -2826,11 +2934,11 @@ status_unit_search_path() {
 }
 
 # status_caches [home] [state-file]: per cache group, what its last cleanup did and when, read from the state file
-# through cache-cleanup.lib.sh, whose verdicts and remedies ai-tools status renders too, and beside it the size
-# the cache holds now, which only root reads in the 0750 tree (`du -sxP`, as data, bounded to ten seconds). A group
-# that failed, or that holds links its producer does not write, is counted in STATUS_PROBLEMS; an overdue one is shown
-# and not counted, and an empty file reads `?` and is not counted. <home> and <state-file> are parameters so a unit test
-# drives the section over fixtures; the report passes AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
+# through cache-cleanup.lib.sh, whose verdicts and remedies atr status renders too, and beside it the size the cache
+# holds now, which only root reads in the 0750 tree (`du -sxP`, as data, bounded to ten seconds). A group that failed,
+# or that holds links its producer does not write, is counted in STATUS_PROBLEMS; an overdue one is shown and not
+# counted, and an empty file reads `?` and is not counted. <home> and <state-file> are parameters so a unit test drives
+# the section over fixtures; the report passes AI_TOOLS_CACHE_CLEANUP_STATE, a root-only override.
 status_caches() {
     local home="${1:-${CP_HOME:-/opt/ai-tools}}"
     local state="${2:-${AI_TOOLS_CACHE_CLEANUP_STATE:-/var/opt/ai-tools/state/cache-cleanup.status}}"
@@ -2931,10 +3039,10 @@ status_update_timer_stamp() {
 
 # status_selinux_attestation: render the rows ai_tools_confinement__list_attestation_report prints (confinement.lib.sh):
 # the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified by the launch shim's own
-# functions, so this report, ai-tools status and the launch cannot disagree. A finding counts only where the report's
-# verdict row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without
-# SELinux confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) only where that key makes
-# every launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
+# functions, so this report, atr status and the launch cannot disagree. A finding counts only where the report's verdict
+# row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without SELinux
+# confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) only where that key makes every
+# launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
 # the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
@@ -3072,7 +3180,7 @@ status_assets_rows() {
     for entry in "${AI_TOOLS_ASSETS__ENTRIES[@]}"; do
         [[ "${AI_TOOLS_ASSETS__STATE[${entry}]}" == linked ]] && linked=$(( linked + 1 ))
     done
-    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} resolved to linked; sudo ai-tools-admin assets list names the link changes a reconcile would make"
+    st OK "${#AI_TOOLS_ASSETS__ENTRIES[@]} asset(s) enabled in AI_TOOLS_ASSETS, ${linked} resolved to linked; atr admin assets list names the link changes a reconcile would make"
     return 0
 }
 
@@ -3141,7 +3249,7 @@ status_assets_successors() {
         install=""
         ai_tools_assets__is_set_installed "${successor_set}" || install="sudo dnf install ai-tools-assets-sets-${successor_set} && "
         st ATTENTION "successor-unenabled  ${successor_set} -- ${names[${successor_set}]} withdrawn from ai-tools-base; their successors in the set ${successor_set} are not enabled and AI_TOOLS_ASSETS is not set; copies are under ${AI_TOOLS_ASSETS_HOME}/retired"
-        detail "run: ${install}sudo ai-tools-admin assets enable --set ${successor_set}, or set AI_TOOLS_ASSETS=[] in ${AI_TOOLS_OPERATOR_CONF} to keep them off"
+        detail "run: ${install}atr admin assets enable --set ${successor_set}, or set AI_TOOLS_ASSETS=[] in ${AI_TOOLS_OPERATOR_CONF} to keep them off"
         STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
     done
 }
@@ -3201,8 +3309,8 @@ status_node_version() {
 
 # status: the host report. The exit is the report state's (ai-tools-records(5)): 4 when a section read a fault, 5
 # when a section could not make a reading it promises, so it is usable from a monitor or a cron check without parsing
-# this output -- the same contract `ai-tools status` offers, and the reason `?` and `n/a` are never counted: a reading
-# this vantage point cannot make must not make a healthy host alarm every night.
+# this output -- the same contract `atr status` offers, and the reason `?` and `n/a` are never counted: a reading this
+# vantage point cannot make must not make a healthy host alarm every night.
 status() {
     [[ $# -eq 0 ]] || reject MSG-T6S6 "status: takes no arguments"
     STATUS_PROBLEMS=0
@@ -3240,6 +3348,7 @@ status() {
     status_agent_versions
 
     status_provisioning
+    status_registries
     status_managed_files
     status_assets
 
@@ -3261,10 +3370,10 @@ status() {
     # by unit and uid, since `journalctl --user-unit` as root reads root's own units (cli.rule.md).
     heading "More"
     printf '    %s\n' \
-        "ai-tools status          the same host, read from an operator's vantage" \
-        "ai-tools providers       installed agents and integrations, and which are enabled" \
-        "sudo ai-tools-admin selinux groups   the core module and the optional groups" \
-        "sudo ai-tools-admin --help           every command this host has"
+        "atr status          the same host, read from an operator's vantage" \
+        "atr providers       installed agents and integrations, and which are enabled" \
+        "atr admin selinux groups   the core module and the optional groups" \
+        "atr admin --help           every command this host has"
     local sandbox_uid
     sandbox_uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || printf '<uid of %s>' "${SANDBOX_USER}")"
     printf '\n    %s\n' "The relabel watcher and the toolchain updater, read and run as root:"
@@ -3362,11 +3471,11 @@ assets_write_list() {
     ai_tools_conf__set_list "${conf}" AI_TOOLS_ASSETS "$@" || rc=$?
     if (( rc != 0 )); then
         ai_tools_assets__write_recorded_rows
-        die MSG-Q8E5 "assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} -- read the line, then run sudo ai-tools-admin assets reconcile to bring the links in line with it"
+        die MSG-Q8E5 "assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} -- read the line, then run atr admin assets reconcile to bring the links in line with it"
     fi
     ai_tools_log__info "assets: AI_TOOLS_ASSETS in ${conf} lists ${#} entries${backup:+; backup ${backup}}"
     [[ "${AI_TOOLS_CONF__WRITE_PLACEMENT:-}" != appended ]] \
-        || notice MSG-T3X4 "assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key -- sudo ai-tools-admin system post-upgrade carries it under its header from the shipped template"
+        || notice MSG-T3X4 "assets: AI_TOOLS_ASSETS was added at the end of ${conf}, which predates the key -- atr admin system post-upgrade carries it under its header from the shipped template"
 }
 
 # assets_sort_identifiers <array-name>: sort the identifiers in the named array in place, by kind, then set, then name
@@ -3604,7 +3713,9 @@ assets_dispatch() {
         enable)    assets_enable "$@" ;;
         disable)   assets_disable "$@" ;;
         reconcile) assets_reconcile_verb "$@" ;;
-        *)         reject MSG-D4S7 "unknown command 'assets ${verb}' (list|enable|disable|reconcile)" ;;
+        *)         local help_command
+                   help_command="$(ai_tools_help__format_help_command ai-tools-admin "assets ${verb}")"
+                   reject_unknown_command MSG-D4S7 "unknown command: assets ${verb} -- run '${help_command}'" ;;
     esac
 }
 
@@ -3619,7 +3730,9 @@ operators_dispatch() {
         list)   op_list   "$@" ;;
         add)    op_add    "$@" ;;
         remove) op_remove "$@" ;;
-        *)      reject MSG-H6J5 "unknown command 'operators ${verb}' (list|add|remove)" ;;
+        *)      local help_command
+                help_command="$(ai_tools_help__format_help_command ai-tools-admin "operators ${verb}")"
+                reject_unknown_command MSG-H6J5 "unknown command: operators ${verb} -- run '${help_command}'" ;;
     esac
 }
 
@@ -3629,7 +3742,9 @@ selinux_groups_dispatch() {
         list)    sel_list ;;
         enable)  sel_enable  "$@" ;;
         disable) sel_disable "$@" ;;
-        *)       reject MSG-H3F8 "unknown command 'selinux groups ${verb}' (list|enable|disable)" ;;
+        *)       local help_command
+                 help_command="$(ai_tools_help__format_help_command ai-tools-admin "selinux groups ${verb}")"
+                 reject_unknown_command MSG-H3F8 "unknown command: selinux groups ${verb} -- run '${help_command}'" ;;
     esac
 }
 
@@ -3638,7 +3753,9 @@ selinux_dispatch() {
     local resource="$1"; shift
     case "${resource}" in
         groups) selinux_groups_dispatch "$@" ;;
-        *)      reject MSG-V9Z4 "unknown command 'selinux ${resource}' (groups)" ;;
+        *)      local help_command
+                help_command="$(ai_tools_help__format_help_command ai-tools-admin "selinux ${resource}")"
+                reject_unknown_command MSG-V9Z4 "unknown command: selinux ${resource} -- run '${help_command}'" ;;
     esac
 }
 
@@ -3751,7 +3868,7 @@ layout_write_table() {
     printf '\n%s entries: %s at their row, %s with a finding, %s unreadable, %s error line(s)\n' \
         "${entry_count}" "${clean_count}" "${drifted_count}" "${unreadable_count}" "${error_count}"
     (( drifted_count + error_count == 0 )) \
-        || printf 'restore each entry to its row:  sudo ai-tools-admin system layout reconcile\n'
+        || printf 'restore each entry to its row:  atr admin system layout reconcile\n'
     ai_tools_records_base__get_exit_status || return $?
     return 0
 }
@@ -3854,7 +3971,7 @@ layout_reconcile() {
     exec {collector_fd}<&-
     wait "${collector_pid}" || reconcile_status=$?
     if (( timed_out )); then
-        warn MSG-H8U2 "the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state -- see: sudo ai-tools-admin system layout"
+        warn MSG-H8U2 "the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state -- see: atr admin system layout"
         error_count=$(( error_count + 1 )); reconcile_status=1
     fi
     log "layout: ${changed_count} changed, ${refused_count} refused, ${error_count} error(s)"
@@ -3877,7 +3994,13 @@ system_layout_dispatch() {
         list)      [[ $# -eq 0 ]] || shift; layout_list "$@" ;;
         reconcile) shift; layout_reconcile "$@" ;;
         --*)       layout_list "$@" ;;
-        *)         layout_reject_option "unknown command '${verb}' (list|reconcile)" ;;
+        *)         local help_command
+                   help_command="$(ai_tools_help__format_help_command ai-tools-admin "system layout ${verb}")"
+                   # The domain's one refusal code, defined at layout_reject_option and printed here as the token, since
+                   # a second definition of it would be a second message under one code.
+                   printf "MSG-R7Y4\nai-tools-admin: unknown command: system layout %s -- run '%s'\n" \
+                       "${verb}" "${help_command}" >&2
+                   exit 2 ;;
     esac
 }
 
@@ -3888,7 +4011,9 @@ system_entrypoints_dispatch() {
     local verb="$1"; shift
     case "${verb}" in
         relabel) entrypoints_relabel "$@" ;;
-        *)       reject MSG-T7N9 "unknown command 'system entrypoints ${verb}' (relabel)" ;;
+        *)       local help_command
+                 help_command="$(ai_tools_help__format_help_command ai-tools-admin "system entrypoints ${verb}")"
+                 reject_unknown_command MSG-T7N9 "unknown command: system entrypoints ${verb} -- run '${help_command}'" ;;
     esac
 }
 
@@ -3900,7 +4025,9 @@ system_dispatch() {
         entrypoints)  system_entrypoints_dispatch "$@" ;;
         layout)       system_layout_dispatch "$@" ;;
         post-upgrade) postupgrade "$@" ;;
-        *)            reject MSG-Q2X5 "unknown command 'system ${name}' (bootstrap|entrypoints|layout|post-upgrade)" ;;
+        *)            local help_command
+                      help_command="$(ai_tools_help__format_help_command ai-tools-admin "system ${name}")"
+                      reject_unknown_command MSG-Q2X5 "unknown command: system ${name} -- run '${help_command}'" ;;
     esac
 }
 
@@ -3908,14 +4035,15 @@ system_dispatch() {
 # dispatched, so the caller's arguments are not read as a command.
 [[ "${BASH_SOURCE[0]}" == "${0}" ]] || return 0
 
-# `--help`/`-h` and `--version` are answered ahead of the root check.
-[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+# A help request, a bare run and `--version` are answered ahead of the root check, so a command reaches this point.
 case "$1" in
     operators) shift; operators_dispatch "$@" ;;
     selinux)   shift; selinux_dispatch   "$@" ;;
     system)    shift; system_dispatch    "$@" ;;
     status)    shift; status             "$@" ;;
     assets)    shift; assets_dispatch    "$@" ;;
+    # The stop helper decides what it accepts and refuses; ai-tools(1) states the command under stop.
+    stop)      shift; exec "${STOP_BIN}" "$@" ;;
     # Anything else is either a domain a provider package contributed or an unknown command, and only the discovered set
     # tells the two apart. Base names are matched first, so a fragment cannot shadow one however it is named.
     *) contributed_dispatch "$@" ;;

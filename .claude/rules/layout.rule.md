@@ -2,6 +2,8 @@
 paths:
   - "src/usr/local/lib/ai-tools/layout.lib.sh"
   - "tests/unit/layout.sh"
+  - "tests/unit/layout-reconcile-*.sh"
+  - "tests/lib/layout-fixture.sh"
   - "tests/integration/perms.sh"
 ---
 
@@ -10,8 +12,8 @@ paths:
 Every path this project installs or creates on a host is one row of a table `layout.lib.sh` declares, with the owner,
 the mode and the ACL the row carries; the SELinux type is derived at read time from the policy. The library reads
 what each row carries now and repairs a drifted row under the preconditions this rule states. Three consumers read it:
-`ai-tools-admin system layout` (the human table and the `--check` record stream, [cli-grammar](cli-grammar.rule.md)
-for the spelling, `ai-tools-admin(8)` for the contract), `ai-tools-admin system layout reconcile`,
+`atr admin system layout` (the human table and the `--check` record stream, [cli-grammar](cli-grammar.rule.md)
+for the spelling, `ai-tools-admin(8)` for the contract), `atr admin system layout reconcile`,
 and `tests/integration/perms.sh`, whose first section is the table's loop. [Where it runs](#where-it-runs) names
 the callers of the reconcile.
 
@@ -32,15 +34,18 @@ read-side gate refuses the path's reader when the path is not at this row), and 
 is the `.gz` where one exists). A row with none of `files`, `config` or `ghost` is runtime-created and its content is
 not read.
 
-The table is validated whole at load, in two provenances. A static row is held to printable ASCII without whitespace,
-a backslash or a glob character; a dynamic row to any absolute normalized path, since an operator's home is the account
-database's to spell. Every row is held to the field grammar, to one named user and one named group per ACL block
-(`getfacl` orders named entries by id, so one of each keeps the text comparable without a sort), to a named entry within
-the mode's group bits (the mask then equals the group bits), to a default entry on a directory alone, to a package list
-on a directory alone, and to a path declared once. One refused declaration leaves `AI_TOOLS_LAYOUT__DECLARATION_ERROR`
-set: the source succeeds, so the command names the row, and every public reader returns 2 without output, except
-the stream writer, which writes the one `error` row the command's refusal is. `/opt/ai-tools` rows take their modes
-from `control-plane.lib.sh`'s constants, which stay declared there.
+The static rows are validated whole at load, and each dynamic row as the discovery builds it, each under its own
+provenance. A static row is held to printable ASCII without whitespace, a backslash or a glob character, and its owner
+to `[a-z_][a-z0-9_-]*` names; a dynamic row to any absolute normalized path, since an operator's home is the account
+database's to spell, and its owner to the portable names enrolment accepts (`ai_tools_conf__is_portable_name_valid`), so
+an operator `null.pointer` has rows. Every row is held to the field grammar, to one named user and one named group per
+ACL block (`getfacl` orders named entries by id, so one of each keeps the text comparable without a sort), to a named
+entry within the mode's group bits (the mask then equals the group bits), to a default entry on a directory alone, to a
+package list on a directory alone, and to a path declared once. A dynamic row the validator refuses is an `error` line
+naming the path and the reason, so the discovery reads as incomplete. One refused static declaration leaves
+`AI_TOOLS_LAYOUT__DECLARATION_ERROR` set: the source succeeds, so the command names the row, and every public reader
+returns 2 without output, except the stream writer, which writes the one `error` row the command's refusal is.
+`/opt/ai-tools` rows take their modes from `control-plane.lib.sh`'s constants, which stay declared there.
 
 ## The entry set
 
@@ -62,11 +67,14 @@ and `ai-tools-admin(8)` states it.
 
 **The dynamic rows come from inputs the reconcile has brought to their rows first.** One `directory` row per installed
 agent manifest with a valid `config_dir`, at `CP_AGENT_CONFIG_MODE`, and per enrolled operator a row
-for `~/.config/ai-tools` and for each file `operators add` seeds in it (`allowed-projects`, `secret-patterns`). Each
-input is read through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted` before anything in it:
-an absent input does not contribute a row, since its static row reports the absence, and an input that is present
-but unreadable, untrusted, of another type or not parsed whole is an `error` line and never an empty set. A dynamic path
-the table declares is an `error` line too.
+for `~/.config/ai-tools` and for each file `operators add` seeds in it (`~/.config/ai-tools/project-registry`,
+`~/.config/ai-tools/secret-patterns`), with an optional row for the `~/.config/ai-tools/allowed-projects` an earlier
+release wrote, which stays the registry until `system post-upgrade` migrates it. While that file exists, the operator's
+`~/.config/ai-tools/project-registry` row is optional too: the migration creates it, and `--check` reports the operator
+as unmigrated. Each input is read through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted`
+before anything in it: an absent input does not contribute a row, since its static row reports the absence, and an input
+that is present but unreadable, untrusted, of another type or not parsed whole is an `error` line and never an empty
+set. A dynamic path the table declares is an `error` line too.
 
 **Not rows:** the sandbox account's own trees and the toolchain under them, every project tree and clone, the asset
 contents under the shared roots ([shipped-assets](shipped-assets.rule.md)), the entrypoint and its label
@@ -211,15 +219,18 @@ as `install.sh` substitutes them, and prints the path first. Unprivileged it dri
 the entry set, the `--check` stream and the reconcile's decisions, and the per-entry repair over owned fixtures,
 where a leaf or a parent swapped after the identity read is refused with the file outside the fixture left as it was. It
 holds the table in lockstep with `packaging/ai-tools.spec` — every `%attr` line resolves to a row with the same owner,
-mode, package and `config`/`ghost` flag, and every `files` row is a `%files` line of each package it names. As root it
-builds a tree from the table itself over `AI_TOOLS_LAYOUT_ROOT` and drives the reconcile over the whole tree: each
-planted drift it repairs converges in one run, each state it refuses is left as it was, and the exit order holds.
-`tests/unit/layout-bound.sh` sources the checkout's `ai-tools-admin.sh` with the library stubbed and holds the command's
-deadline: a reconcile sleeping past a two-second bound returns within a few seconds at exit 1 under its code, its
-collector gone, beside a control that finishes inside it. `tests/integration/perms.sh` is the loop over the installed
-library, and `tests/boundary/access.sh` probes the library, every boundary row, and the reconcile through the installed
-`/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding the status to the two
-a refusal produces.
+mode, package and `config`/`ghost` flag, and every `files` row is a `%files` line of each package it names.
+The reconcile as root is three files, which the runner's pool runs at once, each building its own tree from the table
+itself over `AI_TOOLS_LAYOUT_ROOT` (`tests/lib/layout-fixture.sh`) and driving the reconcile over the whole tree:
+`layout-reconcile-fields.sh` the field repairs and the refusals of an exposed file, `layout-reconcile-entries.sh`
+the missing and replaced entries and the ancestor rule, `layout-reconcile-inputs.sh` the discovery inputs and the exit
+order. Each planted drift it repairs converges in one run, each state it refuses is left as it was, and the exit order
+holds. `tests/unit/layout-bound.sh` sources the checkout's `ai-tools-admin.sh` with the library stubbed and holds
+the command's deadline: a reconcile sleeping past a two-second bound returns within a few seconds at exit 1 under its
+code, its collector gone, beside a control that finishes inside it. `tests/integration/perms.sh` is the loop
+over the installed library, and `tests/boundary/access.sh` probes the library, every boundary row, and the reconcile
+through the installed `/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding
+the status to the two a refusal produces.
 
 ## Design notes
 
@@ -263,7 +274,7 @@ a refusal produces.
 
 - A declared per-row override (`/etc/ai-tools/layout.d/`), so a value an operator keeps at another mode stops reading
   as drift, and the same directory as the seam a third-party package adds rows through.
-- The label field is driven on a packaged host: every fixture of `tests/unit/layout.sh` is under `/tmp`,
-  where the policy does not declare a label expectation, so the `label-drift` repair has no unit case.
+- The label field is driven on a packaged host: every fixture of the layout tests is under `/tmp`, where the policy does
+  not declare a label expectation, so the `label-drift` repair has no unit case.
 - Two runtime gates without a test driving them, which the boundary-pair map records as notes: `ai-tools-run`'s skip
   of an untrusted session-env fragment, and the `claude-prompt`/`claude-endpoint` loader refusal.

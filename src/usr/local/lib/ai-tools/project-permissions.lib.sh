@@ -19,10 +19,13 @@ fi
 readonly _AI_TOOLS_PROJECT_PERMISSIONS__LOADED=1
 
 # ai_tools_project_permissions__build_acl_specification <output-variable> <operator> <sandbox-group>  -- set
-# <output-variable> to the `setfacl -m` specification a claim applies: the operator's named grant, the sandbox group's,
-# and `other::---`. `rwX` grants execute only on a directory or a file that already has an execute bit. Returns 1
-# with the variable empty when an identity is empty or holds a character outside `[A-Za-z0-9._-]`, since a `,` or `:`
-# in one would add an entry of its own to the specification; returns 2 on an invalid variable name.
+# <output-variable> to the `setfacl -m` specification a claim applies: the operator's named grant and the sandbox
+# group's, each `rwx`, and `other::---`. It does not carry a mask entry: the mask decides what each named entry grants
+# in effect, and ai-tools-setfacl sets it per path to the owner's permissions
+# (ai_tools_project_permissions__get_owner_permissions), so a path gives the agent what its owner has. A `rwX` here
+# would resolve `X` from the entries a file inherited. Returns 1 with the variable empty when an identity is empty
+# or holds a character outside `[A-Za-z0-9._-]`, since a `,` or `:` in one would add an entry of its own
+# to the specification; returns 2 on an invalid variable name.
 ai_tools_project_permissions__build_acl_specification() {
     local _output="$1" _operator="$2" _group="$3"
     [[ "${_output}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
@@ -30,7 +33,25 @@ ai_tools_project_permissions__build_acl_specification() {
     local LC_ALL=C
     [[ "${_operator}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]] || return 1
     [[ "${_group}" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]] || return 1
-    printf -v "${_output}" 'user:%s:rwX,group:%s:rwX,other::---' "${_operator}" "${_group}"
+    printf -v "${_output}" 'user:%s:rwx,group:%s:rwx,other::---' "${_operator}" "${_group}"
+}
+
+# ai_tools_project_permissions__get_owner_permissions <output-variable> <octal-mode>  -- set <output-variable> to the
+# owner's permissions in <octal-mode> as a three-character string (`rwx`, `rw-`, `r--`, `r-x`, ...), the mask a claim
+# gives the path. The owner's bits are read because on a path carrying an ACL the group bits of the mode are the mask,
+# and git records the owner's execute bit; a mask copying them does not give the group class a permission the owner
+# lacks, so a read-only file stays read-only to the agent. Returns 1 with the variable empty when <octal-mode> is not
+# an octal number of at most four digits; returns 2 on an invalid variable name.
+ai_tools_project_permissions__get_owner_permissions() {
+    local _output="$1" _mode="$2" _letters=rwx _result="" _bits _index
+    [[ "${_output}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 2
+    printf -v "${_output}" '%s' ''
+    [[ "${_mode}" =~ ^[0-7]{1,4}$ ]] || return 1
+    _bits=$(( (8#${_mode} >> 6) & 7 ))
+    for _index in 0 1 2; do
+        if (( _bits & (4 >> _index) )); then _result+="${_letters:_index:1}"; else _result+=-; fi
+    done
+    printf -v "${_output}" '%s' "${_result}"
 }
 
 # _ai_tools_project_permissions__read_capture <file> <output-variable>  -- set <output-variable> to the whole content
@@ -355,12 +376,16 @@ _ai_tools_project_permissions__read_pinned() {
 #     the helper refused cannot pass on a group and ACL that already matched);
 #   * it is not owner-only (the claim honours that seal, and the path is still not shared);
 #   * its group is the sandbox group, and a directory carries setgid;
-#   * each named entry of the specification grants in effect `rw`, plus `x` on a directory or on a file whose mode has
-#     an execute bit, and `other::` is `---`; on a directory the default set holds the same.
+#   * each named entry of the specification is written `rwx`, as the repair writes it, and grants in effect exactly
+#     the owner's permissions (ai_tools_project_permissions__get_owner_permissions), the mask the repair sets, so
+#     a permission the owner lacks is drift, and so is an entry written narrower under a mask that hides it, which
+#     the owner's later `chmod g+x` would not reach; `other::` is `---`; on a directory the default set grants `rwx`
+#     and `other::---`.
 ai_tools_project_permissions__check_group() {
     local _path="$1" _work="$2" _operator_uid="$3" _sandbox_uid="$4" _sandbox_gid="$5"
     local -n _group_outcome="$6" _group_detail="$7"
-    local LC_ALL=C _read="" _status=0 _uid _gid _mode _type _specification _entry _key _need _have _set _index
+    local LC_ALL=C _read="" _status=0 _uid _gid _mode _type _specification _entry _key _need _set_need _have _set
+    local _written
     local -A _access=() _default=()
     local -a _entries=() _sets=(_access)
     _group_outcome=unknown _group_detail=""
@@ -394,13 +419,13 @@ ai_tools_project_permissions__check_group() {
         _group_outcome=unknown _group_detail="its ACL could not be read"
         return 0
     fi
+    ai_tools_project_permissions__get_owner_permissions _need "${_mode}" || {
+        _group_outcome=unknown _group_detail="its mode ${_mode} could not be read"; return 0; }
     if ! ai_tools_project_permissions__build_acl_specification _specification \
             "${_operator_uid}" "${_sandbox_gid}"; then
         _group_outcome=unknown _group_detail="no ACL specification for uid ${_operator_uid}"
         return 0
     fi
-    _need=rw-
-    if [[ "${_type}" == directory ]] || (( (8#${_mode} & 8#111) != 0 )); then _need=rwx; fi
     if [[ "${_type}" == directory ]]; then
         _sets+=(_default)
         if (( ${#_default[@]} == 0 )); then
@@ -410,6 +435,8 @@ ai_tools_project_permissions__check_group() {
     fi
     IFS=, read -r -a _entries <<< "${_specification}"
     for _set in "${_sets[@]}"; do
+        _set_need="${_need}"
+        [[ "${_set}" == _default ]] && _set_need=rwx
         for _entry in "${_entries[@]}"; do
             _key="${_entry%:*}"
             if [[ "${_key}" == other: ]]; then
@@ -418,14 +445,106 @@ ai_tools_project_permissions__check_group() {
                 _group_detail="${_set#_}: other:: grants ${_have}, not ---"
                 return 0
             fi
+            if [[ "${_set}" == _access ]]; then _written="${_access[${_key}]:-}"
+            else _written="${_default[${_key}]:-}"; fi
+            if [[ "${_written}" != rwx ]]; then
+                _group_detail="${_set#_}: ${_key}: is written ${_written:-as no entry}, not rwx"
+                return 0
+            fi
             ai_tools_project_permissions__get_effective_permissions _have "${_set}" "${_key}"
-            for _index in 0 1 2; do
-                if [[ "${_need:_index:1}" != - && "${_have:_index:1}" != "${_need:_index:1}" ]]; then
-                    _group_detail="${_set#_}: ${_key}: grants ${_have:-no entry} in effect, not ${_need}"
-                    return 0
-                fi
-            done
+            if [[ "${_have}" != "${_set_need}" ]]; then
+                _group_detail="${_set#_}: ${_key}: grants ${_have:-no entry} in effect, not ${_set_need}"
+                return 0
+            fi
         done
     done
     _group_outcome=match _group_detail=""
+}
+
+# ai_tools_project_permissions__find_paths_with_narrow_acl_entries <list-file> <work-dir> <root> <operator-uid>
+# <sandbox-gid> <paths-array> <detail-var>  -- read the access ACL of each NUL-separated path in <list-file>, each one
+# under the directory <root>, and fill <paths-array>, in list order, with the paths carrying a `user:<operator-uid>`
+# or `group:<sandbox-gid>` entry written narrower than `rwx`: the entries a claim before the owner-permissions mask
+# wrote (`rw-` on a file without an execute bit), which a mask hides in effect and which keep the owner's later
+# `chmod g+x` from reaching the agent. <root> is opened once, and each path is reached from it one component at a time,
+# every component opened `O_PATH | O_NOFOLLOW` relative to the one before, so a directory on the way swapped
+# for a symlink after the caller listed the path is not followed; every fact the answer rests on is then read
+# from the final object, which is a hit only while it is a regular file held by <operator-uid> in <sandbox-gid>
+# with a group or other bit: an owner-only file is the operator's seal, which the walk leaves alone, so listing one
+# would put it on every re-claim. The ACL is the kernel's `system.posix_acl_access` value, read through `/proc/self/fd`
+# (an `O_PATH` descriptor does not need read permission) and decoded from its binary form (a version-2 header, then
+# 8-byte tag, permission and id entries, acl(5)), so a path is read as bytes and no tool's escaping of a name is parsed.
+# A path without an access ACL, on a filesystem without ACLs, or no longer present is not a hit. Returns 0 when every
+# path was read. Returns 1 with <detail-var> naming why -- a path outside <root>, a directory on its way that is no
+# longer one (a symlink swapped in among them), a path that could not be opened or read, an ACL that does not decode,
+# python3 failing, an identity that is not a number -- and <paths-array> holding the hits read before it: an unread path
+# is not one without the entries. `-I` as for the lstat reader.
+ai_tools_project_permissions__find_paths_with_narrow_acl_entries() {
+    local _list="$1" _work="$2" _root="$3" _operator_uid="$4" _sandbox_gid="$5" _status=0 _first=""
+    local -n _narrow_paths="$6" _narrow_detail="$7"
+    _narrow_paths=() _narrow_detail=""
+    if [[ ! "${_operator_uid}" =~ ^[0-9]+$ || ! "${_sandbox_gid}" =~ ^[0-9]+$ ]]; then
+        _narrow_detail="the operator or the sandbox group did not resolve to an id"
+        return 1
+    fi
+    { /usr/bin/python3 -I -c '
+import errno, os, stat, struct, sys
+root, uid, gid = os.fsencode(sys.argv[1]).rstrip(b"/"), int(sys.argv[2]), int(sys.argv[3])
+paths = sys.stdin.buffer.read().split(b"\0")
+if paths and paths[-1] == b"":
+    paths.pop()
+not_a_hit = {errno.ENODATA, errno.EOPNOTSUPP, errno.ENOENT}
+unread = None
+project_root_fd = os.open(root, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+for path in paths:
+    if not path.startswith(root + b"/"):
+        unread = unread or "%s: not under the project root" % os.fsdecode(path)
+        continue
+    path_components = path[len(root) + 1:].split(b"/")
+    if b"" in path_components or b"." in path_components or b".." in path_components:
+        unread = unread or "%s: not a plain path under the project root" % os.fsdecode(path)
+        continue
+    opened_component_fds = []
+    try:
+        fd = project_root_fd
+        for part in path_components[:-1]:
+            fd = os.open(part, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+            opened_component_fds.append(fd)
+        fd = os.open(path_components[-1], os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+        opened_component_fds.append(fd)
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_gid != gid or not st.st_mode & 0o077:
+            continue
+        data = os.getxattr("/proc/self/fd/%d" % fd, "system.posix_acl_access")
+    except OSError as error:
+        if error.errno in not_a_hit:
+            continue
+        # ENOTDIR on the way: a directory the listing named is now a symlink or a file.
+        unread = unread or "%s: %s" % (os.fsdecode(path), errno.errorcode.get(error.errno, error.errno))
+        continue
+    finally:
+        for opened_component_fd in opened_component_fds:
+            os.close(opened_component_fd)
+    if len(data) < 4 or (len(data) - 4) % 8 or struct.unpack_from("<I", data, 0)[0] != 2:
+        unread = unread or "%s: the ACL does not decode" % os.fsdecode(path)
+        continue
+    for offset in range(4, len(data), 8):
+        tag, perm, ident = struct.unpack_from("<HHI", data, offset)
+        if ((tag == 0x02 and ident == uid) or (tag == 0x08 and ident == gid)) and perm & 7 != 7:
+            sys.stdout.buffer.write(path + b"\0")
+            break
+if unread:
+    sys.stderr.write(unread + "\n")
+    sys.exit(4)
+' "${_root}" "${_operator_uid}" "${_sandbox_gid}" < "${_list}" > "${_work}/narrow.out" 2> "${_work}/narrow.err"; } 2>/dev/null \
+        || _status=$?
+    mapfile -d '' -t _narrow_paths 2>/dev/null < "${_work}/narrow.out" || _narrow_paths=()
+    (( _status == 0 )) && [[ -f "${_work}/narrow.err" && ! -s "${_work}/narrow.err" ]] && return 0
+    IFS= read -r _first 2>/dev/null < "${_work}/narrow.err" || true
+    if (( _status == 4 )); then
+        _narrow_detail="an ACL could not be read: ${_first}"
+    else
+        _narrow_detail="the ACL reader exited ${_status}${_first:+: ${_first}}"
+    fi
+    return 1
 }

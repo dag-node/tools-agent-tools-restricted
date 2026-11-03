@@ -27,8 +27,8 @@ mkdir -p "${proj}/sub" "${proj}/noted" "${proj}/.git/objects" "${proj}/.env/insi
 # included) out of the walk. Mode is behaviour here, not cosmetics, so the test states it rather than inheriting it.
 find "${proj}" -type d -exec chmod 0755 {} +
 # sub is '!'-excluded by a plain line; noted by a line carrying an end-of-line comment, which the shared allowlist
-# grammar accepts. A walk that read the second line raw would match no path against it and grant the carve-out.
-mk_allowlist "${proj}" "!${proj}/sub" "!${proj}/noted   # carve-out"
+# grammar accepts. A walk that read the second line raw would match no path against it and grant the excluded path.
+mk_allowlist "@ ${proj}" "! ${proj}/sub" "! ${proj}/noted   # excluded"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-setfacl" "filesystem does not support ACLs"; finish; exit
@@ -192,13 +192,43 @@ fi
 if ! g "${proj}/.git/.env.local"; then pass "a secret-named path inside .git stays skipped under --with-git"
 else fail "a secret inside .git was ACL'd under --with-git"; fi
 
+# (D2) The share a `projects create` accepts: a project root carrying the clone area's inherited entries (a named group
+# standing in for `ai-ops`, on the root's access and default ACL) over a `.git` the create stripped to its mode bits.
+# `--with-git` gives `.git` the sandbox group's entry and does not carry the root's named group into it, so after
+# the share an operator's access to another account's `.git` stays that owner's to grant.
+if id nobody >/dev/null 2>&1; then
+    share="${TESTDIR}/share"; third_group="$(id -gn nobody)"
+    mkdir -p "${share}/.git/objects"; : > "${share}/.git/HEAD"; : > "${share}/.git/objects/o"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${share}"
+    chmod 0750 "${share}"; chmod 2750 "${share}/.git" "${share}/.git/objects"
+    chmod 0640 "${share}/.git/HEAD" "${share}/.git/objects/o"
+    setfacl -m "g:${third_group}:rwx,d:g:${third_group}:rwx" "${share}"
+    mk_allowlist "@ ${share}"
+    third() { getfacl -R -p "$1" 2>/dev/null | grep -qE "^(default:)?group:${third_group}:"; }
+    if third "${share}" && ! third "${share}/.git"; then
+        pass "control: the root carries the named group and the stripped .git does not"
+    else
+        fail "fixture: the root's named group or the .git strip is not as set"
+    fi
+    setsid "${HELPER}" --with-git "${share}" < /dev/null > /dev/null 2>&1 || true
+    if getfacl -p "${share}/.git/HEAD" 2>/dev/null | grep -qE "^group:${SANDBOX_GROUP}:rw"; then
+        pass "the accepted share gives .git the sandbox group's entry"
+    else
+        fail "the accepted share did not give .git/HEAD the sandbox group's entry: $(getfacl -p "${share}/.git/HEAD" 2>/dev/null | tr '\n' ' ')"
+    fi
+    if ! third "${share}/.git"; then pass "and does not carry the root's named group into .git"
+    else fail "the accepted share carried group:${third_group} into .git"; fi
+else
+    skip "the accepted share's named-group row" "user 'nobody' not present"
+fi
+
 # (E) the project ROOT owned by a third party: every path under it is then unreachable through it, so this is the whole
 # outcome of the claim rather than one skipped path, and it says so.
 p2="${TESTDIR}/proj2"
 mkdir -p "${p2}/sub"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p2}"
 chmod -R 0770 "${p2}"
-mk_allowlist "${p2}"
+mk_allowlist "@ ${p2}"
 if id nobody >/dev/null 2>&1; then
     chown nobody:nobody "${p2}"
     root_err="$(setsid "${HELPER}" "${p2}" < /dev/null 2>&1 >/dev/null || true)"
@@ -226,7 +256,7 @@ fi
 # at a directory, the one unreadable state root meets on any host; the tree is read back with no ACL.
 proj2="${TESTDIR}/proj2"
 mkdir -p "${proj2}"; : > "${proj2}/plain.txt"
-mk_allowlist "${proj}" "${proj2}"
+mk_allowlist "@ ${proj}" "@ ${proj2}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj2}"
 chmod 0750 "${proj2}"; chmod 0640 "${proj2}/plain.txt"
 mkdir -p "${TESTDIR}/patterns-dir"
@@ -260,7 +290,7 @@ drive_safe_setfacl() {
         source /usr/local/lib/ai-tools/owner-only.lib.sh
         # shellcheck source=/dev/null
         source /usr/local/lib/ai-tools/project-permissions.lib.sh
-        SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"
+        SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; GROUP="${SANDBOX_GROUP}"; SKIP_DRIFTED=false
         ACL_SPEC=""
         ai_tools_project_permissions__build_acl_specification ACL_SPEC "${PROJECTS_USER}" "${GROUP}"
         eval "$(extract_function "${HELPER}" _safe_setfacl)"
@@ -280,6 +310,181 @@ if (( rc != 0 )) && ! has_group_acl "${pin_outside}/inside" \
     pass "a directory reached through a symlinked ancestor is refused and left as it was"
 else
     fail "symlinked ancestor: rc=${rc}, the directory outside is $(stat -c '%G' "${pin_outside}/inside") with '$(getfacl -p "${pin_outside}/inside" 2>/dev/null | tr '\n' ' ')' (want a refusal, ${PROJECTS_GROUP}, no entry)"
+fi
+
+# ── A registry the grammar refuses: the target is left as it was ─────────────────────────
+# The loader refuses a registry holding a line its grammar does not recognise, so the owner resolver does not cover any
+# path and this helper acts on none; the same tree under the valid registry is the control that the case can act at all.
+# The control runs second, so the refused run is read on the untouched tree.
+ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}/sub"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"
+chmod 0770 "${ir}" "${ir}/sub"
+mk_allowlist "@ ${ir}" "@ relative/entry"
+setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
+if ! has_group_acl "${ir}/sub"; then
+    pass "a registry holding a refused line: no ACL entry is written"
+else
+    fail "a registry holding a refused line: ${ir}/sub carries the group entry"
+fi
+mk_allowlist "@ ${ir}"
+setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
+if has_group_acl "${ir}/sub"; then
+    pass "control: the same tree under the valid registry takes the group entry"
+else
+    fail "control: ${ir}/sub carries no group entry -- the refusal above is not evidence"
+fi
+
+# ── The mask per path: what the owner has, not the execute or write a path inherited ───────────────────────────
+# A file created under a default ACL inherits the named and group:: entries with x, held at r-- by the mask its mode
+# set; a `setfacl -m` of `rwX` would resolve X to x and recalculate the mask to rwx, so a 0640 file would end 0670
+# and executable to every group-class entry, and a 0444 file would end writable to it. The helper writes both named
+# entries rwx and gives each path its mask explicitly from the owner's permissions, as a file created later
+# under the default ACL carries it, and leaves a directory's sticky bit. Each fixture is asserted on the mode, the mask
+# and both named entries in effect, under a parent that carried a default ACL when the file was created and under one
+# that did not. The owner's chmod of the group execute bit then decides, which is what the operator page states.
+section "ai-tools-setfacl: the mask a path gets"
+ps="${TESTDIR}/mask-per-path"
+mkdir -p "${ps}/inherited" "${ps}/plain/dir" "${ps}/plain/rodir" "${ps}/plain/sticky"
+chmod 0750 "${ps}" "${ps}/inherited" "${ps}/plain" "${ps}/plain/dir"
+chmod 0770 "${ps}/plain/sticky"; chmod +t "${ps}/plain/sticky"
+setfacl -m "d:group::rwx,d:user:${PROJECTS_USER}:rwx,d:group:${SANDBOX_GROUP}:rwx,d:other::---" "${ps}/inherited"
+: > "${ps}/inherited/data"; : > "${ps}/plain/data"; : > "${ps}/plain/tool"; : > "${ps}/plain/readonly"
+: > "${ps}/inherited/readonly"
+chmod 0640 "${ps}/inherited/data" "${ps}/plain/data"; chmod 0750 "${ps}/plain/tool"
+chmod 0444 "${ps}/plain/readonly" "${ps}/inherited/readonly"; chmod 0550 "${ps}/plain/rodir"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ps}"
+if getfacl -p "${ps}/inherited/data" 2>/dev/null | grep -qx "group::rwx[[:space:]]*#effective:r--"; then
+    pass "fixture: the file under the default ACL inherits group::rwx under a r-- mask"
+else
+    fail "fixture: ${ps}/inherited/data did not inherit group::rwx under a r-- mask -- the cases below are not evidence: $(getfacl -p "${ps}/inherited/data" 2>/dev/null | tr '\n' ' ')"
+fi
+mk_allowlist "@ ${ps}"
+setsid "${HELPER}" "${ps}" < /dev/null > /dev/null 2>&1 || true
+# assert_acl_mask_and_entries <what> <path> <want-mode> <want-effective>: the mode, the mask, and both named entries
+# written rwx and granting <want-effective> in effect.
+assert_acl_mask_and_entries() {
+    local acl entry missing=""
+    acl="$(getfacl -p -c "$2" 2>/dev/null)"
+    for entry in "user:${PROJECTS_USER}" "group:${SANDBOX_GROUP}"; do
+        if [[ "$4" == rwx ]]; then
+            grep -qx -- "${entry}:rwx" <<< "${acl}" || missing+=" ${entry}:rwx"
+        else
+            grep -qx -- "${entry}:rwx[[:space:]]*#effective:$4" <<< "${acl}" || missing+=" ${entry}:rwx (effective $4)"
+        fi
+    done
+    grep -qx -- "mask::$4" <<< "${acl}" || missing+=" mask::$4"
+    if [[ -z "${missing}" && "$(stat -c '%A' "$2")" == "$3" ]]; then
+        pass "$1: $3, both named entries rwx, $4 in effect"
+    else
+        fail "$1: $(stat -c '%A' "$2"), missing${missing:- none} in '$(tr '\n' ' ' <<< "${acl}")' (want $3, $4)"
+    fi
+}
+assert_acl_mask_and_entries "a 0640 file created under a default ACL" "${ps}/inherited/data" -rw-rw---- rw-
+assert_acl_mask_and_entries "a 0640 file created without a default ACL" "${ps}/plain/data" -rw-rw---- rw-
+assert_acl_mask_and_entries "a 0750 file" "${ps}/plain/tool" -rwxrwx--- rwx
+assert_acl_mask_and_entries "a directory" "${ps}/plain/dir" drwxrws--- rwx
+# The mask copies the owner's permissions, so a path the owner cannot write stays unwritable to the agent in place.
+assert_acl_mask_and_entries "a 0444 file" "${ps}/plain/readonly" -r--r----- r--
+assert_acl_mask_and_entries "a 0444 file created under a default ACL" "${ps}/inherited/readonly" -r--r----- r--
+assert_acl_mask_and_entries "a 0550 directory" "${ps}/plain/rodir" dr-xr-s--- r-x
+assert_acl_mask_and_entries "a sticky 0770 directory, its sticky bit kept" "${ps}/plain/sticky" drwxrws--T rwx
+chmod g+x "${ps}/plain/data"; chmod g-x "${ps}/plain/tool"
+assert_acl_mask_and_entries "the owner's chmod g+x on a claimed data file" "${ps}/plain/data" -rw-rwx--- rwx
+assert_acl_mask_and_entries "the owner's chmod g-x on a claimed script" "${ps}/plain/tool" -rwxrw---- rw-
+# A walk sets each file's mask from the owner bit again: a group execute bit without the owner's goes, and one taken
+# from a script the owner runs comes back.
+setsid "${HELPER}" "${ps}" < /dev/null > /dev/null 2>&1 || true
+assert_acl_mask_and_entries "a later walk over the chmod g+x data file" "${ps}/plain/data" -rw-rw---- rw-
+assert_acl_mask_and_entries "a later walk over the chmod g-x script" "${ps}/plain/tool" -rwxrwx--- rwx
+
+# ── A declined group repair: `--skip-drifted` ────────────────────────────────
+# A claimed tree holding a file and a directory moved in with the operator's own group and group bits, beside a file
+# already in the sandbox group. Under `--skip-drifted` the walk leaves each drifted path with its group and without
+# an entry, reports how many it left, and still writes the project ACL on the file beside them; the walk without
+# the flag over a copy of the tree is the control that the fixture is drift the walk repairs.
+section "ai-tools-setfacl: --skip-drifted leaves a declined group repair alone"
+skip_tree() {  # skip_tree <dir>: the claimed tree with its two moved-in paths
+    mkdir -p "$1/moved-dir"; : > "$1/shared"; : > "$1/moved-in"; : > "$1/moved-dir/inside"
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "$1"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1/moved-in" "$1/moved-dir" "$1/moved-dir/inside"
+    chmod 2770 "$1"; chmod 0750 "$1/moved-dir"; chmod 0660 "$1/shared"; chmod 0640 "$1/moved-in" "$1/moved-dir/inside"
+}
+sd="${TESTDIR}/skip-drifted"; sd_control="${TESTDIR}/skip-drifted-control"
+skip_tree "${sd}"; skip_tree "${sd_control}"
+mk_allowlist "@ ${sd}" "@ ${sd_control}"
+setsid "${HELPER}" "${sd_control}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%G' "${sd_control}/moved-in")" == "${SANDBOX_GROUP}" ]] && g "${sd_control}/moved-in"; then
+    pass "control: the walk without --skip-drifted moves the drifted file to ${SANDBOX_GROUP} with the project ACL"
+else
+    fail "control: the walk without --skip-drifted did not repair the drifted file -- the cases below are not evidence: $(stat -c '%G %a' "${sd_control}/moved-in")"
+fi
+sd_err="$(setsid "${HELPER}" --skip-drifted "${sd}" < /dev/null 2>&1 >/dev/null || true)"
+for sd_path in "${sd}/moved-in" "${sd}/moved-dir" "${sd}/moved-dir/inside"; do
+    if [[ "$(stat -c '%G' "${sd_path}")" == "${PROJECTS_GROUP}" ]] && ! g "${sd_path}" && ! u "${sd_path}" \
+            && ! dg "${sd_path}"; then
+        pass "--skip-drifted leaves ${sd_path#"${sd}"/} in its group without an entry"
+    else
+        fail "--skip-drifted changed ${sd_path#"${sd}"/}: $(stat -c '%G %a' "${sd_path}") $(getfacl -p "${sd_path}" 2>/dev/null | tr '\n' ' ')"
+    fi
+done
+if g "${sd}/shared" && u "${sd}/shared"; then
+    pass "--skip-drifted still writes the project ACL on the file beside them"
+else
+    fail "--skip-drifted left the file in the sandbox group without the project ACL: $(getfacl -p "${sd}/shared" 2>/dev/null | tr '\n' ' ')"
+fi
+assert_msg MSG-X6T6 "${sd_err}" "the paths --skip-drifted left are reported"
+if grep -q "left 3 path(s)" <<< "${sd_err}"; then pass "the report counts the three drifted paths"
+else fail "the report does not count three paths: $(tr '\n' ' ' <<< "${sd_err}")"; fi
+
+# ── The project's `.git` with the VCS skip list cleared ──────────────────────────────────
+# `SKIP_VCS_DIRS=[]` takes `.git` off the skip list, which leaves the main walk the one thing between it and the project
+# ACL, so the walk prunes it by name: `.git` and the file inside keep their group and carry no entry, while the file
+# beside it takes the ACL (the control that the walk ran) and so does a file in a `.git` nested deeper, which only
+# the cleared list lets the walk reach (the control that the override took effect). `--with-git` is the route
+# that shares the project's `.git`, and the control that the fixture's `.git` is reachable.
+section "ai-tools-setfacl: the project's .git with SKIP_VCS_DIRS cleared"
+vcs="${TESTDIR}/vcs-cleared"
+mkdir -p "${vcs}/.git/objects" "${vcs}/sub/.git"
+: > "${vcs}/README.md"; : > "${vcs}/.git/objects/o"; : > "${vcs}/sub/.git/HEAD"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${vcs}"
+chmod 0750 "${vcs}" "${vcs}/.git" "${vcs}/.git/objects" "${vcs}/sub" "${vcs}/sub/.git"
+chmod 0640 "${vcs}/README.md" "${vcs}/.git/objects/o" "${vcs}/sub/.git/HEAD"
+mk_allowlist "@ ${vcs}"
+printf 'SKIP_VCS_DIRS=[]\n' >> "${TESTDIR}/operator.conf"
+setsid "${HELPER}" "${vcs}" < /dev/null > /dev/null 2>&1 || true
+if g "${vcs}/README.md" && g "${vcs}/sub/.git/HEAD"; then
+    pass "control: the walk under the cleared VCS list gives the file beside .git, and one in a nested .git, the ACL"
+else
+    fail "control: README.md or sub/.git/HEAD carries no group entry -- the walk or the override did not take, so the case below is not evidence"
+fi
+if ! g "${vcs}/.git" && ! g "${vcs}/.git/objects/o" && ! u "${vcs}/.git/objects/o" \
+        && [[ "$(stat -c '%G' "${vcs}/.git")" == "${PROJECTS_GROUP}" ]]; then
+    pass "with SKIP_VCS_DIRS cleared, the walk leaves .git in its group and without an entry"
+else
+    fail "the walk under a cleared VCS list reached .git: $(stat -c '%G %a' "${vcs}/.git") $(getfacl -p "${vcs}/.git/objects/o" 2>/dev/null | tr '\n' ' ')"
+fi
+setsid "${HELPER}" --with-git "${vcs}" < /dev/null > /dev/null 2>&1 || true
+if g "${vcs}/.git/objects/o"; then pass "control: --with-git shares the same .git"
+else fail "control: --with-git did not share the fixture's .git -- the refusal above is not evidence"; fi
+
+# A worktree's or a submodule's `.git` is a regular file pointing at the git directory elsewhere, and the main walk
+# grants it like any other file: the agent's git reads it to find the repository. The name guard leaves the `.git`
+# directory to `--with-git` and not the pointer, under the default skip list, which skips `.git` only as a directory.
+section "ai-tools-setfacl: a worktree's .git pointer file takes the project ACL"
+wt="${TESTDIR}/worktree"
+mkdir -p "${wt}"; printf 'gitdir: /elsewhere/.git/worktrees/wt\n' > "${wt}/.git"; : > "${wt}/README.md"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${wt}"
+chmod 0750 "${wt}"; chmod 0640 "${wt}/.git" "${wt}/README.md"
+mk_allowlist "@ ${wt}"
+setsid "${HELPER}" "${wt}" < /dev/null > /dev/null 2>&1 || true
+if g "${wt}/README.md" && [[ -f "${wt}/.git" && ! -L "${wt}/.git" ]]; then
+    pass "control: the walk ran over the worktree, whose .git is a regular file"
+else
+    fail "control: the worktree walk did not run or its .git is not a file -- the case below is not evidence"
+fi
+if g "${wt}/.git" && u "${wt}/.git"; then
+    pass "the worktree's .git pointer file carries the group and operator entries"
+else
+    fail "the worktree's .git pointer was left without the project ACL: $(getfacl -p "${wt}/.git" 2>/dev/null | tr '\n' ' ')"
 fi
 
 finish

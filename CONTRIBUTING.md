@@ -18,7 +18,7 @@ From a source checkout:
 
 ```bash
 sudo ./install.sh install              # the wrapper, helpers, systemd units
-sudo ai-tools-admin system bootstrap   # the sandbox account's Node toolchain
+atr admin system bootstrap   # the sandbox account's Node toolchain
 ```
 
 `install.sh` is the last of four steps, and it stops until the first three have
@@ -43,13 +43,14 @@ cache). None of this ships in the RPM — the package builds only from `src/`,
 ## Running the tests
 
 ```bash
-sudo tests/run.sh [unit|integration|boundary|all]
+sudo tests/run.sh [-j N] [unit|integration|boundary|all]
 ```
 
 Run via `sudo`, not as `root` directly — the harness derives the unprivileged
-project user from `SUDO_USER`. What each category proves and what a host needs
-before it runs are in [`docs/tests/index.md`](docs/tests/index.md); how a test
-is written is in `.claude/rules/tests.rule.md`.
+project user from `SUDO_USER`. `-j N` runs up to N files at once, 4 by default.
+What each category proves and what a host needs before it runs are
+in [`docs/tests/index.md`](docs/tests/index.md); how a test is written is
+in `.claude/rules/tests.rule.md`.
 
 For a full package-build, install, and confined-launch smoke test
 in a throwaway container: `make -C packaging rpmtest-rocky9` (or

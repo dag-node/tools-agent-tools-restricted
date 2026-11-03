@@ -28,9 +28,9 @@ fi
 mktestdir
 proj="${TESTDIR}/proj"
 mkdir -p "${proj}/d" "${proj}/.env" "${proj}/.git/objects" "${proj}/vendor"
-# vendor is carved out by an exclusion line carrying an end-of-line comment, which the shared allowlist grammar accepts:
+# vendor is excluded by a '!' line carrying an end-of-line comment, which the shared allowlist grammar accepts:
 # the walk must skip it exactly as it skips a plain '!' line.
-mk_allowlist "${proj}" "!${proj}/vendor   # carve-out"
+mk_allowlist "@ ${proj}" "! ${proj}/vendor   # excluded"
 
 if ! setfacl -m g:"${SANDBOX_GROUP}":rwX "${proj}" 2>/dev/null; then
     skip "ai-tools-unclaim" "filesystem does not support ACLs"; finish; exit
@@ -44,7 +44,7 @@ chmod 2770 "${proj}/d"                         # setgid dir, as claim leaves it
 : > "${proj}/gx"; chmod 0670 "${proj}/gx"      # data file the agent left group-executable
 : > "${proj}/sh"; chmod 0770 "${proj}/sh"      # a genuine script (owner has execute)
 : > "${proj}/.env/secret"
-: > "${proj}/vendor/v"; chmod 0660 "${proj}/vendor/v"   # inside the commented carve-out
+: > "${proj}/vendor/v"; chmod 0660 "${proj}/vendor/v"   # inside the commented excluded path
 # .git as a `--with-git` claim leaves it: setgid dirs + group-rw object (the main walk skips .git, so only the dedicated
 # reversal pass can revert these).
 : > "${proj}/.git/objects/o"; chmod 0660 "${proj}/.git/objects/o"
@@ -105,7 +105,7 @@ if agentacl "${proj}/.env/secret"; then pass "a secret-named path is left untouc
 else fail "a secret path was regrouped/cleared"; fi
 
 # (D2) a subtree excluded by a '!' line carrying a comment is left untouched: the walk reads the line through the shared
-# grammar, so the carve-out is skipped exactly as a plain '!' line is.
+# grammar, so the excluded path is skipped exactly as under a plain '!' line.
 if agentacl "${proj}/vendor/v" && [[ "$(perm "${proj}/vendor/v")" == 660 ]]; then
     pass "a subtree excluded by a commented '!' line is left untouched (shared grammar)"
 else fail "vendor/v was reverted despite its commented exclusion: $(stat -c '%a' "${proj}/vendor/v")"; fi
@@ -258,7 +258,7 @@ chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${outside}"
 if ln "${outside}" "${hl_proj}/linked" 2>/dev/null; then
     : > "${hl_proj}/plain"; chmod 0660 "${hl_proj}/plain"
     chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${hl_proj}"
-    mk_allowlist "${hl_proj}"
+    mk_allowlist "@ ${hl_proj}"
     setsid "${HELPER}" "${hl_proj}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
     if [[ "$(stat -c '%G' "${outside}")" == "${SANDBOX_GROUP}" && "$(perm "${outside}")" == 660 ]]; then
         pass "a hardlinked file is refused, so the outside name is unchanged"
@@ -350,7 +350,7 @@ fi
 section "ai-tools-unclaim: an unreadable secret-patterns file refuses"
 proj2="${TESTDIR}/proj2"
 mkdir -p "${proj2}/sub"
-mk_allowlist "${proj2}"
+mk_allowlist "@ ${proj2}"
 chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${proj2}"
 chmod 2770 "${proj2}" "${proj2}/sub"
 mkdir -p "${TESTDIR}/patterns-dir"
@@ -398,6 +398,28 @@ if (( rc != 0 )) && [[ "$(stat -c '%G %a' "${pin_outside}/inside")" == "${SANDBO
     pass "a directory reached through a symlinked ancestor is refused and left as it was"
 else
     fail "symlinked ancestor: rc=${rc}, the directory outside is $(stat -c '%G %a' "${pin_outside}/inside") (want a refusal, ${SANDBOX_GROUP} 2770)"
+fi
+
+# ── A registry the grammar refuses: the target is left as it was ─────────────────────────
+# The loader refuses a registry holding a line its grammar does not recognise, so the owner resolver does not cover any
+# path and this helper acts on none; the same tree under the valid registry is the control that the case can act at all.
+# The control runs second, so the refused run is read on the untouched tree.
+ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}/sub"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"
+chmod 2770 "${ir}" "${ir}/sub"
+setfacl -R -m "g:${SANDBOX_GROUP}:rwX,o::-" "${ir}"
+mk_allowlist "@ ${ir}" "@ relative/entry"
+setsid "${HELPER}" "${ir}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
+if agentacl "${ir}/sub"; then
+    pass "a registry holding a refused line: the claim's entries are left as they were"
+else
+    fail "a registry holding a refused line: the group entry on ${ir}/sub was removed"
+fi
+mk_allowlist "@ ${ir}"
+setsid "${HELPER}" "${ir}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
+if ! agentacl "${ir}/sub"; then
+    pass "control: the same tree under the valid registry is unclaimed"
+else
+    fail "control: ${ir}/sub keeps the group entry -- the refusal above is not evidence"
 fi
 
 finish

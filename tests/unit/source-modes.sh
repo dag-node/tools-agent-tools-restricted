@@ -40,7 +40,7 @@ listing="$(cd "${ROOT}" && git ls-files -s -- '*.sh' \
     | awk '{ path = $4; dir = path; sub(/\/[^\/]*$/, "", dir); if (dir == "") dir = "."; print $1, dir, path }')"
 
 if [[ -z "${listing}" ]]; then
-    fail "no tracked .sh files found -- the check would pass vacuously"
+    fail "no tracked .sh files found, so the check has no file to compare and cannot fail"
     finish; exit
 fi
 

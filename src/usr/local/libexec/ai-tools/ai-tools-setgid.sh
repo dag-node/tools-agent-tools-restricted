@@ -7,8 +7,8 @@
 # an operator be a NON-member of @SANDBOX_GROUP@ (defence in depth: the operator's home configs are then unreachable
 # from the sandbox group) while the agent can still read/write everything it hands back.
 #
-# Invoked as root two ways: by `ai-tools projects claim` via operator `sudo` (the operator is not a SANDBOX_GROUP
-# member, so changing the project's group needs root), and by the ai-tools-handback daemon when the SessionStart hook
+# Invoked as root two ways: by `atr projects claim` via operator `sudo` (the operator is not a SANDBOX_GROUP member,
+# so changing the project's group needs root), and by the ai-tools-handback daemon when the SessionStart hook
 # (session-hook.sh session-start) sends a SETGID request over the handback socket. The handback path runs
 # IN ai_tools_handback_t (inherited from the daemon, no domain transition); the claim path runs as root
 # in the operator's sudo context. The agent that triggers it cannot read the allowlist, so the project path it passes is
@@ -16,7 +16,8 @@
 #
 # Owner-only directories are the exception: the operator sealed them, so they are left out of the agent's group,
 # the sandbox residue they carry is stripped, and their subtree is skipped with them -- see owner-only.lib.sh,
-# which `ai-tools-{setfacl,lockdown,chown}` share.
+# which `ai-tools-{setfacl,lockdown,chown}` share. The project's `.git` is left out too, whatever the skip list holds:
+# sharing it is `ai-tools-setfacl --with-git`'s, behind the claim's own question.
 #
 # Idempotent: applies only the dirs that need it, safe to run every session start.
 #
@@ -143,13 +144,21 @@ source /usr/local/lib/ai-tools/conf.lib.sh
 declare -a allowed_directories=()
 # shellcheck disable=SC2034  # filled and read through its name by the conf.lib.sh loader and matcher
 declare -a exclusion_patterns=()
-# The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
-# read, or whose exclusion the loader refuses, leaves both arrays empty, so the project is not allowed.
+# The one read every reader of the registry makes (ai_tools_conf__load_allowlist, conf.lib.sh). A file that cannot be
+# read, one whose exclusion the loader refuses (status 2), and one holding a line the grammar refuses (status 3) each
+# leave both arrays empty, so the project is not allowed.
 ai_tools_conf__load_allowlist "${ALLOWLIST}" allowed_directories exclusion_patterns || true
 
-# _is_excluded <abs-path>: 0 if covered by a '!' rule (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match every
-# reader of the allowlist makes).
-_is_excluded() { ai_tools_conf__is_path_excluded "$1" exclusion_patterns; }
+# _is_excluded <abs-path>: 0 if covered by a '!' or '%' line (ai_tools_conf__is_path_excluded, conf.lib.sh -- the match
+# every reader of the registry makes).
+#   A match the library could not make (a status other than 0 or 1, MSG-V9S2 on stderr) ends the run with exit 1
+#   before the path is normalized: read as "not excluded" it would act on a path an exclusion covers.
+_is_excluded() {
+    local -i excluded_rc=0
+    ai_tools_conf__is_path_excluded "$1" exclusion_patterns || excluded_rc=$?
+    (( excluded_rc <= 1 )) || exit 1
+    return "${excluded_rc}"
+}
 
 # _is_allowed <abs-path>: 0 if at or under an allowed directory.
 _is_allowed() {
@@ -247,6 +256,10 @@ find "${expr[@]}" 2>/dev/null \
         declare root_thirdparty=false
         while IFS= read -r -d '' d; do
             _under_skip "${d}" && continue
+            # The project's `.git` is ai-tools-setfacl `--with-git`'s alone, the share the claim asks about: pruned here
+            # whatever the skip list holds, since an operator may clear SKIP_VCS_DIRS and a skip list that did not load
+            # is empty.
+            if [[ "${d}" == "${canonical}/.git" ]]; then skip+=("${d}"); continue; fi
             if _is_excluded "${d}" || _is_secret_name "${d}"; then
                 skip+=("${d}"); continue
             fi

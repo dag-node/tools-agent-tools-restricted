@@ -146,6 +146,140 @@ else
     fi
 fi
 
+# ── `.git` with an empty skip list ───────────────────────────────────────────────────────────────────────────────────
+# An empty skip list, the state SKIP_VCS_DIRS=[] or a skip-dirs library that did not load leaves, does not take
+# the sweep into the project's own `.git`: the boundary passes reclaim it, and a per-turn walk would change ownership
+# under a live git command. A nested repository's `.git` is a path like any other there, since clearing the list asks
+# for it. A lock file in the project's `.git` is not offered, while the file beside it and a file in a nested `.git`
+# are; a plain `find` over the same tree, which lists both `.git` files, is the control that they are eligible. The run
+# takes an argument for its bound, since the bounded pass walks each directory it selects in a second loop: a directory
+# moved in after the marker leaves the project root's ctime newer than the marker too, so the root is walked whole
+# there, its `.git` included, and the older file at the root, offered by that walk alone, is the control that it ran.
+section "sweep bound: an empty skip list does not take the sweep into the project's .git"
+# sweep_with_skip_list <empty|vcs> <project> <marker or ''> <unbounded 0|1> <offers-file>: the sweep over <project>
+# under an empty skip list, or one pruning `.git` as a directory, the default VCS list's form. Each offer is written
+# relative to <project> with its trailing slashes dropped, so a project named with one reads like the plain spelling.
+sweep_with_skip_list() {
+    # shellcheck disable=SC2016  # the inner bash expands these
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        if [[ "$6" == vcs ]]; then
+            ai_tools_skip_dirs__build_find_expression() {
+                AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=( "(" -type d "(" -name .git ")" ")" -prune -o )
+            }
+        else
+            ai_tools_skip_dirs__build_find_expression() { AI_TOOLS_SKIP_DIRS__FIND_EXPRESSION=(); }
+        fi
+        ai_tools_log__debug() { :; }; ai_tools_log__warn() { :; }
+        stub_walked="$2"; while [[ "${stub_walked}" == ?*/ ]]; do stub_walked="${stub_walked%/}"; done
+        stub_client() { printf "%s\n" "${2#"${stub_walked}/"}" >&2; }
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_CLIENT=stub_client
+        _AI_TOOLS_SESSION_SWEEP__HANDBACK_SOCKET="$5"
+        _ai_tools_session_sweep__sweep_project "$2" "$3" "$4" stop >/dev/null
+        ' _ "${LIB_COPY}/session-sweep.lib.sh" "$2" "$3" "$4" "${SOCKET}" "$1" 2>"$5" || true
+}
+# offers_skip_project_git <offers-file> <file...>: each <file> was offered once and no path under the project's .git
+# was.
+offers_skip_project_git() {
+    local offers wanted
+    offers="$(LC_ALL=C sort "$1")"; shift
+    for wanted in "$@"; do [[ "$(grep -cxF -- "${wanted}" <<< "${offers}")" == 1 ]] || return 1; done
+    ! grep -q '^\.git/' <<< "${offers}"
+}
+VCS="${TESTDIR}/vcs-project"
+mkdir -p "${VCS}/.git/refs/heads" "${VCS}/sub/.git"
+printf 'work\n' > "${VCS}/work.txt"; : > "${VCS}/.git/refs/heads/main.lock"; : > "${VCS}/sub/.git/HEAD"
+chmod 0600 "${VCS}/.git/refs/heads/main.lock"
+eligible="$(find "${VCS}" -user "${walk_owner}" -type f -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ')"
+if [[ "${eligible}" == *".git/refs/heads/main.lock "* && "${eligible}" == *"sub/.git/HEAD "* ]]; then
+    pass "control: a plain walk of the fixture lists both .git files"
+else
+    fail "control: the fixture's .git files are not eligible -- the case below is not evidence: '${eligible}'"
+fi
+if [[ ! -S "${SOCKET}" ]]; then
+    skip "the sweep under an empty skip list" "no socket to answer the sweep's check"
+else
+    sweep_with_skip_list empty "${VCS}" "" 1 "${TESTDIR}/offered-vcs"
+    if offers_skip_project_git "${TESTDIR}/offered-vcs" work.txt sub/.git/HEAD \
+            && ! grep -qxF .git "${TESTDIR}/offered-vcs"; then
+        pass "under an empty skip list the sweep offers the file beside .git and the nested .git file, and nothing under the project's .git"
+    else
+        fail "the sweep's offers under an empty skip list: $(_san "$(cat "${TESTDIR}/offered-vcs")")"
+    fi
+    # The hook's .cwd is the session's input, so the project may arrive with a trailing slash, which find keeps
+    # out of the paths it prints under the root.
+    for spelling in "${VCS}/" "${VCS}//"; do
+        sweep_with_skip_list empty "${spelling}" "" 1 "${TESTDIR}/offered-vcs-slash"
+        if offers_skip_project_git "${TESTDIR}/offered-vcs-slash" work.txt sub/.git/HEAD; then
+            pass "a project named with ${spelling#"${VCS}"} keeps the sweep out of its .git under an empty skip list"
+        else
+            fail "the sweep's offers for a project named with ${spelling#"${VCS}"}: $(_san "$(cat "${TESTDIR}/offered-vcs-slash")")"
+        fi
+    done
+
+    BOUNDED_VCS="${TESTDIR}/vcs-bounded"; MOVED_REPO="${OUTSIDE}/moved-repo"; VCS_MARKER="${TESTDIR}/.sweep-marker-vcs"
+    mkdir -p "${BOUNDED_VCS}/.git/refs/heads" "${MOVED_REPO}/.git"
+    : > "${BOUNDED_VCS}/.git/refs/heads/main.lock"; printf 'old\n' > "${BOUNDED_VCS}/old.txt"
+    : > "${MOVED_REPO}/.git/HEAD"
+    sleep 1; touch "${VCS_MARKER}"; sleep 1
+    mv "${MOVED_REPO}" "${BOUNDED_VCS}/"
+    by_ctime_vcs="$(find "${BOUNDED_VCS}" -cnewer "${VCS_MARKER}" -printf '%P\n' | LC_ALL=C sort | tr '\n' ' ')"
+    if [[ "${by_ctime_vcs}" == " moved-repo "* && "${by_ctime_vcs}" != *main.lock* && "${by_ctime_vcs}" != *old.txt* ]]; then
+        pass "control: -cnewer selects the project root and the moved directory, and neither older file"
+    else
+        fail "control: the bounded fixture's selection is not the state under test: '${by_ctime_vcs}'"
+    fi
+    sweep_with_skip_list empty "${BOUNDED_VCS}" "${VCS_MARKER}" 0 "${TESTDIR}/offered-vcs-bounded"
+    if offers_skip_project_git "${TESTDIR}/offered-vcs-bounded" old.txt moved-repo/.git/HEAD \
+            && ! grep -qxF .git "${TESTDIR}/offered-vcs-bounded"; then
+        pass "the bounded sweep walks the selected root, offering the nested .git file and nothing under the project's .git"
+    else
+        fail "the bounded sweep's offers under an empty skip list: $(_san "$(cat "${TESTDIR}/offered-vcs-bounded")")"
+    fi
+    sweep_with_skip_list empty "${BOUNDED_VCS}/" "${VCS_MARKER}" 0 "${TESTDIR}/offered-vcs-bounded-slash"
+    if offers_skip_project_git "${TESTDIR}/offered-vcs-bounded-slash" old.txt moved-repo/.git/HEAD; then
+        pass "the bounded sweep keeps out of the project's .git for a project named with a trailing slash"
+    else
+        fail "the bounded sweep's offers for a project named with a trailing slash: $(_san "$(cat "${TESTDIR}/offered-vcs-bounded-slash")")"
+    fi
+fi
+
+# ── A `.git` pointer file ────────────────────────────────────────────────────────────────────────────────────────────
+# A worktree's or a submodule's `.git` is a regular file, which the boundary reclaim does not walk, so the sweep hands
+# it back like any other file under the default VCS list and under an empty one, from the unbounded walk
+# and from the descendant walk of a root a bounded pass selects; a plain `find` lists it as eligible, the control.
+section "sweep bound: a worktree's .git pointer file is swept like any other file"
+WORKTREE="${TESTDIR}/worktree-project"; MOVED_DIR="${OUTSIDE}/moved-into-worktree"; WT_MARKER="${TESTDIR}/.sweep-marker-wt"
+mkdir -p "${WORKTREE}" "${MOVED_DIR}"
+printf 'gitdir: /elsewhere/.git/worktrees/wt\n' > "${WORKTREE}/.git"; printf 'work\n' > "${WORKTREE}/work.txt"
+: > "${MOVED_DIR}/inside.txt"
+if [[ -f "${WORKTREE}/.git" && "$(find "${WORKTREE}" -user "${walk_owner}" -type f -name .git -printf '%P')" == .git ]]; then
+    pass "control: the fixture's .git is a regular file the sweep's owner predicate selects"
+else
+    fail "control: the fixture's .git pointer is not eligible -- the cases below are not evidence"
+fi
+if [[ ! -S "${SOCKET}" ]]; then
+    skip "the sweep over a .git pointer file" "no socket to answer the sweep's check"
+else
+    for skip_list in vcs empty; do
+        sweep_with_skip_list "${skip_list}" "${WORKTREE}" "" 1 "${TESTDIR}/offered-wt"
+        if offers_skip_project_git "${TESTDIR}/offered-wt" .git work.txt; then
+            pass "the unbounded sweep offers the .git pointer file under the ${skip_list} skip list"
+        else
+            fail "the unbounded sweep's offers over the pointer, ${skip_list} skip list: $(_san "$(cat "${TESTDIR}/offered-wt")")"
+        fi
+    done
+    sleep 1; touch "${WT_MARKER}"; sleep 1
+    mv "${MOVED_DIR}" "${WORKTREE}/"
+    sweep_with_skip_list vcs "${WORKTREE}" "${WT_MARKER}" 0 "${TESTDIR}/offered-wt-bounded"
+    if offers_skip_project_git "${TESTDIR}/offered-wt-bounded" .git work.txt moved-into-worktree/inside.txt; then
+        pass "the bounded sweep's descendant walk of the selected root offers the .git pointer file"
+    else
+        fail "the bounded sweep's offers over the pointer: $(_san "$(cat "${TESTDIR}/offered-wt-bounded")")"
+    fi
+fi
+
 # ── The marker a stop run leaves ─────────────────────────────────────────────────────────────────────────────────────
 # A stop run sets the marker to the time its scan started and does not write another file into the state directory:
 # a hook killed at its timeout cannot clean up after itself, so a file the run created would stay behind. The marker
@@ -283,14 +417,14 @@ else
             fail "control: ${label}: no interrupted-session notice: $(_san "${context}")"
             continue
         fi
-        command_line="$(grep -m1 '^  ai-tools projects handback ' <<<"${context}" || true)"
-        [[ "${command_line}" == "  ai-tools projects handback $(quote_c "${project}")" && "${context}" != *chown* ]] \
-            && pass "${label}: the notice names ai-tools projects handback with the %q path, and no chown" \
+        command_line="$(grep -m1 '^  atr projects handback ' <<<"${context}" || true)"
+        [[ "${command_line}" == "  atr projects handback $(quote_c "${project}")" && "${context}" != *chown* ]] \
+            && pass "${label}: the notice names atr projects handback with the %q path, and no chown" \
             || fail "${label}: the notice's command reads '$(_san "${command_line}")'"
         LC_ALL=C bash -c '[[ "$1" != *[![:print:]]* ]]' _ "${command_line}" \
             && pass "${label}: the notice's command holds printable ASCII alone" \
             || fail "${label}: the notice's command carries a byte outside printable ASCII"
-        recorded="$(bash -c "printf '%s.' ${command_line#  ai-tools projects handback }" 2>/dev/null || true)"
+        recorded="$(bash -c "printf '%s.' ${command_line#  atr projects handback }" 2>/dev/null || true)"
         [[ "${recorded%.}" == "${project}" ]] \
             && pass "${label}: the pasted command passes the project path as one argument, byte for byte" \
             || fail "${label}: the pasted command passes '$(_san "${recorded%.}")'"
@@ -304,7 +438,7 @@ else
     context="$(run_library session-start "${NOTICE_STATE}" "${TESTDIR}/no-socket" ':' <<<"${payload}" 2>/dev/null \
         | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null || true)"
     if grep -qxF '  sudo systemctl enable --now ai-tools-handback.socket' <<<"${context}" \
-            && grep -qxF "  ai-tools projects handback $(quote_c "${project}")" <<<"${context}"; then
+            && grep -qxF "  atr projects handback $(quote_c "${project}")" <<<"${context}"; then
         pass "the socket-down notice names the socket's start and the handback command with the %q path"
     else
         fail "the socket-down notice reads '$(_san "${context}")'"
@@ -325,7 +459,7 @@ else
             && pass "control: the socket-down run logged the walk's warning and the stranded .git warning" \
             || fail "control: the socket-down run's warnings: $(_san "${warnings}")"
         for logged in "${walk_line}" "${git_line}"; do
-            command_word="${logged##*ai-tools projects handback }"; command_word="${command_word%)}"
+            command_word="${logged##*atr projects handback }"; command_word="${command_word%)}"
             [[ "${command_word}" == "$(quote_c "${project}")" ]] \
                 && pass "a socket-down warning names the handback command with the C-locale %q path" \
                 || fail "a socket-down warning's command reads '$(_san "${command_word}")'"

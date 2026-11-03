@@ -5,7 +5,8 @@
 # (`runuser -u ai-tools`). Each check names the threat its boundary prevents. "can" checks confirm access the sandbox
 # needs to function; "cannot" checks confirm control-plane integrity and secret isolation. Probe-only
 # (`test -r`/`-w`/`-x`); the one unlink attempt targets a DECOY file (projects-user-owned, in the sticky .claude dir)
-# so real control-plane files are never at risk. Run as root via sudo; drops to the agent per check.
+# so real control-plane files are never at risk, and the permission-change attempts target a fixture in the testdir. Run
+# as root via sudo; drops to the agent per check.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -420,6 +421,33 @@ else
     pass "the agent cannot write owner-only.lib.sh (the seal predicate and residue strip)"
 fi
 
+# The project ACL, from the agent's side: the boundary half of the re-claim's entries scan and the walk that follows
+# the owner's permissions (unit/project-permissions.sh, unit/sandbox.sh and unit/setfacl.sh are the runtime half).
+# On a file the operator holds in a claimed tree, the agent co-writes the content and does not set the permissions:
+# a `chmod g+x`, a raised mask and a narrowed entry are each the owner's (chmod(2) and acl_set_file(3) require it),
+# so the agent cannot give itself an execute the owner did not, nor put the file into a state a re-claim reports.
+# The attempts target a fixture in this file's testdir, read back afterwards against the state it was given.
+acl_file="${TESTDIR}/claimed/data"
+mkdir -p "${TESTDIR}/claimed"; : > "${acl_file}"
+chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${TESTDIR}/claimed"
+chmod 2770 "${TESTDIR}/claimed"; chmod 0660 "${acl_file}"
+setfacl -n -m "u:${PROJECTS_USER}:rwx,g:${SANDBOX_GROUP}:rwx,m::rw-" "${acl_file}"
+acl_before="$(getfacl -p -c "${acl_file}" 2>/dev/null; stat -c '%a' "${acl_file}")"
+if runuser -u "${SANDBOX_USER}" -- test -w "${acl_file}" 2>/dev/null; then
+    pass "control: the agent can write the claimed file's content"
+else
+    fail "control: the agent cannot write the claimed fixture -- the probes below are not evidence"
+fi
+for acl_try in "chmod g+x" "setfacl -m m::rwx" "setfacl -m g:${SANDBOX_GROUP}:rw-"; do
+    # shellcheck disable=SC2086  # each probe is a command and its options, split on purpose
+    runuser -u "${SANDBOX_USER}" -- ${acl_try} "${acl_file}" >/dev/null 2>&1 || true
+done
+if [[ "$(getfacl -p -c "${acl_file}" 2>/dev/null; stat -c '%a' "${acl_file}")" == "${acl_before}" ]]; then
+    pass "the agent cannot chmod g+x, raise the mask or narrow an entry on a file the operator holds"
+else
+    fail "the agent changed the permissions of a file the operator holds: $(getfacl -p -c "${acl_file}" 2>/dev/null | tr '\n' ' ') $(stat -c '%a' "${acl_file}")"
+fi
+
 # ai-tools-allowlist edits an operator's allowed-projects -- the launch gate deciding where a session may start.
 # Reaching it would let the agent approve its own projects, so this is the boundary half of the pair whose runtime half
 # (each of the helper's gates fires) is in tests/unit/allowlist-helper.sh. The helper is 750 root:root inside a 750
@@ -436,16 +464,22 @@ else
     pass "the agent cannot execute or write ai-tools-allowlist (the cross-operator launch gate)"
 fi
 
-# The gate itself: an operator's allowed-projects. The agent must not be able to add a project to any operator's
-# registry -- with or without the helper. The primary operator's is the one this host is guaranteed to have.
-opallow="${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
-if [[ ! -e "${opallow}" ]]; then
-    skip "operator allowlist not agent-writable" "not present at ${opallow}"
-elif runuser -u "${SANDBOX_USER}" -- test -w "${opallow}" 2>/dev/null; then
-    fail "the agent can write ${opallow} -- it could approve its own projects"
-else
-    pass "the agent cannot write the operator's allowed-projects (its own launch gate)"
-fi
+# The gate itself: an operator's project registry. The agent must not be able to add a project to any operator's
+# registry -- with or without the helper. The primary operator's is the one this host is guaranteed to have:
+# `~/.config/ai-tools/project-registry`, or the `~/.config/ai-tools/allowed-projects` an earlier release wrote,
+# which every reader takes until it is migrated; each one present is
+# probed.
+opallow_seen=0
+for opallow in "${PROJECTS_HOME}/.config/ai-tools/project-registry" "${PROJECTS_HOME}/.config/ai-tools/allowed-projects"; do
+    [[ -e "${opallow}" ]] || continue
+    opallow_seen=1
+    if runuser -u "${SANDBOX_USER}" -- test -w "${opallow}" 2>/dev/null; then
+        fail "the agent can write ${opallow} -- it could approve its own projects"
+    else
+        pass "the agent cannot write the operator's ${opallow##*/} (its own launch gate)"
+    fi
+done
+(( opallow_seen )) || skip "operator registry not agent-writable" "neither ${PROJECTS_HOME}/.config/ai-tools/project-registry nor ${PROJECTS_HOME}/.config/ai-tools/allowed-projects"
 
 # ── Entrypoint verification: the agent must not be able to bless its own binary ───────────────
 # The pin is only worth comparing against while the account it constrains cannot write it -- nor the key that decided
@@ -729,6 +763,23 @@ for _key in ai-tools.projects.create ai-tools.projects.remove.inplace; do
     fi
 done
 
+# The claim's owner-side read, ai-tools.projects.inspect, reads a project's tree as the account the CLI runs as. Driven
+# with a directory the agent can read, the account's own home, it is refused by the same guard and does not print
+# a record, so the agent cannot make the CLI describe a tree on its behalf.
+cli_cmd ai-tools.projects.inspect || exit 2
+_out="$(runuser -u "${SANDBOX_USER}" -- "${AI_TOOLS_LAUNCH_WRAPPER__CLI:-/usr/local/bin/ai-tools}" "${CLI_ARGV[@]}" \
+            -- /opt/ai-tools 2>&1)" && _rc=0 || _rc=$?
+if (( _rc == 0 )); then
+    fail "the agent was not refused ai-tools.projects.inspect at all"
+else
+    assert_msg MSG-Q6Q8 "${_out}" "the agent cannot reach ai-tools.projects.inspect (principal guard)"
+    if grep -qE $'^state\t' <<< "${_out}"; then
+        fail "the refused ai-tools.projects.inspect still printed a record"
+    else
+        pass "the refused ai-tools.projects.inspect printed no record"
+    fi
+fi
+
 # And it cannot reach the runas seam those verbs use under `--for`. `sudo -u <operator>` is how a `--for` run acts
 # as the target; the agent does not hold a sudo rule at all, and the session runs under PR_SET_NO_NEW_PRIVS, which drops
 # sudo's SUID bit. Either alone is sufficient here.
@@ -737,6 +788,58 @@ if runuser -u "${SANDBOX_USER}" -- sudo -n -u "${PROJECTS_USER}" true >/dev/null
 else
     pass "the agent cannot act as the operator through sudo -u (no rule; NNP drops sudo's SUID)"
 fi
+
+# ── The short command, as the sandbox account ────────────────────────────────────────────────────
+# `atr` runs ai-tools, whose principal guard refuses the account, and `atr admin` runs ai-tools-admin through sudo,
+# which the account does not hold a rule for. This vantage is the account, not a session, so the row asserts
+# an account-level denial: run under setsid, so sudo cannot prompt, the admin program's report does not appear,
+# and the helper directory is unreadable to the account as the precondition that the program was not reached by another
+# route. A session's NoNewPrivileges is integration/ai-tools-run.sh's, and the account's sudo refusal
+# boundary/sudo.sh's.
+_atr=/usr/local/bin/atr
+if [[ ! -x "${_atr}" ]]; then
+    fail "${_atr} is not an executable file as root, so the account's refusals are not probed -- reinstall ai-tools-base"
+else
+    _out="$(runuser -u "${SANDBOX_USER}" -- "${_atr}" status 2>&1)" && _rc=0 || _rc=$?
+    if (( _rc == 0 )); then
+        fail "the agent was not refused atr status"
+    else
+        assert_msg MSG-Q6Q8 "${_out}" "the agent's atr status is refused by the CLI's principal guard"
+    fi
+    _rc=0
+    _out="$(runuser -u "${SANDBOX_USER}" -- setsid -w "${_atr}" admin status 2>&1 </dev/null)" || _rc=$?
+    if runuser -u "${SANDBOX_USER}" -- test -r /usr/local/libexec/ai-tools 2>/dev/null; then
+        fail "the helper directory is readable to the agent, so the atr admin row below proves less than it claims"
+    elif (( _rc != 0 )) && grep -qxF 'atr admin: runs as root through sudo' <<< "${_out}" \
+            && ! grep -qF 'ai-tools host status' <<< "${_out}"; then
+        pass "the agent's atr admin status is refused by sudo, with no admin report and the helper directory unreadable"
+    else
+        fail "atr admin status as ${SANDBOX_USER} exited ${_rc}: $(head -c 300 <<< "${_out}" | tr '\n' '|')"
+    fi
+    # atr renders the admin help for an operator without sudo; the account takes the sudo route and is not shown
+    # the help.
+    for _args in "--help" "" "operators help"; do
+        read -r -a _argv <<< "${_args}"
+        _rc=0
+        _out="$(runuser -u "${SANDBOX_USER}" -- setsid -w "${_atr}" admin "${_argv[@]}" 2>&1 </dev/null)" || _rc=$?
+        if (( _rc != 0 )) && grep -qxF 'atr admin: runs as root through sudo' <<< "${_out}" \
+                && ! grep -qE '^Usage:$|^[A-Z][A-Za-z ]*:$' <<< "${_out}"; then
+            pass "the agent's atr admin ${_args:-(bare)} takes the sudo route and prints no help"
+        else
+            fail "atr admin ${_args:-(bare)} as ${SANDBOX_USER} exited ${_rc}: $(head -c 300 <<< "${_out}" | tr '\n' '|')"
+        fi
+    done
+fi
+for _atr_name in /usr/local/bin/atr /usr/sbin/atr; do
+    if [[ ! -e "${_atr_name}" && ! -L "${_atr_name}" ]]; then
+        fail "${_atr_name} is not installed, so its write boundary is not probed"
+    elif runuser -u "${SANDBOX_USER}" -- test -w "${_atr_name}" 2>/dev/null \
+            || runuser -u "${SANDBOX_USER}" -- test -w "$(dirname "${_atr_name}")" 2>/dev/null; then
+        fail "the agent can write ${_atr_name} or its directory -- it could redirect what an operator's atr runs"
+    else
+        pass "the agent cannot write ${_atr_name} or the directory holding it"
+    fi
+done
 
 # The launch attestation under AI_TOOLS_REQUIRE_SELINUX reads the per-domain mode and the Booleans from selinuxfs,
 # and unit/confinement.sh drives the refusals a permissive domain, an enabled Boolean and an unread input produce. This

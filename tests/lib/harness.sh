@@ -46,6 +46,17 @@ skip()    { printf '  %sSKIP%s  %s  (%s)\n' "${_C_SKIP}" "${_C_OFF}" "$(_san "$1
 # no-coverage notice; a check that could not run emits skip instead.
 note()    { printf '  %sNOTE%s  %s  (%s)\n' "${_C_NOTE}" "${_C_OFF}" "$(_san "$1")" "$(_san "$2")"; }
 section() { printf '\n── %s\n' "$(_san "$*")"; }
+# skip_required <subject> <reason>: a check whose prerequisite every full install meets could not run. It is a skip
+# in a lenient run, where a partial or development install may lack the prerequisite, and a FAIL under
+# AI_TOOLS_TEST_STRICT=1, the full-install gate: run.sh's no-coverage notice counts a file's passes, so a skip in a file
+# whose other checks passed does not reach it.
+skip_required() {
+    if [[ "${AI_TOOLS_TEST_STRICT:-0}" == 1 ]]; then
+        fail "$1: $2 (AI_TOOLS_TEST_STRICT=1 requires it)"
+    else
+        skip "$1" "$2"
+    fi
+}
 
 # assert_msg <code> <output> [<what>]: PASS when <output> carries the message code <code> on a line of its own --
 # where every emitter and local die()/warn() puts a leading code in plain mode -- and FAIL otherwise, quoting
@@ -227,12 +238,12 @@ readonly SANDBOX_GROUP="ai-tools"
 #     .ai-tools-test-<group>-<thing>-XXXXXX
 #
 # <group> is the category directory the file runs from (unit, integration, boundary; the operator-run script
-# under manual/ names itself), <thing> names what the path is for (the file's stem for its testdir; homelock, victim, c3
-# for a single fixture), and XXXXXX is six random alphanumerics, mktemp's own. The leading dot keeps a leftover
-# out of a plain listing and gives the residue sweep (tests/lib/residue.sh, run by run.sh before every run) one pattern
-# to match. The mk_fixture_* helpers create AND register in one call, so a fixture cannot be born outside the teardown
-# list; a test that must name a path before it exists (a probe the agent is asked to create) takes the name
-# from ai_test_name and registers it itself.
+# under manual/ names itself, and run.sh takes `run` for the transcript directory of a `-j` run), <thing> names
+# what the path is for (the file's stem for its testdir; homelock, victim, c3 for a single fixture), and XXXXXX is six
+# random alphanumerics, mktemp's own. The leading dot keeps a leftover out of a plain listing and gives the residue
+# sweep (tests/lib/residue.sh, run by run.sh before every run) one pattern to match. The mk_fixture_* helpers create
+# AND register in one call, so a fixture cannot be born outside the teardown list; a test that must name a path
+# before it exists (a probe the agent is asked to create) takes the name from ai_test_name and registers it itself.
 readonly AI_TOOLS_TEST_PREFIX=".ai-tools-test"
 TEST_GROUP="$(basename "$(cd "$(dirname "$0")" && pwd)")"
 TEST_STEM="$(basename "$0" .sh)"
@@ -268,9 +279,9 @@ mk_fixture_file() {
 # on_teardown registers one non-path cleanup command -- state that is not a file to unlink -- run directly (no eval;
 # best-effort, output discarded) after the path sweep, in registration order. Each call is kept in its own array (a
 # nameref, so no eval), so a file may register several. The live cases: the bridge integration test clearing
-# the transient `ai-tools-handback@*` instances its negative cases leave FAILED, the stop test killing its fixture
-# cgroup, and the hooks test restoring the live sweep marker it moved. Quote a glob you want passed to the command
-# literally (systemd does its own unit-name matching): on_teardown systemctl reset-failed 'ai-tools-handback@*'.
+# the transient `ai-tools-handback@*` instances its negative cases leave FAILED, and the stop test killing its fixture
+# cgroup. Quote a glob you want passed to the command literally (systemd does its own unit-name matching):
+# `on_teardown systemctl reset-failed 'ai-tools-handback@*'`.
 declare -a _cleanup=()
 declare -i _teardown_n=0
 on_teardown() {
@@ -313,13 +324,15 @@ mktestdir() {
     chmod 0755 "${TESTDIR}"
 }
 
-# mk_allowlist <line>...: write a dummy allowed-projects in TESTDIR with the given KNOWN content (one entry per line;
-# '!'-prefixed lines are exclusions, exactly as in production) and point the deployed helpers at it
-# via the AI_TOOLS_ALLOWLIST test hook. Also seeds a matching operator.conf fixture (mk_operator) so the helpers resolve
-# the same identity the fixtures are owned by. Exported so a helper run as a child process inherits both.
+# mk_allowlist <line>...: write a dummy project registry, TESTDIR/project-registry, with the format marker as its first
+# line and the given KNOWN content after it (one entry per line; '!' and '%' lines are an excluded path and a disabled
+# project, exactly as in production), and point the deployed helpers at it via the AI_TOOLS_ALLOWLIST test hook.
+# A registry without the marker is refused whole, so a test of a legacy file writes that file by name. Also seeds
+# a matching operator.conf fixture (mk_operator) so the helpers resolve the same identity the fixtures are owned by.
+# Exported so a helper run as a child process inherits both.
 mk_allowlist() {
-    printf '%s\n' "$@" > "${TESTDIR}/allowed-projects"
-    export AI_TOOLS_ALLOWLIST="${TESTDIR}/allowed-projects"
+    printf '%s\n' "# ai-tools-project-registry-format: 1.0" "$@" > "${TESTDIR}/project-registry"
+    export AI_TOOLS_ALLOWLIST="${TESTDIR}/project-registry"
     mk_operator
 }
 

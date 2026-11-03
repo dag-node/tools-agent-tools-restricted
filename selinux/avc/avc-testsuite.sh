@@ -77,7 +77,7 @@ case "${proj_ctx}" in
   *:ai_tools_project_t:*) note "project label OK -- $(pwd) is ${proj_ctx}" ;;
   *) note "WARNING: $(pwd) is '${proj_ctx}', not ai_tools_project_t."
      note "         File ops will log denials against the wrong type. Label it with"
-     note "         'install-selinux.sh relabel' (after adding it to allowed-projects)." ;;
+     note "         'install-selinux.sh relabel' (after claiming it in the project registry)." ;;
 esac
 
 ########################################

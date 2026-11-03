@@ -15,11 +15,20 @@ the host expects is in place.
 
 **A session launches only in a project you approved.** The wrapper refuses
 to start the agent unless the working directory is listed
-in `~/.config/ai-tools/allowed-projects` — your own file, written by a claim —
-and a `!`-prefixed line carves a subdirectory back out of one that is listed.
-The directory is resolved to its real target before it is matched, so a symlink
-does not get a path past the check, and a system directory or a whole home root
-is refused whatever the file says ([Scope](../about/scope.md)).
+in `~/.config/ai-tools/project-registry` — your own file, written by a claim —
+and neither a `%` line disabling the project nor a `!` line excluding
+a subdirectory covers it. The directory is resolved to its real target
+before it is matched, so a symlink does not get a path past the check,
+and a system directory or a whole home root is refused whatever the file says
+([Scope](../about/scope.md)).
+
+**The registry decides where a session starts, not what it reaches.** A session
+started in any of your claimed projects reaches every other project you
+claimed, through the permissions those claims granted. A `!` line keeps
+sessions from starting under it and the hand-back and the claim's
+permission walks out of it; it does not take back access a claim already
+granted there. `atr projects unclaim` takes the access off a tree once its
+hand-back has run ([Unclaim](../projects/unclaim.md)).
 
 What starts then runs as the sandbox account rather than as you, in its own
 transient systemd unit, confined to the `ai_tools_t` SELinux type
@@ -46,14 +55,14 @@ and into every enabled agent:
 
 ```bash
 sudo dnf install ai-tools-assets-sets-core
-sudo ai-tools-admin assets enable --set core
+atr admin assets enable --set core
 ```
 
-`sudo ai-tools-admin status` names an enabled asset that is not linked,
-and why, and `sudo ai-tools-admin assets list` names each link a reconcile
-would still place or remove; `ai-tools-assets(5)` holds the identifier format
-and each reason. Where a skill of your own goes -- for one project, for one
-agent, for every agent -- is in the guide that ships beside the skills,
+`atr admin status` names an enabled asset that is not linked,
+and why, and `atr admin assets list` names each link a reconcile would still
+place or remove; `ai-tools-assets(5)` holds the identifier format and each
+reason. Where a skill of your own goes -- for one project, for one agent,
+for every agent -- is in the guide that ships beside the skills,
 `/usr/share/ai-tools/skills/README.md`.
 
 **A session is capped at 8 GB of memory and 1024 tasks.** Above 6 GB the kernel

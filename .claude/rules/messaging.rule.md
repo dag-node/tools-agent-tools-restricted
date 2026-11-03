@@ -128,7 +128,9 @@ that raised it, and each is stated once.
 
 `tools/generators/man-messages.sh` generates `ai-tools-messages(7)` from `.claude/references.md`. An entry carries
 the code, its severity, the message as the emitting call writes it, and the component that emits it, each read
-off a column of the index, so the message text keeps its single home in the source that emits it.
+off a column of the index, so the message text keeps its single home in the source that emits it. The index reads
+the text up to the first `#` on the line, so a message that interpolates an expansion carrying one (`${line#…}`) takes
+that value into a variable ahead of the call, and the catalog carries the whole text.
 
 Severity comes from the emitting function through a map in the generator, which exits non-zero when the index names
 an emitter that map does not, so a new emitter is classified where the map is written.
@@ -140,10 +142,9 @@ each reach the catalog in the change that makes them ([tests](tests.rule.md)).
 
 ### One situation, two processes: a deliberate twin
 
-A situation two processes both report carries **one code**, emitted at each site. `ai-tools stop` and `ai-tools-stop`
-each refuse a path, and each refuse an unknown option, in texts that are deliberate twins —
-`refuse_positional_argument`'s header states why neither side can source the other — so an operator meets the same token
-whichever side answered.
+A situation two processes both report carries **one code**, emitted at each site. `atr stop` and `ai-tools-stop` each
+refuse a path, and each refuse an unknown option, in texts that are deliberate twins — `refuse_positional_argument`'s
+header states why neither side can source the other — so an operator meets the same token whichever side answered.
 
 The code is **defined once and cited at the other site**. A definition is the emit-call shape the reference index reads
 (the token as the command's first argument, then the quoted message it labels; a code in a later argument is a citation,
@@ -252,16 +253,16 @@ Pre-answering is two distinct mechanisms, by direction:
 - `AI_TOOLS_ASSUME_YES=1` (environment; unattended runs, tests) skips the prompt and answers yes **only when the default
   is already `y`** — it fast-tracks safe-direction questions and never flips a default-NO question.
 - A default-NO question is pre-answered only by an **explicit per-invocation flag** on the command that owns it —
-  `ai-tools projects claim -y/--yes` (the launch wrapper's delegated claim, covering just the proceed prompt),
+  `atr projects claim -y/--yes` (the launch wrapper's delegated claim, covering just the proceed prompt),
   `ai-tools-lockdown --yes`, `ai-tools-chown --yes` (the batch caller's per-path skip) — an auditable operator decision,
   never ambient state.
 
 ### The stop confirmation defaults YES, and that is the rule, not an exception to it
 
-`ai-tools stop` inverts that direction: its confirmation defaults **YES**, so a bare Enter, a pipe, a cron run
-and an absent `msg.lib.sh` all proceed, and only a deliberate `n` declines. The principle is unchanged — *give it
-the default that is the safe outcome* — and it is **which outcome is safe** that flips: for the one control whose job is
-to end a session already running, declining is the failure. `--dry-run` is how that command is looked at without acting,
+`atr stop` inverts that direction: its confirmation defaults **YES**, so a bare Enter, a pipe, a cron run and an absent
+`msg.lib.sh` all proceed, and only a deliberate `n` declines. The principle is unchanged — *give it the default that is
+the safe outcome* — and it is **which outcome is safe** that flips: for the one control whose job is to end a session
+already running, declining is the failure. `--dry-run` is how that command is looked at without acting,
 and `AI_TOOLS_ASSUME_YES=1` fast-tracks it like any other default-yes question.
 
 The inversion is bounded to the *confirmation*, not to argument handling. The same command **refuses** an unexpected
@@ -297,7 +298,7 @@ string reaching a log sink or a terminal gets ([logging](logging.rule.md)). With
 loaded best-effort here — the answer is **omitted** rather than recorded raw; the decision itself is recorded either
 way.
 
-Where a caller pre-answers it (`ai-tools projects remove -y`), that is the same explicit per-invocation flag rule
+Where a caller pre-answers it (`atr projects remove -y`), that is the same explicit per-invocation flag rule
 as a default-NO confirm, and the flag is the auditable decision.
 
 ## Decision audit trail
@@ -356,11 +357,12 @@ status of the operation whose outcome they report.
 - **`launch-wrapper.lib.sh`**, the gates every agent's wrapper runs, routes `ai_tools_launch_wrapper__die`
   through `ai_tools_msg__error`, so every fatal refusal of a launch is framed at one chokepoint (an agent's launch hook
   refuses through that function, and the one refusal ahead of the load, `ai-tools-launch`'s `refuse_early`, prints its
-  one fixed code in the plain form); it frames its `safe.directory` NOTICE and **both** guidance screens
-  with `ai_tools_msg__block`. Titles name the action, not the refusal ("Set up this project for the sandboxed agent",
-  "Finish setting up this project for the agent"), and commands print as bare names
-  through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default to the current
-  directory.
+  one fixed code in the plain form). That chokepoint and the wrapper's warning apply the CLI's indented-line rule
+  ([Quirks](#quirks)), printing a command line, its path in `%q`, under the frame. It frames its `safe.directory`
+  NOTICE and **both** guidance screens with `ai_tools_msg__block`. Titles name the action, not the refusal ("Set up
+  this project for the sandboxed agent", "Finish setting up this project for the agent"), and commands print as bare
+  names through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default
+  to the current directory.
 
   The **setup** screen carries one line of prose and **no commands**; its options live in the `ai_tools_msg__pick none`
   menu under it, each with the consequence that distinguishes it — **1)** Create sandbox (*the session runs in the copy,
@@ -407,8 +409,13 @@ one box per option.
 
 - **Commands and the wrapping emitters do not mix.** A wrapping emitter (`ai_tools_msg__*`) would break a multi-word
   command across lines, so a command handed to one stays on a separate plain line outside the frame (the session
-  NOTICE's reconcile command). A multi-line screen whose commands belong *inside* the frame uses `ai_tools_msg__block`
-  instead, which keeps indented command lines verbatim and overflows the long ones.
+  NOTICE's reconcile command). `ai-tools.sh`'s `die`, `die_usage` and `warn` apply this rule themselves (`emit_alert`):
+  a line that opens with whitespace is printed under the frame, verbatim, so the CLI's indented command line reads
+  the same way to the alert and to `ai_tools_msg__block`, which keeps it verbatim inside its frame. Such a line holds
+  one command or one path, and prose stays flush, one argument per paragraph, so the frame wraps it; plain output
+  prints the flush lines first, so a call puts each indented line after them. A multi-line screen
+  whose commands belong *inside* the frame uses `ai_tools_msg__block` instead, which keeps indented command lines
+  verbatim and overflows the long ones.
 - **Short prompts stay inline.** Yes/no prompts keep the inline hint form with the cursor on the same line; framing
   a one-line question with the cursor under the box reads worse than it helps. The hint is the standard bracketed
   notation with the Enter outcome spelled out — `[Y/n] (default: Yes):` for a yes default, `[y/N] (default: No):`

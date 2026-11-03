@@ -3,8 +3,8 @@
 # /usr/local/lib/ai-tools/settings-merge.lib.sh
 # The merge that carries this version's hook declarations into an agent's settings.json when an upgrade keeps the file,
 # the read-only check for the ask entries such a file lacks, and the jq gate every JSON path of the reconciliation
-# passes first. Sourced by install.sh, `ai-tools-admin system post-upgrade` and the agent package's typesafe trigger,
-# all as root at install time; kept out of conf.lib.sh, which every session launch and every root helper sources
+# passes first. Sourced by install.sh, `atr admin system post-upgrade` and the agent package's typesafe trigger, all
+# as root at install time; kept out of conf.lib.sh, which every session launch and every root helper sources
 # and which does not need jq. What the merge adds, removes and leaves as written is in claude-settings.rule.md.
 #
 # conf.lib.sh is a hard dependency: it holds the dated sidecars (the .bak kept before a merge replaces the file,

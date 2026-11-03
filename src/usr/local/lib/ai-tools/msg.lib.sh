@@ -483,7 +483,7 @@ ai_tools_msg__format_command() {
 # AI_TOOLS_ASSUME_YES=1 (unattended runs, tests) skips the prompt and answers yes ONLY
 # when the default is already 'y': it fast-tracks safe-direction questions but never flips a default-NO question --
 # those always ask (or take No with no terminal). A caller that must pre-answer a default-NO question does it with its
-# own explicit flag (e.g. `ai-tools --yes`, `ai-tools-chown --yes`), an auditable per-invocation decision.
+# own explicit flag (e.g. `atr --yes`, `ai-tools-chown --yes`), an auditable per-invocation decision.
 ai_tools_msg__confirm() {
     local question="$1" def="${2:?ai_tools_msg__confirm: default (y|n) is required}" hint resp how result
     case "${def}" in

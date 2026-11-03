@@ -3,10 +3,10 @@
 # /usr/local/lib/ai-tools/safe-paths.lib.sh
 # Single source of truth for the system directories the ai-tools elevated helpers refuse to operate on, plus the guard
 # that enforces it, and the check that holds a pinned descriptor to the path a helper authorized. Defense in depth
-# against an operator config error: the allowlist alone would let a recursive chown/setgid/setfacl/relabel run wherever
-# it points, so a system directory mistakenly added to allowed-projects (or passed to a helper) could be rewritten. This
-# list is the independent backstop -- the launch wrapper, the claim CLI, and every elevated helper refuse a protected
-# target regardless of the allowlist, before acting. Each function states the rule it applies; which consumers call
+# against an operator config error: the project registry alone would let a recursive chown/setgid/setfacl/relabel run
+# wherever it points, so a system directory mistakenly added to it (or passed to a helper) could be rewritten. This list
+# is the independent backstop -- the launch wrapper, the claim CLI, and every elevated helper refuse a protected target
+# regardless of the registry, before acting. Each function states the rule it applies; which consumers call
 # which, and what a failed load does, are in safe-paths.rule.md.
 #
 # Sourced (not executed) so every consumer shares ONE list and ONE matcher. Deployed 644 root:root (world-readable,
@@ -89,7 +89,7 @@ ai_tools_safe_paths__assert_safe_target() {
     local raw_path="${1:-}" operation="${2:-operation}" resolved_path matched_entry
     resolved_path="$(realpath -m -- "${raw_path}" 2>/dev/null)" || resolved_path="${raw_path}"
     matched_entry="$(ai_tools_safe_paths__match_protected_path "${resolved_path}")" || return 0
-    local line_detail="It is on the ai-tools protected-paths backstop (matched ${matched_entry}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to allowed-projects."
+    local line_detail="It is on the ai-tools protected-paths backstop (matched ${matched_entry}); the sandbox does not operate on system directories. A real project must live elsewhere -- do not add a system directory to your project registry."
     # One code for every consumer: the refusal is the backstop's, whichever helper reached it.
     ai_tools_msg__error MSG-Q6H3 "Refusing the ${operation}: the target is a protected system directory." \
         "${resolved_path}" "${line_detail}"

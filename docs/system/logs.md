@@ -9,8 +9,8 @@ everything after that: journald for every component, root-only files
 for the privileged helpers.
 
 ```bash
-sudo ai-tools audit                      # findings in the last 7 days
-sudo ai-tools audit --since '2 days ago' # any window date(1) understands
+sudo atr audit                      # findings in the last 7 days
+sudo atr audit --since '2 days ago' # any window date(1) understands
 ```
 
 It reads all three trails and reports what refused, was rejected, was stranded,
@@ -32,16 +32,16 @@ hand-back carry the *parent's* identity, and neither of those two trails tells
 the child apart. The kernel does:
 
 ```bash
-sudo ai-tools audit                         # the records, classified
+sudo atr audit                         # the records, classified
 sudo ausearch -m AVC -ts today | grep -A8 'granted.*execute_no_trans'   # raw
 ```
 
 The SELinux policy writes the record: the confinement module audits the one
 access such a start takes, so the kernel logs it and your own launches are not
-in it. No audit rule file is installed. `ai-tools audit` names the agent
-for each record and lists them; it also says plainly when it could not make
-the reading — no audit daemon running, the policy not loaded, or a policy older
-than the rule — rather than showing an empty window.
+in it. No audit rule file is installed. `atr audit` names the agent for each
+record and lists them; it also says plainly when it could not make the reading
+— no audit daemon running, the policy not loaded, or a policy older than
+the rule — rather than showing an empty window.
 
 An agent also re-runs its own binary to reach a tool it bundles — Codex
 to apply an edit, Claude Code to search files — and those records are counted
@@ -64,7 +64,7 @@ the working directory and the exec'd path. Size the log before enabling it:
 a busy session execs thousands of processes an hour, and the default
 `auditd.conf` rotation evicts the host's other audit records within hours.
 The file's own header states the `max_log_file` and `num_logs` values to raise.
-`ai-tools audit` does not read this trail.
+`atr audit` does not read this trail.
 
 ## What the agent ran
 

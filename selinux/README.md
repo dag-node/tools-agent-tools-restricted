@@ -9,7 +9,7 @@ boundary**:
 |---|---|---|
 | `ai_tools_t` | the agent process (`claude.exe` as the `SANDBOX_USER` UID) | — |
 | `ai_tools_exec_t` | each enabled agent's entrypoint binary (Claude Code: the versioned `claude.exe`), labelled from the rule that agent's own manifest declares — not from this module | entrypoint (drives the transition) |
-| `ai_tools_project_t` | approved project dirs (per allowlist) | read/write (incl. all git ops) |
+| `ai_tools_project_t` | claimed project dirs (per project registry) | read/write (incl. all git ops) |
 | `ai_tools_project_build_t` | the build-output directories inside one, the set an integration's manifest names (`build_output_dirs`, see `ai-tools-providers(5)`) | read/write; execute only with the `buildexec` group |
 | `ai_tools_home_t` | each agent's config directory (`.claude` for Claude Code) and the sandbox home state, labelled from the rule that agent's manifest declares | read/write its own state |
 | everything else (e.g. other `/home` files = `user_home_t`) | — | **no access** once enforcing |
@@ -30,7 +30,7 @@ in `../.claude/rules/confinement.rule.md`). The core loads **enforcing**.
 A missing transition **fails closed**: if an agent's entrypoint loses its label
 (a Node upgrade before the relabel lands), `ai-tools-run` refuses to launch
 rather than start an unconfined session, and names
-`ai-tools-admin system entrypoints relabel` as the fix. The layer as a whole is
+`atr admin system entrypoints relabel` as the fix. The layer as a whole is
 still optional — a host that never installs the module runs DAC-only,
 which the launch preflight recognises and allows, with a warning at every
 launch until `AI_TOOLS_REQUIRE_SELINUX=no` in `operator.conf` declares it.
@@ -45,7 +45,7 @@ shipped member; a host that confines its operators to a login domain
 with the `ipp_ai_tools_add_operator_domain` interface, which the package
 installs at `/usr/share/selinux/devel/include/distributed/ai_tools.if`.
 A launch from such a login is not validated yet and fails closed
-where the launch path is denied a read. An `ai-tools-admin selinux` command
+where the launch path is denied a read. An `atr admin selinux` command
 that declares the domain is planned.
 
 You cannot confine a complex app (Node + git + the Bash tool) correctly
@@ -97,7 +97,7 @@ by default**, each named for the capability it grants:
 | `buildexec` | execute on a project's build output — the directories an integration's manifest names and its layout module types; a script written there runs too — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
 
 Which groups a toolchain needs is its integration manifest's to say
-(`selinux_groups`, see `ai-tools-providers(5)`); `ai-tools providers`
+(`selinux_groups`, see `ai-tools-providers(5)`); `atr providers`
 and `ai-tools-admin <integration> status` name the ones not loaded. A toolchain
 whose build output must be typed the moment it is created also ships a **layout
 module** (`ai_tools_dotnet` for .NET): file transitions and file contexts only,
@@ -109,7 +109,7 @@ and which command may enable it. A group earns `stable` as it is audited,
 so the current value is read from the host rather than from this table:
 
 ```bash
-sudo ai-tools-admin selinux groups
+atr admin selinux groups
 ```
 
 **Stable** groups have a rule set exercised against the workload they serve
@@ -121,9 +121,9 @@ or by `install-selinux.sh build`, and loaded on any installed host with no
 toolchain, several in one command:
 
 ```bash
-sudo ai-tools-admin selinux groups
-sudo ai-tools-admin selinux groups enable tmpmap localipc buildexec
-sudo ai-tools-admin selinux groups disable tmpmap
+atr admin selinux groups
+atr admin selinux groups enable tmpmap localipc buildexec
+atr admin selinux groups disable tmpmap
 ```
 
 **Experimental** groups are unaudited drafts: their rule set has not been
@@ -175,8 +175,10 @@ and recompiles it outright when the earlier build was made on a host
 whose policy module version this one does not read (a checkout copied
 from another distribution) — stages the shipped set for `ai-tools-admin`,
 labels each agent's config directory (`ai_tools_home_t`) and the `claude.exe`
-entrypoint, and labels every project in `~/.config/ai-tools/allowed-projects`
-as `ai_tools_project_t`.
+entrypoint, and labels every project each operator's registry lists
+(`~/.config/ai-tools/project-registry`,
+or `~/.config/ai-tools/allowed-projects` until it is migrated), disabled ones
+included, as `ai_tools_project_t`.
 
 Verify:
 
@@ -360,7 +362,7 @@ relabel failed (`ai-tools-run` will be refusing to launch and pointing you
 here):
 
 ```bash
-sudo ai-tools-admin system entrypoints relabel
+atr admin system entrypoints relabel
 ```
 
 To re-apply **all** labels after changing the policy (entrypoint + home-state +
@@ -375,7 +377,7 @@ claude keeps its old context until you exit and relaunch.
 
 ## Adding a project later
 
-`ai-tools projects create <dir>` registers a **real** project for the DAC layer
+`atr projects create <dir>` registers a **real** project for the DAC layer
 but does not label it for SELinux. After adding one, re-run:
 
 ```bash
@@ -385,7 +387,7 @@ cd selinux && sudo ./install-selinux.sh relabel
 **Sandbox** clones are different — they label themselves. Because every clone
 lives under the fixed parent `/var/opt/ai-tools/sandbox-projects/`, a static
 fcontext rule in `ai_tools.fc` maps the whole tree to `ai_tools_project_t`,
-and `ai-tools projects clone` runs `restorecon` on the new clone itself (the
+and `atr projects clone` runs `restorecon` on the new clone itself (the
 projects user is `unconfined_t`, which the policy grants relabel
 to `ai_tools_project_t`). No manual `relabel` is needed. The agent reaches
 clones through the `files_search_var` traversal grant in `ai_tools.te`
@@ -406,10 +408,15 @@ cd selinux && sudo ./install-selinux.sh rebuild
 cd selinux && sudo ./install-selinux.sh remove
 ```
 
-Unloads the module, deletes the project fcontext rules, and `restorecon`s each
+Deletes every local fcontext rule naming an `ai_tools` type (the unload refuses
+while one stands), unloads every `ai_tools*` module, and `restorecon`s each
 agent's config directory, the nvm tree, and each project back to default
-contexts. DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`)
-is untouched.
+contexts. A module left loaded ends the run with exit 1 and semanage's reason.
+DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is
+untouched. While an agent session, the toolchain update, or a step run
+as the sandbox account is live, the command refuses before it changes anything:
+let each session end (`/exit` inside it) and the update finish, or end them all
+with `atr stop`, then run it again.
 
 ## Notes
 

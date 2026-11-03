@@ -1,4 +1,4 @@
-# Enable a parked project
+# Enable a disabled project
 
 [Projects](index.md) · [Create](create.md) · [Claim](claim.md) ·
 [Clone](clone.md) · [Push](push.md) · [List](list.md) · [Disable](disable.md) ·
@@ -6,55 +6,67 @@
 [Lockdown](lockdown.md) · [Handback](handback.md) ·
 [Permissions](permissions.md) — [all docs](../index.md)
 
-How `ai-tools projects enable` lifts the `!` a disable wrote, which `!` line it
-refuses to lift, and how a claim offers the same step on a parked entry.
+How `atr projects enable` turns back the `%` a disable wrote, why it refuses
+an excluded path (`!`), and how a claim offers the same step on a disabled
+entry.
 
 ```bash
-ai-tools projects enable ~/src/api
+atr projects enable ~/src/api
 ```
 
-Deletes the `!` from the project's line in your allowlist, in place,
-so sessions may start there again. The tree's permissions did not change while
-it was parked, so the command does not grant any access that was not already
-granted, does not run a secret scan, and does not prompt. A project already
-enabled succeeds and says so; a path the allowlist does not name is refused
-and pointed at `ai-tools projects claim`, since registering a project is
-a claim, and a claim scans for secrets first ([Claim](claim.md)).
+Turns the `%` that opens the project's line in your project registry back into
+an `@`, so sessions may start there again. The tree's permissions did not
+change while it was disabled, so the command does not grant any access that
+was not already granted, does not run a secret scan, and does not prompt.
+A project already enabled succeeds and says so; a path the registry does not
+name is refused and pointed at `atr projects claim`, since registering
+a project is a claim, and a claim scans for secrets first ([Claim](claim.md)).
+A project nested inside another one is enabled on its own line like any other.
 
-## A `!` line inside a claimed project is not lifted
+Enabling is not an access boundary, as disabling is not
+([Disable](disable.md)): it decides where a session may start, and the agent's
+access to the tree stays as the claim left it.
 
-An exclusion **inside** a claimed project is a carve-out — a subtree you
-withheld from the agent — and not a parked project, and `projects enable`
-refuses it for that reason: lifting it would hand that subtree over. No verb
-writes such a line (`projects disable` refuses the nested case,
-[Disable](disable.md)), so one in your file was written by hand and is deleted
-by hand if that is what you mean. The reasoning is
+## A `!` line is not lifted
+
+A `!` line is an excluded path wherever it sits, and not a disabled project,
+and `projects enable` refuses it for that reason: lifting it would let
+sessions start in that subtree and the walks act on it. No command writes or
+lifts such a line, so one in your file was written by hand and is deleted by
+hand if that is what you mean. A `!` line written before the upgrade to format
+1.0 may be a project disabled then: change it to `%` if it is one, and keep the
+`!` if the subtree is to stay excluded. The reasoning is
 [ref-section-v2n3](../../.claude/rules/cli.rule.md#ref-section-v2n3).
 
-## Still parked by another line
+An excluded path stops sessions from starting in the subtree and the hand-back
+from walking it; it does not take back access a claim already granted there,
+and a session started in the enclosing project reads whatever the subtree's
+permissions allow. No session start checks that. To keep the agent
+out of the files themselves, make the subtree owner-only: the claim's
+permission walks leave it alone, and its mode keeps the agent out whatever its
+label ([Permissions](permissions.md)).
 
-Where the project's own entry is clean but a `!` line on a directory enclosing
-it, or a glob that matches it, still parks it, the command says so and shows
-the line responsible, rather than reporting a project enabled that no session
-can enter.
+## Still blocked by another line
 
-## From a claim, and after a release
+Where the project's own entry is clean but a `%` line on a directory enclosing
+it, a `!` line, or a glob that matches it still blocks it, the command says
+so and shows the line responsible, rather than reporting a project enabled
+that no session can enter.
 
-`ai-tools projects claim` on a parked project offers this same re-enable behind
+## From a claim
+
+`atr projects claim` on a disabled project offers this same step behind
 a default-No confirm, and claims the project with its line where it was
-([Claim](claim.md)). That is the second half of the release rhythm
-`ai-tools projects unclaim --keep-entry` starts: hand a tree back with clean
-permissions before a release, and claim it again for the next stage without
-the project losing its place in the file ([Unclaim](unclaim.md)).
+([Claim](claim.md)).
 
 ## For another operator
 
-`ai-tools projects enable --for svc-ci /srv/projects/api` edits that operator's
-allowlist ([Service accounts](../operators/service-accounts.md)). The plain
-form does not run `sudo`; the `--for` form does.
+`atr projects enable --for svc-ci /srv/projects/api` edits that operator's
+project registry ([Service accounts](../operators/service-accounts.md)).
+The plain form does not run `sudo`; the `--for` form does.
 
 ## Exit status
 
-0 when the project is enabled, or was already; 1 when the path is not named,
-the line is a carve-out, or the line could not be written; 2 for a rejected
-command line. `man ai-tools` has the full list.
+0 when the project is enabled, or was already; 1 when the path is refused,
+the path is excluded, or the line could not be written; 2 for a rejected
+command line, a missing directory among them. `man ai-tools` has the full list.

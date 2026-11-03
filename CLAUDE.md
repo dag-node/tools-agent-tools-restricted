@@ -55,7 +55,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 
 | Area | Source | Rule |
 |---|---|---|
-| Launch, allowlist gating, sudoers, PATH ordering (the fragment, the reading behind the question, the repoint a rename owes), the one launch wrapper every agent's command runs, its gate library and the launch-hook loader | `bin/ai-tools-run.sh`, `usr/local/bin/ai-tools-launch.sh`, `lib/ai-tools/launch-wrapper.lib.sh`, `allowed-projects`, `sudoers.d/ai-tools`, `lib/ai-tools/path-order.{sh,lib.sh}` | [launch](.claude/rules/launch.rule.md) |
+| Launch, project-registry gating, sudoers, PATH ordering (the fragment, the reading behind the question, the repoint a rename owes), the one launch wrapper every agent's command runs, its gate library and the launch-hook loader | `bin/ai-tools-run.sh`, `usr/local/bin/ai-tools-launch.sh`, `lib/ai-tools/launch-wrapper.lib.sh`, `project-registry`, `sudoers.d/ai-tools`, `lib/ai-tools/path-order.{sh,lib.sh}` | [launch](.claude/rules/launch.rule.md) |
 | **Provider-specific: claude-code** — its launch hook, manifest, entrypoint chain and labelling, custom system prompt, custom API endpoint, session pins, distribution channel | `lib/ai-tools/launch.d/claude-code.sh`, `lib/ai-tools/claude-{prompt,endpoint}.lib.sh`, `lib/ai-tools/agents.d/claude-code.conf`, `lib/ai-tools/session-env.d/claude-code.{pins.env,env}.sh` | [agent-claude-code](.claude/rules/agent-claude-code.rule.md) |
 | **Provider-specific: codex** — its manifest and the re-linked launcher chain, the two managed files codex reads from `/etc/codex` (the mode pin that keeps the host's confinement closed, managed hooks only), the hook adapters, the admin-scope skills link, the session pin, the reduced set | `lib/ai-tools/agents.d/codex.conf`, `lib/ai-tools/session-env.d/codex.pins.env.sh`, `etc/codex/**`, `opt/ai-tools/agents/codex/**` | [agent-codex](.claude/rules/agent-codex.rule.md) |
 | Namespaces, SELinux transition, preflight, `/tmp`, optional-group management, how the policy ships and why it is separately licensed | `selinux/**`, `bin/ai-tools-run.sh`, `selinux-groups.lib.sh`, `ai-tools-admin.sh` (`selinux` subcommand), `packaging/ai-tools.spec` (`ai-tools-selinux`) | [confinement](.claude/rules/confinement.rule.md) |
@@ -71,11 +71,11 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | Provider manifests + fail-closed enablement (agents + integrations), the shared `KEY=value` config grammar, and the `session-env.d`, `launch.d` and `admin-commands.d` seams | `lib/ai-tools/{conf,providers}.lib.sh`, `lib/ai-tools/{agents,integrations,session-env,launch,admin-commands}.d/**`, `operator.conf` `AI_TOOLS_{AGENTS,INTEGRATIONS}` | [providers](.claude/rules/providers.rule.md) |
 | The dotnet integration (its manifest, session-env fragment, filter rules, and contributed `dotnet` command) and running .NET (CoreCLR) under confinement: the `tmpmap`/`memfdexec`/`localipc`/`buildexec` SELinux groups, the build-output type and the `ai_tools_dotnet` layout module, project-type→group map, denial breakdown, the configuration a build reads from a project's ancestors and the report that names what a session is denied, the manifest keys and `ai-tools-providers(5)` | `lib/ai-tools/integrations.d/dotnet.conf`, `lib/ai-tools/ancestor-config.lib.sh`, `lib/ai-tools/session-env.d/dotnet.env.sh`, `lib/ai-tools/filters.d/dotnet.rules`, `lib/ai-tools/admin-commands.d/dotnet.sh`, `selinux/policy/ai_tools_{tmpmap,memfdexec,localipc,buildexec,dotnet}.te`, `share/man/man5/ai-tools-providers.5` | [dotnet](.claude/rules/dotnet.rule.md) |
 | The typesafe integration: its manifest and session-env fragment, the credential file a session is handed the path of, the decide command a session pipes a listing to and the transport that holds an untrusted answer to the documented shape, the `ai-tools-typesafe-filter` skill the package ships, what a call discloses, and the signed release the command is vendored from | `lib/ai-tools/integrations.d/typesafe.conf`, `lib/ai-tools/session-env.d/typesafe.env.sh`, `etc/ai-tools/endpoints/typesafe.conf`, `lib/ai-tools/typesafe/**`, `tools/generators/typesafe-client.{sh,pin}`, `share/man/man5/ai-tools-typesafe.conf.5`, `usr/share/ai-tools/skills/ai-tools-typesafe-filter/**` | [typesafe](.claude/rules/typesafe.rule.md) |
-| Management CLI, project lifecycle, relabel, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh`, `project-permissions.lib.sh` | [cli](.claude/rules/cli.rule.md) |
-| Host health as one resource read from two vantages: what an operator can see and what root adds (live `--user units`, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
+| Management CLI, project lifecycle, relabel and its live-session gate, acting for another operator (`--for`) | `bin/ai-tools.sh`, `ai-tools-{setfacl,unclaim,safedir,relabel,allowlist}.sh`, `relabel.lib.sh`, `sessions.lib.sh`, `project-permissions.lib.sh` | [cli](.claude/rules/cli.rule.md) |
+| Host health, one host read from two vantages: what an operator can see and what root adds (live `--user units`, the entrypoint pin, the live SELinux label) | `services.lib.sh`, `relabel.lib.sh`, `bin/ai-tools.sh` (`status`), `ai-tools-admin.sh` (`status`) | [cli](.claude/rules/cli.rule.md) |
 | Record streams: the model and report state, the TSV wire format, the rules a report follows when it calls them (the saved collector PID, the internal framing, the cap that keeps a deliberate stop apart from a failure), and the page that is the consumer's whole contract | `records-base.lib.sh`, `records-tsv.lib.sh`, `share/man/man5/ai-tools-records.5` | [records](.claude/rules/records.rule.md) |
 | Terminating sessions that are already running (`stop`) — the incident ladder's stop rung; it sweeps every session in the account's cgroup and restores the user manager | `ai-tools-stop.sh` | [stop](.claude/rules/stop.rule.md) |
-| How every command is spelled: bare-word commands, plural collections, verb after noun, and the REST projection each maps onto | `bin/ai-tools.sh`, `ai-tools-admin.sh`, `lib/ai-tools/admin-commands.d/**`, `ai-tools.1`, `ai-tools-admin.8` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
+| How every command is spelled: bare-word commands, plural collections, verb after noun, the REST projection each maps onto, and the bash completion that mirrors the surface | `bin/ai-tools.sh`, `bin/atr.sh`, `ai-tools-admin.sh`, `lib/ai-tools/admin-commands.d/**`, `ai-tools.1`, `ai-tools-admin.8`, `atr.{1,8}`, `completions/atr.sh` | [cli-grammar](.claude/rules/cli-grammar.rule.md) |
 | Protected-paths backstop (refuse system dirs as targets) | `safe-paths.lib.sh` + the wrapper/CLI/elevated helpers | [safe-paths](.claude/rules/safe-paths.rule.md) |
 | Shared logging library | `log.lib.sh` | [logging](.claude/rules/logging.rule.md) |
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
@@ -92,7 +92,8 @@ Each step's mechanism is in the rule files the [Component map](#component-map) n
    through the `/usr/local/bin/claude` symlink the agent's package ships), running as the non-root operator who invoked
    it; it refuses a caller not in the `ai-ops` operators group before doing anything else, and a command name no enabled
    agent manifest claims.
-2. The wrapper launches only inside an allowed project, and refuses a `!`-excluded CWD.
+2. The wrapper launches only inside a project the operator's registry lists, and refuses a CWD a disabled or excluded
+   line covers.
 3. It resolves the versioned binary via a single `readlink` hop, validates it, and execs the shared confinement shim
    `ai-tools-run` as `SANDBOX_USER` with the path in `AI_TOOLS_AGENT_EXEC`.
 4. `ai-tools-run` is agent-agnostic: it accepts the executable only at a semver version directory inside the sandbox
@@ -118,14 +119,14 @@ one, end them all:
 ```
 
 The first **drops** privilege to `SANDBOX_USER` (launch); the second runs **as root** at a fixed path pinned
-by the trailing `""` to the zero-argument form — `ai-tools stop`, which terminates every running agent session and is
-granted without a password so that unattended monitoring can reach the incident ladder's stop rung. What each rule is
-scoped to, and what the stop rule deliberately withholds, are in [launch](.claude/rules/launch.rule.md). Three
-privileged operations sit outside the drop-in and need no rule in it: the toolchain update runs as `SANDBOX_USER` in its
-own `systemd --user instance`, the automatic post-upgrade relabel runs through the root-side `ai-tools-relabel.path`
-watcher, and the on-demand entrypoint reconcile is `sudo ai-tools-admin system entrypoints relabel`, a root command
-reached through the host's own general sudo grant. The agent runs *as* `SANDBOX_USER`, which is not in `ai-ops` and has
-no rule of its own, so **no** rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
+by the trailing `""` to the zero-argument form — `atr stop`, which terminates every running agent session and is granted
+without a password so that unattended monitoring can reach the incident ladder's stop rung. What each rule is scoped
+to, and what the stop rule deliberately withholds, are in [launch](.claude/rules/launch.rule.md). Three privileged
+operations sit outside the drop-in and need no rule in it: the toolchain update runs as `SANDBOX_USER` in its own
+`systemd --user instance`, the automatic post-upgrade relabel runs through the root-side `ai-tools-relabel.path`
+watcher, and the on-demand entrypoint reconcile is `atr admin system entrypoints relabel`, a root command reached
+through the host's own general sudo grant. The agent runs *as* `SANDBOX_USER`, which is not in `ai-ops` and has no rule
+of its own, so **no** rule grants it anything — including the root rule, which `SANDBOX_USER` cannot reach.
 `ai-tools-run` additionally refuses to launch unless it runs as `SANDBOX_USER`, and refuses if `SANDBOX_USER` appears
 in `ai-ops`, so the sandbox account can never hold the operator grant.
 
@@ -134,7 +135,7 @@ in `ai-ops`, so the sandbox account can never hold the operator grant.
 `ai-tools-admin operators add` writes both facts that make an operator: membership of `ai-ops` (the two sudoers rules,
 and the launch wrapper's own gate) and a name in `OPERATORS` (`/etc/ai-tools/operator.conf`,
 from which `operator.lib.sh` resolves each path's owner). An account holding only those two runs agent sessions
-on the projects claimed for it, and is a first-class operator — the shape `ai-tools --for <operator>` exists to serve,
+on the projects claimed for it, and is a first-class operator — the shape `atr --for <operator>` exists to serve,
 and the one a passwordless service account takes.
 
 Claim, unclaim, lockdown, reclaim, and sandbox-create reach root helpers carrying **no** NOPASSWD rule, so each needs
@@ -160,15 +161,15 @@ of these inputs therefore narrows what the session gets, so the sandbox cannot i
 the requirement standing, the same direction the predicates take. Which exits it governs, and the two host states it
 lets launch with a warning rather than refuse, are in [confinement](.claude/rules/confinement.rule.md).
 
-`ai-tools projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach,
-so its safe direction is inaction. Its authorization is correspondingly different — an exact `allowed-projects` entry
-(allow or `!`-parked) plus a typed-name confirmation, not one of the predicates the table lists — and it holds the same
-shape of guarantee: it deletes only after that confirmation, and a failure leaves the tree in place, unregistered. See
-[cli](.claude/rules/cli.rule.md).
+`atr projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach, so its
+safe direction is inaction. Its authorization is correspondingly different — an exact entry in the operator's project
+registry (an enabled or a disabled line) plus a typed-name confirmation, not one of the predicates the table lists —
+and it holds the same shape of guarantee: it deletes only after that confirmation, and a failure leaves the tree
+in place, unregistered. See [cli](.claude/rules/cli.rule.md).
 
 | decision | its predicate | what a failure yields |
 |---|---|---|
-| where a session may start | the canonicalized allowlist + the protected-paths backstop | no launch |
+| where a session may start | the validated, canonicalized project registry + the protected-paths backstop | no launch |
 | which executable may start it | a launcher an enabled manifest claims, at a semver path in the toolchain | no launch |
 | whether the toolchain holds the enabled agents' packages alone | the residue readers over every installed manifest the enabled set does not name ([updater](.claude/rules/updater.rule.md)) | no launch, of any agent, until a provisioning run removes the package |
 | whether it will be confined | the pre-launch SELinux transition probe (fail-closed once confinement is expected; `AI_TOOLS_REQUIRE_SELINUX`, in force by default, requires it outright, and an operator declares a DAC-only host with `no`) | no launch |
@@ -199,12 +200,12 @@ The invariants the agent operates under:
   so the agent cannot unlink/replace them to disable its own guardrails. Root owns the control plane, so an operator
   cannot rewrite a guardrail either. See [ownership-and-hooks](.claude/rules/ownership-and-hooks.rule.md) for the exact
   modes (single-sourced in `control-plane.lib.sh`).
-- **The allowlist gates where the agent launches and which written files get ownership restored. It is NOT
+- **The project registry gates where the agent launches and which written files get ownership restored. It is NOT
   a kernel-enforced read boundary** — once running, ordinary Unix permissions plus the `ai_tools_t` SELinux type govern
-  reads/writes. Those filesystem permissions are the enforced isolation boundary. The CWD and every allowlist entry are
+  reads/writes. Those filesystem permissions are the enforced isolation boundary. The CWD and every registry entry are
   canonicalized (`realpath`) before matching, so a symlink or `..` resolves to its real target before the gate sees it
   and cannot smuggle a path past it ([launch](.claude/rules/launch.rule.md)). (A per-session `bubblewrap` mount
-  namespace to make the allowlist a true access boundary is a deferred proposal; see [Boundaries
+  namespace to make the registry a true access boundary is a deferred proposal; see [Boundaries
   and non-goals](#boundaries-and-non-goals) and memory.)
 - **The ownership handback touches only `SANDBOX_USER`-owned inodes and cannot be redirected outside the tree.**
   `ai-tools-chown` acts on a path only while it is `SANDBOX_USER`-owned (the born-owner of an agent write), refuses
@@ -236,23 +237,26 @@ The invariants the agent operates under:
   ([ref-section-u5h4](.claude/rules/safe-paths.rule.md#ref-section-u5h4)); the layout reconcile is the one writer
   for every row of the installed layout, the rows under sandbox-group-writable parents included
   ([layout](.claude/rules/layout.rule.md)), and a tree that account owns past its root — the toolchain, a cache — does
-  not take a root write inside it, so its interior is that account's as its content is.
+  not take a root write inside it, so its interior is that account's as its content is. A recursive relabel of a tree
+  that account can write runs only while no process of the account is live, read from the kernel's cgroup tree,
+  which leaves a session launched during the walk as the stated residual
+  ([ref-section-e6c6](.claude/rules/cli.rule.md#ref-section-e6c6)).
 - **Rewriting a command does not widen what it may do.** A `PreToolUse` filter narrows how much a command prints (see
   [filters](.claude/rules/filters.rule.md)); it does not return a permission decision, so the harness re-runs its full
   permission pipeline on the **rewritten** command — an `allow` entry must still match it and a `deny` entry still
   overrides. The rules are root-owned data, apply only to a command whose shape is fully parsed, and resolve
   to the command as written in every failure direction. This layer trades tokens, never access.
-- **A protected-paths backstop refuses system directories as targets.** Independently of the allowlist, the launch
-  wrapper, the claim CLI, and every elevated helper that takes a caller-supplied path refuse to act on a system
-  directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user home root (`/home/<user>` — a whole
-  home as a target would hand the agent its dotfiles and keys) — defense in depth against a system directory mistakenly
-  added to `allowed-projects`. Matching is exact-or-ancestor, so real projects nested under an operator home
-  or the sandbox-clone area pass. A **second, narrower predicate** (`ai_tools_safe_paths__is_traverse_grant_allowed`)
-  vets the one operation that is not a target at all — a traverse-only `--x` ACL on a single ancestor directory,
-  which permits traversal alone, without a read of that directory or of the files inside — and permits the acting
-  operator's **own** home root there, refusing every system directory, `/home` itself, and any other account's home
-  root. It is an addition; the protected-paths backstop is unchanged for every target that reaches it. See
-  [safe-paths](.claude/rules/safe-paths.rule.md).
+- **A protected-paths backstop refuses system directories as targets.** Independently of the project registry,
+  the launch wrapper, the claim CLI, and every elevated helper that takes a caller-supplied path refuse to act
+  on a system directory (`/`, `/etc`, `/var`, `/usr`, `/home`, `/opt/ai-tools`, …) or a user home root (`/home/<user>` —
+  a whole home as a target would hand the agent its dotfiles and keys) — defense in depth against a system directory
+  mistakenly added to an operator's project registry. Matching is exact-or-ancestor, so real projects nested
+  under an operator home or the sandbox-clone area pass. A **second, narrower predicate**
+  (`ai_tools_safe_paths__is_traverse_grant_allowed`) vets the one operation that is not a target at all —
+  a traverse-only `--x` ACL on a single ancestor directory, which permits traversal alone, without a read
+  of that directory or of the files inside — and permits the acting operator's **own** home root there, refusing every
+  system directory, `/home` itself, and any other account's home root. It is an addition; the protected-paths backstop
+  is unchanged for every target that reaches it. See [safe-paths](.claude/rules/safe-paths.rule.md).
 
 ### What is expected of the agent where a control leaves a choice <a id="ref-section-g6c4"></a>
 
@@ -282,10 +286,10 @@ not gaps, so a reader tells bounded design from an oversight:
   and per-session `bubblewrap`/`--system` isolation are deferred (see [confinement](.claude/rules/confinement.rule.md)
   and memory).
 - **`ai-ops` operators are trusted.** The model defends the host and other users from the *agent*, not from an operator,
-  who already holds the launch grant. `ai-tools --for <operator>` rests on this: it lets one operator write an entry
-  into another's allowlist — their launch gate — so a human can claim a project for a passwordless service account
-  that runs an agent. The target must be enrolled, every mutation is logged with both caller and target, and this CLI
-  surface is unreachable from a session (see [cli](.claude/rules/cli.rule.md)).
+  who already holds the launch grant. `atr --for <operator>` rests on this: it lets one operator write an entry
+  into another's project registry — their launch gate — so a human can claim a project for a passwordless service
+  account that runs an agent. The target must be enrolled, every mutation is logged with both caller and target,
+  and this CLI surface is unreachable from a session (see [cli](.claude/rules/cli.rule.md)).
 - **Toolchain provenance is checksum-, allowlist-, and signature-gated.** The updater checksum-verifies Node, gates npm
   install scripts behind an allowlist, and verifies the installed toolchain's npm registry signatures before activating
   it — failing closed on a tamper (see [updater](.claude/rules/updater.rule.md)). Pinning the registry signing key
@@ -342,15 +346,16 @@ not gaps, so a reader tells bounded design from an oversight:
   libraries** live under `/usr/local/lib/ai-tools/` (`conf`, `settings-merge`, `secret-patterns`, `skip-dirs`,
   `session-sweep`, `owner-only`, `project-permissions`, `safe-paths`, `relabel`, `operator`, `control-plane`,
   `confinement`, `launch-wrapper`, `npm-verify`, `openpgp`, `entrypoint-verify`, `assets-verify`, `managed-assets`,
-  `providers`, `ancestor-config`, `sandbox-exec`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`, `services`,
-  `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, `layout`, and the claude-code
-  pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment `ai-tools-admin` wires
-  into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its contents are `root`-owned
-  and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox account sources several
-  of these libraries. Read is open on every one of them and **write** is the boundary: a shared library carries shipped
-  logic or a general list, and an operator's own data stays in that operator's private config instead, so an open read
-  discloses only what already ships (the modes are in [providers](.claude/rules/providers.rule.md); the guarantee is
-  the invariant that the sandbox cannot widen its own surface).
+  `providers`, `ancestor-config`, `sandbox-exec`, `sessions`, `toolchain`, `cache-cleanup`, `selinux-groups`, `filters`,
+  `services`, `msg`, `log`, `path-order`, `agent-installs`, `records-base`, `records-tsv`, `assets`, `layout`, `help`,
+  and the claude-code pair `claude-prompt`/`claude-endpoint`), plus `path-order.sh`, the PATH-ordering fragment
+  `ai-tools-admin` wires into operator dotfiles (see [launch](.claude/rules/launch.rule.md)). That directory and its
+  contents are `root`-owned and non-group-writable, and the sandbox group reads them — load-bearing, since the sandbox
+  account sources several of these libraries. Read is open on every one of them and **write** is the boundary: a shared
+  library carries shipped logic or a general list, and an operator's own data stays in that operator's private config
+  instead, so an open read discloses only what already ships (the modes are
+  in [providers](.claude/rules/providers.rule.md); the guarantee is the invariant that the sandbox cannot widen its own
+  surface).
 
 ### Documentation register
 
@@ -371,8 +376,9 @@ asset does not name any tool of this repository's, so the skill does not name th
   is named `ai-tools-<topic>`, whatever section it sits in and whatever file it documents (`ai-tools-typesafe.conf(5)`
   for `/etc/ai-tools/endpoints/typesafe.conf`), because `/usr/local/share/man` and `/usr/share/man` are both
   on the default `MANDATORY_MANPATH`: an unprefixed page would resolve ahead of, or behind, a page another package
-  installs under the same generic name. A page ships in the package that installs the file it documents, so an optional
-  integration carries a page of its own rather than contributing a section to a shared one.
+  installs under the same generic name. The two `.so` stubs named for the short command `atr` are the one exception,
+  each pointing at the page it stands for. A page ships in the package that installs the file it documents,
+  so an optional integration carries a page of its own rather than contributing a section to a shared one.
 - Error messages, notices, and log lines → runtime output: what happened, and what to do.
 
 <!-- Agent-facing prose wraps at 120, the column `prose-check.py` measures this file against and

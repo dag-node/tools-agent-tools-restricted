@@ -62,7 +62,7 @@ for them.
 - **SC2053** — unquoted right-hand side of `==` in `[[ ]]`. The secret-name and protected-path loops match a value
   against a *pattern* (`[[ "${base}" == ${pat} ]]`), and the operand arrangement is the secure one: the variable,
   possibly agent-influenced operand (the filename or path) is **quoted** and matches literally, while the **unquoted**
-  glob is the pattern, sourced only from operator/root-owned config (the `allowed-projects` `!`-globs,
+  glob is the pattern, sourced only from operator/root-owned config (the project registry's `!`-globs,
   `secret-patterns`). Quoting the right side would match the pattern literally and defeat the match, so it stays
   unquoted.
 - **SC2010 / SC2012** — reading a SELinux context from `ls -Zd`. Each call inspects a single, quoted path, so the result

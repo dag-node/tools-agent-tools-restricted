@@ -1,17 +1,26 @@
 .\" ai-tools-admin(8) -- host administration for Agent Tools Restricted.
-.\" Kept in sync with the helper's own usage() text by tests/unit/man.sh, which
-.\" compares the command sets of both; @AI_TOOLS_VERSION@ is substituted at
+.\" Kept in sync with the command rows help.lib.sh holds for the helper by
+.\" tests/unit/man.sh, which compares the command sets of both;
+.\" @AI_TOOLS_VERSION@ is substituted at
 .\" deploy time (install.sh install_subst / the RPM %prep), like the helper.
 .TH AI-TOOLS-ADMIN 8 "" "ai-tools @AI_TOOLS_VERSION@" "Agent Tools Restricted"
 .SH NAME
-ai-tools-admin \- administer the host a sandboxed coding agent runs on
+atr, ai-tools-admin \- administer the host a sandboxed coding agent runs on
 .SH SYNOPSIS
-.B ai-tools-admin
+.B atr admin
 .I COMMAND
 .RI [ ARGUMENT ]
 .br
-.B ai-tools-admin
+.B atr admin
 .BR \-\-help | \-\-version
+.br
+.B atr admin
+.I COMMAND
+.BR \-\-help | help
+.br
+.B ai-tools-admin
+.I COMMAND
+.RI [ ARGUMENT ]
 .SH DESCRIPTION
 .B ai-tools-admin
 administers the host state the sandbox rests on: who is enrolled as an
@@ -24,6 +33,23 @@ separates it from
 .BR ai-tools (1)
 \(em the project-lifecycle CLI, run as your own login user, which refuses root
 for every command that writes an operator's registries.
+.PP
+.B "atr admin COMMAND"
+runs
+.B ai-tools-admin
+at its fixed path, directly as root and otherwise through
+.B sudo
+after one line on standard error saying so, and every example on this page is
+spelled that way.
+Type it without a leading
+.BR sudo :
+sudo then authorizes
+.BR /usr/local/libexec/ai-tools/ai-tools-admin ,
+the command a grant for this program names, while
+.B "sudo atr admin"
+has sudo authorize
+.BR /usr/sbin/atr ,
+which a rule naming the program alone does not cover.
 .PP
 A command is a bare word and
 .B \-\-
@@ -63,7 +89,7 @@ grant, which the host's own sudoers decides.
 reports which of the two shapes the enrolment produced \(em an account that
 can claim projects as well as launch sessions, or one that launches sessions
 on projects another operator claimed for it with
-.BR "ai\-tools projects claim \-\-for" .
+.BR "atr projects claim \-\-for" .
 .PP
 Group membership applies to new login sessions, so an operator enrolled from
 an already-open shell starts a new one before launching an agent.
@@ -143,11 +169,13 @@ They exist on a host that installed
 .BR ai\-tools\-integration\-dotnet ,
 and not on one that did not.
 .PP
-.B \-\-help
+.B "atr admin help"
 lists the domains this host has, with a line describing each, so what it prints
-and what dispatches are one list.
+and what dispatches are one list; it prints without a password.
 .IB DOMAIN " \-\-help"
-prints that domain's own commands.
+prints that domain's own commands, through
+.B sudo
+like the domain's other commands.
 .PP
 Installing a provider is what makes its commands exist; enabling it in
 .BR ai-tools-operator.conf (5)
@@ -187,11 +215,11 @@ is the command an administrator runs when neither did \(em an out-of-band
 upgrade, or a watcher that was down \(em and when either
 .B status
 or
-.B "ai\-tools status"
+.B "atr status"
 reports an entrypoint unverified or not labelled.
 .B status
 answers from the labels themselves, where
-.B "ai\-tools status"
+.B "atr status"
 answers from the last reconciliation's record.
 .SS Layout
 Every path this stack installs or creates is one row of a table the base
@@ -220,7 +248,7 @@ with both gone its rows leave the table, which
 still reports.
 .SH COMMANDS
 .TP
-.B operators
+.B operators \fR[\fBlist\fR]
 List the enrolled operators, one per line.
 This is what a bare
 .B operators
@@ -233,11 +261,11 @@ Enrol
 .IR USER ,
 defaulting to
 .BR $SUDO_USER .
-Seeds that account's own config first \(em an allowlist at
-.I ~/.config/ai\-tools/allowed\-projects
+Seeds that account's own config first \(em a project registry at
+.I ~/.config/ai\-tools/project\-registry
 and secret\-name patterns at
 .IR ~/.config/ai\-tools/secret\-patterns ,
-each carrying its format header alone \(em then appends the name to
+each carrying its header alone, the registry its format marker first \(em then appends the name to
 .BR OPERATORS ,
 adds the account to
 .BR ai\-ops ,
@@ -279,9 +307,15 @@ ai\-tools directory inside it is
 .B 700
 and its files
 .BR 600 .
-A first enrolment that cannot write the allowlist is refused with the host
-unchanged, since an operator without one can neither start a session nor claim
-a project.
+A first enrolment that cannot write the project registry is refused with the
+host unchanged, since an operator without one can neither start a session nor
+claim a project.
+An account that still holds the
+.I ~/.config/ai\-tools/allowed\-projects
+an earlier release wrote keeps it as its registry: the new file is not seeded
+beside it, and a warning names
+.BR "system post\-upgrade" ,
+which migrates it.
 Idempotent: a re-run reconciles each of those and reports what was already in
 place, and exits non\-zero when the config is still missing.
 Refuses root and the sandbox account.
@@ -293,10 +327,10 @@ enrolment: drops the name from
 .B OPERATORS
 and the account from
 .BR ai\-ops .
-Leaves the account's own allowlist and configuration on disk, so re-enrolling
+Leaves the account's own project registry and configuration on disk, so re-enrolling
 restores the projects it had.
 .TP
-.B selinux groups
+.B selinux groups \fR[\fBlist\fR]
 Report the core module and every optional group with its state
 .RB ( [LOADED] / [disabled] ),
 its stability, and what it covers.
@@ -506,6 +540,34 @@ it reconciles the entrypoints of the agents that line now enables, as
 does.
 This is the one change it makes to that file, and the unattended run makes it
 too.
+.IP
+Each enrolled operator's
+.I ~/.config/ai\-tools/allowed\-projects
+an earlier release wrote is migrated too, unattended included, since every
+.B "atr projects"
+command but the listing refuses until it is.
+The block for each account prints every line, then writes
+.I ~/.config/ai\-tools/project\-registry
+as the format marker followed by those lines unchanged, at the old file's
+owner and mode, and renames the old file to a dated
+.I .bak
+beside it.
+It names each
+.B !\&
+line no project encloses with the
+.B %
+line that keeps it as a disabled project, since in the new format such a line is
+an excluded path.
+A file the operator does not own at mode
+.BR 600 ,
+or one holding a line its grammar refuses, is named and left as written.
+A registry the launch gate refuses is named with the line to fix, since no
+session starts under it.
+One refused only for an exclusion spelled through a symbolic link the sandbox
+account can change still migrates, the new file carrying the same line.
+See
+.BR ai\-tools\-project\-registry (5).
+.IP
 Whether or not a copy is waiting, the command also names each
 .B permissions.ask
 entry the agent's
@@ -591,7 +653,17 @@ entry the file lacks),
 .IR DETAIL ),
 .B list\-unmigratable
 (a name in a provider list that does not match any installed manifest or rule
-set, to edit by hand).
+set, to edit by hand),
+.B registry\-unmigrated
+(an operator's
+.I ~/.config/ai\-tools/allowed\-projects
+the command would migrate),
+.B registry\-invalid
+(an operator's registry the migration or the launch gate refuses: a source
+the operator does not own at mode 600, a line the grammar refuses, or an
+exclusion through a symbolic link the sandbox account can change, with the
+reason as
+.IR DETAIL ).
 An
 .B error
 row (a check that could not run, or a collector that failed, with the check
@@ -751,7 +823,7 @@ The transaction trigger passes it, since the rpm database is held while a
 transaction runs; the relabel the transaction starts runs the full pass.
 .RE
 .TP
-.B assets
+.B assets \fR[\fBlist\fR]
 Print the state of every entry of
 .B AI_TOOLS_ASSETS
 and each link a reconcile would place, repoint or remove, without changing
@@ -870,7 +942,7 @@ the entries read with this call's change, refuse the call with the file
 unchanged.
 A write that could not be confirmed exits 1: the file holds the list it held or
 the one the call wrote, and the message names the backup and
-.BR "sudo ai\-tools\-admin assets reconcile" .
+.BR "atr admin assets reconcile" .
 Each writes one record per entry of
 .B AI_TOOLS_ASSETS
 \(em
@@ -897,7 +969,8 @@ provisioned, each managed
 unit, each asset
 .B AI_TOOLS_ASSETS
 enables that is not linked with its reason, each cache the sandbox account
-cleans with its last cleanup and the size it holds now, the sandbox
+cleans with its last cleanup and the size it holds now, each enrolled
+operator's project registry read as the launch gate reads it, the sandbox
 account's own unit search path, and \(em per enabled agent
 \(em both halves of the entrypoint reconciliation: whether the binary matches
 the checksum pinned for it, and what SELinux type its paths carry.
@@ -912,7 +985,7 @@ not enforced where it is not.
 .RS
 .PP
 It is the same report
-.B "ai\-tools status"
+.B "atr status"
 gives an operator, completed with the readings that vantage point lacks
 the privilege for and prints as
 .BR ? :
@@ -957,7 +1030,7 @@ section,
 and
 .B UNEXPECTED
 need attention: re-run
-.B "ai\-tools\-admin system bootstrap"
+.B "atr admin system bootstrap"
 for the first, and inspect and remove the named entry for the second.
 .B FUTURE
 means the update timer's stamp is dated ahead of the clock, so a missed update
@@ -979,7 +1052,7 @@ commands that end it:
 .PP
 .EX
 sudo dnf install ai-tools-assets-sets-core
-sudo ai-tools-admin assets enable --set core
+atr admin assets enable --set core
 .EE
 .RE
 .PP
@@ -1011,11 +1084,11 @@ The section's OK line counts the assets
 .B AI_TOOLS_ASSETS
 enables and those that resolved to linked.
 An asset resolves while its link is still missing, and
-.B "ai\-tools\-admin assets list"
+.B "atr admin assets list"
 names the links a reconcile would place.
 .PP
 The label reading is the one this command alone can give.
-.B "ai\-tools status"
+.B "atr status"
 reports what the last reconciliation
 .IR achieved ,
 an event that may be hours old; this reports the type the file carries now, so
@@ -1038,15 +1111,64 @@ job without parsing its output. A
 line does not change the exit, as in
 .BR ai-tools (1).
 .RE
+.TP
+.B stop \fR[\fB\-\-all\fR] [\fB\-\-dry\-run\fR] [\fB\-\-yes\fR] [\fB\-\-force\fR]
+Stop every agent session on this host, through the same helper as
+.BR "atr stop" ,
+which
+.BR ai-tools (1)
+documents under
+.BR stop
+with its options and exit codes.
+.B "atr admin stop"
+runs
+.B "ai-tools stop"
+for any caller, so its bare form does not ask a password, as
+.B "atr stop"
+does not.
+.B "sudo ai-tools-admin stop"
+runs the helper directly.
 .SH OPTIONS
-Both options read no host state and leave the host as it is, so both answer any caller
-rather than only root, and each ignores any further argument.
+A help request and
+.B \-\-version
+read no host state and leave the host as it is, so both answer any caller
+rather than only root, and
+.B atr admin
+answers both for an operator without
+.BR sudo .
+A bare
+.B ai-tools-admin
+prints the help and exits 0.
 .TP
 .BR \-\-help ", " \-h
-Print the command summary and exit.
+Print help and exit 0, without running the command.
+With no command word, the help is the whole summary, with the domains this host
+has; after a domain or a collection such as
+.BR "selinux groups" ,
+the commands under it; after a command, its usage line, what it does, and the
+entry on this page that documents its options.
+The option counts anywhere ahead of a
+.BR \-\- ,
+and names the command its leading command words spell, so
+.B "atr admin operators add \-\-help"
+prints the help of
+.B "operators add"
+and enrols nobody.
+The bare word
+.B help
+asks the same where a command word goes: first, followed by the command
+.RB ( "atr admin help selinux groups" ),
+or after a domain or a collection
+.RB ( "atr admin system layout help" ).
+After a command it is that command's argument, and no provider package can
+contribute a domain named
+.BR help .
+A help request on a contributed domain is that domain's to answer, and
+a help request on a command this program does not have is refused as the unknown
+command, under the code of the domain it names.
 .TP
 .B \-\-version
-Print the installed version and exit.
+Print the installed version and exit, when it is the first argument.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -1145,9 +1267,16 @@ edits the
 .B OPERATORS
 line in place and leaves every other setting as written.
 .TP
+.I ~/.config/ai-tools/project-registry
+The enrolled account's own project registry, seeded by
+.BR "operators add" ;
+see
+.BR ai\-tools\-project\-registry (5).
+.TP
 .I ~/.config/ai-tools/allowed-projects
-The enrolled account's own allowlist of project paths, seeded by
-.BR "operators add" .
+The registry an earlier release wrote, which
+.B "system post\-upgrade"
+migrates.
 .TP
 .I ~/.config/ai-tools/secret-patterns
 The same account's secret\-name patterns, seeded by
@@ -1191,14 +1320,24 @@ loads.
 The grant that lets an operator launch a sandboxed session.
 .B "system post-upgrade"
 shows changes to it and never writes it.
+.TP
+.I /usr/local/share/bash-completion/completions/ai-tools-admin
+A link to the bash completion
+.BR ai-tools (1)
+describes, which completes
+.B ai-tools-admin
+and
+.B atr admin
+alike, with the domains this host's provider packages contribute among the
+commands.
 .SH EXAMPLES
 Bring a freshly installed host up: provision the toolchain, then enrol
 yourself.
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap
-sudo ai\-tools\-admin operators add "$(id \-un)"
+atr admin system bootstrap
+atr admin operators add "$(id \-un)"
 .EE
 .RE
 .PP
@@ -1206,7 +1345,7 @@ Provision a host unattended, enabling one agent without the menu:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap \-\-agents agent\-codex
+atr admin system bootstrap \-\-agents agent\-codex
 .EE
 .RE
 .PP
@@ -1220,7 +1359,7 @@ then re-run the same command:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap
+atr admin system bootstrap
 .EE
 .RE
 .PP
@@ -1229,8 +1368,8 @@ what the .NET one has:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system bootstrap \-\-scope full
-sudo ai\-tools\-admin dotnet status
+atr admin system bootstrap \-\-scope full
+atr admin dotnet status
 .EE
 .RE
 .PP
@@ -1238,8 +1377,8 @@ Claim a project for a passwordless service account you enrolled earlier:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin operators add svc\-agent
-ai\-tools projects claim \-\-for svc\-agent ~/src/myproject
+atr admin operators add svc\-agent
+atr projects claim \-\-for svc\-agent ~/src/myproject
 .EE
 .RE
 .PP
@@ -1247,8 +1386,8 @@ See which policy groups are loaded, then widen the domain for a .NET build:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin selinux groups
-sudo ai\-tools\-admin selinux groups enable tmpmap
+atr admin selinux groups
+atr admin selinux groups enable tmpmap
 .EE
 .RE
 .PP
@@ -1256,7 +1395,7 @@ Reconcile the configuration files an upgrade left behind:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system post\-upgrade
+atr admin system post\-upgrade
 .EE
 .RE
 .PP
@@ -1272,7 +1411,7 @@ something or could not complete:
 .PP
 .RS 4
 .EX
-ai\-tools\-admin system post\-upgrade \-\-check > /var/tmp/post\-upgrade.tsv
+atr admin system post\-upgrade \-\-check > /var/tmp/post\-upgrade.tsv
 case $? in
     0) rm \-f /var/tmp/post\-upgrade.tsv ;;
     4) logger \-t post\-upgrade "findings left; see the stream" ;;
@@ -1287,16 +1426,16 @@ refuses over the label:
 .PP
 .RS 4
 .EX
-sudo ai\-tools\-admin system entrypoints relabel
+atr admin system entrypoints relabel
 .EE
 .RE
 .SH SEE ALSO
 .BR ai\-tools (1),
 .BR ai-tools-assets (5),
-.BR allowed\-projects (5),
 .BR ai-tools-operator.conf (5),
+.BR ai\-tools\-project\-registry (5),
 .BR ai-tools-records (5),
-.BR secret\-patterns (5),
+.BR ai\-tools\-secret\-patterns (5),
 .BR semodule (8),
 .BR sudoers (5).
 .PP

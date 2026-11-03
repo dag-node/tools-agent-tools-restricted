@@ -22,6 +22,10 @@
 # decides liveness.
 #
 # Needs root (writing cgroup.procs and cgroup.kill) and a cgroup v2 hierarchy; skips without them.
+#
+# run.sh: serial
+#
+# Serial under `run.sh -j`: it makes a fixture cgroup at the cgroup root and signals real processes in it.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"

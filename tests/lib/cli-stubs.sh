@@ -10,11 +10,18 @@
 # header is its whole description.
 #
 # The shim also answers the two other shapes the CLI sends through sudo: the grant probe
-# `sudo -n -l [-u <user>] <helper>` (answered as "grant present": exit 0, the helper echoed), and the run-as-owner form
-# `sudo -u <user> -H -- <cmd>` (run directly, as the invoker).
+# `sudo -n -l [-u <user>] <helper>` (answered as "grant present": exit 0, the helper echoed, unless cli_stub_no_grant
+# named the helper), and the run-as-owner form
+# `sudo -u <user> -H -- <cmd>` (logged as `runas <cwd> <user> <cmd...>`, then run directly, as the invoker, unless
+# cli_stub_fail named `runas` or `runas:<the command's basename>`).
+#
+# An `id` shim beside it answers the one group read a `--for` run gates on, `id -nG <user>`: the account's real groups
+# with `ai-ops` removed, and `ai-ops` added for each name cli_stub_ai_ops listed, so the fixture target's membership is
+# the test's to set whatever the host's group database says. Every other form runs the real `id`.
 #
 # The stubs answer only what the CLI PARSES from a helper:
-#   ai-tools-lockdown   prints the secret-scan count line and one `[file]` line per path listed
+#   ai-tools-lockdown   prints the secret-scan count line, naming the directory given after `--` or
+#                       the working directory without one, and one `[file]` line per path listed
 #                       in <root>/stubs/lockdown.secrets (empty or absent: a clean tree), the form
 #                       secret_gate reads; it leaves the tree as it is.
 #   ai-tools-allowlist  the `--for` registry: `--print` cats <root>/for-allowlist, and `--add`/`--remove`/
@@ -27,8 +34,14 @@
 # cli_stubs_install <root>   writes the shim and stubs under <root>; sets CLI_STUB_PATH (prepend
 #                            to PATH), CLI_STUB_LOG, CLI_STUB_SECRETS. <root> must be exec-capable
 #                            and the caller chowns it to the user the CLI runs as.
-# cli_stub_reset             truncates the log and the secrets list, and clears every cli_stub_fail.
-# cli_stub_fail <helper>...  makes each named helper's call exit 1 after it is logged, for a failed root step.
+# cli_stub_reset             truncates the log and the secrets list, and clears every cli_stub_fail
+#                            and cli_stub_no_grant.
+# cli_stub_fail <helper>...  makes each named helper's call exit 1 after it is logged, for a failed root step;
+#                            <helper>:<option> fails only a call carrying that option (`ai-tools-allowlist:--remove`);
+#                            `runas` fails every run-as-owner call, and `runas:<basename>` the calls of one command
+#                            (`runas:ai-tools`, the claim's owner-side read).
+# cli_stub_fail_status <helper> <status>  makes <helper>'s call exit <status> after it is logged, for a helper whose
+#                            exit status the CLI reads (ai-tools-relabel's live-session refusal).
 # cli_calls <helper>             prints the log lines for <helper>, fields after the cwd only
 #                                (tab-separated args).
 # cli_called <helper> [ere]      0 when <helper> was called and, with <ere>, some call's args match it.
@@ -36,16 +49,36 @@
 # cli_log_empty                  0 when no helper was called.
 # cli_call_index <helper> [ere]  the 1-based log line of the first matching call, for ordering. cli_stub_secrets
 # <path>... makes the lockdown stub report these paths as secret-matching.
+# cli_stub_ai_ops [<user>...]    sets the accounts the `id` shim reports in ai-ops (none without an argument); kept
+#                                across cli_stub_reset.
 
 cli_stubs_install() {
-    local root="$1"
+    local root="$1" real_id
     CLI_STUB_PATH="${root}/stub-bin"
     CLI_STUB_DIR="${root}/stubs"
     CLI_STUB_LOG="${root}/sudo-calls.log"
     CLI_STUB_SECRETS="${CLI_STUB_DIR}/lockdown.secrets"
+    CLI_STUB_AI_OPS="${CLI_STUB_DIR}/ai-ops.members"
     mkdir -p "${CLI_STUB_PATH}" "${CLI_STUB_DIR}"
     : > "${CLI_STUB_LOG}"
     : > "${CLI_STUB_SECRETS}"
+    : > "${CLI_STUB_AI_OPS}"
+    real_id="$(type -P id)"
+
+    cat > "${CLI_STUB_PATH}/id" <<EOF
+#!/usr/bin/env bash
+# id shim written by tests/lib/cli-stubs.sh: answers ai-ops membership from a fixture list.
+set -u
+if [[ \$# -eq 2 && "\$1" == -nG ]]; then
+    groups="\$("${real_id}" -nG "\$2")" || exit
+    reported_groups=""
+    for group in \${groups}; do [[ "\${group}" == ai-ops ]] || reported_groups+="\${reported_groups:+ }\${group}"; done
+    if grep -qxF -- "\$2" "${CLI_STUB_AI_OPS}"; then reported_groups+=" ai-ops"; fi
+    printf '%s\n' "\${reported_groups}"
+    exit 0
+fi
+exec "${real_id}" "\$@"
+EOF
 
     cat > "${CLI_STUB_PATH}/sudo" <<EOF
 #!/usr/bin/env bash
@@ -56,13 +89,22 @@ LOG="${CLI_STUB_LOG}"
 if [[ "\${1:-}" == -n && "\${2:-}" == -l ]]; then
     shift 2
     [[ "\${1:-}" == -u ]] && shift 2
+    # sudo's own answer for a command no rule matches: a non-zero exit with empty output.
+    [[ -n "\${1:-}" && -e "\${STUBS}/nogrant.\${1##*/}" ]] && exit 1
     printf '%s\n' "\${1:-}"
     exit 0
 fi
 if [[ "\${1:-}" == -u ]]; then
+    runas_user="\${2:-}"
     shift 2
     [[ "\${1:-}" == -H ]] && shift
     [[ "\${1:-}" == -- ]] && shift
+    {
+        printf 'runas\t%s\t%s' "\${PWD}" "\${runas_user}"
+        for a in "\$@"; do printf '\t%s' "\${a}"; done
+        printf '\n'
+    } >> "\${LOG}"
+    [[ -e "\${STUBS}/fail.runas" || -e "\${STUBS}/fail.runas:\${1##*/}" ]] && exit 1
     exec "\$@"
 fi
 bin="\$1"; shift
@@ -72,7 +114,10 @@ name="\${bin##*/}"
     for a in "\$@"; do printf '\t%s' "\${a}"; done
     printf '\n'
 } >> "\${LOG}"
-[[ -e "\${STUBS}/fail.\${name}" ]] && exit 1
+if [[ -e "\${STUBS}/fail.\${name}" ]]; then status="\$(<"\${STUBS}/fail.\${name}")"; exit "\${status:-1}"; fi
+for a in "\$@"; do
+    [[ "\${a}" == --* && -e "\${STUBS}/fail.\${name}:\${a}" ]] && exit 1
+done
 if [[ -x "\${STUBS}/\${name}" ]]; then
     exec "\${STUBS}/\${name}" "\$@"
 fi
@@ -83,11 +128,15 @@ EOF
 #!/usr/bin/env bash
 set -u
 secrets="${CLI_STUB_SECRETS}"
-gate=false
-for a in "\$@"; do [[ "\${a}" == --gate ]] && gate=true; done
+gate=false dir="\${PWD}" after=false
+for a in "\$@"; do
+    if \${after}; then dir="\${a}"; continue; fi
+    [[ "\${a}" == --gate ]] && gate=true
+    [[ "\${a}" == -- ]] && after=true
+done
 if [[ -s "\${secrets}" ]]; then
     n="\$(wc -l < "\${secrets}")"
-    printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' "\${n}" "\${PWD}" >&2
+    printf 'ai-tools-lockdown: %d secret-matching path(s) under %s:\n' "\${n}" "\${dir}" >&2
     while IFS= read -r p; do
         printf '  [file] %s\n' "\${p}" >&2
         if \${gate}; then printf '%s\0' "\${p}"; fi
@@ -136,12 +185,18 @@ else
 fi
 EOF
 
-    chmod 0755 "${CLI_STUB_PATH}/sudo" "${CLI_STUB_DIR}"/ai-tools-*
+    chmod 0755 "${CLI_STUB_PATH}/sudo" "${CLI_STUB_PATH}/id" "${CLI_STUB_DIR}"/ai-tools-*
 }
 
-cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.* "${CLI_STUB_DIR}"/decline.*; }
+cli_stub_ai_ops() { : > "${CLI_STUB_AI_OPS}"; (( $# )) && printf '%s\n' "$@" > "${CLI_STUB_AI_OPS}"; return 0; }
+
+cli_stub_reset() { : > "${CLI_STUB_LOG}"; : > "${CLI_STUB_SECRETS}"; rm -f "${CLI_STUB_DIR}"/fail.* "${CLI_STUB_DIR}"/decline.* "${CLI_STUB_DIR}"/nogrant.*; }
+# cli_stub_no_grant <helper>...  makes the grant probe for each named helper answer as sudo does for a command no rule
+# matches, while the caller's rule set still lists, so the CLI reads a missing grant.
+cli_stub_no_grant() { local helper; for helper in "$@"; do : > "${CLI_STUB_DIR}/nogrant.${helper}"; done; }
 
 cli_stub_fail() { local helper; for helper in "$@"; do : > "${CLI_STUB_DIR}/fail.${helper}"; done; }
+cli_stub_fail_status() { printf '%s\n' "$2" > "${CLI_STUB_DIR}/fail.$1"; }
 
 cli_stub_secrets() { printf '%s\n' "$@" > "${CLI_STUB_SECRETS}"; }
 # cli_stub_decline_lockdown -- the lockdown stub answers a found secret as a declined confirmation, exit 6.

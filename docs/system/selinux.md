@@ -9,7 +9,7 @@ an operator meets in practice — a stale label after a toolchain update —
 and the command that clears it.
 
 ```bash
-sudo ai-tools-admin system entrypoints relabel   # relabel every enabled agent's entrypoint and config directory
+atr admin system entrypoints relabel   # relabel every enabled agent's entrypoint and config directory
 ```
 
 The confinement layer puts each session in its own SELinux domain,
@@ -46,8 +46,8 @@ so a host that confines its operators to a login domain of their own —
 to the attribute and give it the same file access. Launching a session
 from such a login is not validated yet: the launch path is measured
 for unconfined logins only, and a read denied there refuses the launch instead
-of running the session unconfined. An `ai-tools-admin selinux` command
-that declares the domain is planned.
+of running the session unconfined. An `atr admin selinux` command that declares
+the domain is planned.
 
 ## A stale label after a toolchain update
 
@@ -61,8 +61,7 @@ the fix, and it is idempotent.
 Two things are worth knowing before reaching for `restorecon` yourself:
 
 - Each agent's entrypoint and config directory are labelled from rules **that
-  agent's own manifest** declares,
-  so `sudo ai-tools-admin system entrypoints relabel` —
+  agent's own manifest** declares, so `atr admin system entrypoints relabel` —
   or `sudo selinux/install-selinux.sh relabel` from a checkout — applies them
   in the right order.
 - A bare recursive `restorecon` over `/opt/ai-tools` can leave a hardlinked
@@ -110,14 +109,14 @@ for the capabilities a particular workload needs. The optional groups are
 off until an operator loads one:
 
 ```bash
-sudo ai-tools-admin selinux groups                  # the core module and every optional group
-sudo ai-tools-admin selinux groups enable <name>    # load one
+atr admin selinux groups                  # the core module and every optional group
+atr admin selinux groups enable <name>    # load one
 ```
 
 ### The `tmpmap` group and the `domain_can_mmap_files` Boolean
 
 ```bash
-sudo ai-tools-admin selinux groups enable tmpmap   # let a session memory-map its own temporary files
+atr admin selinux groups enable tmpmap   # let a session memory-map its own temporary files
 ```
 
 A .NET restore memory-maps files it creates under `/tmp`, and a session is

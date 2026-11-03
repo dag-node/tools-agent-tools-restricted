@@ -14,10 +14,11 @@ paths:
 # Protected-paths backstop
 
 `safe-paths.lib.sh` is the single source of truth for the system directories the elevated ai-tools operations refuse
-to act on, plus the guard that enforces it. The allowlist authorizes wherever it points, so a system directory added
-to `allowed-projects` by mistake (or passed straight to a helper) would let a recursive chown/setgid/setfacl/relabel
-rewrite it. This list is the independent backstop: every elevated operation refuses a protected target regardless
-of the allowlist, before acting, so a misconfigured allowlist cannot turn a system tree into a claim target.
+to act on, plus the guard that enforces it. The project registry authorizes wherever it points, so a system directory
+added to `~/.config/ai-tools/project-registry` by mistake (or passed straight to a helper) would let a recursive
+chown/setgid/setfacl/relabel rewrite it. This list is the independent backstop: every elevated operation refuses
+a protected target regardless of the registry, before acting, so a misconfigured registry cannot turn a system tree
+into a claim target.
 
 ## Matching: exact or ancestor
 
@@ -93,7 +94,7 @@ function on the swapped state ([tests](tests.rule.md)).
 Two layers, both fail-closed:
 
 - **Front line** — the launch gates every agent's wrapper runs (`launch-wrapper.lib.sh`) refuse to *launch* a session
-  in a protected CWD, and `ai-tools projects claim` (`cmd_project_claim`), `projects create` (`cmd_project_create`),
+  in a protected CWD, and `atr projects claim` (`cmd_project_claim`), `projects create` (`cmd_project_create`),
   `projects remove` (`cmd_project_remove`) and `projects unclaim` (`cmd_project_unclaim`) each refuse a protected
   directory as their target, so a mis-entered allowlist neither starts a session nor claims/unclaims a system tree
   where the handback would act. Unclaim guards each *modification target* (in ancestor mode the search root may be
@@ -106,9 +107,9 @@ Two layers, both fail-closed:
   directory (`/efi` or `/lost+found` on a host without one). It does not refuse a project nested *inside* a protected
   tree — descendants pass by design, exactly as for a claim, or no project under a home would work. The clone verbs —
   `projects push`, and `projects remove` pointed at a clone — add a second front-line for the destructive `rm -rf`:
-  `require_sandbox_clone` calls the backstop **and** requires a direct-child clone of `SANDBOX_ROOT` that is a git
-  worktree, so the shared clone-area root — a *descendant* of the protected `/var`, hence not caught by the backstop
-  alone — is never a removal target.
+  `require_sandbox_clone_shape` calls the backstop **and** requires a direct child of `SANDBOX_ROOT` held by the acting
+  owner or the invoker, with a `.git` directory holding a `HEAD` file, so the shared clone-area root — a *descendant*
+  of the protected `/var`, hence not caught by the backstop alone — is never a removal target.
 - **Last line** — `ai-tools-{chown,reclaim,setgid,setfacl,unclaim,lockdown,relabel}` each call the guard right
   after resolving their canonical target, before any mutation. The walkers (`reclaim`, `setgid`, `setfacl`, `unclaim`)
   refuse the whole pass at the project root, before descending.

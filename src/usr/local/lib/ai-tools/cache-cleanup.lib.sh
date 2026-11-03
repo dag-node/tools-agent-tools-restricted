@@ -541,13 +541,13 @@ ai_tools_cache_cleanup__format_cleaned_line() {
 ai_tools_cache_cleanup__get_remedy() {
     # shellcheck disable=SC2016  # the backticks mark a command for the reader and are printed, not run
     case "${1:-}" in
-        home-untrusted)   printf 'the sandbox home must be root-owned and not group- or other-writable: `sudo ai-tools-admin system bootstrap`' ;;
-        parent-untrusted) printf 'the parent of the cache must be a directory the sandbox account owns: `sudo ai-tools-admin system bootstrap` names the chown' ;;
+        home-untrusted)   printf 'the sandbox home must be root-owned and not group- or other-writable: `atr admin system bootstrap`' ;;
+        parent-untrusted) printf 'the parent of the cache must be a directory the sandbox account owns: `atr admin system bootstrap` names the chown' ;;
         unsafe-rmtree)    printf '/usr/bin/python3 on this host does not report a symlink-safe rmtree, so no cache is removed here' ;;
         timeout)          printf 'the next run removes the rest' ;;
         unknown)          printf 'no launch could tell whether another session was running, so the cache was left in place' ;;
-        links)            printf 'each was removed as a link and its target left alone; a process of the sandbox account planted it, or a copy of the home broke it -- `sudo ai-tools audit` names what ran in the sessions since' ;;
-        overdue)          printf 'another session was active at every launch for two weeks: end them all gracefully or with `ai-tools stop`, and the cleanup runs at the next session start' ;;
+        links)            printf 'each was removed as a link and its target left alone; a process of the sandbox account planted it, or a copy of the home broke it -- `sudo atr audit` names what ran in the sessions since' ;;
+        overdue)          printf 'another session was active at every launch for two weeks: end them all gracefully or with `atr stop`, and the cleanup runs at the next session start' ;;
         *)                printf 'the cache stays as it is until a run removes it' ;;
     esac
 }

@@ -140,13 +140,18 @@ asset_signing_gen_key OTHER other
 asset_signing_write_binding acme "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 asset_signing_write_binding acme-two "${KEYS}/signer.gpg" "openpgp:${SIGNER}"
 
-# fresh : the control state every case starts from: acme built in the packaged root alone, both its assets enabled
-# for the agent acme, linked by one reconcile.
+# The set every case starts from, sealed once; fresh copies it into the packaged root.
+readonly SEALED_SET_ROOT="${TESTDIR}/template"
+mkdir -m 0755 "${SEALED_SET_ROOT}"
+asset_signing_build_set "${SEALED_SET_ROOT}" acme
+
+# fresh : the control state every case starts from: acme copied from the template into the packaged root alone, both its
+# assets enabled for the agent acme, linked by one reconcile.
 fresh() {
     rm -rf "${LOCAL:?}"/* "${PKG:?}"/* "${HOME_DIR}/skills" "${HOME_DIR}/subagents" "${HOME_DIR}"/.acme/* \
         "${HOME_DIR}"/.beta/* "${HOME_DIR}"/.gamma/*
     AGENTS_LINE="agent-acme"; INTEG_LINE=""
-    asset_signing_build_set "${PKG}" acme
+    asset_signing_copy_set "${SEALED_SET_ROOT}" "${PKG}" acme
     write_conf "${SKILL}" "${SUB}"
     reconcile
 }
@@ -928,9 +933,9 @@ done
 
 # ── The temporary name ───────────────────────────────────────────────────────────────────────────────────────────────
 section "assets: an entry at the temporary name is kept unless it is a link the library leaves"
-# temp_occupant <kind> <path> : put an occupant at <path>: a file, a file hard-linked beside the testdir, a directory,
-# a link to /etc, or a stale resolver link.
-temp_occupant() {
+# create_temporary_entry <kind> <path> : put an entry at <path>: a file, a file hard-linked beside the testdir,
+# a directory, a link to /etc, or a stale resolver link.
+create_temporary_entry() {
     case "$1" in
         file)      printf 'sentinel\n' > "$2" ;;
         hardlink)  printf 'sentinel\n' > "${TESTDIR}/temp-alias"; ln "${TESTDIR}/temp-alias" "$2" ;;
@@ -939,30 +944,30 @@ temp_occupant() {
         stale)     ln -s "${PKG}/acme/skills/gone" "$2" ;;
     esac
 }
-# occupant_snapshot <path> : the occupant and the alias beside the testdir, with their link counts and content.
-occupant_snapshot() {
+# read_temporary_entry_snapshot <path> : the entry and the alias beside the testdir, with their link counts and content.
+read_temporary_entry_snapshot() {
     find "$1" "${TESTDIR}/temp-alias" -printf '%p %y %l %n %s\n' 2>/dev/null | LC_ALL=C sort
     cat "$1" "${TESTDIR}/temp-alias" 2>/dev/null || true
 }
 for where in view agent; do
-    for occupant in file hardlink directory etc-link stale; do
+    for entry_kind in file hardlink directory etc-link stale; do
         fresh; rm -f "${TESTDIR}/temp-alias"
         dst="${HOME_DIR}/skills/acme-pdf"
         [[ "${where}" == agent ]] && dst="${HOME_DIR}/.acme/skills/acme-pdf"
         temp="${dst%/*}/.acme-pdf.ai-tools-assets.tmp"
-        rm -f "${dst}"; temp_occupant "${occupant}" "${temp}"
-        before="$(occupant_snapshot "${temp}")"
+        rm -f "${dst}"; create_temporary_entry "${entry_kind}" "${temp}"
+        before="$(read_temporary_entry_snapshot "${temp}")"
         reconcile
-        if [[ "${occupant}" == stale ]]; then
+        if [[ "${entry_kind}" == stale ]]; then
             if absent "${temp}" && [[ -L "${dst}" && "${RC}" == 0 ]]; then
                 pass "${where}: a stale resolver link at the temporary name is removed and the link placed"
             else
                 fail "${where}: a stale resolver link at the temporary name: rc ${RC}, ${OUT:0:300}"
             fi
-        elif [[ "${RC}" == 1 && "$(occupant_snapshot "${temp}")" == "${before}" ]] && has_row write-failed "${dst}" && absent "${dst}"; then
-            pass "${where}: ${occupant} at the temporary name is kept as it was, and the placement reported write-failed"
+        elif [[ "${RC}" == 1 && "$(read_temporary_entry_snapshot "${temp}")" == "${before}" ]] && has_row write-failed "${dst}" && absent "${dst}"; then
+            pass "${where}: ${entry_kind} at the temporary name is kept as it was, and the placement reported write-failed"
         else
-            fail "${where}: ${occupant} at the temporary name: rc ${RC}, $(occupant_snapshot "${temp}" | tr '\n' '|') ${OUT:0:300}"
+            fail "${where}: ${entry_kind} at the temporary name: rc ${RC}, $(read_temporary_entry_snapshot "${temp}" | tr '\n' '|') ${OUT:0:300}"
         fi
         rm -rf "${temp}"
     done

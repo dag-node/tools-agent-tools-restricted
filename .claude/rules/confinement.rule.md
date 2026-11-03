@@ -87,8 +87,8 @@ the `domtrans_pattern` and `nnp_transition` grants stay on `unconfined_t` and `i
 a domain enter `ai_tools_t` by executing the entrypoint. The pre-transition launch path (the sudo drop,
 `systemd-run --user`, the `/proc` read of the manager, the selinuxfs reads) is measured under `unconfined_t` only,
 so a launch from a confined login is unvalidated: a read denied there refuses the launch rather than running the session
-unconfined. **Deferred:** `ai-tools-admin selinux operator-domains`, which loads the CIL statement for a declared
-domain, and the measurement of that path for a confined member.
+unconfined. **Deferred:** `atr admin selinux operator-domains`, which loads the CIL statement for a declared domain,
+and the measurement of that path for a confined member.
 
 ### The operator config subtree is mode-gated, not policy-gated
 
@@ -97,13 +97,14 @@ home path is dynamic. The narrow type is what lets a grant name that one subtree
 of `config_home_t`; every other file in `~/.config` stays refused, and a `dontaudit` keeps the git and Node probes
 that follow quiet.
 
-Two domains hold the grant. `ai_tools_handback_t` is the load-bearing one — the root helpers read `allowed-projects`
-and `secret-patterns` there on the operator's behalf, and without it ownership handback silently no-ops. The confined
-session domain `ai_tools_t` holds it as well, which sounds like a widening and is not: DAC and type enforcement must
-both allow, and at the shipped `700` directory with `600` files DAC refuses the session before the type is reached.
+Two domains hold the grant. `ai_tools_handback_t` is the load-bearing one — the root helpers read
+`~/.config/ai-tools/project-registry` and `secret-patterns` there on the operator's behalf, and without it ownership
+handback silently no-ops. The confined session domain `ai_tools_t` holds it as well, which sounds like a widening and is
+not: DAC and type enforcement must both allow, and at the shipped `700` directory with `600` files DAC refuses
+the session before the type is reached.
 
 **The rule is per operator, so it is registered where an operator is made.** A home path belongs to one account, so each
-operator has a rule of its own and a pattern in `ai_tools.fc` cannot stand in for it. `ai-tools-admin operators add`
+operator has a rule of its own and a pattern in `ai_tools.fc` cannot stand in for it. `atr admin operators add`
 registers it for the account it enrols — the same command that writes the two facts making an operator —
 and `selinux/install-selinux.sh` sweeps the enrolled set, both through `ai_tools_relabel__label_operator_conf`
 in `relabel.lib.sh`. That function refuses a path outside one account's `~/.config/ai-tools`, so a home carrying a regex
@@ -111,10 +112,10 @@ metacharacter yields a refusal rather than a rule matching homes nobody enrolled
 than `restorecon`'s exit status.
 
 A subtree the rule does not cover keeps `config_home_t`, and the cost falls on the operator who owns it: the handback
-helpers are denied `getattr` on that account's `allowed-projects`, resolve no owner, and leave every path under its
-projects sandbox-owned. The confined session is refused the same read, which is the posture the mode gate already
-describes — so a missing rule takes access away and grants none. `dontaudit ai_tools_t config_home_t:file` suppresses
-the session's denial, which leaves an `ai_tools_handback_t` AVC as what an enforcing host reports.
+helpers are denied `getattr` on that account's `~/.config/ai-tools/project-registry`, resolve no owner, and leave every
+path under its projects sandbox-owned. The confined session is refused the same read, which is the posture the mode gate
+already describes — so a missing rule takes access away and grants none. `dontaudit ai_tools_t config_home_t:file`
+suppresses the session's denial, which leaves an `ai_tools_handback_t` AVC as what an enforcing host reports.
 
 Both file grants are refpolicy's `read_file_perms` (`getattr open read lock ioctl`). Bash probes a descriptor it reads
 with a terminal `ioctl`, and these files are read once per operator per path resolved, so a narrower set leaves each
@@ -123,10 +124,11 @@ information out of a file the domain may already read.
 
 What the session grant buys is that the **file mode stays the operator's knob**. An operator who decides to open either
 file gets the read they intended rather than an AVC denial they could clear only by editing policy. Opening
-`allowed-projects` lets a session read where it may work instead of being told or probing for refusals; opening
-`secret-patterns` tells it which basenames are quarantined, which it can already infer from the NOTICE each quarantine
-emits (see [secret-handling](secret-handling.rule.md)). Removing the session grant was considered and rejected, because
-it moves that decision from a mode the operator manages into policy they would have to rebuild.
+`~/.config/ai-tools/project-registry` lets a session read where it may work instead of being told or probing
+for refusals; opening `secret-patterns` tells it which basenames are quarantined, which it can already infer
+from the NOTICE each quarantine emits (see [secret-handling](secret-handling.rule.md)). Removing the session grant was
+considered and rejected, because it moves that decision from a mode the operator manages into policy they would have
+to rebuild.
 
 ### Fail-closed confinement preflight
 
@@ -159,7 +161,7 @@ and `matchpathcon` resolves the entrypoint to `ai_tools_exec_t`, a live label th
 the shipped module does not carry, so the refusal asks for a report and names the source-checkout edit; an unreadable
 domain does not block without `AI_TOOLS_REQUIRE_SELINUX`). Where the label does **not** resolve, the verdict splits
 on module presence: **present** means confinement is installed yet the transition is unverifiable, so it refuses
-(`unverifiable`, → `ai-tools-admin system entrypoints relabel`, or the policy package reinstalled) rather than launch
+(`unverifiable`, → `atr admin system entrypoints relabel`, or the policy package reinstalled) rather than launch
 DAC-only and silently drop confinement; **absent** means the SELinux layer was never installed here, so it launches —
 an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or permissive mode. The check
 is a no-op where SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
@@ -282,7 +284,7 @@ to write (`tests/boundary/access.sh`).
 
 **The check is a launch-time observation.** A Boolean switched on, a domain made permissive, or a module reloaded
 after a session started reaches that session without any refusal; the next launch reads the new state. Revalidating
-a running session is `ai-tools stop` and a relaunch.
+a running session is `atr stop` and a relaunch.
 
 Every failed read of `require` resolves toward *less* access, as the other launch predicates do: an untrusted or absent
 `operator.conf`, a `conf.lib.sh` that did not load, and an absent key each read as the requirement
@@ -346,11 +348,11 @@ rule sets:
 - **Stable** groups (`tmpmap`, `memfdexec`, `localipc`, `buildexec`: a rule set exercised against its workload
   on an enforcing host) are on the **shipped set**: compiled as `ai_tools_<group>.pp` beside the core
   in `/usr/share/selinux/packages/ai-tools/` (how, and by what, is in [How the policy ships](#how-the-policy-ships)),
-  where `sudo ai-tools-admin selinux groups enable <name>` `semodule`-loads one on an installed host without a source
-  tree or `selinux-policy-devel`, then restores the labels the group's own file contexts decide (the sandbox-clone
-  area). A bare `selinux groups` lists them and `selinux groups disable <name>` rounds it out, working for any loaded
-  group. The spelling these commands take is set by [cli-grammar](cli-grammar.rule.md).
-- **Experimental** groups are unaudited drafts and are **off the shipped set**; `ai-tools-admin selinux groups enable`
+  where `atr admin selinux groups enable <name>` `semodule`-loads one on an installed host without a source tree
+  or `selinux-policy-devel`, then restores the labels the group's own file contexts decide (the sandbox-clone area).
+  A bare `selinux groups` lists them and `selinux groups disable <name>` rounds it out, working for any loaded group.
+  The spelling these commands take is set by [cli-grammar](cli-grammar.rule.md).
+- **Experimental** groups are unaudited drafts and are **off the shipped set**; `atr admin selinux groups enable`
   refuses one and points at the source workflow rather than loading an unaudited module. They are compiled and verified
   from a source checkout — `sudo selinux/install-selinux.sh enable-group <name>` (which compiles from `.te`/`.fc`, then
   loads, then re-runs the project and clone label sweeps, since a group may ship file contexts of its own;
@@ -556,16 +558,34 @@ cannot be labelled until the module's types exist in the kernel — at the defau
 the entrypoint and project labels name comes from this module, so a load that did not happen surfaces later as a relabel
 that cannot register its rules and a launch that fail-closes, with no message naming this as the cause. The transaction
 still completes — the remedy is a re-run, not a rollback. After the module load, `%post` also `restorecon`s the trees
-that carry `ai_tools*` types (the handback daemon among them) and, when the handback socket is already active —
-an upgrade — refreshes the live listener: `restorecon` fixes the daemon binary's on-disk label, but the socket bound
-on tmpfs `/run/ai-tools` keeps its stale context and its per-connection handler keeps running `unconfined_service_t`,
+that carry `ai_tools*` types (the handback daemon among them) — the root-owned ones always, and `/opt/ai-tools`
+and the clone area only while no process of the sandbox account is live, with a warning naming the walk to run when it
+skips ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) — and, when the handback socket is already active — an upgrade
+— refreshes the live listener: `restorecon` fixes the daemon binary's on-disk label, but the socket bound on tmpfs
+`/run/ai-tools` keeps its stale context and its per-connection handler keeps running `unconfined_service_t`,
 so `daemon-reexec` + a socket restart re-derive the listener context from the now-correct binary label (the same
 sequence `install-selinux.sh` `_relabel_runtime` runs; see [handback-bridge](handback-bridge.rule.md)). Without it
 a session's `connectto` to the handback socket is denied under enforcing and every hook handback silently no-ops.
 On a fresh install the socket is not up yet — `ai-tools-base` `%posttrans` starts it later, already correctly labelled —
 so the refresh no-ops there. `%postun` on final erase unloads every loaded `ai_tools*` module, enumerated rather than
 named: a group's `.pp` is erased with the package while the compiled module persists in the store, and a group compiled
-from a source checkout was never in the rpm database at all.
+from a source checkout was never in the rpm database at all. Ahead of the unload it drops **every local file-context
+rule naming an `ai_tools` type**, by type rather than by registry, since `semodule -r` refuses while one stands
+and a claimed project's rule is one; a later claim writes the rule again. Both store writes wait on the reading
+the `%post` makes of the sandbox account's sessions ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)), taken
+under the policy-store lock ([updater](updater.rule.md)) so a session started during the wait is read: a process
+of the account live at the unload would run on in a domain the policy no longer defines, so while the reading is
+anything but `none` the erase leaves the policy loaded and every rule in place and prints the stop and the re-run,
+the direction `install-selinux.sh remove` refuses in. A dropped rule shaped like a project's is named
+with the `restorecon -R` that returns its tree to the default type and not walked, since a scriptlet holds neither
+the protected-paths backstop nor the literal check the installer's `remove` walks a tree under; one an earlier release
+wrote raw is named for review instead. The unload is read back from the store rather than from `semodule`'s exit status,
+and a store that cannot be listed is reported as that and never read as an empty one, since an empty store is
+what `removed` rests on; once the read-back shows every `ai_tools` module gone, the trees the `%post` restores take one
+`restorecon` each, the account's under the same reading. A module left loaded, a rule semanage will not delete
+and a tree the walk could not restore are each named with the command that completes the step.
+`install-selinux.sh remove` takes the same steps from a checkout, refuses at either read, and exits 1 over a module left
+loaded.
 
 The `%selinux_*` rpm macros are not used. `%selinux_requires` records the build host's `selinux-policy` version
 as a `Requires`, which a `noarch` package cannot satisfy across both EL targets; `%selinux_modules_install`/`_uninstall`

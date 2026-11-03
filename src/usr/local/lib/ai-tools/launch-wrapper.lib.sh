@@ -21,6 +21,7 @@ readonly _AI_TOOLS_LAUNCH_WRAPPER__LOADED=1
 readonly AI_TOOLS_LAUNCH_WRAPPER__NVM_DIR="/opt/ai-tools/.nvm"
 readonly AI_TOOLS_LAUNCH_WRAPPER__RUN="/opt/ai-tools/bin/ai-tools-run"
 readonly AI_TOOLS_LAUNCH_WRAPPER__CLI="/usr/local/bin/ai-tools"
+readonly AI_TOOLS_LAUNCH_WRAPPER__TYPED_CLI="/usr/local/bin/atr"
 readonly OPERATORS_GROUP="ai-ops"
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
@@ -63,26 +64,42 @@ ai_tools_launch_wrapper__pause_if_tty() {
     fi
 }
 
-# _ai_tools_launch_wrapper__error [<code>] <line>... -- frame the lines on stderr through ai_tools_msg__error, the first
-# one prefixed with the launcher name. The prefix belongs to the emitter, so a message text does not carry one of its
-# own: the code identifies the situation and the prefix names the wrapper that raised it (a line after the first names
-# it where it reads as a second sentence of the same voice).
-_ai_tools_launch_wrapper__error() {
-    local code=""
+# _ai_tools_launch_wrapper__emit <emitter> [<code>] <line>... -- frame the lines on stderr through the msg.lib emitter
+# named, the first one prefixed with the launcher name, except that a line opening with whitespace is printed plain
+# on stderr after the frame, verbatim and in order. The emitter wraps every line on whitespace, and a command carries
+# a %q-escaped space a wrap would split, so a message puts each command on such a line of its own, after its flush-left
+# lines. It is the rule ai-tools.sh's emit_alert applies, so a refusal reads one way from the wrapper and from the CLI;
+# in plain mode the output is every line in the order given, a message whose indented lines come last unchanged.
+_ai_tools_launch_wrapper__emit() {
+    local emitter="$1" code="" line
+    shift
     if ai_tools_msg__is_code "${1-}"; then code="$1"; shift; fi
-    local first="${AI_TOOLS_LAUNCH_WRAPPER__NAME}: $1"; shift
-    ai_tools_msg__error ${code:+"${code}"} "${first}" "$@"
+    local -a framed=("${AI_TOOLS_LAUNCH_WRAPPER__NAME}: $1") unframed=()
+    shift
+    for line in "$@"; do
+        if [[ "${line}" == [[:space:]]* ]]; then unframed+=("${line}"); else framed+=("${line}"); fi
+    done
+    "${emitter}" ${code:+"${code}"} "${framed[@]}"
+    (( ${#unframed[@]} == 0 )) || printf '%s\n' "${unframed[@]}" >&2 || true
 }
+
+# _ai_tools_launch_wrapper__error [<code>] <line>... -- _ai_tools_launch_wrapper__emit through ai_tools_msg__error.
+# The prefix belongs to the emitter, so a message text does not carry one of its own: the code identifies the situation
+# and the prefix names the wrapper that raised it (a line after the first names it where it reads as a second sentence
+# of the same voice).
+_ai_tools_launch_wrapper__error() { _ai_tools_launch_wrapper__emit ai_tools_msg__error "$@"; }
 
 # _ai_tools_launch_wrapper__warn [<code>] <line>... -- the same shape one severity down, for a condition the operator
 # acts on while the launch continues. The prefix belongs here for the reason the error emitter's does, and a coded
 # warning needs it: a message text opening with the launcher name would open with an expansion, which the reference
 # index reads as a citation rather than as the definition of the code (messaging.rule.md).
-_ai_tools_launch_wrapper__warn() {
-    local code=""
-    if ai_tools_msg__is_code "${1-}"; then code="$1"; shift; fi
-    local first="${AI_TOOLS_LAUNCH_WRAPPER__NAME}: $1"; shift
-    ai_tools_msg__warn ${code:+"${code}"} "${first}" "$@"
+_ai_tools_launch_wrapper__warn() { _ai_tools_launch_wrapper__emit ai_tools_msg__warn "$@"; }
+
+# _ai_tools_launch_wrapper__format_shell_word <text> -- print <text> as one bash word in `printf %q`'s encoding, read
+# in the C locale, so a path carrying a space, a quote or a `#` pastes as the one argument it names.
+_ai_tools_launch_wrapper__format_shell_word() {
+    local LC_ALL=C
+    printf '%q' "$1"
 }
 
 # ai_tools_launch_wrapper__die [<code>] <line>... -- _ai_tools_launch_wrapper__error, pause on a tty, and exit 1.
@@ -124,15 +141,14 @@ ai_tools_launch_wrapper__init() {
     # One fixed 80-column frame for every box the wrapper shows, so the guidance screens and refusals of a launch align
     # instead of each sizing to its own text.
     export AI_TOOLS_MSG_FULLWIDTH=1
-    # How the ai-tools CLI is named in the guidance screens: the bare command where PATH resolves it (both binaries are
-    # on an operator's PATH, so the absolute path reads as a second, unrelated tool), the absolute path on a host
-    # whose PATH does not.
-    CLI_CMD="$(ai_tools_msg__format_command "${AI_TOOLS_LAUNCH_WRAPPER__CLI}")"
+    # How the CLI is named in the guidance screens: as atr, the command an operator types, while the wrapper execs
+    # the CLI itself. The bare command where PATH resolves it (`atr` is on an operator's PATH, so the absolute path
+    # reads as a second, unrelated tool), the absolute path on a host whose PATH does not.
+    CLI_CMD="$(ai_tools_msg__format_command "${AI_TOOLS_LAUNCH_WRAPPER__TYPED_CLI}")"
     readonly CLI_CMD
     if [[ "${name}" != "${requested}" ]]; then
         ai_tools_launch_wrapper__die MSG-Z6F8 "invoked under a name that is not a launcher -- refusing to start" \
-            "       a launcher name holds letters, digits, dot, underscore and dash; start the agent" \
-            "       by its launcher name"
+            "${name}: a launcher name holds letters, digits, dot, underscore and dash; start the agent by its launcher name"
     fi
 
     # A silent no-op stub would start the wrapper with the protected-path guard OFF -- the quiet degradation that lets
@@ -147,24 +163,32 @@ ai_tools_launch_wrapper__init() {
             && logger -t "${name}" -p user.err \
                 "required safety library ${SAFE_PATHS_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
         ai_tools_launch_wrapper__die MSG-U6A9 "cannot load the launch safety library -- refusing to start" \
-            "       ${SAFE_PATHS_LIB}" \
-            "       A critical ai-tools component is missing or unreadable, so the protected-path" \
-            "       guard cannot run. Check that /usr/local/lib/ai-tools is traversable and its" \
-            "       libraries are present, then reinstall the package if needed."
+            "${name}: a critical ai-tools component is missing or unreadable, so the protected-path guard cannot run. Check that /usr/local/lib/ai-tools is traversable and its libraries are present, then reinstall the package if needed. The library is:" \
+            "       ${SAFE_PATHS_LIB}"
     fi
 
+    # Every function of conf.lib.sh the gates call, and a call a gate gains is added here: the exclusion loop calls
+    # its matcher under `|| continue`, so a library lacking it would read status 127 as "no match" and pass the CWD.
+    local -a conf_functions=(
+        ai_tools_conf__parse_path_entry ai_tools_conf__find_unmigrated_items ai_tools_conf__find_paths_ahead_of_clock
+        ai_tools_conf__resolve_registry ai_tools_conf__load_allowlist ai_tools_conf__find_covering_path
+        ai_tools_conf__has_allowlist_entry ai_tools_conf__is_trusted
+    )
+    local conf_function conf_loaded=no
     # shellcheck source=SCRIPTDIR/conf.lib.sh
-    if ! source "${CONF_LIB}" 2>/dev/null \
-            || ! declare -F ai_tools_conf__parse_path_entry >/dev/null 2>&1 \
-            || ! declare -F ai_tools_conf__find_unmigrated_items >/dev/null 2>&1; then
+    if source "${CONF_LIB}" 2>/dev/null; then
+        conf_loaded=yes
+        for conf_function in "${conf_functions[@]}"; do
+            declare -F "${conf_function}" >/dev/null 2>&1 || conf_loaded=no
+        done
+    fi
+    if [[ "${conf_loaded}" != yes ]]; then
         command -v logger >/dev/null 2>&1 \
             && logger -t "${name}" -p user.err \
                 "required config library ${CONF_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
         ai_tools_launch_wrapper__die MSG-C2M7 "cannot load the config library -- refusing to start" \
-            "       ${CONF_LIB}" \
-            "       Without it the approved-projects list cannot be read, so no project would" \
-            "       resolve as allowed. Check that /usr/local/lib/ai-tools is traversable and its" \
-            "       libraries are present, then reinstall the package if needed."
+            "${name}: without it the approved-projects list cannot be read, so no project would resolve as allowed. Check that /usr/local/lib/ai-tools is traversable and its libraries are present, then reinstall the package if needed. The library is:" \
+            "       ${CONF_LIB}"
     fi
 }
 
@@ -184,20 +208,18 @@ ai_tools_launch_wrapper__gate_operator() {
             # a member could drive a session as an operator -- so "add it to the group" is the wrong advice. An operator
             # launches the wrapper from their own login and the wrapper drops to the sandbox account on its own.
             ai_tools_launch_wrapper__die MSG-N8Q4 "this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator" \
-                "       the sandbox account must never be one -- launch ${name} from your operator login;" \
-                "       the wrapper drops to ${SANDBOX_USER} for you"
+                "${name}: the sandbox account must never be one -- launch ${name} from your operator login; the wrapper drops to ${SANDBOX_USER} for you"
         elif id -nG "${user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
             # In ai-ops per the group database (`id -nG <user>` reads it) but absent from this shell's live credentials
             # -- a session started before the grant took effect. A fresh login rebuilds the credential set; newgrp
             # adopts the group in the current shell.
             ai_tools_launch_wrapper__die MSG-R7Z3 "this shell started before the grant -- ${user} is an ai-tools operator per the group database" \
-                "       start a fresh login session to pick up the ${OPERATORS_GROUP} group --" \
-                "       log out and back in, or adopt it in this shell with:" \
+                "${name}: start a fresh login session to pick up the ${OPERATORS_GROUP} group -- log out and back in, or adopt it in this shell with:" \
                 "         newgrp ${OPERATORS_GROUP}"
         else
             ai_tools_launch_wrapper__die MSG-C7C9 "not an ai-tools operator -- ${user} is not a member of the ${OPERATORS_GROUP} group" \
-                "       an administrator can grant access with:" \
-                "         sudo ai-tools-admin operators add ${user}"
+                "${name}: an administrator can grant access with:" \
+                "         atr admin operators add ${user}"
         fi
     fi
 }
@@ -223,10 +245,8 @@ ai_tools_launch_wrapper__gate_launcher() {
             && logger -t "${name}" -p user.err \
                 "required provider library ${PROVIDERS_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
         ai_tools_launch_wrapper__die MSG-C2C9 "cannot load the provider library -- refusing to start" \
-            "       ${PROVIDERS_LIB}" \
-            "       Without it the enabled agents cannot be read, so no launcher can be matched to one." \
-            "       Check that /usr/local/lib/ai-tools is traversable and its libraries are present," \
-            "       then reinstall the package if needed."
+            "${name}: without it the enabled agents cannot be read, so no launcher can be matched to one. Check that /usr/local/lib/ai-tools is traversable and its libraries are present, then reinstall the package if needed. The library is:" \
+            "       ${PROVIDERS_LIB}"
     fi
     while IFS=$'\t' read -r agent _ launcher; do
         [[ -n "${agent}" ]] || continue
@@ -246,15 +266,14 @@ ai_tools_launch_wrapper__gate_launcher() {
             < <(ai_tools_providers__evaluate_empty_agents 2>/dev/null) || true
         if [[ "${empty_verdict}" != none ]]; then
             ai_tools_launch_wrapper__die MSG-V4U4 "the enabled agents could not be resolved -- refusing to start" \
-                "       ${empty_reason:-the empty set of enabled agents could not be classified}" \
-                "       repair the input named there, then run ${name} again"
+                "${name}: ${empty_reason:-the empty set of enabled agents could not be classified} -- repair the input named there, then run ${name} again"
         fi
     fi
     local joined="none"
     (( ${#enabled[@]} )) && printf -v joined '%s, ' "${enabled[@]}" && joined="${joined%, }"
     ai_tools_launch_wrapper__die MSG-F8N3 "not the launcher of an agent enabled on this host (enabled: ${joined})" \
-        "       an agent is enabled by AI_TOOLS_AGENTS in ${OPERATOR_CONF}; after changing it, run:" \
-        "         sudo ai-tools-admin system bootstrap"
+        "${name}: an agent is enabled by AI_TOOLS_AGENTS in ${OPERATOR_CONF}; after changing it, run:" \
+        "         atr admin system bootstrap"
 }
 
 # ai_tools_launch_wrapper__gate_lists -- refuse every launch while operator.conf holds a provider list item an earlier
@@ -270,8 +289,8 @@ ai_tools_launch_wrapper__gate_lists() {
     done < <(ai_tools_conf__find_unmigrated_items "${conf}")
     [[ -n "${joined}" ]] || return 0
     ai_tools_launch_wrapper__die MSG-V3Q5 "no session starts while operator.conf names a provider without its kind prefix: ${joined}" \
-        "       an earlier release wrote these names bare; rewrite them with:" \
-        "         sudo ai-tools-admin system post-upgrade"
+        "${AI_TOOLS_LAUNCH_WRAPPER__NAME}: an earlier release wrote these names bare; rewrite them with:" \
+        "         atr admin system post-upgrade"
 }
 
 # ai_tools_launch_wrapper__gate_residue -- refuse every launch while an agent the host installed but did not enable
@@ -286,23 +305,25 @@ ai_tools_launch_wrapper__gate_lists() {
 # wrote (ai_tools_conf__find_paths_ahead_of_clock, conf.lib.sh): every record a session leaves -- the audit lines,
 # the handback stamps, the journal -- would carry a wrong time, and a host with no battery-backed clock boots
 # into an earlier time until it reaches a time source. The files read are the ones every host writes at a known moment
-# and the operator can stat: this library and the wrapper (written at install), the operator's allowlist (at the last
-# claim), the updater's last-run stamp (daily on a healthy host), and the entrypoint pins (at the last reconcile).
-# The refusal names the file and the command that sets the clock; there is no override, since the fix is the clock
-# itself. ai-tools-run makes the same read as the sandbox account, against the files it can reach, so the boundary does
-# not rest on this diagnostician. A clock that is ahead is not visible this way, and this gate does not claim to see it.
+# and the operator can stat: this library and the wrapper (written at install), the operator's project registry (at
+# the last claim), the updater's last-run stamp (daily on a healthy host), and the entrypoint pins (at the last
+# reconcile). The refusal names the file and the command that sets the clock; there is no override, since the fix is
+# the clock itself. ai-tools-run makes the same read as the sandbox account, against the files it can reach,
+# so the boundary does not rest on this diagnostician. A clock that is ahead is not visible this way, and this gate does
+# not claim to see it.
 ai_tools_launch_wrapper__gate_clock() {
-    local pin_dir="${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}" behind when path
+    local pin_dir="${AI_TOOLS_ENTRYPOINT_PIN_DIR:-/var/opt/ai-tools/state/entrypoint-pin.d}" behind when path registry
     local -a lines=()
-    behind="$(ai_tools_conf__find_paths_ahead_of_clock "${BASH_SOURCE[0]}" "$0" "${HOME}/.config/ai-tools/allowed-projects" \
+    IFS=$'\t' read -r _ registry < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
+    behind="$(ai_tools_conf__find_paths_ahead_of_clock "${BASH_SOURCE[0]}" "$0" "${registry}" \
         /var/opt/ai-tools/state/nvm-update.status "${pin_dir}"/* 2>/dev/null)" && return 0
     while IFS=$'\t' read -r when path; do
         [[ -n "${path}" ]] && lines+=("         ${when}  ${path}")
     done <<< "${behind}"
     ai_tools_launch_wrapper__die MSG-U8K6 "the system clock reads $(date '+%Y-%m-%d %H:%M:%S'), earlier than a file this host wrote -- refusing to start" \
+        "${AI_TOOLS_LAUNCH_WRAPPER__NAME}: the files listed are dated later than the clock, and every record of a session would carry a wrong time. Set the clock first, with the timedatectl command after the list, or with chronyc makestep once a time source is reachable." \
         "${lines[@]}" \
-        "       every record of a session would carry a wrong time; set the clock first:" \
-        "         sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'   (or chronyc makestep, once a time source is reachable)"
+        "         sudo timedatectl set-time 'YYYY-MM-DD HH:MM:SS'"
 }
 
 ai_tools_launch_wrapper__gate_residue() {
@@ -315,10 +336,8 @@ ai_tools_launch_wrapper__gate_residue() {
             && logger -t "${name}" -p user.err \
                 "required toolchain library ${TOOLCHAIN_LIB} unavailable for $(id -un 2>/dev/null) -- launch refused (fail closed)"
         ai_tools_launch_wrapper__die MSG-U9K8 "cannot load the toolchain library -- refusing to start" \
-            "       ${TOOLCHAIN_LIB}" \
-            "       Without it a disabled agent's package left in the sandbox toolchain cannot be told" \
-            "       from a clean one. Check that /usr/local/lib/ai-tools is traversable and its" \
-            "       libraries are present, then reinstall the package if needed."
+            "${name}: without it a disabled agent's package left in the sandbox toolchain cannot be told from a clean one. Check that /usr/local/lib/ai-tools is traversable and its libraries are present, then reinstall the package if needed. The library is:" \
+            "       ${TOOLCHAIN_LIB}"
     fi
     while IFS=$'\t' read -r agent launcher; do
         [[ -n "${agent}" ]] && residue+=("${agent} (${link_dir}/${launcher})")
@@ -326,9 +345,8 @@ ai_tools_launch_wrapper__gate_residue() {
     (( ${#residue[@]} > 0 )) || return 0
     printf -v joined '%s, ' "${residue[@]}"
     ai_tools_launch_wrapper__die MSG-H4E2 "no session starts while a disabled agent's package is still in the sandbox toolchain: ${joined%, }" \
-        "       an agent installed on this host but not named in AI_TOOLS_AGENTS keeps its package" \
-        "       until a provisioning run removes it, and no agent launches until then; remove it with:" \
-        "         sudo ai-tools-admin system bootstrap"
+        "${name}: an agent installed on this host but not named in AI_TOOLS_AGENTS keeps its package until a provisioning run removes it, and no agent launches until then; remove it with:" \
+        "         atr admin system bootstrap"
 }
 
 # ai_tools_launch_wrapper__resolve_executable -- resolve the stable launcher symlink one hop
@@ -349,8 +367,8 @@ ai_tools_launch_wrapper__resolve_executable() {
     local launcher_link="${AI_TOOLS_LAUNCHER_DIR:-/opt/ai-tools/bin}/${name}"
     if [[ ! -L "${launcher_link}" ]]; then
         ai_tools_launch_wrapper__die MSG-S4B3 "launcher symlink not found at ${launcher_link}" \
-            "       the sandbox toolchain is not provisioned yet -- provision it with:" \
-            "         sudo ai-tools-admin system bootstrap"
+            "${name}: the sandbox toolchain is not provisioned yet -- provision it with:" \
+            "         atr admin system bootstrap"
     fi
     AI_TOOLS_LAUNCH_WRAPPER__EXEC="$(readlink -- "${launcher_link}")" \
         || ai_tools_launch_wrapper__die MSG-S5Y9 "cannot read the launcher symlink ${launcher_link} -- reinstall or run nvm-update.sh"
@@ -380,20 +398,20 @@ ai_tools_launch_wrapper__print_and_exit() {
 }
 
 # ai_tools_launch_wrapper__gate_project -- canonicalize the CWD into AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR and refuse it
-# unless approved. The protected-paths backstop runs before the allowlist is consulted, so a mis-entered allowlist
-# cannot start a session where the ownership handback would then act. The allowlist is
-# ~/.config/ai-tools/allowed-projects (one path per line, through the shared grammar); lines beginning with ! are
-# exclusions and override allows -- exactly as in ai-tools-chown, so ! means the same thing in the launch gate as it
-# does in the ownership hand-back: a subdirectory under an approved parent can be carved back out, and the agent refuses
-# to start there. A CWD that is not approved draws the setup menu (create a sandbox clone, claim here, cancel)
-# on a terminal, and is refused without
-# one.
+# unless approved. The protected-paths backstop runs before the registry is consulted, so a mis-entered registry cannot
+# start a session where the ownership handback would then act. The registry is the file ai_tools_conf__resolve_registry
+# picks in ~/.config/ai-tools -- `~/.config/ai-tools/project-registry`, or `~/.config/ai-tools/allowed-projects` until
+# it is migrated -- read through the shared grammar; an excluded-path (`!`) or disabled-project (`%`) line overrides
+# an allow, exactly as in ai-tools-chown, so a line means the same thing in the launch gate as it does in the ownership
+# hand-back. A CWD that is not approved draws the setup menu (create a sandbox clone, claim here, cancel) on a terminal,
+# and is refused without one. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
-    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" cwd allowlist dir pat sel
-    allowlist="${HOME}/.config/ai-tools/allowed-projects"
-    if [[ ! -f "${allowlist}" ]]; then
-        ai_tools_launch_wrapper__die MSG-C9S6 "approved-projects allowlist not found" \
-            "${name}: create ${allowlist} and add project directories"
+    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind covering
+    IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
+    if [[ "${registry_state}" == none ]]; then
+        ai_tools_launch_wrapper__die MSG-C9S6 "project registry not found: ${allowlist}" \
+            "${name}: an operator's enrolment seeds it, and a claim then adds each project; an administrator enrols an operator with:" \
+            "         atr admin operators add <user>"
     fi
     cwd="$(realpath -e "${PWD}" 2>/dev/null)" \
         || ai_tools_launch_wrapper__die MSG-S8D9 "cannot resolve working directory"
@@ -401,56 +419,74 @@ ai_tools_launch_wrapper__gate_project() {
     ai_tools_safe_paths__assert_safe_target "${cwd}" "launch" || exit 1
 
     local -a allowed_directories=()
-    local -a exclusion_patterns=()
-    # The one read every reader of the allowlist makes (ai_tools_conf__load_allowlist, conf.lib.sh). A read the library
-    # refuses has already named the entry, the link and the reason on stderr under its own code; the refusal here adds
+    local -a exclusion_patterns=() exclusion_kinds=()
+    # The one read every reader of the registry makes (ai_tools_conf__load_allowlist, conf.lib.sh). A read the library
+    # refuses has already named the line or the link and the reason on stderr under its own code; the refusal here adds
     # the remedy.
     local load_status=0
-    ai_tools_conf__load_allowlist "${allowlist}" allowed_directories exclusion_patterns || load_status=$?
+    ai_tools_conf__load_allowlist "${allowlist}" allowed_directories exclusion_patterns exclusion_kinds || load_status=$?
     case "${load_status}" in
         0) ;;
-        2) ai_tools_launch_wrapper__die MSG-Z3Q6 "refusing to launch -- an exclusion in the approved-projects allowlist cannot be resolved: ${allowlist}" \
+        2) ai_tools_launch_wrapper__die MSG-Z3Q6 "refusing to launch -- an exclusion in the project registry cannot be resolved: ${allowlist}" \
                "${name}: the line above names the entry and the symbolic link; a link the sandbox account can remove or replace does not decide what an exclusion covers, so no entry in the file allows a launch" \
                "${name}: write the entry as the directory's real path, then start again" ;;
-        *) ai_tools_launch_wrapper__die MSG-X4N6 "approved-projects allowlist cannot be read: ${allowlist}" \
+        3) ai_tools_launch_wrapper__die MSG-D9R4 "refusing to launch -- a line in the project registry is refused: ${allowlist}" \
+               "${name}: the line above names the line, its number and the reason; no entry in the file allows a launch until the line is fixed" \
+               "${name}: correct or delete that line, then start again" ;;
+        *) ai_tools_launch_wrapper__die MSG-X4N6 "project registry cannot be read: ${allowlist}" \
                "${name}: it must be a regular file this account can read" ;;
     esac
 
-    # Exclusions are checked first and override allows (the match ai_tools_conf__is_path_excluded makes, spelled
-    # out here because the refusal names which line matched and how). Two shapes reach this, and they are DIFFERENT
-    # situations for the operator standing here, so they are reported apart: a line naming this very directory is
-    # a project someone PARKED -- `ai-tools projects disable`, or the same edit by hand -- and the way back is one
-    # command, while a line covering it from an ancestor (a parent, or a glob) is a subtree deliberately withheld
-    # from a project, where the remedy is to edit that line rather than to re-enable anything. Telling an operator their
-    # parked project is merely "excluded" leaves them to work out which of the two they are in.
-    if [[ "${#exclusion_patterns[@]}" -gt 0 ]]; then
-        for pat in "${exclusion_patterns[@]}"; do
-            pat="${pat%/}"                         # normalise: strip trailing slash
-            if [[ "${cwd}" == ${pat} ]]; then
-                # A line naming this very directory is one of two things, and the same test the CLI applies separates
-                # them: an approved project STRICTLY ENCLOSING makes this a subtree withheld from it, while none makes
-                # it a project that was parked. Exact-match alone cannot tell them apart -- a carve-out names its own
-                # path too. Guarded on the count, not written as "${allowed_directories[@]:-}": an EMPTY array expands
-                # that way to one empty element, and "${dir}/"* is then the pattern /* -- which matches every absolute
-                # path, so a parked project with no approved entries at all would report as carved out of an empty set.
-                if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
-                    for dir in "${allowed_directories[@]}"; do
-                        [[ "${cwd}" == "${dir}/"* ]] || continue
-                        ai_tools_launch_wrapper__die MSG-K8K2 "excluded by '!' rule in approved projects list: $(pwd)" \
-                            "${name}: it is carved out of the approved project ${dir}; edit ${allowlist} to change that"
-                    done
-                fi
-                ai_tools_launch_wrapper__die MSG-R2V6 "this project is disabled in your approved projects list: $(pwd)" \
+    # Exclusions are checked first and override allows. The match is the shared one (ai_tools_conf__find_covering_path,
+    # which prints the path the line matched); the wording of the refusal is the wrapper's. The kind of the line that
+    # matched decides it, since the way back differs: a `%` line naming this very directory is a project someone
+    # DISABLED -- `atr projects disable`, or the same edit by hand -- and the way back is one command; a `!` line
+    # excludes a subtree deliberately, where the remedy is to edit that line; and a line covering the directory from
+    # an ancestor names the line, with the remedy its kind takes. The first line in file order decides. The matcher's
+    # status 1 alone is "does not cover": any other non-zero status is a match the library did not make, and reading
+    # it as no match would let an enclosing project approve an excluded directory.
+    for index in "${!exclusion_patterns[@]}"; do
+        pat="${exclusion_patterns[index]%/}"                    # normalise: strip trailing slash
+        kind="${exclusion_kinds[index]}"
+        covering_rc=0
+        covering="$(ai_tools_conf__find_covering_path "${cwd}" "${exclusion_patterns[index]}")" || covering_rc=$?
+        (( covering_rc != 1 )) || continue
+        if (( covering_rc != 0 )); then
+            ai_tools_launch_wrapper__die MSG-T6U6 "refusing to launch -- the exclusion match failed for a line of the project registry: ${allowlist}" \
+                "${name}: ai_tools_conf__find_covering_path returned ${covering_rc} for ${pat}; the config library ${CONF_LIB} is incomplete or not the one this wrapper was installed with" \
+                "${name}: reinstall ai-tools-base, then start again"
+        fi
+        if [[ "${covering}" == "${cwd}" ]]; then
+            if [[ "${kind}" == disabled ]]; then
+                ai_tools_launch_wrapper__die MSG-R2V6 "this project is disabled in your project registry: ${cwd}" \
                     "${name}: no session starts here until it is re-enabled -- its files, group and label are untouched" \
-                    "${name}: re-enable it with:  ${CLI_CMD} projects enable"
+                    "${name}: re-enable it with:" \
+                    "         ${CLI_CMD} projects enable $(_ai_tools_launch_wrapper__format_shell_word "${cwd}")"
             fi
-            # For plain paths (no glob), also exclude directory contents
-            if [[ "${pat}" != *'*'* && "${cwd}" == "${pat}/"* ]]; then
-                ai_tools_launch_wrapper__die MSG-W2P3 "excluded by '!' rule in approved projects list: $(pwd)" \
-                    "${name}: an entry above this directory carves it out; edit ${allowlist} to change that"
+            # A legacy allowed-projects wrote a disabled project as a '!' line, which the grammar this release reads
+            # takes as an excluded path; the migration's hint names how a disabled one is written now.
+            if [[ "${registry_state}" == legacy ]]; then
+                printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project disabled before the upgrade is written % <path> in ~/.config/ai-tools/project-registry" >&2
             fi
-        done
-    fi
+            ai_tools_launch_wrapper__die MSG-K8K2 "excluded by a '!' line in your project registry: ${cwd}" \
+                "${name}: no session starts under a '!' line; edit ${allowlist} to change that"
+        fi
+        # The line covers an ancestor of the directory: a plain path's contents, or a directory under one a glob
+        # matches.
+        if [[ "${covering}" != "${cwd}" ]]; then
+            local -a remedy_lines=()
+            if [[ "${kind}" == disabled ]]; then
+                remedy_lines=("${name}: it is inside ${pat}, a disabled project; re-enable that project with:"
+                    "         ${CLI_CMD} projects enable $(_ai_tools_launch_wrapper__format_shell_word "${pat}")")
+            else
+                remedy_lines=("${name}: the line ! ${pat} above this directory excludes it, and no session starts under it; edit ${allowlist} to change that")
+                if [[ "${registry_state}" == legacy ]]; then
+                    printf 'MSG-J6S8\n%s\n' "${name}: ${allowlist} is the registry an earlier release wrote and is not migrated -- run atr admin system post-upgrade; a project disabled before the upgrade is written % <path> in ~/.config/ai-tools/project-registry" >&2
+                fi
+            fi
+            ai_tools_launch_wrapper__die MSG-W2P3 "excluded by a line in your project registry: ${cwd}" "${remedy_lines[@]}"
+        fi
+    done
 
     local approved=false
     if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
@@ -506,8 +542,8 @@ ai_tools_launch_wrapper__gate_project() {
                 _ai_tools_launch_wrapper__error MSG-N2Z7 "no session started -- ${cwd} is not set up for the agent."
                 printf '\n' >&2
                 printf '  %-30s %s\n' \
-                    "${CLI_CMD} projects clone" "isolated copy under the sandbox area" \
-                    "${CLI_CMD} projects claim"  "claim this directory in place" >&2
+                    "${CLI_CMD} projects clone ." "isolated copy under the sandbox area" \
+                    "${CLI_CMD} projects claim ."  "claim this directory in place" >&2
                 printf '\nRun one of these, then start your agent again.\n' >&2
                 ai_tools_launch_wrapper__pause_if_tty
                 exit 1
@@ -518,8 +554,8 @@ ai_tools_launch_wrapper__gate_project() {
 }
 
 # _ai_tools_launch_wrapper__is_project_labelled <dir> -- 0 when SELinux is NOT enforcing (no label needed) or <dir>
-# already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives
-# in `ai-tools projects claim` (-> ai-tools-relabel), never duplicated here.
+# already carries ai_tools_project_t. Read-only, no privilege; the authoritative relabel lives in `atr projects claim`
+# (-> ai-tools-relabel), never duplicated here.
 _ai_tools_launch_wrapper__is_project_labelled() {
     command -v getenforce >/dev/null 2>&1 || return 0
     [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]] || return 0
@@ -529,7 +565,7 @@ _ai_tools_launch_wrapper__is_project_labelled() {
 # ai_tools_launch_wrapper__guard_claim -- refuse an approved CWD whose claim is incomplete; offer the claim, never
 #   perform it.
 # The cwd passed the allowlist, but a registered path can still be incompletely "claimed". Three independent gaps, all
-# detected read-only here; the fix is always delegated to `ai-tools projects claim` (idempotent) -- this library never
+# detected read-only here; the fix is always delegated to `atr projects claim` (idempotent) -- this library never
 # performs a chgrp or a relabel itself, it only detects, offers, and (on consent) calls the CLI:
 #   ownership  -- group not the sandbox group, or no group-execute. The sandbox user runs with this dir as its cwd,
 #                 and Node's posix_spawn then fails EACCES on every child (hooks, the Bash tool): the session starts
@@ -568,17 +604,17 @@ ai_tools_launch_wrapper__guard_claim() {
         if ${own_gap}; then
             blk2+=(
                 "Recommended -- an isolated shallow branch copy in sandbox-projects:"
-                "       ${CLI_CMD} projects clone"
+                "       ${CLI_CMD} projects clone ."
                 "Allow access -- claim this directory in place (give access to ${SANDBOX_USER}; needs sudo):"
-                "       ${CLI_CMD} projects claim"
+                "       ${CLI_CMD} projects claim ."
             )
         else
             blk2+=(
                 "Claim it -- applies the SELinux label; needs sudo for the relabel:"
-                "       ${CLI_CMD} projects claim"
+                "       ${CLI_CMD} projects claim ."
             )
         fi
-        blk2+=( "" "Both default to the current directory. See '${CLI_CMD} --help' for what each does." )
+        blk2+=( "" "The '.' names the current directory. See '${CLI_CMD} --help' for what each does." )
         ai_tools_msg__block "Finish setting up this project for the agent" "${blk2[@]}"
         claim_ok=false
         ai_tools_msg__confirm "Claim it in place now?" "${claim_default}" && claim_ok=true
@@ -598,12 +634,12 @@ ai_tools_launch_wrapper__guard_claim() {
                 # and prompts for your password. Re-running the claim (NOT `sudo ai-tools` -- the CLI refuses to run
                 # as root) re-attempts it.
                 ai_tools_launch_wrapper__die "${cwd}: SELinux label still missing -- the claim did not complete" \
-                    "       re-run: ${CLI_CMD} projects claim ${cwd}" \
-                    "       (enter your password when it prompts for the SELinux relabel)"
+                    "${name}: re-run the claim, and enter your password when it prompts for the SELinux relabel:" \
+                    "         ${CLI_CMD} projects claim $(_ai_tools_launch_wrapper__format_shell_word "${cwd}")"
             fi
         else
             ai_tools_launch_wrapper__die MSG-W4X4 "refusing to launch -- ${cwd} is not fully claimed for the sandbox" \
-                "       run one of the commands above, then start your agent again"
+                "${name}: run one of the commands above, then start your agent again"
         fi
     elif ${safe_gap}; then
         # Ownership and label hold; the git safe.directory entry is the one piece missing. Offer to register it
@@ -667,7 +703,7 @@ ai_tools_launch_wrapper__run_gates() {
 # with an error naming that path (ancestor-config.lib.sh). The reading is taken per launch, since a project's ancestry
 # changes independently of the claim that registered it. It reports and does not repair any of them: no launch path
 # reaches outside the project. It sits here rather than in the claim guard because each of that guard's findings is
-# closed by `ai-tools projects claim`, which does not close this one.
+# closed by `atr projects claim`, which does not close this one.
 _ai_tools_launch_wrapper__print_notices() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" svc drift config
     # shellcheck source=SCRIPTDIR/services.lib.sh
@@ -746,8 +782,8 @@ ai_tools_launch_wrapper__append_agent_args() {
     fi
     if [[ -n "${reason}" ]]; then
         ai_tools_launch_wrapper__die MSG-G9H2 "the ${agent} launch hook cannot be loaded -- refusing to start" \
-            "       ${hook}" \
-            "       ${reason}; reinstall the agent package"
+            "${AI_TOOLS_LAUNCH_WRAPPER__NAME}: ${reason}; reinstall the agent package. The hook is:" \
+            "       ${hook}"
     fi
     ai_tools_launch_hook__append_args "${array_name}" "$@" \
         || ai_tools_launch_wrapper__die MSG-G5V4 "the ${agent} launch hook did not complete -- refusing to start" \
@@ -768,8 +804,7 @@ ai_tools_launch_wrapper__launch_session() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}"
     if [[ -z "${AI_TOOLS_LAUNCH_WRAPPER__EXEC}" || -z "${AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR}" ]]; then
         ai_tools_launch_wrapper__die MSG-B6G2 "the launch gates did not run -- refusing to start" \
-            "       the wrapper reached the launch without a resolved executable and project directory;" \
-            "       reinstall ai-tools, then retry"
+            "${name}: the wrapper reached the launch without a resolved executable and project directory; reinstall ai-tools, then retry"
     fi
     _ai_tools_launch_wrapper__print_notices
     export AI_TOOLS_AGENT_EXEC="${AI_TOOLS_LAUNCH_WRAPPER__EXEC}"

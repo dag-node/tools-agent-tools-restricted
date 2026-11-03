@@ -117,7 +117,7 @@ done
 
 # ── (B) Both ways out are named, against the vendor package's own path ───────────────────────
 out="$(run_report "$(stub_operators op; stub_reading wired op "${SHADOW_PKG}")")"
-if grep -qF "sudo ai-tools-admin operators add op" <<<"${out}"; then
+if grep -qF "atr admin operators add op" <<<"${out}"; then
     pass "the first way out is the enrolment command that ranks the wrapper first"
 else
     fail "the report does not name the command that fixes the ordering (${out})"
@@ -259,7 +259,7 @@ else
         else
             fail "unanswered menu: $(grep '^rc=' <<<"${out}" || echo 'no rc'), key present=$(key_present && echo yes || echo no), drawn=$([[ -e "${PICK_MARKER}" ]] && echo yes || echo no)"
         fi
-        if grep -qF 'sudo ai-tools-admin system bootstrap' <<<"${out}"; then
+        if grep -qF 'atr admin system bootstrap' <<<"${out}"; then
             pass "the warning names the re-run"
         else
             fail "the warning does not name the re-run (${out})"
@@ -757,6 +757,35 @@ else
         pass "the ownership and network checks follow the refusal and precede the residue step, and the install is gated on the network answer"
     else
         fail "out of place: refusal at ${refuse_line}, ownership at ${ownership_line}, network at ${network_line}, removal at ${remove_line}, install at ${install_line}"
+    fi
+fi
+
+# ── configure_git_identity: the gitconfig's attributes after the identity write ─────────────────────────────────
+# The write is `git config --file` over /opt/ai-tools/.gitconfig, a readonly path this file cannot redirect,
+# so the order is read from the function's text: the control-plane applier follows the last write, and no bare chown
+# or chmod is left to restore owner and mode without the label. The applier itself is driven in unit/control-plane.sh.
+section "ai-tools-admin system bootstrap: the git identity write restores the gitconfig's label (unit)"
+if [[ ! -d "${ROOT}/.git" || ! -r "${SCRIPT}" ]]; then
+    skip "the identity write's applier" "not a checkout, so the helper cannot be read from the repository"
+else
+    identity_body="$(extract_function "${SCRIPT}" configure_git_identity)"
+    # The patterns are the function's own text, so the expansions in them are literal (SC2016).
+    # shellcheck disable=SC2016
+    email_line="$(grep -n -m1 -F 'git config --file "${gc}" user.email' <<<"${identity_body}" | cut -d: -f1)" || true
+    # shellcheck disable=SC2016
+    restore_line="$(grep -n -m1 -F 'ai_tools_control_plane__restore_file_attributes "root:${SANDBOX_GROUP}" 0644 "${gc}"' \
+        <<<"${identity_body}" | cut -d: -f1)" || true
+    if [[ -z "${email_line}" || -z "${restore_line}" ]]; then
+        fail "the identity write or its applier is no longer where this reads it (write -> ${email_line:-none}, applier -> ${restore_line:-none})"
+    elif (( email_line < restore_line )); then
+        pass "the applier restores the gitconfig's owner, mode and label after the identity write"
+    else
+        fail "the applier (${restore_line}) runs before the identity write (${email_line})"
+    fi
+    if grep -qE '^[[:space:]]*(chown|chmod)[[:space:]].*"\$\{gc\}"' <<<"${identity_body}"; then
+        fail "configure_git_identity still sets the gitconfig's owner or mode itself, apart from the applier"
+    else
+        pass "configure_git_identity leaves owner and mode to the applier"
     fi
 fi
 

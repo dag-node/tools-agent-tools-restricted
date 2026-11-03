@@ -6,33 +6,44 @@
 [Handback](handback.md) · [Permissions](permissions.md) — [all
 docs](../index.md)
 
-How `ai-tools projects create` makes a directory, initializes git in it
-and claims it in one step, what it refuses, and the one question it can still
-ask you.
+How `atr projects create` makes a directory, initializes git in it and claims
+it in one step, what it refuses, and the questions it still asks you.
 
 ```bash
-ai-tools projects create ~/src/newproject
+atr projects create ~/src/newproject
 ```
 
 Creates the directory, initializes an empty git repository in it, writes
-a `README.md` naming it, then runs the same claim
-that `ai-tools projects claim` runs on a tree you already have
-([Claim](claim.md)). The `DIRECTORY` is required: the current directory exists,
-so it cannot be the default of a command whose subject is a directory that does
-not exist yet.
+a `README.md` naming it, then runs the same claim that `atr projects claim`
+runs on a tree you already have ([Claim](claim.md)). The `DIRECTORY` is
+required: the current directory exists, so it cannot be the default
+of a command whose subject is a directory that does not exist yet.
 
-## The one question it can ask
+## The questions it asks
 
-The tree is empty when the claim starts, so the claim's questions
+The tree is empty when the claim starts, so two of the claim's questions
 about an existing tree are answered by that: there is no pending step
-to confirm with a warning about modifying permissions throughout the tree, no
-secret-named file to scan a directory the command made a moment ago for, and no
-git history to expose in a repository with no commits. The claim therefore
-proceeds without the proceed confirm, the secret scan or the `.git` question,
-and opens `.git` to the agent so that your own later commits stay readable
-to it.
+to confirm with a warning about modifying permissions throughout the tree, and
+no secret-named file to scan a directory the command made a moment ago for.
+The claim therefore proceeds without the proceed confirm or the secret scan.
 
-The traverse grant is the one question left, because it is about the project's
+```text
+Normalize .git so the agent can access git history here? [Y/n] (default: Yes):
+```
+
+The `.git` question is still asked, where `git init` made a repository.
+A new repository has no history, so yes lets the agent read the commits you
+make there from now on. No keeps `.git` out of the agent's reach: the create
+leaves it in the owner's group with no access for other accounts, which suits
+a service account whose agent works the tree while you commit. If the create
+cannot set those modes, it warns that the agent may be able to read `.git`
+whatever you answer. Enter,
+`AI_TOOLS_ASSUME_YES=1` and a run without a terminal answer yes. A later
+`atr projects claim` offers the share again, and a `chmod` on `.git` withdraws
+it. Where `git init` fails, the create warns and claims the directory without
+a repository, and the question is not asked.
+
+The traverse grant is the other question, because it is about the project's
 **parents** rather than the tree: where the sandbox account cannot enter
 a directory enclosing the new project, the claim asks (default No) whether
 to let it pass through. What the grant permits, and what it prints
@@ -58,42 +69,56 @@ them without asking, are
 ## What it refuses
 
 ```text
-ai-tools: the parent directory does not exist: /home/you/Devlopment
+ai-tools: cannot resolve the parent directory: /home/you/Devlopment -- it does not exist, or a symbolic link on its path leads through a directory you cannot enter
 ```
 
 It creates exactly one directory, so the parent has to exist. A `mkdir -p`
 would have created `Devlopment/`, put the project inside it, claimed it
 and reported success — a claimed project in a directory nobody meant to make.
 The refusal names the missing parent, and a `mkdir -p` of your own, once you
-have checked the path, makes it.
+have checked the path, makes it. A symbolic link that leads through a directory
+you cannot enter looks the same as a missing directory from your account,
+so the refusal names both causes.
 
 ```text
 ai-tools: this path already exists: /home/you/src/newproject
 ```
 
-A path that already exists is refused, naming `ai-tools projects claim`
-instead: claiming grants an agent access to whatever a tree already holds,
-which is not an operation to arrive at by a typo. A location the sandbox
-account could not reach through any grant — under a directory owned by someone
-else, or under a system directory — is refused before anything exists,
-and names the clone as the way in.
+A path that already exists is refused, naming `atr projects claim` instead:
+claiming grants an agent access to whatever a tree already holds, which is not
+an operation to arrive at by a typo.
+
+```text
+ai-tools: cannot create at a symbolic link: /home/you/src/link -- projects create makes a new directory and does not follow a link there
+```
+
+A path whose last part is a symbolic link is refused by the name you gave,
+whether or not the link points at anything. Remove the link and create
+the project there, or name the directory the link points at.
+
+A location the sandbox account could not reach through any grant —
+under a directory owned by someone else, or under a system directory — is
+refused before anything exists, and names the clone as the way in.
 
 Every refusal fires before the directory is made. A step that fails after it —
 a root step whose password round did not complete — leaves the directory
-in place, and `ai-tools projects claim` on it finishes the claim.
+in place, and the run names the directory and the `atr projects claim` that
+finishes the claim, with `--for` where the create carried it.
 
 ## For another operator
 
-`ai-tools projects create --for svc-ci /srv/projects/api` makes the tree owned
-by `svc-ci` and registers it in that account's allowlist. Because the directory
-is made **as** that account, the run needs a `sudo` grant to act as it,
-and a parent that account can write; [Service
+`atr projects create --for svc-ci /srv/projects/api` makes the tree owned
+by `svc-ci` and registers it in that account's project registry. Because
+the directory is made **as** that account, the run needs a `sudo` grant to act
+as it, and a parent that account can write; [Service
 accounts](../operators/service-accounts.md) covers what to do when either is
 missing.
 
 ## Exit status
 
-0 when the project is created and claimed; 1 when a step failed
-after the directory was made; 2 for a rejected command line (a missing
-`DIRECTORY`, an unknown option); 3 when the path is a protected system
-directory or a home root. `man ai-tools` has the full list.
+0 when the project is created and claimed; 1 for a refusal before the directory
+is made, and when a step failed after it was made; 2 for a rejected command
+line (a missing `DIRECTORY`, an unknown option); 3 when the path is a protected
+system directory or a home root; 5 when the new tree could not be read
+as its owner, and the claim then names what is left to finish. `man ai-tools`
+has the full list.

@@ -4,9 +4,9 @@
 # Hermetic unit tests for the deployed ai-tools-lockdown helper: the PROACTIVE secret sweep. Unlike ai-tools-chown
 # (reactive, agent-owned paths only), lockdown locks down EVERY secret-named path under an allowed project -- including
 # pre-existing user-owned ones the agent could otherwise read -- setting files 600, directories 700, owner <you>:<you>.
-# It operates on the CWD (not a path arg), honours the same allowlist + '!'-exclusions, prunes only the `.git` subtrees
-# git names itself, refuses to run as the sandbox account, and applies through a pinned fd. Run against a /tmp testdir
-# with a dummy allowlist (AI_TOOLS_ALLOWLIST override) as root.
+# It operates on the DIRECTORY argument, or the CWD without one, honours the same allowlist + '!'-exclusions, prunes
+# only the `.git` subtrees git names itself, refuses to run as the sandbox account, and applies through a pinned fd.
+# Run against a /tmp testdir with a dummy allowlist (AI_TOOLS_ALLOWLIST override) as root.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -77,7 +77,7 @@ mkdir -p "${clone}/src"
 chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${clone}"
 chmod 2700 "${clone}" "${clone}/src"
 chmod 0600 "${clone}/.env"
-mk_allowlist "${proj}" "!${proj}/vendor" "${clone}"
+mk_allowlist "@ ${proj}" "! ${proj}/vendor" "@ ${clone}"
 
 # Run the deployed helper in <cwd> (it acts on pwd), non-interactive (`--yes`), never aborting the suite. Captures
 # combined output to <outfile>; sets the global LD_RC to its exit code.
@@ -345,7 +345,7 @@ fi
 # root meets on any host; the secret is read back at the mode it had.
 unread="${TESTDIR}/unread"
 mkdir -p "${unread}"; chmod 0755 "${unread}"
-mk_allowlist "${proj}" "${full}" "${unread}"
+mk_allowlist "@ ${proj}" "@ ${full}" "@ ${unread}"
 mk_secret "${unread}/.env"
 mkdir -p "${TESTDIR}/patterns-dir"
 export AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir"
@@ -396,6 +396,92 @@ if (( rc != 0 )) && [[ "$(perm "${pin_outside}/inside")" == 750 ]]; then
     pass "a directory reached through a symlinked ancestor is refused and left as it was"
 else
     fail "symlinked ancestor: rc=${rc}, the directory outside is $(perm "${pin_outside}/inside") (want a refusal, 750)"
+fi
+
+# ── The project named by its argument ────────────────────────────────────────────────────
+# The helper takes the project directory as an argument, the working directory being the default, so a caller that
+# cannot enter the tree still gates it. Two trees alike: the working-directory form over one is the control, and
+# the argument form from `/` over the other must lock the same paths. A relative argument resolves from the working
+# directory, `--gate` with the argument writes the NUL list, a second directory and a path that is not a directory are
+# refused under their codes with no path changed, and a 0750 project gated from `/` completes.
+arg_tree() {  # arg_tree <dir>: a project holding a secret-named file and a secret-named directory
+    mkdir -p "$1/secrets"; mk_secret "$1/.env"; : > "$1/plain.txt"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "$1"; chmod 0755 "$1" "$1/secrets"; chmod 0644 "$1/plain.txt"
+}
+arg_cwd="${TESTDIR}/arg-cwd"; arg_named="${TESTDIR}/arg-named"; arg_rel="${TESTDIR}/arg-rel"
+arg_gate="${TESTDIR}/arg-gate"; arg_closed="${TESTDIR}/arg-closed"
+for arg_dir in "${arg_cwd}" "${arg_named}" "${arg_rel}" "${arg_gate}" "${arg_closed}"; do arg_tree "${arg_dir}"; done
+chmod 0750 "${arg_closed}"
+mk_allowlist "@ ${arg_cwd}" "@ ${arg_named}" "@ ${arg_rel}" "@ ${arg_gate}" "@ ${arg_closed}"
+arg_modes() { stat -c '%a %U:%G' -- "$1/.env" "$1/secrets" "$1/plain.txt" | tr '\n' '|'; }
+run_ld "${arg_cwd}" "${TESTDIR}/arg-cwd.out" --yes
+arg_want="$(arg_modes "${arg_cwd}")"
+if (( LD_RC == 0 )) && [[ "$(perm "${arg_cwd}/.env")" == 600 ]]; then
+    pass "control: the working-directory form locks the tree (${arg_want})"
+else
+    fail "control: the working-directory form exited ${LD_RC}, .env $(perm "${arg_cwd}/.env") -- the cases below prove nothing"
+fi
+run_ld / "${TESTDIR}/arg-named.out" --yes "${arg_named}"
+if (( LD_RC == 0 )) && [[ "$(arg_modes "${arg_named}")" == "${arg_want}" ]]; then
+    pass "the argument form from / locks the same paths as the working-directory form"
+else
+    fail "the argument form exited ${LD_RC} with '$(arg_modes "${arg_named}")', want '${arg_want}'"
+fi
+run_ld "${TESTDIR}" "${TESTDIR}/arg-rel.out" --yes -- "${arg_rel##*/}"
+if (( LD_RC == 0 )) && [[ "$(arg_modes "${arg_rel}")" == "${arg_want}" ]]; then
+    pass "a relative argument resolves from the working directory"
+else
+    fail "the relative argument exited ${LD_RC} with '$(arg_modes "${arg_rel}")'"
+fi
+( cd / && setsid -w "${HELPER}" --gate -- "${arg_gate}" ) < /dev/null > "${TESTDIR}/arg-gate.out" 2>/dev/null \
+    && LD_RC=0 || LD_RC=$?
+# The helper writes the paths in its walk's order, so both lists are compared sorted.
+if (( LD_RC == 0 )) && cmp -s <(sort -z "${TESTDIR}/arg-gate.out") \
+        <(printf '%s\0' "${arg_gate}/.env" "${arg_gate}/secrets" | sort -z); then
+    pass "--gate with the argument writes the secret-matching paths NUL-terminated"
+else
+    fail "--gate with the argument: rc=${LD_RC}: $(od -c "${TESTDIR}/arg-gate.out" | head -3)"
+fi
+( cd / && setsid -w "${HELPER}" --gate -- "${arg_closed}" ) < /dev/null > "${TESTDIR}/arg-closed.out" 2>/dev/null \
+    && LD_RC=0 || LD_RC=$?
+if (( LD_RC == 0 )) && [[ "$(perm "${arg_closed}/.env")" == 600 ]]; then
+    pass "--gate over a 0750 project named from / completes, with no cd into the tree"
+else
+    fail "--gate over a 0750 project from /: rc=${LD_RC}, .env $(perm "${arg_closed}/.env")"
+fi
+arg_tree "${TESTDIR}/arg-second"; mk_allowlist "@ ${TESTDIR}/arg-second" "@ ${arg_cwd}"
+run_ld / "${TESTDIR}/arg-second.out" --yes "${TESTDIR}/arg-second" "${arg_cwd}"
+if (( LD_RC == 2 )) && grep -qxF MSG-G3M8 "${TESTDIR}/arg-second.out" && [[ "$(perm "${TESTDIR}/arg-second/.env")" == 644 ]]; then
+    pass "a second directory is refused with the usage status under its code, no path changed"
+else
+    fail "a second directory: rc=${LD_RC}, .env $(perm "${TESTDIR}/arg-second/.env"): $(tr '\n' '|' < "${TESTDIR}/arg-second.out")"
+fi
+run_ld / "${TESTDIR}/arg-file.out" --yes "${TESTDIR}/arg-second/plain.txt"
+if (( LD_RC != 0 )) && grep -qxF MSG-H3X3 "${TESTDIR}/arg-file.out" && [[ "$(perm "${TESTDIR}/arg-second/.env")" == 644 ]]; then
+    pass "a path that is not a directory is refused under its code, no path changed"
+else
+    fail "a non-directory: rc=${LD_RC}: $(tr '\n' '|' < "${TESTDIR}/arg-file.out")"
+fi
+
+# ── A registry the grammar refuses: the target is left as it was ─────────────────────────
+# The loader refuses a registry holding a line its grammar does not recognise, so the owner resolver does not cover any
+# path and this helper acts on none; the same tree under the valid registry is the control that the case can act at all.
+# The control runs second, so the refused run is read on the untouched tree.
+ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"; chmod 0755 "${ir}"
+mk_secret "${ir}/.env"
+mk_allowlist "@ ${ir}" "@ relative/entry"
+run_ld "${ir}" "${TESTDIR}/invalid-registry.out" --yes
+if (( LD_RC != 0 )) && [[ "$(perm "${ir}/.env")" == 644 ]]; then
+    pass "a registry holding a refused line: the lockdown refuses and locks no path"
+else
+    fail "a registry holding a refused line: rc=${LD_RC}, .env is $(perm "${ir}/.env") (want a refusal, 644)"
+fi
+mk_allowlist "@ ${ir}"
+run_ld "${ir}" "${TESTDIR}/invalid-registry.out" --yes
+if (( LD_RC == 0 )) && [[ "$(perm "${ir}/.env")" == 600 ]]; then
+    pass "control: the same tree under the valid registry is locked"
+else
+    fail "control: rc=${LD_RC}, .env is $(perm "${ir}/.env") -- the refusal above is not evidence"
 fi
 
 finish

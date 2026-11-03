@@ -1,19 +1,24 @@
 ---
 paths:
   - "src/usr/local/bin/ai-tools.sh"
+  - "src/usr/local/bin/atr.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
   - "src/usr/local/lib/ai-tools/admin-commands.d/**"
+  - "src/usr/local/lib/ai-tools/help.lib.sh"
   - "src/usr/local/share/man/man1/ai-tools.1"
   - "src/usr/local/share/man/man8/ai-tools-admin.8"
+  - "src/usr/local/share/man/man1/atr.1"
+  - "src/usr/local/share/man/man8/atr.8"
+  - "src/usr/local/share/bash-completion/completions/atr.sh"
 ---
 
 # Command grammar
 
 The shape every command in this project takes: `ai-tools`, `ai-tools-admin` (its own commands and the ones provider
-packages contribute), `ai-tools(1)` and `ai-tools-admin(8)`. What each command *does* is in the rule for its component —
-[cli](cli.rule.md) for the project lifecycle, [confinement](confinement.rule.md) for the SELinux group verbs,
-[dotnet](dotnet.rule.md) for the .NET integration. This rule covers only how a command is spelled and how it projects
-onto an HTTP surface.
+packages contribute), the short command `atr` over the two, `ai-tools(1)` and `ai-tools-admin(8)`. What each command
+*does* is in the rule for its component — [cli](cli.rule.md) for the project lifecycle,
+[confinement](confinement.rule.md) for the SELinux group verbs, [dotnet](dotnet.rule.md) for the .NET integration. This
+rule covers only how a command is spelled and how it projects onto an HTTP surface.
 
 The surface is **resource-oriented and isomorphic to a REST API**, so an HTTP layer can be mapped onto it without
 renaming anything. That constraint is what fixes [the rules](#the-rules); each one is a CLI spelling with an unambiguous
@@ -30,7 +35,8 @@ URI on the other side.
 | A bare noun with no `list` yet prints its verbs | it MUST NOT default to a **mutating** verb |
 | A global, one-shot or infrastructure-level action goes top-level or under `system` | `system post-upgrade`, `system bootstrap` |
 | Switches are **descriptive and long** | `--dry-run`, not `-n`; new surface does not add short flags |
-| `--help` and `--version` stay options | both `-h` and `--help` print the full help and ignore other arguments |
+| `--help` and `--version` stay options | `-h` or `--help` anywhere ahead of `--` prints the help of the command the line names and does not run it; `--version` is read in the first slot |
+| `help` is the bare-word spelling of `--help` where a command word goes | `atr help projects claim`, `atr projects help`; after a command it is that command's argument |
 
 Verb-noun ordering is a **convention rather than a rule with one correct answer**: clig.dev declines to prescribe either
 order, PatternFly recommends the opposite, and the .NET CLI mixes both. Every guide does agree on internal consistency,
@@ -54,14 +60,14 @@ does: `selinux` is the administration area that owns `groups`.
 
 That asymmetry survives into the REST projection. AIP-122 requires a collection identifier to be the plural form of its
 resource noun, while REST guides reserve the singular for **singleton resources** (`/health`, `/settings`). A domain
-maps to a **path prefix** — `/selinux/groups/...` — and the CLI notion of a command group is what carries it.
+maps to a **path prefix** — `/admin/selinux/groups/...` — and the CLI notion of a command group is what carries it.
 
 **A domain takes verbs of its own** where the action is about the whole domain rather than about instances of something
 it owns. `dotnet tools install <pkg>` acts on instances and takes the collection; `dotnet bootstrap` and `dotnet status`
 act on the integration itself and take the verb directly. The token after a singular noun is what tells a reader
 which: a plural means a collection follows, a verb means the domain is the subject. Such a verb projects as a custom
-method on the domain path (`POST /dotnet:bootstrap`), and a domain carrying state of its own is addressable there
-as a singleton (`GET /dotnet`).
+method on the domain path (`POST /admin/dotnet:bootstrap`), and a domain carrying state of its own is addressable there
+as a singleton (`GET /admin/dotnet`).
 
 ### `bootstrap` and `provision` are different verbs
 
@@ -91,16 +97,35 @@ where every other verb takes a resource identifier, and it is spelled in full pe
 
 ## Which binary a command lives on
 
-**The binary is the privilege boundary**, and it is where the whole surface expresses it — the URI carries no `/admin`
-prefix (see [No `/admin` namespace](#no-admin-namespace)). There are two typed commands:
+**The binary is the privilege boundary**, and the URI carries it as its first segment (see [The `/admin`
+namespace](#the-admin-namespace)). There are two programs:
 
 | Binary | Caller | Holds |
 |---|---|---|
 | `ai-tools` | the invoking operator, unprivileged; refuses the sandbox account | project lifecycle and the reports |
 | `ai-tools-admin` | root, enforced by `EUID -eq 0` before any command dispatches | host administration |
 
-`--help` and `--version` are answered ahead of that root check, since they read no host state and leave the host as it
-is, so the first thing an operator meets is the command surface rather than a refusal.
+A help request and `--version` are answered ahead of that root check, since they read no host state and leave the host
+as it is. The helper directory the program sits in is root-only, so an operator reaches them through `atr`.
+
+**`atr` is the command a reader types, and it adds a spelling, not a program.** `atr admin <command>` runs
+`ai-tools-admin` at its fixed path — directly as root, and otherwise through `sudo` after one line on stderr saying so —
+and every other `atr <command>` runs `ai-tools`, whose own refusals stand. `admin` is read as the first word alone,
+so `atr --for <operator> admin …` runs `ai-tools`, whose `--for` gate refuses it (`require_for_target` runs ahead
+of the dispatch, so the refusal is `MSG-U7R7` and not the unknown-command one), and `ai-tools` does not take an `admin`
+verb. For an operator, `atr` renders an admin help request, a bare `atr admin` and `atr admin --version` itself,
+from `help.lib.sh`, the library both programs render their help from, over the fixed domain directory, so none of them
+asks a password; a domain's own help, an unknown path's and every other admin command line take `sudo`, and so does
+the sandbox account's help request, which sudo refuses. `atr admin stop` without a help flag runs `ai-tools stop`
+for every caller, so its bare form reaches the stop helper's NOPASSWD rule, and that branch does not read a library.
+The dispatch lives in `atr.sh` rather than in `ai-tools.sh`, since the operator CLI is the file that refuses root
+for every writing verb ([cli](cli.rule.md)).
+
+Two authorization shapes reach the admin program, and the first is the documented one. `atr admin X` has sudo authorize
+`/usr/local/libexec/ai-tools/ai-tools-admin X`, the command every grant and audit record for `ai-tools-admin` names.
+`sudo atr admin X` has sudo authorize `/usr/sbin/atr admin X`: a general grant covers it, a rule naming the admin path
+alone does not and sudo refuses, and the audit record names the wrapper. The wrapper does not hold a sudoers rule of its
+own, since one would authorize every branch the wrapper dispatches.
 
 A command requiring root belongs on `ai-tools-admin` rather than in a binary of its own, so an administrator learns one
 name and one grammar. Each additional top-level name costs a `%{_sbindir}` symlink, an entry in `install.sh`'s uninstall
@@ -110,8 +135,9 @@ list, and a place in the packaging `%files` — for a command that is already a 
 
 `ai-tools-admin` ships in `ai-tools-base`, which is installed without knowing which `ai-tools-agents-*`
 or `ai-tools-integration-*` packages a host will add, so it **MUST discover the domains it dispatches rather than
-enumerate them**. Base owns five names — `operators`, `selinux`, `system`, `status`, `assets` — and a provider package
-contributes one domain named for the provider, the same token it takes in `agents.d`/`integrations.d`
+enumerate them**. Base owns the first words of the admin command rows in `help.lib.sh` — `operators`, `selinux`,
+`system`, `status`, `assets`, `stop` — and reserves `help`, which the help resolution answers ahead of the root check.
+A provider package contributes one domain named for the provider, the same token it takes in `agents.d`/`integrations.d`
 and in `operator.conf`. The dotnet integration owns `dotnet`, so `dotnet bootstrap` and `dotnet tools install <pkg>` are
 `ai-tools-admin` commands on a host that installed it and absent on one that did not.
 
@@ -138,9 +164,11 @@ The rules that bind that surface:
   until the provider was enabled would make bootstrap-then-enable and enable-then-bootstrap differ. What the command
   *reports* still names the enablement state. `system bootstrap` at full scope reads the **enabled** set instead, since
   "everything this host runs" is what enablement means.
-- **`--help` lists what this host has.** The domain list is the installed, trusted set, and the dispatch reads the same
-  list, so the help an administrator reads and the commands that run cannot disagree. It is answered ahead of the root
-  check like the rest of `--help`, which is why the directory is world-readable while each fragment inside it is not.
+- **`--help` lists what this host has.** The domain list is the installed, trusted set
+  that `ai_tools_help__read_admin_domains` discovers, and the dispatch, the full-scope bootstrap and `atr`'s rendering
+  read the same function, so the help an administrator reads and the commands that run cannot disagree. It is answered
+  ahead of the root check like the rest of `--help`, which is why the directory is world-readable while each fragment
+  inside it is not.
 
 **The root helpers under `/usr/local/libexec/ai-tools/` are outside this grammar.** `ai-tools-chown`,
 `ai-tools-setfacl`, `ai-tools-unclaim` and the rest are reached at a fixed path — by the CLI over `sudo`,
@@ -164,21 +192,24 @@ run (`tmpmap` for a .NET restore, `memfdexec` for `dotnet run`), which is a firs
 by the SELinux domain.
 
 **Being admin-only is not a test, and neither is returning more detail.** `operators` and the anticipated `proxies`,
-`mcps` and `services` are all admin-managed and all stay flat, since their names are unambiguous on their own. A richer
-response for a privileged caller is a **view**, never a prefix.
+`mcps` and `services` are all admin-managed and all stay flat, since their names are unambiguous on their own. Privilege
+is what `/admin` carries ([The `/admin` namespace](#the-admin-namespace)); `system` does not mark it.
 
 Depth is the second reason not to over-prefix: Azure caps a URI at collection/item/collection and Zalando limits nesting
-to one level. A custom method does not add a level against that budget, so `selinux groups enable <name>` projects
-to `/selinux/groups/{name}:enable` — a prefix, one collection, one item. Adding `system` on top would deepen
-the **path** for a command an operator types to unblock a build. `assets` is the one surface past that budget:
-`/assets/sets/{set}/{kind}/{name}` is a domain prefix and two collection-item pairs, accepted because the identifier is
-the string `AI_TOOLS_ASSETS` holds in `operator.conf`, and a shorter path would name the same asset two ways.
+to one level. A custom method does not add a level against that budget, and `/admin` is a surface prefix rather than
+a nesting level, so `selinux groups enable <name>` projects to `/admin/selinux/groups/{name}:enable` — the surface
+prefix, a domain prefix, one collection, one item. Adding `system` on top would deepen the **path** for a command
+an operator types to unblock a build. `assets` is the one surface past that budget:
+`/admin/assets/sets/{set}/{kind}/{name}` is the surface prefix, a domain prefix and two collection-item pairs, accepted
+because the identifier is the string `AI_TOOLS_ASSETS` holds in `operator.conf`, and a shorter path would name the same
+asset two ways.
 
 **Both tests are about actions, so a read takes neither.** `status` is host-wide and reads as infrastructure,
 which would put it under `system` — but it only reads, and it does not take a resource identifier, which makes it
 a **singleton resource**. The same AIP-121 preference that keeps a report out of `:status` keeps it out of a `system`
-prefix: `GET /status` is the whole projection and `status` the whole command. A prefix would deepen the path and group
-a read with the `system` commands, each of which provisions or rewrites the host.
+prefix: `GET /status` is `atr status` and `GET /admin/status` is `atr admin status`, and neither takes `system`.
+A prefix would deepen the path and group a read with the `system` commands, each of which provisions or rewrites
+the host.
 
 In one line: acts on instances of a named resource → `[domain] <resource> <verb>`; global, one-shot
 or infrastructure-level **action** → `system <verb>`; a host-wide **read** → a bare singular noun.
@@ -193,10 +224,10 @@ The examples are spelled in this grammar; [Where the surface stands](#where-the-
 own spelling against it.
 
 ```
-ai-tools-admin operators                      →  GET  /operators
-ai-tools-admin operators add <user>           →  POST /operators
-ai-tools-admin selinux groups enable tmpmap   →  POST /selinux/groups/tmpmap:enable
-ai-tools-admin system entrypoints relabel     →  POST /system/entrypoints:relabel
+atr admin operators                      →  GET  /admin/operators
+atr admin operators add <user>           →  POST /admin/operators
+atr admin selinux groups enable tmpmap   →  POST /admin/selinux/groups/tmpmap:enable
+atr admin system entrypoints relabel     →  POST /admin/system/entrypoints:relabel
 ```
 
 AIP-136's rules carry over: the method name is a verb followed by a noun with no prepositions; it is not one
@@ -207,9 +238,9 @@ matches the method name; and the HTTP method is `POST` unless the action is side
 
 | Form | Reads as |
 |---|---|
-| `/system/entrypoints:relabel` | a custom method on the **collection** — the action does not take an identifier |
-| `/system/entrypoints/{agent}:relabel` | a custom method on **one instance** |
-| `/system/entrypoints/relabel` | a sub-resource *named* `relabel`, which corrupts the hierarchy |
+| `/admin/system/entrypoints:relabel` | a custom method on the **collection** — the action does not take an identifier |
+| `/admin/system/entrypoints/{agent}:relabel` | a custom method on **one instance** |
+| `/admin/system/entrypoints/relabel` | a sub-resource *named* `relabel`, which corrupts the hierarchy |
 
 **A read takes a standard method.** AIP-121 prefers a standard method wherever one expresses the intent, so anything
 that only reports is a `GET` on a resource, and a report with no collection behind it is a **singleton** — singular
@@ -217,44 +248,43 @@ noun, no id. A `status` command therefore projects as `GET /status`, never `:sta
 
 **The two surfaces map 1:1 without sharing structure.** After the colon AIP-136 requires **camelCase**, the fragment
 being an RPC method name rather than a path segment (`:relabel`, `:validateManifest`); the CLI keeps **kebab-case**
-for readability. Either side may also omit a prefix the other carries: a bare `status` command maps to `GET /status`
-while `system entrypoints relabel` keeps its domain in the URI. Method names stay concise: `:relabel`, not
+for readability. The admin surface carries `/admin` on both sides, as the word `admin` after `atr` and as the first URI
+segment, and the `system` domain is the one prefix both sides keep for a reason of its own ([When a resource takes
+the `system` domain](#when-a-resource-takes-the-system-domain)). Method names stay concise: `:relabel`, not
 `:performRelabelOnAllEntrypoints`.
 
-## No `/admin` namespace
+## The `/admin` namespace
 
-The two binaries split by privilege, and that split does **not** project into the URL. A role is a property
-of the **caller**: prefixing by role gives one entity two URIs, forks caching and client code, and turns a change
-in authorization policy into a breaking change in the contract. The test is direct — if removing `/admin` leaves a URL
-that collides with an existing one, there was only ever one resource. `/admin/status` and `/status` collide exactly.
+Every `ai-tools-admin` command projects under `/admin/`, and every `ai-tools` command at the root: the binary is
+the privilege boundary, and the URI carries it as its first segment, so the two surfaces stay separate on the HTTP side
+as they are on the CLI side. `atr admin <command>` is the typed form of the admin surface, and `/admin/<path>` its
+projection: the word `admin` after `atr` projects as the first segment `/admin`, and the projection rules of this file
+decide the segments after it. `atr status` and `atr admin status` are therefore two resources — `GET /status`,
+the operator's vantage, and `GET /admin/status`, root's — each printing `?` for a reading its caller cannot make
+([cli](cli.rule.md)); they report one host and are two representations of it. A privileged caller does not get a wider
+`/status`; it gets `/admin/status`.
 
-A privileged caller seeing more is a **view**, in either of two forms that leave the URI alone: field-level shaping
-by privilege, or an explicit `view` parameter with `BASIC` and `FULL` (AIP-157). This surface does the first:
-`ai-tools status` and `ai-tools-admin status` report **one resource from two vantages**, and each prints `?`
-for a reading its caller lacks the privilege to make. Two commands exist because the binary is the privilege boundary
-([Which binary a command lives on](#which-binary-a-command-lives-on)), not because there are two sets of facts —
-which holds because the privilege is tested at each read rather than at the dispatch. The readings, and the mechanism
-behind that, are in [cli](cli.rule.md).
-
-An audience prefix is warranted where the surfaces are separate products with separate authentication on separate
-deployments. This host runs one auth model — Unix identity plus `sudo` — so the binary expresses the boundary on the CLI
-side and authorization middleware expresses it on the HTTP side. Neither needs a path segment.
+The `admin` group is a singular domain in this grammar's sense, containing `operators`, `selinux groups`, `system`,
+`status`, `assets`, `stop` and each contributed domain; a bare `atr admin` prints the admin help, without `sudo`
+for an operator, as the rules ask of a bare domain.
 
 ## Where the surface stands
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
 `system bootstrap [--scope minimal|full] [--agents NAME[,NAME...]]`, `system entrypoints relabel`,
-`system post-upgrade`, `status`, `assets [list|enable|disable|reconcile]`, `--help`/`-h`, `--version`, plus one domain
-per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)`
-documents the base surface and `tests/unit/man.sh` holds the page, the helper's `usage()` and its dispatch arms
-in agreement, so a command renamed in one of the three fails the suite rather than going stale in the others.
-A contributed domain is outside that pairing by construction — its commands exist only where the package is installed —
-so the page documents the **seam**, `--help` lists the domains this host has, and each domain answers its own `--help`.
+`system post-upgrade`, `status`, `assets [list|enable|disable|reconcile]`, `stop`, `--help`/`-h`/`help` after any
+command path, `--version`, plus one domain per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`,
+`dotnet status`. `ai-tools-admin(8)` documents the base surface and `tests/unit/man.sh` holds the page, the helper's
+rows in `help.lib.sh` and its dispatch arms in agreement, so a command renamed in one of the three fails the suite
+rather than going stale in the others. A contributed domain is outside that pairing by construction — its commands exist
+only where the package is installed — so the page documents the **seam**, `--help` lists the domains this host has,
+and each domain answers its own `--help`.
 
-Two names carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`: `ai-tools`
-and `ai-tools-admin`. Every other command in this project is a verb of one of them, reached at a fixed path the dispatch
-knows — the root helpers under `/usr/local/libexec/ai-tools/` (the provisioning helper among them, exec'd
-by `system bootstrap`) and the contributed command fragments under `/usr/local/lib/ai-tools/admin-commands.d/`.
+Three names carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`: `ai-tools`, `ai-tools-admin`,
+and `atr`, the one that is a spelling over the other two rather than a program of its own. Every other command in this
+project is a verb of one of them, reached at a fixed path the dispatch knows — the root helpers
+under `/usr/local/libexec/ai-tools/` (the provisioning helper among them, exec'd by `system bootstrap`)
+and the contributed command fragments under `/usr/local/lib/ai-tools/admin-commands.d/`.
 
 `ai-tools-admin` ships in `ai-tools-base` and runs on an unprovisioned host, so a host reaches `system bootstrap`
 before the toolchain it installs exists. That is why the two `bootstrap`s sit on different mechanisms:
@@ -267,23 +297,44 @@ the same shape `system entrypoints relabel` takes.
 to find one through, and it iterates the **enabled** set where the dispatch reads the installed one.
 
 `ai-tools` conforms too: `projects [list|create|claim|unclaim|remove|enable|disable|clone|push|lockdown|handback]`,
-`providers [list]`, `status`, `audit`, `stop`, `--help`/`-h`, `--version`. `COLLECTIONS` names the plural nouns a verb
-follows, and a bare one runs its `list`. Every gating table keys on the **command path** rather than on one token,
-and `tests/unit/cli-verbs.sh` holds each dispatched path to a classification in them.
+`providers [list]`, `status`, `audit`, `stop`, `--help`/`-h`/`help` after any command path, `--version`. `COLLECTIONS`
+names the plural nouns a verb follows, and a bare one runs its `list`. Every gating table keys on the **command path**
+rather than on one token, and `tests/unit/cli-verbs.sh` holds each dispatched path to a classification in them.
 
-**One registry carries those nouns.** `allowed-projects` has one entry format and every claimed directory is a line
-in it, so a clone is a **kind** of project derived from the path prefix rather than a collection of its own:
-`projects clone` makes one, and `projects remove` reads the kind from the path (`ai-tools.sh` computes `kind="sandbox"`
-for a path under `SANDBOX_ROOT`, and `require_sandbox_clone` agrees). On the REST side that projects
-as `GET /projects?kind=sandbox`. The listing stays one command for the same reason, so the cross-cutting *Suggested
-cleanup* findings `projects list` reports have one home.
+**One registry carries those nouns.** `~/.config/ai-tools/project-registry` has one entry format and every claimed
+directory is a line in it, so a clone is a **kind** of project derived from the path prefix rather than a collection
+of its own: `projects clone` makes one, and `projects remove` reads the kind from the path (`ai-tools.sh` computes
+`kind="sandbox"` for a path under `SANDBOX_ROOT`, and `require_sandbox_clone_shape` agrees). On the REST side
+that projects as `GET /projects?kind=sandbox`. The listing stays one command for the same reason, so the cross-cutting
+*Suggested cleanup* findings `projects list` reports have one home.
 
 **The option spelling of each command is kept**, because the typed command surface is the one interface an operator's
 own scripts bind to. `OPTION_SPELLINGS` maps each key to its command path, and `rewrite_option_spelling` applies
-the table ahead of every gate, so no key reaches a dispatch arm or `usage()` and the collection form is the only
-spelling the tables and the man page carry. A run that used one gets the preferred form named back to it
+the table ahead of every gate, so no key reaches a dispatch arm or the help and the collection form is the only spelling
+the tables and the man page carry. A run that used one gets the preferred form named back to it
 (`note_option_spellings`), and `tools/generators/option-spellings.sh` generates `docs/option-spellings.md`
 from the table, so the mapping an operator reads comes from the one the CLI applies.
+
+## The completion mirrors the surface
+
+`/usr/local/share/bash-completion/completions/atr` completes `atr`, `ai-tools` and `ai-tools-admin`, and the files named
+`ai-tools` and `ai-tools-admin` beside it are links to it, since bash-completion loads a completion by the name
+of the command being completed. It reads `admin` as the first word alone, as the wrapper does, and `--for` wherever it
+stands, as `ai-tools` does, so a line completes as the program that will run it reads it.
+
+**The command words and the options are the completion's own data**, and `tests/unit/completion.sh` holds them to each
+program in both directions: the command paths to the rows `help.lib.sh` holds for it, and the options after each command
+to the tag line of its man page entry, with every option it offers one the page documents. A command added to a dispatch
+without a completion word fails that file beside `man.sh`.
+
+**A Tab does not run a program of this project.** The names an option takes from the host — the enrolled operators,
+the installed agent manifests, the domains provider packages contribute, the SELinux groups — are read as text
+from the root-owned file or directory that holds them, and each name is held to a lower-case charset before it reaches
+`compgen -W`, which expands the words it is given. Running either program on each Tab would put its gates
+in an operator's prompt, and sourcing `help.lib.sh` would load the trust libraries into the completing shell.
+
+The completion's `atr` name is one of the names the short command takes, so `install.sh`'s `ATR_NAMES` and the base
+`%pre` replace and remove it only in this project's form, the header line its second line opens with.
 
 ## Why not
 
@@ -294,10 +345,13 @@ from the table, so the mapping an operator reads comes from the one the CLI appl
 - **`--` as a marker for an unsettled surface.** It reads as an option, which is the collision itself. Projects gating
   an unstable surface use an explicit namespace instead — `kubectl alpha`, `gh preview`, `cargo -Z` — which graduates
   by dropping the prefix.
+- **A role-free URI, with a privileged caller's wider reading as a view of the same resource.** The separation
+  between the two surfaces is intended, and `/admin` states it; a field-level view would fold `atr admin status`
+  into `GET /status` and leave the URI silent about which surface a command is on.
 - **An `:postUpgrade` projection for `system post-upgrade`.** The name states a lifecycle *moment* rather than a verb
   acting on a noun, so it has no clean AIP-136 form. What it does is reconcile the `.rpmnew` config files, which states
-  as `POST /system/configs:reconcile`. The CLI name is settled; the projection is the one to revisit if an HTTP layer is
-  built.
+  as `POST /admin/system/configs:reconcile`. The CLI name is settled; the projection is the one to revisit if an HTTP
+  layer is built.
 
 ## References
 
@@ -312,8 +366,6 @@ from the table, so the mapping an operator reads comes from the one the CLI appl
   after the colon, `POST` unless side-effect free.
 - [AIP-121](https://google.aip.dev/121) — prefer standard methods; custom methods only where a standard one cannot
   express the intent.
-- [AIP-157](https://google.aip.dev/157) — the `view` pattern (`BASIC` / `FULL`) for one resource returning different
-  depths.
 - [Azure API design](https://learn.microsoft.com/en-us/azure/architecture/best-practices/api-design) and [Zalando
   RESTful API Guidelines](https://opensource.zalando.com/restful-api-guidelines/) — plural collection URIs, nesting
   depth, singular reserved for singletons.

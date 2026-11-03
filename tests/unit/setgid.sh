@@ -19,7 +19,7 @@ fi
 mktestdir
 proj="${TESTDIR}/proj"
 mkdir -p "${proj}/sub" "${proj}/.env/inside"
-mk_allowlist "${proj}"
+mk_allowlist "@ ${proj}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}"   # legitimate owner (else guard skips)
 chmod -R 0770 "${proj}"                                    # start non-setgid, projects group
 foreign=false
@@ -99,7 +99,7 @@ if command -v setfacl >/dev/null 2>&1 \
     have_acl=true
 fi
 chmod 2700 "${p2}/inherited"
-mk_allowlist "${p2}"
+mk_allowlist "@ ${p2}"
 setsid "${HELPER}" "${p2}" < /dev/null > /dev/null 2>&1 || true
 
 # (C) a sealed dir is not normalized into the agent's group, and keeps its mode.
@@ -165,7 +165,7 @@ p3="${TESTDIR}/proj3"
 mkdir -p "${p3}/sub"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${p3}"
 chmod -R 0770 "${p3}"
-mk_allowlist "${p3}"
+mk_allowlist "@ ${p3}"
 if id nobody >/dev/null 2>&1; then
     chown nobody:nobody "${p3}"
     root_err="$(setsid "${HELPER}" "${p3}" < /dev/null 2>&1 >/dev/null || true)"
@@ -193,7 +193,7 @@ fi
 # at a directory, the one unreadable state root meets on any host; the tree is read back untouched.
 proj2="${TESTDIR}/proj2"
 mkdir -p "${proj2}/sub"
-mk_allowlist "${proj}" "${proj2}"
+mk_allowlist "@ ${proj}" "@ ${proj2}"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj2}"
 chmod -R 0770 "${proj2}"
 mkdir -p "${TESTDIR}/patterns-dir"
@@ -244,6 +244,52 @@ if (( rc != 0 )) && [[ "$(stat -c '%G' "${pin_outside}/inside")" == "${PROJECTS_
     pass "a directory reached through a symlinked ancestor is refused and left as it was"
 else
     fail "symlinked ancestor: rc=${rc}, the directory outside is $(stat -c '%G %a' "${pin_outside}/inside") (want a refusal, ${PROJECTS_GROUP}, no setgid)"
+fi
+
+# ── A registry the grammar refuses: the target is left as it was ─────────────────────────
+# The loader refuses a registry holding a line its grammar does not recognise, so the owner resolver does not cover any
+# path and this helper acts on none; the same tree under the valid registry is the control that the case can act at all.
+# The control runs second, so the refused run is read on the untouched tree.
+ir="${TESTDIR}/invalid-registry"; mkdir -p "${ir}/sub"; chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ir}"
+chmod 0770 "${ir}" "${ir}/sub"
+mk_allowlist "@ ${ir}" "@ relative/entry"
+setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%G' "${ir}/sub")" == "${PROJECTS_GROUP}" ]] && (( (8#$(stat -c '%a' "${ir}/sub") & 8#2000) == 0 )); then
+    pass "a registry holding a refused line: no directory is regrouped"
+else
+    fail "a registry holding a refused line: ${ir}/sub is $(stat -c '%G %a' "${ir}/sub")"
+fi
+mk_allowlist "@ ${ir}"
+setsid "${HELPER}" "${ir}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%G' "${ir}/sub")" == "${SANDBOX_GROUP}" ]]; then
+    pass "control: the same tree under the valid registry is regrouped"
+else
+    fail "control: ${ir}/sub is $(stat -c '%G %a' "${ir}/sub") -- the refusal above is not evidence"
+fi
+
+# ── The project's `.git` with the VCS skip list cleared ──────────────────────────────────
+# `SKIP_VCS_DIRS=[]` takes `.git` off the skip list, and the walk still leaves the project's own `.git` in its group
+# without setgid: sharing it is ai-tools-setfacl `--with-git`'s. A `.git` nested deeper is walked under the override,
+# the control that the cleared list reached this walk, and the directory beside them is regrouped as the walk's own
+# control.
+section "ai-tools-setgid: the project's .git with SKIP_VCS_DIRS cleared"
+vcs="${TESTDIR}/vcs-cleared"
+mkdir -p "${vcs}/.git/objects" "${vcs}/src" "${vcs}/sub/.git"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${vcs}"
+chmod 0750 "${vcs}" "${vcs}/.git" "${vcs}/.git/objects" "${vcs}/src" "${vcs}/sub" "${vcs}/sub/.git"
+mk_allowlist "@ ${vcs}"
+printf 'SKIP_VCS_DIRS=[]\n' >> "${TESTDIR}/operator.conf"
+setsid "${HELPER}" "${vcs}" < /dev/null > /dev/null 2>&1 || true
+if [[ "$(stat -c '%G' "${vcs}/src")" == "${SANDBOX_GROUP}" && "$(stat -c '%G' "${vcs}/sub/.git")" == "${SANDBOX_GROUP}" ]]; then
+    pass "control: the walk regroups the directory beside .git, and a nested .git under the cleared list"
+else
+    fail "control: src is $(stat -c '%G' "${vcs}/src"), sub/.git is $(stat -c '%G' "${vcs}/sub/.git") -- the case below is not evidence"
+fi
+gitdir_state="$(stat -c '%G %a' "${vcs}/.git") $(stat -c '%G %a' "${vcs}/.git/objects")"
+if [[ "${gitdir_state}" == "${PROJECTS_GROUP} 750 ${PROJECTS_GROUP} 750" ]]; then
+    pass "with SKIP_VCS_DIRS cleared, the project's .git keeps its group and does not take setgid"
+else
+    fail "the walk under a cleared VCS list reached the project's .git: ${gitdir_state}"
 fi
 
 finish

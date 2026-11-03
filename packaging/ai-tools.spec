@@ -46,6 +46,14 @@ BuildRequires:  make
 %global ai_bindir  /usr/local/bin
 %global ai_mandir  /usr/local/share/man
 %global ai_libdir  /usr/local/lib/ai-tools
+%global ai_bashcompdir /usr/local/share/bash-completion/completions
+
+# Every scriptlet body, comments included, passes through RPM's macro expansion before the shell
+# reads it: a doubled percent reaches the shell as one, and a percent directly ahead of an opening
+# parenthesis runs what the parentheses hold as a command while the spec is parsed. A shell
+# parameter expansion in a scriptlet therefore writes each of its percents twice: four for the
+# shell's longest-suffix removal, two for the shortest. tests/unit/spec-scriptlets.sh reads
+# the parsed spec.
 
 # Metapackage: pulls the whole stack. ai-tools-base is the mandatory foundation; the
 # ai-tools-agents and ai-tools-integration umbrellas are weak (Recommends), so a default
@@ -68,6 +76,11 @@ Code). Both umbrellas are weakly pulled, so an install can drop either.
 Summary:        Sandboxed-user umbrella for AI coding tools (account, CLI, ownership bridge)
 Requires(pre):  shadow-utils
 Requires(pre):  systemd
+# The %%pre reads the names atr takes through zcat, sed and readlink before this package's files are placed, and
+# Requires(pre) orders the packages carrying them ahead of it in one transaction.
+Requires(pre):  coreutils
+Requires(pre):  gzip
+Requires(pre):  sed
 Requires:       systemd
 Requires:       sudo
 Requires:       acl
@@ -85,7 +98,7 @@ Requires:       gnupg2
 Recommends:     ai-tools-selinux = %{version}-%{release}
 # The writing standard, the engineering and governance skills and the reference-docs subagent are the asset set
 # core's: a fresh install pulls the set, and an upgrade, which does not add a weak dependency, is told to install and
-# enable it by %%post and by `ai-tools-admin status`.
+# enable it by %%post and by `atr admin status`.
 Recommends:     ai-tools-assets-sets-core
 
 %description -n ai-tools-base
@@ -282,7 +295,7 @@ with every other ai-tools-agents-* provider.
 # (written by ai-tools-admin), so every host ships identical files.
 grep -rlZ -e '@SANDBOX_USER@' -e '@SANDBOX_GROUP@' src \
     | xargs -0 -r sed -i -e 's/@SANDBOX_USER@/ai-tools/g' -e 's/@SANDBOX_GROUP@/ai-tools/g'
-# Stamp the package version into the CLI (`ai-tools --version`).
+# Stamp the package version into the CLI (`atr --version`).
 grep -rlZ '@AI_TOOLS_VERSION@' src \
     | xargs -0 -r sed -i 's/@AI_TOOLS_VERSION@/%{version}-%{release}/g'
 # Compile every shipped SELinux policy module against this distribution's policy headers (see
@@ -322,6 +335,8 @@ ln -sr %{buildroot}%{ai_libexecdir}/ai-tools-admin %{buildroot}%{_sbindir}/ai-to
 # ── base: CLI + handback client ──────────────────────────────────────────────
 install -d -m 0755 %{buildroot}%{ai_bindir}
 install -m 0755 src%{ai_bindir}/ai-tools.sh                 %{buildroot}%{ai_bindir}/ai-tools
+# atr: the short command, `atr <command>` running ai-tools and `atr admin <command>` ai-tools-admin.
+install -m 0755 src%{ai_bindir}/atr.sh                      %{buildroot}%{ai_bindir}/atr
 install -m 0750 src%{ai_bindir}/ai-tools-handback-client.py %{buildroot}%{ai_bindir}/ai-tools-handback-client
 # The one launch wrapper every agent's command runs: each agent package ships its launcher name as
 # a symlink to it, and the wrapper takes the agent from the name it was invoked as.
@@ -330,12 +345,15 @@ install -m 0755 src%{ai_bindir}/ai-tools-launch.sh          %{buildroot}%{ai_bin
 # ships. brp-compress may gzip it (hence the %%files glob).
 install -d -m 0755 %{buildroot}%{ai_mandir}/man1
 install -m 0644 src%{ai_mandir}/man1/ai-tools.1             %{buildroot}%{ai_mandir}/man1/ai-tools.1
+# atr(1) and atr(8) are `.so` stubs for the two command pages, so `man atr` resolves without an index refresh.
+install -m 0644 src%{ai_mandir}/man1/atr.1                  %{buildroot}%{ai_mandir}/man1/atr.1
 # ai-tools-admin(8): section 8 because every command it documents refuses a non-root caller.
 install -d -m 0755 %{buildroot}%{ai_mandir}/man8
 install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_mandir}/man8/ai-tools-admin.8
+install -m 0644 src%{ai_mandir}/man8/atr.8                  %{buildroot}%{ai_mandir}/man8/atr.8
 # ai-tools-operator.conf(5): the host options and the shared KEY=value grammar they are written in.
 # ai-tools-providers(5): the provider manifests (agents.d, integrations.d) and their keys.
-# ai-tools-allowed-projects(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
+# ai-tools-project-registry(5), ai-tools-secret-patterns(5): the two files an operator's enrolment seeds, whose
 # headers are written once and point here for the reference.
 # ai-tools-custom-claude-endpoint.conf(5): the endpoint file's options, so its %%config(noreplace)
 # template stays a pointer.
@@ -346,7 +364,7 @@ install -m 0644 src%{ai_mandir}/man8/ai-tools-admin.8       %{buildroot}%{ai_man
 install -d -m 0755 %{buildroot}%{ai_mandir}/man5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-operator.conf.5               %{buildroot}%{ai_mandir}/man5/ai-tools-operator.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-providers.5                   %{buildroot}%{ai_mandir}/man5/ai-tools-providers.5
-install -m 0644 src%{ai_mandir}/man5/ai-tools-allowed-projects.5            %{buildroot}%{ai_mandir}/man5/ai-tools-allowed-projects.5
+install -m 0644 src%{ai_mandir}/man5/ai-tools-project-registry.5            %{buildroot}%{ai_mandir}/man5/ai-tools-project-registry.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-secret-patterns.5             %{buildroot}%{ai_mandir}/man5/ai-tools-secret-patterns.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5 %{buildroot}%{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5
 install -m 0644 src%{ai_mandir}/man5/ai-tools-records.5                     %{buildroot}%{ai_mandir}/man5/ai-tools-records.5
@@ -364,13 +382,21 @@ install -m 0644 src%{ai_mandir}/man7/ai-tools-messages.7        %{buildroot}%{ai
 # %%ai-ops drop-in is refused by sudo first, and meets sudo's message rather than the CLI's.
 # The symlink also carries the read-only reports, which the CLI now accepts as root.
 ln -sr %{buildroot}%{ai_bindir}/ai-tools %{buildroot}%{_sbindir}/ai-tools
+# atr takes a link so `sudo atr admin …` resolves through secure_path for a caller whose grant covers the wrapper.
+ln -sr %{buildroot}%{ai_bindir}/atr %{buildroot}%{_sbindir}/atr
+# The bash completion for atr, ai-tools and ai-tools-admin: bash-completion loads a file by the name of the command
+# completed, so the two other names are links to the one file, which registers all three.
+install -d -m 0755 %{buildroot}%{ai_bashcompdir}
+install -m 0644 src%{ai_bashcompdir}/atr.sh %{buildroot}%{ai_bashcompdir}/atr
+ln -s atr %{buildroot}%{ai_bashcompdir}/ai-tools
+ln -s atr %{buildroot}%{ai_bashcompdir}/ai-tools-admin
 
 # ── base: shared libraries ───────────────────────────────────────────────────
 # 0751: group SANDBOX_GROUP r-x for the agent; world-execute so an operator (not a
 # SANDBOX_GROUP member under multi-operator) can traverse in to source the 644
 # world-readable libs by path without listing the dir. The 640 files self-protect.
 install -d -m 0751 %{buildroot}%{ai_libdir}
-for l in log msg conf settings-merge skip-dirs session-sweep owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
+for l in log msg conf settings-merge skip-dirs session-sweep owner-only project-permissions relabel secret-patterns operator control-plane safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify assets-verify assets managed-assets providers ancestor-config sandbox-exec sessions toolchain cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv layout help; do
     install -m 0644 src%{ai_libdir}/${l}.lib.sh %{buildroot}%{ai_libdir}/${l}.lib.sh
 done
 # Provider manifest + fragment directories (base owns the dirs; each member package ships its own
@@ -448,7 +474,7 @@ install -m 0440 src%{_sysconfdir}/sudoers.d/ai-tools %{buildroot}%{_sysconfdir}/
 
 # ── base: host-config template. The @PROJECTS_USER@ token stays literal at build (the
 #    operator is a runtime identity), so stage the template with OPERATORS emptied;
-#    `ai-tools-admin operators add` fills it in place. %config(noreplace) keeps the
+#    `atr admin operators add` fills it in place. %config(noreplace) keeps the
 #    operator's OPERATORS/SKIP_* edits across upgrades. ──
 install -d -m 0755 %{buildroot}%{_sysconfdir}/ai-tools
 sed 's/^OPERATORS=.*/OPERATORS=[]/' src%{_sysconfdir}/ai-tools/operator.conf \
@@ -460,7 +486,7 @@ chmod 0644 %{buildroot}%{_sysconfdir}/ai-tools/operator.conf
 # scriptlets and the GPL licence text -- see its %%package block). The set is the one %%build
 # derived -- the core, each STABLE optional group, each integration's layout module -- read again
 # here and written to the file list %%files takes, so the three cannot disagree. The core loads on
-# install; a group stays OFF until an operator runs `ai-tools-admin selinux groups enable <name>`,
+# install; a group stays OFF until an operator runs `atr admin selinux groups enable <name>`,
 # which semodule-loads it from this directory with no source tree and no selinux-policy-devel.
 # EXPERIMENTAL groups are not on the list: they are compiled and verified from a source checkout
 # (install-selinux.sh enable-group + the avc loop), and ai-tools-admin refuses to load one.
@@ -488,7 +514,7 @@ install -d -m 0750 %{buildroot}/var/opt/ai-tools/state
 # the whole value of a pin is that the account it constrains cannot write it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-pin.d
 # What the last reconciliation could do about each agent's SELinux labels -- the labelling half's
-# counterpart to the pin, written by the same helper and read by `ai-tools status`. Same
+# counterpart to the pin, written by the same helper and read by `atr status`. Same
 # ownership for the same reason: it reports on the sandbox account, which must not be able to
 # rewrite it.
 install -d -m 0755 %{buildroot}/var/opt/ai-tools/state/entrypoint-label.d
@@ -540,7 +566,7 @@ for h in ai-tools-launcher-symlink ai-tools-relabel-agent ai-tools-bootstrap; do
 done
 # All three are reached at their %{ai_libexecdir} paths and do not get a %{_sbindir} symlink,
 # because an administrator does not type any of them: provisioning is
-# `sudo ai-tools-admin system bootstrap`, which execs the helper there.
+# `atr admin system bootstrap`, which execs the helper there.
 install -m 0550 src/opt/ai-tools/bin/nvm-update.sh %{buildroot}/opt/ai-tools/bin/nvm-update.sh
 
 # ── integration-nodejs: toolchain update units + post-upgrade relabel watcher ─
@@ -691,6 +717,84 @@ if posix.access("/usr/bin/systemctl", "x") then
 end
 
 %pre -n ai-tools-base
+# The names the short command atr takes: rpm refuses a path another installed package owns as a transaction conflict
+# before any scriptlet runs, and overwrites an unowned file at a %%files path without a word. This reads each name
+# in the forms install.sh's ATR_NAMES states and exits 1 at the first entry that is in none of them, which stops rpm
+# unpacking this package's files and no more: %%pretrans has already stopped ai-tools-relabel.path for the transaction,
+# a package rpm ordered ahead of this one has placed its files, and %%posttrans, which starts the watcher again, does not
+# run after a failed %%pre. The refusal does not start the watcher: a start here would let a run fire while rpm places
+# the packages ordered after this one, the state %%pretrans stops it for. It names the check to run once the transaction
+# ends, and the start of the watcher together with the relabel run %%pretrans may have cut short, which %%posttrans
+# starts on a transaction that completes; ai-tools-integration-nodejs's %%posttrans starts the watcher where that
+# package is in the transaction. A path another package owns has conflicted before this runs, so there is no rpm query
+# here.
+_atr_recovery='this refusal does not start the relabel watcher or the relabel run the transaction stopped -- once the transaction ends, check the watcher with systemctl is-active ai-tools-relabel.path, and where it should run, start both: systemctl start ai-tools-relabel.path ai-tools-relabel.service'
+for _atr_path in /usr/local/bin/atr /usr/sbin/atr /usr/local/share/bash-completion/completions/atr \
+          /usr/local/share/man/man1/atr.1 /usr/local/share/man/man1/atr.1.gz \
+          /usr/local/share/man/man1/atr.1.bz2 /usr/local/share/man/man1/atr.1.xz /usr/local/share/man/man1/atr.1.zst \
+          /usr/local/share/man/man8/atr.8 /usr/local/share/man/man8/atr.8.gz \
+          /usr/local/share/man/man8/atr.8.bz2 /usr/local/share/man/man8/atr.8.xz /usr/local/share/man/man8/atr.8.zst; do
+    [ -e "${_atr_path}" ] || [ -L "${_atr_path}" ] || continue
+    _atr_is_ours=no _atr_tool="" _atr_text=""
+    case "${_atr_path}" in
+        /usr/local/bin/atr)
+            if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ]; then
+                case "$(sed -n '3{p;q}' "${_atr_path}" 2>/dev/null)" in '# /usr/local/bin/atr --'*) _atr_is_ours=yes ;; esac
+            fi ;;
+        /usr/local/share/bash-completion/completions/atr)
+            if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ]; then
+                case "$(sed -n '2{p;q}' "${_atr_path}" 2>/dev/null)" in '# /usr/local/share/bash-completion/completions/atr --'*) _atr_is_ours=yes ;; esac
+            fi ;;
+        /usr/sbin/atr)
+            if [ -L "${_atr_path}" ]; then
+                case "$(readlink "${_atr_path}")" in ../local/bin/atr|/usr/local/bin/atr) _atr_is_ours=yes ;; esac
+            fi ;;
+        */man1/atr.1*|*/man8/atr.8*)
+            case "${_atr_path}" in */man1/*) _atr_so_request='.so man1/ai-tools.1' ;; *) _atr_so_request='.so man8/ai-tools-admin.8' ;; esac
+            # A stub is its .so line and roff comments alone, in plain text or in one of the four compressions man
+            # reads, which the magic bytes name. A page past install.sh's ATR_STUB_MAX_BYTES is not one, on disk or
+            # as the text it decompresses to, and a compressed page is tested whole first, since a stream that fails
+            # its check or ends early still decompresses to its prefix. A page whose tool is not on PATH is not read.
+            if [ -f "${_atr_path}" ] && [ ! -L "${_atr_path}" ] && [ "$(wc -c < "${_atr_path}")" -le 4096 ]; then
+                case "$(head -c 6 -- "${_atr_path}" | od -An -tx1 | tr -d ' \n')" in
+                    1f8b*) _atr_tool=gzip ;; 425a68*) _atr_tool=bzip2 ;; fd377a585a00) _atr_tool=xz ;;
+                    28b52ffd*) _atr_tool=zstd ;; *) _atr_tool="" ;;
+                esac
+                if [ -z "${_atr_tool}" ]; then
+                    _atr_text="$(sed '/^\.\\"/d' "${_atr_path}")"
+                elif ! command -v "${_atr_tool}" >/dev/null 2>&1; then
+                    _atr_is_ours=unreadable
+                elif "${_atr_tool}" -t -- "${_atr_path}" >/dev/null 2>&1 \
+                     && [ "$("${_atr_tool}" -dc -- "${_atr_path}" 2>/dev/null | head -c 4097 | wc -c)" -le 4096 ]; then
+                    _atr_text="$("${_atr_tool}" -dc -- "${_atr_path}" 2>/dev/null | sed '/^\.\\"/d')"
+                fi
+                [ "${_atr_text}" = "${_atr_so_request}" ] && _atr_is_ours=yes
+            fi ;;
+    esac
+    if [ "${_atr_is_ours}" = unreadable ]; then
+        printf 'MSG-V2H5\nai-tools-base: the name %s is a page in %s compression and %s is not on PATH, so the install does not decide it -- install %s, or move the page aside, and re-run the transaction\nai-tools-base: %s\n' "${_atr_path}" "${_atr_tool}" "${_atr_tool}" "${_atr_tool}" "${_atr_recovery}" >&2
+        exit 1
+    fi
+    if [ "${_atr_is_ours}" = no ]; then
+        printf 'MSG-W5Z8\nai-tools-base: the name %s holds an entry that is not this project'"'"'s, so the install does not replace it -- move the entry aside and re-run the transaction\nai-tools-base: %s\n' "${_atr_path}" "${_atr_recovery}" >&2
+        exit 1
+    fi
+done
+# Another program named atr in a directory of the default login PATH or sudo's secure_path answers to the same command
+# name as the wrapper, with PATH order deciding which one runs, so the install refuses while one is there; install.sh's
+# ATR_COMMAND_DIRS holds the same directories. One that resolves to /usr/local/bin/atr is this project's: the link
+# at /usr/sbin/atr, or the wrapper reached through a merged directory.
+_atr_command_dirs='/usr/local/sbin /usr/bin /usr/sbin /bin /sbin'
+for _atr_dir in ${_atr_command_dirs}; do
+    _atr_other="${_atr_dir}/atr"
+    [ -x "${_atr_other}" ] && [ ! -d "${_atr_other}" ] || continue
+    if [ -e /usr/local/bin/atr ] \
+       && [ "$(readlink -f -- "${_atr_other}")" = "$(readlink -f -- /usr/local/bin/atr)" ]; then
+        continue
+    fi
+    printf 'MSG-E7B3\nai-tools-base: another program answers to atr at %s, and installing this project'"'"'s atr would leave PATH order to decide which one runs -- move it aside or remove the package that owns it, and re-run the transaction\nai-tools-base: %s\n' "${_atr_other}" "${_atr_recovery}" >&2
+    exit 1
+done
 # Create the ai-tools system account before any file owned by it is unpacked.
 %sysusers_create_compat %{SOURCE1}
 
@@ -699,7 +803,7 @@ end
 # operator disable survives). Only enables; posttrans starts it.
 %systemd_post ai-tools-handback.socket
 # Grant the ai-ops operators group access to the shared sandbox area through a group ACL, so
-# operators create and work in clones (`ai-tools projects clone`) without joining the ai-tools
+# operators create and work in clones (`atr projects clone`) without joining the ai-tools
 # group: traverse on the outer dir, rwX on sandbox-projects (a default ACL so clones inherit the
 # operator access), and read on the doc. One grant covers every operator and outlives a leave of
 # the ai-tools group. This is the shared-area counterpart to ai-tools-setfacl's per-project
@@ -749,7 +853,7 @@ chmod 2770 /var/opt/ai-tools/sandbox-projects 2>/dev/null || :
 # keep_existing semantics), so a fresh install or upgrade self-heals a missing guard while an
 # existing -- possibly operator-customised -- file is never clobbered. This runs on every
 # transition, not fresh-install only, so a file lost to an earlier package's config handling is
-# restored. No operator is bound yet at %post time (that is `ai-tools-admin operators add`, run
+# restored. No operator is bound yet at %post time (that is `atr admin operators add`, run
 # after this), so the .gitconfig email uses the `hostname -f` fallback.
 if [ ! -f /opt/ai-tools/.gitignore ]; then
     install -m 0640 -o root -g ai-tools \
@@ -790,10 +894,10 @@ fi
 # an upgrade that withdraws an asset an enabled set succeeds relies on: the seeder skips a withdrawn name, the pass
 # moves its live copy aside, and the reconcile then finds the name free and links the set's copy. The three run
 # in the one bash under the assets lock (ai_tools_managed_assets__lock), which the reconcile adopts,
-# so an `ai-tools-admin assets` verb run during the transaction does not interleave its writes with theirs; a lock
+# so an `atr admin assets` verb run during the transaction does not interleave its writes with theirs; a lock
 # that cannot be taken skips the three with MSG-M8T9.
 # The reconcile's record stream goes to the assets log, since this scriptlet's stdout is the transaction's;
-# a reconcile that does not complete here runs again from the next trigger or `ai-tools-admin assets reconcile`.
+# a reconcile that does not complete here runs again from the next trigger or `atr admin assets reconcile`.
 if command -v bash >/dev/null 2>&1; then
     AI_TOOLS_ASSUME_YES=1 bash -c '. /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; declare -F ai_tools_managed_assets__lock ai_tools_managed_assets__seed_assets_locked ai_tools_managed_assets__remove_retired_assets_locked ai_tools_managed_assets__link_asset_readme_locked ai_tools_managed_assets__unlock >/dev/null 2>&1 || { echo "ai-tools: skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet" >&2; exit 0; }; ai_tools_managed_assets__lock || exit 0; for kind in "${AI_TOOLS_MANAGED_ASSETS__KINDS[@]}"; do [ -d "$1/${kind}" ] || continue; ai_tools_managed_assets__seed_assets_locked "$1" /opt/ai-tools ai-tools "${kind}"; ai_tools_managed_assets__remove_retired_assets_locked /opt/ai-tools "${kind}"; ai_tools_managed_assets__link_asset_readme_locked "$1/${kind}/README.md" "/opt/ai-tools/${kind}" ai-tools; done; "$2" assets reconcile >/dev/null || :; ai_tools_managed_assets__unlock' _ %{_datadir}/ai-tools %{ai_libexecdir}/ai-tools-admin || :
 fi
@@ -826,6 +930,13 @@ fi
 # `system post-upgrade` rewrites it. A scriptlet does not edit a config file, so this names the
 # command; the predicate is the one the reader refuses by (conf.lib.sh).
 _at_unmigrated=0
+# An enrolled operator's ~/.config/ai-tools/allowed-projects from an earlier release stays the
+# registry every reader takes until `system post-upgrade` migrates it to ~/.config/ai-tools/project-registry,
+# and every `projects` verb refuses until then; the predicate is the one the migration reads its set from (operator.lib.sh).
+_at_registries=""
+if command -v bash >/dev/null 2>&1; then
+    _at_registries="$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; . /usr/local/lib/ai-tools/operator.lib.sh; declare -F ai_tools_operator__list_unmigrated_registries >/dev/null 2>&1 || { echo "ai-tools: skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet" >&2; exit 0; }; ai_tools_operator__list_unmigrated_registries' 2>/dev/null || :)"
+fi
 if command -v bash >/dev/null 2>&1 \
    && [ -n "$(bash -c '. /usr/local/lib/ai-tools/conf.lib.sh; declare -F ai_tools_conf__find_unmigrated_items >/dev/null 2>&1 || { echo "ai-tools: skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet" >&2; exit 0; }; ai_tools_conf__find_unmigrated_items /etc/ai-tools/operator.conf' 2>/dev/null || :)" ]; then
     _at_unmigrated=1
@@ -868,22 +979,25 @@ while IFS= read -r launcher; do
     done < <(ai_tools_agent_installs__find_executables "${launcher}")
 done < <(ai_tools_path_order__list_launchers)' 2>/dev/null || :)"
 fi
-if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] || [ -n "${_at_path}" ]; then
+if [ "${_at_toolchain}${_at_operator}${_at_merge}${_at_unmigrated}" != "0000" ] || [ -n "${_at_path}" ] \
+        || [ -n "${_at_registries}" ]; then
     echo "ai-tools-base: steps this host still needs:"
     if [ "${_at_toolchain}" = 1 ]; then
-        echo "  sudo ai-tools-admin system bootstrap          # install nvm + Node + the agent you choose (network)"
+        echo "  atr admin system bootstrap          # install nvm + Node + the agent you choose (network)"
     fi
     if [ "${_at_operator}" = 1 ]; then
-        echo "  sudo ai-tools-admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
+        echo "  atr admin operators add <your-user> # bind an operator (ai-ops, OPERATORS, linger)"
     fi
     if [ "${_at_unmigrated}" = 1 ]; then
-        echo "  sudo ai-tools-admin system post-upgrade       # rewrites operator.conf's provider names; no session starts until then"
+        echo "  atr admin system post-upgrade       # rewrites operator.conf's provider names; no session starts until then"
+    elif [ -n "${_at_registries}" ]; then
+        echo "  atr admin system post-upgrade       # migrates ~/.config/ai-tools/allowed-projects to ~/.config/ai-tools/project-registry; the projects verbs refuse until then"
     elif [ "${_at_merge}" = 1 ]; then
-        echo "  sudo ai-tools-admin system post-upgrade       # operator.conf.rpmnew is waiting"
+        echo "  atr admin system post-upgrade       # operator.conf.rpmnew is waiting"
     fi
     if [ -n "${_at_path}" ]; then
         echo "${_at_path}" | while read -r _at_u; do
-            echo "  sudo ai-tools-admin operators add ${_at_u} # its PATH ordering line still names the previous fragment"
+            echo "  atr admin operators add ${_at_u} # its PATH ordering line still names the previous fragment"
         done
     fi
 fi
@@ -987,7 +1101,7 @@ fi
 %post -n ai-tools-selinux
 # Load the core module into the RUNNING policy and apply contexts. Core only -- the stable
 # optional groups ship compiled alongside it but stay OFF, toggled per host with
-# `ai-tools-admin selinux groups enable <name>` (experimental groups are not shipped).
+# `atr admin selinux groups enable <name>` (experimental groups are not shipped).
 #
 # `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
 # labelled by the restorecon only once the module's types exist in the kernel, and
@@ -1014,16 +1128,29 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # ai-tools-relabel.path, and semodule and semanage report an error to whichever process finds
     # the store held. Open-coded because a scriptlet runs under /bin/sh and does not source the
     # library. Best-effort as the library is: no /run/lock, or a wait that runs out, proceeds
-    # unserialized. The file is created by a simple command first, because a failed redirection
-    # on a bare `exec` ends the scriptlet.
+    # unserialized and says so. The file is created by a simple command first, because a failed
+    # redirection on a bare `exec` ends the scriptlet.
     _store_lock=/run/lock/ai-tools-relabel.lock
-    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || :; fi
+    _lock_note=""
+    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || _lock_note="the wait for ${_store_lock} ran out"; else _lock_note="${_store_lock} cannot be opened"; fi
+    [ -z "${_lock_note}" ] || echo "ai-tools-selinux: NOTE proceeding without the relabel lock -- ${_lock_note}" >&2
     _semodule_error=$(semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp 2>&1) || {
         echo "ai-tools-selinux: WARNING could not load the ai_tools policy module: ${_semodule_error}" >&2
         echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
     }
+    # The root-owned trees are restored unconditionally. /opt/ai-tools and the clone area hold trees the sandbox account
+    # writes, so they are restored only while no process of that account is live (cli.rule.md, ref-section-e6c6), read
+    # through sessions.lib.sh -- a library or reader this host lacks reads as live -- and a skip prints one WARNING
+    # naming the stop and the restorecon to run after it. A scriptlet must succeed, so the skip is not an error.
+    _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
+    _sandbox_trees_skipped=0
     if command -v restorecon >/dev/null 2>&1; then
-        restorecon -R %{ai_libexecdir} %{ai_libdir} /opt/ai-tools /var/log/ai-tools >/dev/null 2>&1 || :
+        restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools >/dev/null 2>&1 || :
+        if [ "${_sandbox_session_state}" = none ]; then
+            restorecon -R /opt/ai-tools >/dev/null 2>&1 || :
+        else
+            _sandbox_trees_skipped=1
+        fi
     fi
     # A renamed or split optional group: the registry (selinux-groups.lib.sh) records the former
     # module name per current group, and a host that enabled the old module keeps it loaded
@@ -1033,14 +1160,14 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # a scriptlet runs under /bin/sh. Each row is "<former module> <current group>...", and a row's groups must be on
     # the shipped set for the .pp to exist here -- an experimental group has none, so its row waits until it graduates.
     for _row in "ai_tools_netcore localipc buildexec" "ai_tools_apphost memfdexec"; do
-        _old_group_mod=${_row%% *}; _new_groups=${_row#* }
+        _old_group_mod=${_row%%%% *}; _new_groups=${_row#* }
         semodule -l 2>/dev/null | grep -qx "${_old_group_mod}" || continue
         _swap_args=""
         for _g in ${_new_groups}; do
             _swap_args="${_swap_args} -i %{_datadir}/selinux/packages/ai-tools/ai_tools_${_g}.pp"
         done
         semodule -r "${_old_group_mod}" ${_swap_args} >/dev/null 2>&1 \
-            || echo "ai-tools-selinux: WARNING could not replace the ${_old_group_mod} module with the ${_new_groups} groups; it stays loaded. Re-run: sudo ai-tools-admin selinux groups enable ${_new_groups}" >&2
+            || echo "ai-tools-selinux: WARNING could not replace the ${_old_group_mod} module with the ${_new_groups} groups; it stays loaded. Re-run: atr admin selinux groups enable ${_new_groups}" >&2
     done
     # Each installed integration's LAYOUT module (selinux_layout_module in its manifest): it types
     # the integration's build-output directories and does not add any permission, so it loads with
@@ -1064,7 +1191,15 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
     # not alias /var/opt to /opt (EL9) a clone created before this module version carries var_t
     # until it is relabelled.
     if command -v restorecon >/dev/null 2>&1 && [ -d /var/opt/ai-tools/sandbox-projects ]; then
-        restorecon -R /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
+        if [ "${_sandbox_session_state}" = none ]; then
+            restorecon -R /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
+        else
+            _sandbox_trees_skipped=1
+        fi
+    fi
+    if [ "${_sandbox_trees_skipped}" = 1 ]; then
+        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then restore the labels:" >&2
+        echo "ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects" >&2
     fi
     exec 9>&-
     if command -v systemctl >/dev/null 2>&1 \
@@ -1077,14 +1212,111 @@ fi
 
 %postun -n ai-tools-selinux
 # On final erase only, unload every loaded ai_tools module -- the core, any stable optional group
-# enabled with `ai-tools-admin selinux groups enable`, and any EXPERIMENTAL group compiled from a
+# enabled with `atr admin selinux groups enable`, and any EXPERIMENTAL group compiled from a
 # source checkout. Enumerated rather than named: a .pp is erased with the package, but the
 # compiled module persists in the policy store until removed, and a module built from source was
 # never in the rpm database at all. Leaving one loaded would keep a domain alive for files the
 # package no longer owns.
+#
+# The erase -- the local rules naming a type of this policy dropped ahead of the unload, the unload
+# read back from the store, the trees restored once that read-back shows every module gone, and
+# each step's fail direction -- is stated in confinement.rule.md ("How the policy ships"). Local to
+# this scriptlet: both store writes wait on the reading %%post makes of the sandbox account's
+# sessions, taken once the relabel lock is held (%%post states the lock), since a session can start
+# during the wait; a scriptlet must succeed, so a reading that is not `none` and a lock not taken
+# are each reported and are not errors. A dropped project-shaped rule is named with its restorecon
+# and not walked, since this scriptlet holds neither the protected-paths backstop nor the literal
+# check install-selinux.sh's `remove` walks a tree under: the command is printed single-quoted,
+# and only where the decoded tree re-escapes to the literal the rule carried (the encoding
+# ai_tools_relabel__get_fcontext_literal writes); a rule an earlier release wrote raw matched paths
+# the decoding does not derive, so it is named for review instead. A rule semanage will not delete
+# is named with the delete to run; MSG-N5W8 is the installer's code for it, printed here as the
+# citation a twin carries. Before the read-back the policy's own file contexts still apply, so the
+# restore waits for it.
 if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
-    mods=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' || :)
-    [ -n "${mods}" ] && semodule $(printf ' -r %s' ${mods}) >/dev/null 2>&1 || :
+    _store_lock=/run/lock/ai-tools-relabel.lock
+    _lock_note=""
+    if : 2>/dev/null >"${_store_lock}"; then exec 9>"${_store_lock}"; flock -w 120 9 || _lock_note="the wait for ${_store_lock} ran out"; else _lock_note="${_store_lock} cannot be opened"; fi
+    [ -z "${_lock_note}" ] || echo "ai-tools-selinux: NOTE proceeding without the relabel lock -- ${_lock_note}; a relabel running now can leave a rule the unload refuses on, which is reported below" >&2
+    _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
+    if [ "${_sandbox_session_state}" != none ]; then
+        loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
+        echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then re-run this step:" >&2
+        echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
+        echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
+        exec 9>&-
+    else
+    if command -v semanage >/dev/null 2>&1; then
+        semanage fcontext -l -C -n 2>/dev/null | awk '
+            {
+                split($NF, context, ":")
+                if (context[3] !~ /^ai_tools_/) next
+                if (!match($0, /[[:space:]]+(all files|regular file|directory|character device|block device|socket|symbolic link|named pipe)[[:space:]]+[^[:space:]]+[[:space:]]*$/)) next
+                pattern = substr($0, 1, RSTART - 1); words = substr($0, RSTART)
+                sub(/^[[:space:]]+/, "", words); sub(/[[:space:]]+[^[:space:]]+[[:space:]]*$/, "", words)
+                letter = "p"
+                if (words == "all files") letter = "a"; else if (words == "regular file") letter = "f"
+                else if (words == "directory") letter = "d"; else if (words == "character device") letter = "c"
+                else if (words == "block device") letter = "b"; else if (words == "socket") letter = "s"
+                else if (words == "symbolic link") letter = "l"
+                printf "%s\t%s\t%s\n", letter, context[3], pattern
+            }' | while IFS="$(printf '\t')" read -r letter type pattern; do
+            [ -n "${pattern}" ] || continue
+            if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
+                case "${pattern}" in
+                    *'(/.*)?')
+                        literal="${pattern%%(/.*)?}"
+                        tree=$(printf '%s' "${literal}" | sed -E 's/\\(.)/\1/g')
+                        escaped=$(printf '%s' "${tree}" | sed 's/[][\\.(){}*+?^$|]/\\&/g')
+                        if [ "${escaped}" != "${literal}" ]; then
+                            printf 'ai-tools-selinux: dropped the rule %s (%s), whose pattern is not a literal path this release writes; the trees it matched keep that type -- review them and restore each with: sudo restorecon -R <tree>\n' \
+                                "${pattern}" "${type}" >&2
+                        elif [ -d "${tree}" ]; then
+                            quoted=$(printf '%s' "${tree}" | sed "s/'/'\\\\''/g")
+                            printf "ai-tools-selinux: %s keeps labels of a type the policy no longer defines (%s); restore its default types with: sudo restorecon -R '%s'\n" \
+                                "${tree}" "${type}" "${quoted}" >&2
+                        fi ;;
+                esac
+            else
+                printf 'MSG-N5W8\nai-tools-selinux: could not drop the local file-context rule %s (%s) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f %s -- %s\n' \
+                    "${pattern}" "${type}" "${letter}" "${pattern}" >&2
+            fi
+        done
+    fi
+    unloaded=0
+    if listing=$(semodule -l 2>&1); then
+        loaded_modules=$(printf '%s\n' "${listing}" | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
+        if [ -n "${loaded_modules}" ]; then
+            # libsemanage reports progress on stdout and a refusal on stderr; only the refusal is kept.
+            reason=$(semodule $(printf ' -r %s' ${loaded_modules}) 2>&1 >/dev/null) || :
+            if listing=$(semodule -l 2>&1); then
+                remaining_modules=$(printf '%s\n' "${listing}" | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
+                if [ -n "${remaining_modules}" ]; then
+                    printf 'ai-tools-selinux: left loaded: %s-- %s -- remove each rule named above, then run: sudo semodule -r %s\n' \
+                        "${remaining_modules}" "$(printf '%s' "${reason}" | tr '\n' ' ')" "${remaining_modules}" >&2
+                else
+                    unloaded=1
+                fi
+            else
+                printf 'ai-tools-selinux: could not read the module store back after the unload -- %s -- what is loaded is not known; run: sudo semodule -l\n' \
+                    "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
+            fi
+        else
+            unloaded=1
+        fi
+    else
+        printf 'ai-tools-selinux: could not read the module store -- %s -- the ai_tools modules were not unloaded; run: sudo semodule -l, then: sudo semodule -r <module>... for each ai_tools module it lists\n' \
+            "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
+    fi
+    exec 9>&-
+    if [ "${unloaded}" = 1 ] && command -v restorecon >/dev/null 2>&1; then
+        for tree in %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
+            [ -e "${tree}" ] || continue
+            restorecon -R "${tree}" >/dev/null 2>&1 \
+                || echo "ai-tools-selinux: could not restore the default types under ${tree}; run: sudo restorecon -R ${tree}" >&2
+        done
+    fi
+    fi
 fi
 
 %post -n ai-tools-integration-nodejs
@@ -1129,7 +1361,7 @@ systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 # session-env fragment relies on to its layout rows, then SELinux-label it. Offline + idempotent;
 # the command recognizes a host with no enforcing ai-tools policy and skips labelling there rather
 # than failing. Not the network tool install -- that stays the operator's
-# `sudo ai-tools-admin dotnet tools install`.
+# `atr admin dotnet tools install`.
 #
 # The command fragment is exec'd at its own path rather than through ai-tools-admin: this package
 # ships it, so its presence is what the guard tests, and the dispatch would add a discovery step
@@ -1143,7 +1375,7 @@ systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 if [ -x %{ai_libdir}/admin-commands.d/dotnet ]; then
     %{ai_libdir}/admin-commands.d/dotnet bootstrap >/dev/null || {
         echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
-        echo "ai-tools-integration-dotnet: fix the cause and re-run: sudo ai-tools-admin dotnet bootstrap" >&2
+        echo "ai-tools-integration-dotnet: fix the cause and re-run: atr admin dotnet bootstrap" >&2
         exit 1
     }
 fi
@@ -1197,11 +1429,15 @@ fi
 # when the version, the declared verification inputs (this package ships the signing key, so a key
 # change invalidates them) and the entrypoint's bytes are all unchanged; anything else re-fetches
 # and re-verifies.
+# The helper's status is the scriptlet's, taken at the END: the steps after it (the asset links,
+# the orientation link, the .rpmnew notice) are this package's whatever the relabel did, and a
+# session open at upgrade time makes the helper exit non-zero for a config directory it left.
+relabel_rc=0
 if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
     AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
+        relabel_rc=$?
         echo "ai-tools-agents-claude-code-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
-        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
-        exit 1
+        echo "ai-tools-agents-claude-code-restricted: fix the cause and re-run: atr admin system entrypoints relabel" >&2
     }
 fi
 # Link the shared assets into the directories each enabled agent reads them from: skills into
@@ -1217,14 +1453,15 @@ if [ -f /opt/ai-tools/orientation/AGENTS.md ] && command -v bash >/dev/null 2>&1
 fi
 # settings.json is %config(noreplace), so a host that tuned its permission rules keeps them and rpm
 # parks this version's copy as .rpmnew. Choosing between the two is the operator's call, made
-# through `ai-tools-admin system post-upgrade` -- a scriptlet does not edit a config file. Say so here,
+# through `atr admin system post-upgrade` -- a scriptlet does not edit a config file. Say so here,
 # because leaving it costs silently: a hook this version ships installs its body and its data, and
 # no event invokes it until its DECLARATION reaches settings.json.
 if [ -f /opt/ai-tools/.claude/settings.json.rpmnew ]; then
     echo "ai-tools: settings.json.rpmnew is waiting -- this version's hook declarations are not in"
     echo "  your settings.json yet, so the hooks they declare never run. Merge them with:"
-    echo "    sudo ai-tools-admin system post-upgrade"
+    echo "    atr admin system post-upgrade"
 fi
+exit "${relabel_rc}"
 
 %preun -n ai-tools-agents-claude-code-restricted
 # On final erase, drop the entrypoint file-context rule this package registered and restore
@@ -1237,10 +1474,12 @@ fi
 # tree's owner, through ai_tools_sandbox_exec__run_as_sandbox (sandbox-exec.lib.sh: no terminal, no inherited
 # descriptor, a clean environment), offline (npm uninstall does not reach a registry), and best-effort (`|| :`), so
 # the erase completes whatever it prints; a removal deferred under a live session is left for
-# the next update run.
+# the next update run. The relabel helper's stderr reaches the transaction output: a session open
+# at erase time leaves its config directory labelled, and the restorecon the operator then owes is
+# printed on that stream alone.
 if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
-        && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null 2>&1 || :
+        && %{ai_libexecdir}/ai-tools-relabel-agent --remove claude-code >/dev/null || :
     if [ -r /usr/local/lib/ai-tools/sandbox-exec.lib.sh ] && [ -r /usr/local/lib/ai-tools/toolchain.lib.sh ] && id ai-tools >/dev/null 2>&1; then
         bash -c '. /usr/local/lib/ai-tools/sandbox-exec.lib.sh; declare -F ai_tools_sandbox_exec__run_as_sandbox >/dev/null 2>&1 || { echo "skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet" >&2; exit 0; }; ai_tools_sandbox_exec__run_as_sandbox ai-tools bash -c ". /usr/local/lib/ai-tools/toolchain.lib.sh; declare -F ai_tools_toolchain__erase_agent_package >/dev/null 2>&1 || exit 0; ai_tools_toolchain__erase_agent_package /opt/ai-tools/.nvm claude-code"' 2>&1 | sed 's/^/ai-tools: /' || :
     fi
@@ -1249,7 +1488,7 @@ fi
 
 %triggerin -n ai-tools-agents-claude-code-restricted -- ai-tools-integration-typesafe
 # A typesafe decide call sends listing lines off the host, so settings.json asks before each
-# one. A kept settings.json does not gain that entry on upgrade: `ai-tools-admin system
+# one. A kept settings.json does not gain that entry on upgrade: `atr admin system
 # post-upgrade` merges hook declarations alone, and a scriptlet does not edit a config file. So
 # name the line to add. rpm runs this when either package is installed or upgraded while
 # the other is installed, with the files of both on disk. Read-only, and a warning only.
@@ -1264,7 +1503,7 @@ if [ -r /usr/local/lib/ai-tools/settings-merge.lib.sh ] && command -v bash >/dev
         echo "ai-tools: ${settings} runs these commands without asking, and each one sends data off the host:"
         for entry in "${entries[@]}"; do echo "    ${entry}"; done
         ai_tools_settings_merge__format_ask_fix "${settings}" "${entries[@]}" | { IFS= read -r where && echo "  to have it ask, ${where}"; while IFS= read -r line; do echo "      ${line}"; done; }
-        echo "  then check it with: sudo ai-tools-admin system post-upgrade"' || :
+        echo "  then check it with: atr admin system post-upgrade"' || :
 fi
 
 %post -n ai-tools-agents-codex-restricted
@@ -1272,13 +1511,16 @@ fi
 # claude-code scriptlet does: the pattern comes from this package's manifest and names the vendor
 # binary the launcher is re-linked at. Offline and idempotent; no-ops while the toolchain is not
 # provisioned. Not swallowed: a mislabelled entrypoint refuses every launch, so the remedy is
-# reported and the scriptlet exits non-zero. No release-signing key ships for codex, so the pin
-# reuse the claude scriptlet asks for has no pin to reuse and is not requested.
+# reported and the scriptlet exits non-zero -- at its END, so the steps after it still run: a
+# session open at upgrade time makes the helper exit non-zero for a config directory it left. No
+# release-signing key ships for codex, so the pin reuse the claude scriptlet asks for has no pin
+# to reuse and is not requested.
+relabel_rc=0
 if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
     %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null || {
+        relabel_rc=$?
         echo "ai-tools-agents-codex-restricted: entrypoint labelling failed; see 'journalctl -t ai-tools-relabel-agent'" >&2
-        echo "ai-tools-agents-codex-restricted: fix the cause and re-run: sudo ai-tools-admin system entrypoints relabel" >&2
-        exit 1
+        echo "ai-tools-agents-codex-restricted: fix the cause and re-run: atr admin system entrypoints relabel" >&2
     }
 fi
 # The base pins the 3770 setgid+sticky mode of an ENABLED agent's config directory only, and this
@@ -1308,6 +1550,7 @@ for f in requirements.toml managed_config.toml; do
         echo "  ${f} yet; compare the two and carry the keys over (codex reads the live file alone)"
     fi
 done
+exit "${relabel_rc}"
 
 %posttrans -n ai-tools-agents-codex-restricted
 # The fail-safe for the 3770 mode of this agent's config directory (see %%post).
@@ -1317,10 +1560,11 @@ chmod 3770 /opt/ai-tools/.codex 2>/dev/null || :
 # On final erase, drop the entrypoint file-context rule this package registered (the pattern is
 # read from this package's manifest, still on disk in %%preun), and remove the skills link the
 # %%post created -- the link to the shared root, or our links inside a host-owned /etc/codex/skills.
-# Anything the host placed there is left as it is; the shared root belongs to the base.
+# Anything the host placed there is left as it is; the shared root belongs to the base. The relabel
+# helper's stderr reaches the transaction output, as in the claude-code %%preun.
 if [ "$1" -eq 0 ]; then
     [ -x %{ai_libexecdir}/ai-tools-relabel-agent ] \
-        && %{ai_libexecdir}/ai-tools-relabel-agent --remove codex >/dev/null 2>&1 || :
+        && %{ai_libexecdir}/ai-tools-relabel-agent --remove codex >/dev/null || :
     if [ -r /usr/local/lib/ai-tools/managed-assets.lib.sh ] && command -v bash >/dev/null 2>&1; then
         bash -c ". /usr/local/lib/ai-tools/msg.lib.sh; . /usr/local/lib/ai-tools/managed-assets.lib.sh; declare -F ai_tools_managed_assets__unlink_shared_root >/dev/null 2>&1 || { echo 'ai-tools: skipped: the installed ai-tools-base library does not define a function this package version calls, so the installed version runs the step from its own scriptlet' >&2; exit 0; }; ai_tools_managed_assets__unlink_shared_root /opt/ai-tools/skills %{_sysconfdir}/codex/skills %{_datadir}/ai-tools/skills/README.md" >/dev/null 2>&1 || :
     fi
@@ -1363,16 +1607,25 @@ fi
 %attr(0755, root, root) %{ai_bindir}/ai-tools
 %attr(0755, root, root) %{ai_bindir}/ai-tools-launch
 %{_sbindir}/ai-tools
+%attr(0755, root, root) %{ai_bindir}/atr
+%{_sbindir}/atr
+%dir %attr(0755, root, root) /usr/local/share/bash-completion
+%dir %attr(0755, root, root) %{ai_bashcompdir}
+%attr(0644, root, root) %{ai_bashcompdir}/atr
+%{ai_bashcompdir}/ai-tools
+%{ai_bashcompdir}/ai-tools-admin
 %attr(0644, root, root) %{ai_mandir}/man1/ai-tools.1*
+%attr(0644, root, root) %{ai_mandir}/man1/atr.1*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-operator.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-providers.5*
-%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-allowed-projects.5*
+%attr(0644, root, root) %{ai_mandir}/man5/ai-tools-project-registry.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-secret-patterns.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-custom-claude-endpoint.conf.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-records.5*
 %attr(0644, root, root) %{ai_mandir}/man5/ai-tools-assets.5*
 %attr(0644, root, root) %{ai_mandir}/man7/ai-tools-messages.7*
 %attr(0644, root, root) %{ai_mandir}/man8/ai-tools-admin.8*
+%attr(0644, root, root) %{ai_mandir}/man8/atr.8*
 %attr(0750, root, ai-tools) %{ai_bindir}/ai-tools-handback-client
 %dir %attr(0751, root, ai-tools) %{ai_libdir}
 %attr(0644, root, root) %{ai_libdir}/log.lib.sh
@@ -1399,6 +1652,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/providers.lib.sh
 %attr(0644, root, root) %{ai_libdir}/ancestor-config.lib.sh
 %attr(0644, root, root) %{ai_libdir}/sandbox-exec.lib.sh
+%attr(0644, root, root) %{ai_libdir}/sessions.lib.sh
 %attr(0644, root, root) %{ai_libdir}/toolchain.lib.sh
 %attr(0644, root, root) %{ai_libdir}/cache-cleanup.lib.sh
 %attr(0644, root, root) %{ai_libdir}/selinux-groups.lib.sh
@@ -1408,6 +1662,7 @@ fi
 %attr(0644, root, root) %{ai_libdir}/agent-installs.lib.sh
 %attr(0644, root, root) %{ai_libdir}/records-base.lib.sh
 %attr(0644, root, root) %{ai_libdir}/records-tsv.lib.sh
+%attr(0644, root, root) %{ai_libdir}/help.lib.sh
 %attr(0644, root, root) %{ai_libdir}/layout.lib.sh
 %dir %attr(0755, root, root) %{ai_libdir}/keys
 %attr(0644, root, root) %{ai_libdir}/keys/dag-node-package-signing.asc
@@ -1444,7 +1699,7 @@ fi
 %dir %attr(2770, root, ai-tools) /var/opt/ai-tools/sandbox-projects
 %attr(0640, root, ai-tools) /var/opt/ai-tools/README.md
 # Operator-readable state written BY the sandbox account: the last-run stamps of the units that
-# live in that account's own `systemd --user manager`, which `ai-tools status` cannot query from
+# live in that account's own `systemd --user manager`, which `atr status` cannot query from
 # the operator's session (services.lib.sh reads them). root owns the directory and it is NOT
 # group-writable -- the account gets traverse only, so it cannot add, unlink, rename, or
 # symlink-swap anything here. Each stamp is created by the owning package's %post and rewritten in
@@ -1508,7 +1763,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-bootstrap
 %attr(0550, root, ai-tools) /opt/ai-tools/bin/nvm-update.sh
 # The updater's last-run stamp: rewritten by nvm-update.sh on every exit, read by
-# `ai-tools status` (the base's state directory owns the placement). Owned by the sandbox
+# `atr status` (the base's state directory owns the placement). Owned by the sandbox
 # account so it may rewrite the contents, group ai-ops so operators read it without joining the
 # sandbox group, and no world bits. %ghost with %post creating it: the content is runtime evidence,
 # but the inode must exist for the account to write it -- the directory is not group-writable.
@@ -1596,6 +1851,70 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
 %changelog
+* Tue Nov 03 2026 dagnode <tools@dagnode.com> - 0.28.0-1
+- CHANGE: Your project registry moves to ~/.config/ai-tools/project-registry. After the upgrade
+  run 'atr admin system post-upgrade': it migrates every enrolled operator's allowed-projects
+  unattended, keeps the old file as a dated .bak, and names each top-level '!' line with the '%'
+  line that disables it. Until it runs, sessions start from the old file and every 'atr projects'
+  command but the listing refuses (MSG-J6S8).
+- CHANGE: The registry opens with '# ai-tools-project-registry-format: 1.0', and each entry is its
+  sign, a space and the path: '@' a project, '%' a disabled project, '!' an excluded path wherever
+  it sits. A line the grammar does not read refuses the file for every reader (MSG-B8U2), and every
+  'atr projects' write rewrites it sorted, a nested entry under the one that encloses it. A '!'
+  line 0.27.0 wrote for a disabled project stays an excluded path until you rewrite it.
+- CHANGE: 'atr projects claim', 'clone', 'unclaim', 'remove', 'enable' and 'disable' require their
+  path, and '.' names the current directory; a run without one is refused at exit 2 (MSG-K7D9).
+  'handback', 'lockdown' and 'push' without a path act on the project the current directory is in.
+  'projects unclaim --keep-entry' is gone: an unclaim whose hand-back did not run disables the entry.
+- SECURITY: A recursive relabel of a tree the sandbox account can write -- a claim's label, an
+  unclaim's or a removal's revert, an agent config directory, the install-time restores -- runs only
+  while no process of that account is live, since a live one could redirect a walk by path. While
+  one is, the step is refused before any write and names 'atr stop' and the re-run: a claim applies
+  its other steps and exits 1, a removal stops with the tree as it was (MSG-H8V6, MSG-S3B9).
+- SECURITY: A claimed file gives the agent what its owner has: a read-only file stays read-only and
+  a text file is not executable to it. Before, a file created in the clone area claimed as
+  executable, and a read-only one as writable. A re-claim lists the files an earlier claim granted
+  otherwise and walks them on your confirm; a sandbox clone an earlier release opened keeps them
+  until 'sudo /usr/local/libexec/ai-tools/ai-tools-setfacl <clone>' runs.
+- SECURITY: The project's own .git stays out of the claim's walks and the per-turn sweep whatever
+  SKIP_VCS_DIRS holds, so 'SKIP_VCS_DIRS=[]' no longer shares it with the agent; the claim's .git
+  question is the way to. A group repair you decline stays declined through that share.
+- SECURITY: An excluded path written as a glob covers every directory under the one it matches, so
+  a session no longer starts below it. A configuration library that cannot make the match refuses
+  the launch (MSG-T6U6) where it read the path as not excluded.
+- SECURITY: A sandbox clone is created private under the clone area's default ACL, so a checked-in
+  credential stays unreadable to the agent until the secret gate has run; a clone root that does
+  not take its label stops the create. Before, a new clone was group-readable from the start.
+- NEW: 'atr' is the short command over the two programs: 'atr <command>' runs ai-tools, and
+  'atr admin <command>' runs ai-tools-admin, as root directly and through sudo otherwise. The install
+  refuses to replace another program answering to atr (MSG-W5Z8).
+- NEW: Every command answers its own help: '--help' anywhere ahead of '--', or 'help' where a
+  command goes, prints it and runs nothing, and 'atr admin help' asks no password. An unknown command
+  names the help to run, at exit 2. Bash completion covers atr, ai-tools and ai-tools-admin.
+- NEW: 'atr projects claim --for' and 'projects create --for' read the tree as the target operator,
+  so a tree only its owner can read is claimed in full. A location the invoker cannot enter is
+  refused by name (MSG-D4Z6) with the traverse grant that opens it, and a target outside ai-ops or
+  without a registry is refused before the first write.
+- NEW: 'atr projects create' asks whether the agent may read .git (default yes, and yes without
+  a terminal), and a create that stops names the directory and the claim that finishes it.
+- FIX: 'atr projects remove' drops the registry entry ahead of the trust entry, reads a clone's .git
+  as data without running git over it, and prints its label revert; a removal that leaves paths
+  behind names what it left and the entry that still covers them. 'projects push' refuses when git
+  cannot count the commits ahead (MSG-H6R3), where it reported the clone up to date.
+- FIX: 'atr projects list' offers a safe.directory removal only for a tree you hold, names a trust
+  rule or an expanded path by its form, tells an entry it cannot read from a stale one, and each
+  removal it prints removes what it names.
+- FIX: A claim or an unclaim leaves /opt/ai-tools/.gitconfig at its owner, mode and SELinux type.
+  Before, every safe.directory edit left it reported as label drift until the next reconcile.
+- FIX: The selinux package's erase drops the local file-context rules the unload refuses on, waits
+  for no live process of the sandbox account, and names a module it left loaded; an upgrade replaces
+  a former module that was split into several groups.
+- FIX: A printed command quotes its path, so one holding a space pastes as one word. A source
+  install requires the ACL tools, creates /opt/ai-tools/bin, and places the sysusers fragment.
+- DOCS: ai-tools-project-registry(5) replaces ai-tools-allowed-projects(5), and
+  docs/projects/permissions.md walks through what a claim gives each file and what a later claim,
+  a git rewrite and an unclaim leave.
+
 * Sun Oct 25 2026 dagnode <tools@dagnode.com> - 0.27.0-1
 - CHANGE: The toolchain updater and 'sudo ai-tools-admin system bootstrap' run a package's install
   scripts only after the npm registry signature over the installed tree has verified, so a tampered

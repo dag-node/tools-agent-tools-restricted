@@ -8,9 +8,9 @@
 # It self-gates on a host dotnet, so it is inert on a host without one even when enabled -- this integration does not
 # ship a runtime of its own.
 #
-# One state root backs it, provisioned by `sudo ai-tools-admin dotnet bootstrap` -- every integration keeps its
-# sandbox-side state under /opt/ai-tools/integrations/<name>, so no toolchain adds a dotdir to the sandbox home and one
-# SELinux rule covers them all:
+# One state root backs it, provisioned by `atr admin dotnet bootstrap` -- every integration keeps its sandbox-side state
+# under /opt/ai-tools/integrations/<name>, so no toolchain adds a dotdir to the sandbox home and one SELinux rule covers
+# them all:
 #   integrations/dotnet/nuget   restore cache, agent-writable across every project
 #   integrations/dotnet/cli     the SDK's own state (DOTNET_CLI_HOME), agent-writable
 #   integrations/dotnet/tools   shared global tools, read-only to the agent (root-only writes)

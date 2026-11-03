@@ -10,31 +10,36 @@ How a project enters the agent's reach, which command moves it from one state
 to the next, and where the page for each command takes over from this one.
 
 ```bash
-ai-tools projects create ~/src/newproject   # a new project, claimed
-ai-tools projects claim  ~/src/existing     # a tree you have, claimed in place
-ai-tools projects clone  ~/src/repo         # an isolated shallow clone instead
-ai-tools projects list                      # what is registered, and how
+atr projects create ~/src/newproject   # a new project, claimed
+atr projects claim  ~/src/existing     # a tree you have, claimed in place
+atr projects clone  ~/src/repo         # an isolated shallow clone instead
+atr projects list                      # what is registered, and how
 ```
 
 Run every command as your own user: the `ai-tools` CLI calls `sudo` itself
-for the steps that need root and prompts for your password there. Every
-`DIRECTORY` argument but `projects create`'s defaults to the current directory,
-and every yes/no question states its default, which Enter and a run without
-a terminal take (`man ai-tools`). Two pages under this category describe
-a property of a claimed tree rather than a command:
-[Permissions](permissions.md), for what owns a file the agent wrote and how you
-and the agent share one tree, and [Lockdown](lockdown.md), for what a claim
-locks away before it grants anything.
+for the steps that need root and prompts for your password there. Every command
+that registers, releases, disables or deletes a project takes its directory
+as an argument, and `.` names the one you are in: `atr projects claim .`.
+`projects handback`, `projects lockdown` and `projects push` may leave it
+out, and then act on the project the current directory is in. Every yes/no
+question states its default, which Enter and a run without a terminal take
+(`man ai-tools`). Two pages under this category describe a property
+of a claimed tree rather than a command: [Permissions](permissions.md),
+for what owns a file the agent wrote and how you and the agent share one tree,
+and [Lockdown](lockdown.md), for what a claim locks away before it grants
+anything.
 
 ## Choose a model first
 
 **Claim in place** when the agent should work your real checkout: shared files,
 shared git history (opt-in), and results that land in your tree. The trade is
-exposure. Once claimed, the whole tree is in the agent's reach except for two
-kinds of path: one that is owner-only, and one named on a `!` line of your
-allowlist. Every other path loses world access and gains the agent,
-and the world access does not come back at an unclaim
-([Permissions](permissions.md)).
+exposure. Once claimed, the whole tree is in the agent's reach except
+for a path that is owner-only. Every path the claim walks loses world access
+and gains the agent, and the world access does not come back at an unclaim
+([Permissions](permissions.md)). An excluded line (`!`) of your project
+registry keeps sessions from starting under it and the claim's permission
+walks out of it; it does not take back access a claim already granted there,
+which making the path owner-only does.
 
 **Create a sandbox clone** when the tree, its history, or its surroundings
 should stay out of reach. The clone is shallow, so the agent does not read
@@ -63,8 +68,8 @@ interactively.
 | [`projects clone`](clone.md) | how to work in a shallow clone that keeps the origin and its history out of reach | `projects remove` |
 | [`projects push`](push.md) | how a clone's commits reach the branch it tracks | — |
 | [`projects list`](list.md) | what is registered, and what is inconsistent | — |
-| [`projects disable`](disable.md) | how to park a project so no session starts there | `projects enable` |
-| [`projects enable`](enable.md) | how to lift the park, and what a `!` line it does not lift means | `projects disable` |
+| [`projects disable`](disable.md) | how to disable a project so no session starts there | `projects enable` |
+| [`projects enable`](enable.md) | how to lift the `%`, and what a `!` line it does not lift means | `projects disable` |
 | [`projects unclaim`](unclaim.md) | how the agent's access comes off a tree whose files you keep | `projects claim` again |
 | [`projects remove`](remove.md) | how a project and its directory are deleted | — |
 | [`projects lockdown`](lockdown.md) | how secret-named files are kept from the agent, on demand | — |
@@ -78,9 +83,13 @@ yours again, and for `projects unclaim` when you want the agent out.
 
 ## Where the boundary is
 
-Your allowlist decides where a session may start and which written files come
-back to you; it does not decide what a running session may read. Once a session
-runs, the permissions on the tree and its files are what confine it, which is
-why every command here that grants access locks secret-named files down first,
-and why declining that lockdown stops the command. [The boundary, and what is
+Your project registry, `~/.config/ai-tools/project-registry`, decides
+where a session may start and which written files come back to you; it does not
+decide what a running session may read. Each line is a project, a disabled
+project (`%`) or an excluded path (`!`), and a line the file's grammar refuses
+stops every session and every `projects` command until it is fixed
+(`man 5 ai-tools-project-registry`). Once a session runs, the permissions
+on the tree and its files are what confine it, which is why every command here
+that grants access locks secret-named files down first, and why declining
+that lockdown stops the command. [The boundary, and what is
 out of scope](../about/scope.md) states it in full.

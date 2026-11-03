@@ -253,8 +253,9 @@ _ai_tools_entrypoint_verify__write_record() {
 # ai_tools_entrypoint_verify__write_label <agent> <ok|failed|skipped> [reason-token] : record what the last
 #   reconciliation could do about <agent>'s labels. ROOT ONLY.
 #
-#   `skipped` is the SELinux layer being inactive -- a DAC-only host, where there is no
-#   ai_tools_exec_t to assign and no fault to fix. The reason is a short TOKEN, not prose: every
+#   `skipped` is a run that left a label it could not apply without a fault to fix -- the SELinux
+#   layer inactive, no installed entrypoint or config directory, or a walk left while a session of the sandbox
+#   account was live -- and the reason token says which. The reason is a short TOKEN, not prose: every
 #   field here is read back through the stamp accessors' charset clamp, which excludes spaces, and
 #   the operator-facing detail (semanage's own message) belongs in the log the refusal already
 #   writes. This says which class of failure, so the report can name the remedy.
@@ -462,7 +463,7 @@ ai_tools_entrypoint_verify__read_installed_version() {
 #   It exists because the remedy for a changed binary is not the provisioning command: `npm install -g`
 #   is a no-op at an already-installed version, so reprovisioning leaves the modified file exactly where it is
 #   and the host goes on refusing with no explanation. Removing this directory is what makes the next
-#   `ai-tools-admin system bootstrap` fetch the package again. One reader, so the launch refusal and the relabel
+#   `atr admin system bootstrap` fetch the package again. One reader, so the launch refusal and the relabel
 #   helper name the same path.
 #
 #   The entrypoint path and the package name reach a terminal inside a command carrying `rm -rf`, so each is

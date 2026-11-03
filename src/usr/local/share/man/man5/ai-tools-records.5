@@ -16,12 +16,12 @@ A report that runs unattended writes what it found as a
 on standard output:
 a header row, then one row per finding, each ending in a line feed,
 every row holding the same number of tab-separated fields as the header.
-.BR "ai-tools-admin system post-upgrade --check" ,
-.BR "ai-tools-admin system layout --check" ,
+.BR "atr admin system post-upgrade --check" ,
+.BR "atr admin system layout --check" ,
 the
-.B "ai-tools-admin assets"
+.B "atr admin assets"
 commands, and
-.B "ai-tools projects claim --format tsv"
+.B "atr projects claim --format tsv"
 write one.
 The exit status states whether the reading was complete
 (see
@@ -506,7 +506,7 @@ found something:
 .PP
 .RS 4
 .EX
-ai-tools-admin system post-upgrade --check > /var/tmp/post-upgrade.tsv
+atr admin system post-upgrade --check > /var/tmp/post-upgrade.tsv
 case $? in
     0) rm -f /var/tmp/post-upgrade.tsv ;;
     4) logger -t post-upgrade "findings left; see the stream" ;;

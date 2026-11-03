@@ -276,4 +276,59 @@ else
     fail "write_operators did not hand the names to ai_tools_conf__set_list one per argument (${HELPER}), got: ${out}"
 fi
 
+# --- seed_operator_config: the registry an enrolment seeds is the one every reader takes ---
+# The seed is written under the name the resolver picks, so the file `operators add` creates is the one the launch gate,
+# the root helpers and the CLI resolve and load: `~/.config/ai-tools/project-registry`, with the marker its grammar
+# requires as line 1. A `~/.config/ai-tools/allowed-projects` an earlier release wrote stays the registry until
+# `system post-upgrade` migrates it, so `~/.config/ai-tools/project-registry` is not seeded beside it. Driven
+# for the calling account against fixture homes, with getent stubbed to name one, so no real home is touched;
+# the confirm for a missing .config is fast-tracked.
+section "ai-tools-admin operators add: the seeded registry (unit)"
+CONF_LIB_FOR_TEST="/usr/local/lib/ai-tools/conf.lib.sh"
+[[ -r "${CONF_LIB_FOR_TEST}" ]] || CONF_LIB_FOR_TEST="${ROOT}/src/usr/local/lib/ai-tools/conf.lib.sh"
+# run_seed <home> : seed the calling account's config under <home> and echo what it said, with its status.
+run_seed() {
+    AI_TOOLS_ASSUME_YES=1 bash -c '
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source "$1"
+        declare -F seed_operator_config >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+        seed_home="$2"
+        getent() {
+            if [[ "$1" == passwd ]]; then printf "%s:x:%s:%s::%s:/bin/bash\n" "$(id -un)" "$(id -u)" "$(id -g)" "${seed_home}"
+            else command getent "$@"; fi
+        }
+        rc=0; seed_operator_config "$(id -un)" || rc=$?
+        printf "RC=%s\n" "${rc}"
+    ' _ "${HELPER}" "$1" 2>&1 || true
+}
+mkdir -p "${TESTDIR}/seed-fresh"
+out="$(run_seed "${TESTDIR}/seed-fresh")"
+seed_cfg="${TESTDIR}/seed-fresh/.config/ai-tools"
+seed_reading="$(bash -c '
+    set -euo pipefail
+    # shellcheck source=/dev/null
+    source "$1"
+    IFS=$'"'"'\t'"'"' read -r state path < <(ai_tools_conf__resolve_registry "$2")
+    declare -a allowed=() excluded=()
+    rc=0; ai_tools_conf__load_allowlist "${path}" allowed excluded || rc=$?
+    printf "%s %s %s %s\n" "${state}" "${path##*/}" "$(ai_tools_conf__read_registry_format "${path}")" "${rc}"
+' _ "${CONF_LIB_FOR_TEST}" "${seed_cfg}" 2>&1 || true)"
+if [[ "${out}" == *"RC=0"* && "${seed_reading}" == "current project-registry 1.0 0" && ! -e "${seed_cfg}/allowed-projects" \
+        && "$(stat -c '%a' "${seed_cfg}/project-registry" 2>/dev/null)" == 600 ]]; then
+    pass "a fresh enrolment seeds ~/.config/ai-tools/project-registry at 600, which the resolver picks and the loader reads as format 1.0"
+else
+    fail "the seeded registry: rc line '${out##*RC=}', reading '${seed_reading}'"
+fi
+mkdir -p "${TESTDIR}/seed-legacy/.config/ai-tools"
+printf '%s\n' "/srv/p" > "${TESTDIR}/seed-legacy/.config/ai-tools/allowed-projects"
+out="$(run_seed "${TESTDIR}/seed-legacy")"
+if [[ "${out}" == *"RC=0"* && ! -e "${TESTDIR}/seed-legacy/.config/ai-tools/project-registry" \
+        && "$(cat "${TESTDIR}/seed-legacy/.config/ai-tools/allowed-projects")" == /srv/p ]]; then
+    pass "an account holding an earlier release's allowed-projects keeps it, and ~/.config/ai-tools/project-registry is not seeded beside it"
+else
+    fail "the seed beside a legacy registry: ${out}"
+fi
+assert_msg MSG-A2P2 "${out}" "the seed beside a legacy registry names the migration"
+
 finish

@@ -19,8 +19,8 @@ with `install_weak_deps` forced on), boots `systemd` as PID 1, and runs
 package the build produced resolved from the metapackage alone, derived
 from the built set rather than a list kept by hand, so a new subpackage is
 covered without editing either. The selftest walks the documented Quick-start
-end to end — `ai-tools-admin system bootstrap`, `ai-tools-admin operators add`,
-`ai-tools projects claim`, `tests/run.sh all`, and an auth-free confined
+end to end — `atr admin system bootstrap`, `atr admin operators add`,
+`atr projects claim`, `tests/run.sh all`, and an auth-free confined
 `claude --version` session — then calls `systemctl exit` with the aggregate
 status, so the command exits non-zero if any phase fails. Use `rpmtest-rocky10`
 for Rocky 10 and `rpmtest-fedora44` for Fedora 44; the RPMs each one builds
@@ -34,7 +34,7 @@ carry that distribution's dist tag (`.el9`, `.el10`, `.fc44`).
 ══════════════════════════════════════════════════════════════
 PASS        Metapackage pulled every built subpackage
 PASS        system bootstrap (nvm + Node + claude; linger + timer)
-PASS        ai-tools-admin operators add tester
+PASS        atr admin operators add tester
 PASS        operator claims the project (allowlist + ACL + safedir + label)
 PASS        tests/run.sh all
 PASS        confined session launches (claude --version through the wrapper)
@@ -47,6 +47,25 @@ runs, and the summary block reprints them at the end; `tests/run.sh`
 additionally reprints any failing test file's `FAIL` lines. The container's
 exit code is the aggregate, so `echo $?` after the run (or CI) sees pass/fail
 without scraping the log.
+
+To keep the suite's full results, give the run a directory:
+
+```bash
+make -C packaging rpmtest-rocky10 TEST_RESULTS="$PWD/test-results"
+```
+
+The selftest writes each test file's transcript, `results.tsv`
+and `run-info.txt` under `test-results/`, in a directory named
+for the distribution, the host and then the UTC time the suite started. CI does
+the same on every leg and uploads the directory as one zip,
+the `atr-test-results-<dist>-<runner image>-<UTC start>` artifact, which sorts
+by distribution and runner image and then by time, with an `origin.txt` naming
+the commit, the ref, the release, the runner and the run. To fetch every leg's
+results of a run at once:
+
+```bash
+gh run download <run-id> --pattern 'atr-test-results-*'
+```
 
 ## Run it by hand
 

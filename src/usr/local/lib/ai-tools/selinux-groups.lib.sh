@@ -3,12 +3,12 @@
 # /usr/local/lib/ai-tools/selinux-groups.lib.sh
 # Single source for the optional SELinux policy-group registry: each group's name, its operator-facing description,
 # the reason it is off by default, and its stability. Sourced by the source-tree authoring tool
-# (selinux/install-selinux.sh, which COMPILES a group from its .te/.fc), by the installed operator helper
-# (ai-tools-admin selinux, which LOADS a compiled .pp from the package directory),
-# and by selinux/policy/shipped-modules.sh (which derives the set a release ships from the stability field), so none
-# of them drifts on which groups exist or what they mean. Read-only data plus predicates that read and do not write:
-# the module store through `semodule -l`, a compiled module's header, and the module version range `checkmodule -V`
-# prints; the caller owns semodule/make. Include-guarded, so a double source no-ops.
+# (selinux/install-selinux.sh, which COMPILES a group from its .te/.fc), by the installed operator helper (atr admin
+# selinux, which LOADS a compiled .pp from the package directory), and by selinux/policy/shipped-modules.sh (which
+# derives the set a release ships from the stability field), so none of them drifts on which groups exist or what they
+# mean. Read-only data plus predicates that read and do not write: the module store through `semodule -l`, a compiled
+# module's header, and the module version range `checkmodule -V` prints; the caller owns semodule/make. Include-guarded,
+# so a double source no-ops.
 #
 # Deploy:
 #   ```bash

@@ -10,6 +10,10 @@
 #   make rpmupgrade-rocky9   build + run the upgrade transaction selftest from UPGRADE_FROM on Rocky 9, each scenario
 #   make rpmupgrade-rocky10  the same on Rocky 10
 #
+# TEST_RESULTS=<dir> mounts <dir> into an rpmtest container, and the selftest keeps the suite's transcripts,
+# results.tsv and run-info.txt there under a directory named for the distribution, the host and the run's UTC start:
+#   make rpmtest-rocky10 TEST_RESULTS=$PWD/test-results
+#
 # The tarball is built from the WORKING TREE (not `git archive`), so it includes
 # not-yet-committed sources during development.
 #
@@ -24,6 +28,11 @@ ROOT    = $(CURDIR)/..
 TOPDIR  = $(CURDIR)/rpmbuild
 RPM_RELEASE ?=
 RELEASE_DEFINE = $(if $(RPM_RELEASE),--define "rpm_release $(RPM_RELEASE)",)
+TEST_RESULTS ?=
+# The container takes this host's short name with the mount, so the results name the machine they ran on.
+RESULTS_HOST ?= $(shell uname -n 2>/dev/null | cut -d. -f1 | tr -cd 'A-Za-z0-9-')
+RESULTS_MOUNT = $(if $(TEST_RESULTS),-v $(abspath $(TEST_RESULTS)):/var/tmp/ai-tools-test-results:Z \
+	$(if $(RESULTS_HOST),--hostname $(RESULTS_HOST)),)
 
 # Tracked + working-tree sources the spec consumes, relative to the repo root.
 #
@@ -155,15 +164,15 @@ pull-fc44:
 # fires and returns the container's exit status.
 rpmtest-rocky9: rpmbase-el9
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el9 -f $(CURDIR)/Rocky9.Containerfile $(ROOT)
-	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:el9
+	$(OCI) run --rm -t --systemd=always --ulimit core=0 $(RESULTS_MOUNT) ai-tools-rpmtest:el9
 
 rpmtest-rocky10: rpmbase-el10
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:el10 -f $(CURDIR)/Rocky10.Containerfile $(ROOT)
-	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:el10
+	$(OCI) run --rm -t --systemd=always --ulimit core=0 $(RESULTS_MOUNT) ai-tools-rpmtest:el10
 
 rpmtest-fedora44: rpmbase-fc44
 	$(OCI) build $(BUILD_FLAGS) -t ai-tools-rpmtest:fc44 -f $(CURDIR)/Fedora44.Containerfile $(ROOT)
-	$(OCI) run --rm -t --systemd=always --ulimit core=0 ai-tools-rpmtest:fc44
+	$(OCI) run --rm -t --systemd=always --ulimit core=0 $(RESULTS_MOUNT) ai-tools-rpmtest:fc44
 
 # The upgrade transaction from the published release UPGRADE_FROM to this tree's build, one image per scenario
 # (container-upgrade-selftest.sh states each), since the scenario is fixed when the published release is installed.

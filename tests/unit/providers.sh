@@ -354,7 +354,7 @@ else
             && pass "the enabled set is the baseline, not the allowlist the file declares" \
             || fail "enabled set under an unreadable operator.conf: got '${enabled_out}', expected 'claude-code '"
         assert_msg MSG-V2R5 "$(<"${sandbox_err}")" "an unreadable operator.conf is reported, not read as an absent key"
-        grep -qF 'sudo ai-tools-admin system layout reconcile' "${sandbox_err}" \
+        grep -qF 'atr admin system layout reconcile' "${sandbox_err}" \
             && pass "the report names the layout reconcile as its remedy" \
             || fail "the report does not name the layout reconcile: $(_san "$(<"${sandbox_err}")")"
         empty_line="$(as_sandbox_providers ai_tools_providers__evaluate_empty_agents || true)"

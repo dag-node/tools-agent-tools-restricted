@@ -8,7 +8,7 @@
 #   record         Bash       -- record the call only; a Bash write does not report a
 #                               file_path and is swept at turn end instead
 #
-# Runs as ai-tools. It deliberately does NOT pre-check the approved-projects allowlist: that file lives
+# Runs as ai-tools. It deliberately does NOT pre-check the operator's project registry: that file lives
 # under the operator's home .config (mode 700, owned by the operator), which ai-tools cannot traverse --
 # so a `[[ -f ALLOWLIST ]]` test here is always false and would make the hook a permanent no-op. The allowlist is
 # enforced authoritatively by ai-tools-chown, which runs as root and CAN read it (and is the real security boundary

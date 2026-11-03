@@ -190,4 +190,4 @@ from this repository's own sessions.
 
 No cache (inputs rarely repeat, and a cache keyed on project content would be shared state across every operator's
 sessions under one account), no `ai-tools-admin` domain (the two root-side steps are scriptlet-sized,
-and `ai-tools providers` already reports enablement), and requests run one at a time.
+and `atr providers` already reports enablement), and requests run one at a time.

@@ -31,7 +31,8 @@
 # Every function that takes a caller's variable name prefixes its own locals `_layout_`, the helpers it calls while
 # the nameref is live included, since bash resolves a nameref through the dynamic scope; the output-name check refuses
 # that prefix and this module's globals. AI_TOOLS_LAYOUT_ROOT, a root-only test hook (tests.rule.md), prefixes every row
-# path and every sentinel, so tests/unit/layout.sh drives the real library over a fixture tree. Unset in production.
+# path and every sentinel, so tests/unit/layout-reconcile-*.sh drive the real library over a fixture tree. Unset
+# in production.
 
 # shellcheck disable=SC2034  # include guard, read on the next source of this lib
 if [[ -n "${_AI_TOOLS_LAYOUT__LOADED:-}" ]]; then return 0; fi
@@ -48,7 +49,8 @@ source "${_ai_tools_layout__library_dir}/project-permissions.lib.sh" || return 1
 # shellcheck source=SCRIPTDIR/log.lib.sh
 source "${_ai_tools_layout__library_dir}/log.lib.sh" || return 1
 unset _ai_tools_layout__library_dir
-for _ai_tools_layout__required in ai_tools_conf__is_trusted ai_tools_conf__read_list \
+for _ai_tools_layout__required in ai_tools_conf__is_trusted ai_tools_conf__read_list ai_tools_conf__resolve_registry \
+        ai_tools_conf__is_portable_name_valid \
         ai_tools_conf__read_untrusted_reason ai_tools_conf__read_unreadable_reason \
         ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
         ai_tools_records_base__read_subject_type ai_tools_records_tsv__encode_field ai_tools_records_tsv__decode_field \
@@ -98,11 +100,12 @@ _ai_tools_layout__populate_static_entries() {
     local sandbox_user="${_AI_TOOLS_LAYOUT__SANDBOX_USER}" sandbox_group="${_AI_TOOLS_LAYOUT__SANDBOX_GROUP}"
     local operators_group="${_AI_TOOLS_LAYOUT__OPERATORS_GROUP}" lib=/usr/local/lib/ai-tools \
         libexec=/usr/local/libexec/ai-tools
-    local man=/usr/local/share/man base=ai-tools-base helper library page log relative
+    local man=/usr/local/share/man bash_completions=/usr/local/share/bash-completion/completions base=ai-tools-base \
+        helper library page log relative
     local -a man_pages=(
-        man1/ai-tools.1 man5/ai-tools-operator.conf.5 man5/ai-tools-providers.5 man5/ai-tools-allowed-projects.5
+        man1/ai-tools.1 man5/ai-tools-operator.conf.5 man5/ai-tools-providers.5 man5/ai-tools-project-registry.5
         man5/ai-tools-secret-patterns.5 man5/ai-tools-custom-claude-endpoint.conf.5 man5/ai-tools-records.5
-        man5/ai-tools-assets.5 man7/ai-tools-messages.7 man8/ai-tools-admin.8
+        man5/ai-tools-assets.5 man7/ai-tools-messages.7 man8/ai-tools-admin.8 man1/atr.1 man8/atr.8
     )
 
     # ── ai-tools-base ── The root helpers: 0750 root:root, so a non-root account cannot list the directory or run
@@ -114,8 +117,10 @@ _ai_tools_layout__populate_static_entries() {
     # The sudo-PATH links: sudoers secure_path on stock EL excludes /usr/local/sbin, so `sudo <name>` resolves here.
     _ai_tools_layout__append_static_entry /usr/sbin/ai-tools-admin     link root:root 0777 - "${base}" files
     _ai_tools_layout__append_static_entry /usr/sbin/ai-tools           link root:root 0777 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/sbin/atr                link root:root 0777 - "${base}" files
     # The CLI and the launch wrapper run as the invoking operator; root-owned so the agent cannot rewrite either.
     _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools        file root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry /usr/local/bin/atr             file root:root 0755 - "${base}" files
     _ai_tools_layout__append_static_entry /usr/local/bin/ai-tools-launch file root:root 0755 - "${base}" files
     # Group-executable so the sandbox account runs it from the hooks; no world bit, so no other account reaches
     # the bridge.
@@ -124,14 +129,21 @@ _ai_tools_layout__populate_static_entries() {
     for page in "${man_pages[@]}"; do
         _ai_tools_layout__append_static_entry "${man}/${page}" file root:root 0644 - "${base}" files,compressed
     done
+    # The bash completion, sourced into an operator's shell; the other two names are links to it.
+    _ai_tools_layout__append_static_entry /usr/local/share/bash-completion directory root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry "${bash_completions}" directory root:root 0755 - "${base}" files
+    _ai_tools_layout__append_static_entry "${bash_completions}/atr" file root:root 0644 - "${base}" files
+    _ai_tools_layout__append_static_entry "${bash_completions}/ai-tools" link root:root 0777 - "${base}" files
+    _ai_tools_layout__append_static_entry "${bash_completions}/ai-tools-admin" link root:root 0777 - "${base}" files
     # The library directory: world-execute lets an operator outside the sandbox group source a library by path without
     # listing the directory. Every library is 0644: shipped logic, so read is open and root-only write is the boundary.
     _ai_tools_layout__append_static_entry "${lib}"                     directory root:"${sandbox_group}" 0751 - \
         "${base}" files
     for library in log msg skip-dirs session-sweep owner-only project-permissions relabel secret-patterns operator \
             control-plane managed-assets safe-paths launch-wrapper confinement npm-verify openpgp entrypoint-verify \
-            assets-verify assets conf settings-merge providers ancestor-config sandbox-exec toolchain cache-cleanup \
-            selinux-groups filters services path-order agent-installs records-base records-tsv layout; do
+            assets-verify assets conf settings-merge providers ancestor-config sandbox-exec sessions toolchain \
+            cache-cleanup selinux-groups filters services path-order agent-installs records-base records-tsv layout \
+            help; do
         _ai_tools_layout__append_static_entry "${lib}/${library}.lib.sh" file root:root 0644 - "${base}" files
     done
     _ai_tools_layout__append_static_entry "${lib}/path-order.sh"       file root:root 0644 - "${base}" files
@@ -385,7 +397,9 @@ _ai_tools_layout__is_permission_within() {
 # _ai_tools_layout__is_entry_valid <entry> static|dynamic : pure. 0 when <entry> is a well-formed row
 # of that provenance: seven TAB-separated fields; an absolute normalized path (a static one of printable ASCII without
 # whitespace, `\` or a glob character; a dynamic one carries an operator's home as the account database spells it);
-# a subject-type of file, directory or link; an owner `user:group`; a four-digit octal mode, 0777 on a link; an ACL
+# a subject-type of file, directory or link; an owner `user:group`, a static row's names in [a-z_][a-z0-9_-]*
+# and a dynamic row's each a name ai_tools_conf__is_portable_name_valid accepts, the grammar enrolment holds
+# an account name to; a four-digit octal mode, 0777 on a link; an ACL
 # of named entries whose bits do not exceed the mode's group bits, at most one named user and one named group per block
 # (so the text compares in getfacl's order), a default block on a directory alone, `-` on a link; a static package
 # with a sentinel, or a comma list of them on a directory alone, and `-` for a dynamic row; flags `-` or a non-empty
@@ -415,8 +429,14 @@ _ai_tools_layout__is_entry_valid() {
         file|directory|link) ;;
         *) printf '%s: subject-type %s is not file, directory or link' "${path}" "${subject_type}"; return 1 ;;
     esac
-    [[ "${owner}" =~ ^[a-z_][a-z0-9_-]*:[a-z_][a-z0-9_-]*$ ]] \
-        || { printf '%s: owner %s is not user:group' "${path}" "${owner}"; return 1; }
+    if [[ "${provenance}" == dynamic ]]; then
+        if [[ "${owner}" != *:* ]] || ! ai_tools_conf__is_portable_name_valid "${owner%%:*}" \
+                || ! ai_tools_conf__is_portable_name_valid "${owner#*:}"; then
+            printf '%s: owner %s is not user:group, each a portable name' "${path}" "${owner}"; return 1
+        fi
+    elif [[ ! "${owner}" =~ ^[a-z_][a-z0-9_-]*:[a-z_][a-z0-9_-]*$ ]]; then
+        printf '%s: owner %s is not user:group' "${path}" "${owner}"; return 1
+    fi
     [[ "${mode}" =~ ^[0-7]{4}$ ]] || { printf '%s: mode %s is not four octal digits' "${path}" "${mode}"; return 1; }
     if [[ "${subject_type}" == link ]]; then
         [[ "${mode}" == 0777 ]] || { printf '%s: a link row carries mode 0777' "${path}"; return 1; }
@@ -546,11 +566,13 @@ ai_tools_layout__parse_stream_line() {
 }
 
 # _ai_tools_layout__is_package_present <package> : 0 when one of the package's sentinels exists under the root (lstat).
+#   The sentinels are space-separated, and the split pins its own IFS: install.sh sources this library under
+#   IFS=$'\n\t', where a bare read keeps both paths in one field that exists nowhere, so every package reads absent.
 _ai_tools_layout__is_package_present() {
     local sentinel root
     local -a sentinels=()
     root="$(_ai_tools_layout__get_path_prefix)"
-    read -ra sentinels <<< "${_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS[$1]:-}"
+    IFS=$' \t\n' read -ra sentinels <<< "${_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS[$1]:-}"
     for sentinel in "${sentinels[@]}"; do
         [[ -e "${root}${sentinel}" || -L "${root}${sentinel}" ]] && return 0
     done
@@ -590,22 +612,28 @@ _ai_tools_layout__append_static_entries() {
 }
 
 # _ai_tools_layout__append_dynamic_entries <entries-var> <errors-var> : append one row per installed agent config
-# directory and three per enrolled operator to the caller's entries array, and an `error` line to the errors array
+# directory and four per enrolled operator to the caller's entries array, and an `error` line to the errors array
 # for each input that could not be read. Each input is read through ai_tools_records_base__read_subject_type
 # and ai_tools_conf__is_trusted before anything in it: an absent input does not contribute a row (the static row for it
 # reports the absence), and an input that is present but unreadable, untrusted, of another type, or not parsed whole is
-# an `error` line rather than an empty set. Unsorted.
+# an `error` line rather than an empty set. Each row is held to _ai_tools_layout__is_entry_valid's dynamic provenance
+# before it is listed, and a row it refuses is an `error` line naming the path and the reason. Unsorted.
 _ai_tools_layout__append_dynamic_entries() {
     local -n _layout_dynamic_out="$1" _layout_dynamic_errors="$2"
     local _layout_dynamic_root _layout_dynamic_status _layout_dynamic_type _layout_dynamic_manifest
     local _layout_dynamic_agent
     local _layout_dynamic_config_dir _layout_dynamic_path _layout_dynamic_operator _layout_dynamic_home
     local _layout_dynamic_group _layout_dynamic_entry _layout_dynamic_line _layout_dynamic_index
+    local _layout_dynamic_registry_state _layout_dynamic_flag _layout_dynamic_raw _layout_dynamic_reason
     local -a _layout_dynamic_operators=()
-    local -a _layout_dynamic_relative=( "" /allowed-projects /secret-patterns )
-    local -a _layout_dynamic_types=( directory file file )
-    local -a _layout_dynamic_modes=( 0700 0600 0600 )
-    local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' )
+    # The registry is `~/.config/ai-tools/project-registry`; a `~/.config/ai-tools/allowed-projects` an earlier release
+    # wrote is the registry every reader takes until `system post-upgrade` migrates it, so it holds the same row,
+    # optional, while it exists, and for that operator the `~/.config/ai-tools/project-registry` row is optional until
+    # then: the migration creates it, and `system post-upgrade --check` reports the operator as unmigrated.
+    local -a _layout_dynamic_relative=( "" /project-registry /allowed-projects /secret-patterns )
+    local -a _layout_dynamic_types=( directory file file file )
+    local -a _layout_dynamic_modes=( 0700 0600 0600 0600 )
+    local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' 'optional,boundary' )
     local -A _layout_dynamic_homes=() _layout_dynamic_declared=()
     _layout_dynamic_root="$(_ai_tools_layout__get_path_prefix)"
     for _layout_dynamic_entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
@@ -653,6 +681,14 @@ _ai_tools_layout__append_dynamic_entries() {
                     _layout_dynamic_errors+=( "${_layout_dynamic_line}" )
                     continue
                 fi
+                _layout_dynamic_raw="${_layout_dynamic_path}"$'\tdirectory\t'"root:${_AI_TOOLS_LAYOUT__SANDBOX_GROUP}"
+                _layout_dynamic_raw+=$'\t'"${CP_AGENT_CONFIG_MODE}"$'\t-\t-\t-'
+                if ! _layout_dynamic_reason="$(_ai_tools_layout__is_entry_valid "${_layout_dynamic_raw}" dynamic)"; then
+                    _ai_tools_layout__encode_line _layout_dynamic_line error directory "${_layout_dynamic_path}" \
+                        agents "${_layout_dynamic_reason}"
+                    _layout_dynamic_errors+=( "${_layout_dynamic_line}" )
+                    continue
+                fi
                 _layout_dynamic_declared["${_layout_dynamic_path}"]=1
                 _ai_tools_layout__encode_line _layout_dynamic_line "${_layout_dynamic_path}" directory \
                     "root:${_AI_TOOLS_LAYOUT__SANDBOX_GROUP}" "${CP_AGENT_CONFIG_MODE}" - - - ""
@@ -665,7 +701,7 @@ _ai_tools_layout__append_dynamic_entries() {
         _layout_dynamic_errors+=( "${_layout_dynamic_line}" )
     fi
 
-    # Three rows per enrolled operator. The list reader's status 1 is the complete empty set (no OPERATORS key); 2
+    # Four rows per enrolled operator. The list reader's status 1 is the complete empty set (no OPERATORS key); 2
     # and an untrusted file are an `error` line, as is a value the reader does not parse as a list, which it reports
     # as an empty array with ai_tools_conf__list_invalid set.
     _layout_dynamic_status=0
@@ -709,13 +745,33 @@ _ai_tools_layout__append_dynamic_entries() {
                 # An operator whose home another operator shares yields its rows once, under the first name.
                 [[ -z "${_layout_dynamic_homes[${_layout_dynamic_home}]+x}" ]] || continue
                 _layout_dynamic_homes["${_layout_dynamic_home}"]="${_layout_dynamic_operator}"
-                for _layout_dynamic_index in 0 1 2; do
+                _layout_dynamic_registry_state="$(ai_tools_conf__resolve_registry \
+                    "${_layout_dynamic_root}${_layout_dynamic_home}/.config/ai-tools")"
+                for _layout_dynamic_index in "${!_layout_dynamic_relative[@]}"; do
                     _layout_dynamic_path="${_layout_dynamic_root}${_layout_dynamic_home}/.config/ai-tools"
                     _layout_dynamic_path+="${_layout_dynamic_relative[${_layout_dynamic_index}]}"
+                    _layout_dynamic_flag="${_layout_dynamic_flags[${_layout_dynamic_index}]}"
+                    if [[ "${_layout_dynamic_relative[${_layout_dynamic_index}]}" == /project-registry \
+                            && "${_layout_dynamic_registry_state%%$'\t'*}" == legacy ]]; then
+                        _layout_dynamic_flag="optional,${_layout_dynamic_flag}"
+                    fi
                     if [[ -n "${_layout_dynamic_declared[${_layout_dynamic_path}]+x}" ]]; then
                         _ai_tools_layout__encode_line _layout_dynamic_line error \
                             "${_layout_dynamic_types[${_layout_dynamic_index}]}" "${_layout_dynamic_path}" operators \
                             "an operator path is a path the table declares"
+                        _layout_dynamic_errors+=( "${_layout_dynamic_line}" )
+                        continue
+                    fi
+                    _layout_dynamic_raw="${_layout_dynamic_path}"
+                    _layout_dynamic_raw+=$'\t'"${_layout_dynamic_types[${_layout_dynamic_index}]}"
+                    _layout_dynamic_raw+=$'\t'"${_layout_dynamic_operator}:${_layout_dynamic_group}"
+                    _layout_dynamic_raw+=$'\t'"${_layout_dynamic_modes[${_layout_dynamic_index}]}"$'\t-\t-\t'
+                    _layout_dynamic_raw+="${_layout_dynamic_flag}"
+                    if ! _layout_dynamic_reason="$(_ai_tools_layout__is_entry_valid "${_layout_dynamic_raw}" \
+                            dynamic)"; then
+                        _ai_tools_layout__encode_line _layout_dynamic_line error \
+                            "${_layout_dynamic_types[${_layout_dynamic_index}]}" "${_layout_dynamic_path}" operators \
+                            "${_layout_dynamic_reason}"
                         _layout_dynamic_errors+=( "${_layout_dynamic_line}" )
                         continue
                     fi
@@ -724,7 +780,7 @@ _ai_tools_layout__append_dynamic_entries() {
                         "${_layout_dynamic_types[${_layout_dynamic_index}]}" \
                         "${_layout_dynamic_operator}:${_layout_dynamic_group}" \
                         "${_layout_dynamic_modes[${_layout_dynamic_index}]}" - - \
-                        "${_layout_dynamic_flags[${_layout_dynamic_index}]}" "${_layout_dynamic_operator}"
+                        "${_layout_dynamic_flag}" "${_layout_dynamic_operator}"
                     _layout_dynamic_out+=( "${_layout_dynamic_line}" )
                 done
             done
@@ -974,16 +1030,16 @@ _ai_tools_layout__is_content_verification_required() {
 }
 
 # _ai_tools_layout__get_refusal_remedy <flags> <package> <operator> [exposure <path> <owner> <mode> <acl-field>] :
-# the command that places a row the reconcile does not create -- `sudo ai-tools-admin operators add <name>`
-# for a missing operator file, and a reinstall for every other missing file or link and for a package file whose content
-# drifted, since the package's scriptlet or install.sh places a runtime-written file. With `exposure`, the remedy
-# for a regular file another account could have written, in one of two forms. A payload file (`files` without `config`
-# or `ghost`) is reinstalled, which replaces the inode with the package's bytes. Every other regular file is reviewed
-# and restored by hand: `setfacl -b` removes a foreign named entry, which `chmod` leaves in place masked, then `chown`,
-# `chmod` and, where <acl-field> is not `-`, `setfacl -m` with the row's named entries; each path goes
-# through `printf %q`, so the line pastes into a shell whole. A reinstall is named for payload bytes alone: it keeps
-# an edited %config(noreplace) file, re-chmods a stamp through its %post and leaves a log as it is, and removing
-# a runtime file would drop the claims' safe.directory entries `.gitconfig` holds or the evidence a log holds.
+# the command that places a row the reconcile does not create -- `atr admin operators add <name>` for a missing operator
+# file, and a reinstall for every other missing file or link and for a package file whose content drifted, since
+# the package's scriptlet or install.sh places a runtime-written file. With `exposure`, the remedy for a regular file
+# another account could have written, in one of two forms. A payload file (`files` without `config` or `ghost`) is
+# reinstalled, which replaces the inode with the package's bytes. Every other regular file is reviewed and restored
+# by hand: `setfacl -b` removes a foreign named entry, which `chmod` leaves in place masked, then `chown`, `chmod`
+# and, where <acl-field> is not `-`, `setfacl -m` with the row's named entries; each path goes through `printf %q`,
+# so the line pastes into a shell whole. A reinstall is named for payload bytes alone: it keeps an edited
+# %config(noreplace) file, re-chmods a stamp through its %post and leaves a log as it is, and removing a runtime file
+# would drop the claims' safe.directory entries `.gitconfig` holds or the evidence a log holds.
 _ai_tools_layout__get_refusal_remedy() {
     local quoted_path
     if [[ "${4:-}" == exposure ]]; then
@@ -999,7 +1055,7 @@ _ai_tools_layout__get_refusal_remedy() {
         return 0
     fi
     if [[ -n "$3" ]]; then
-        printf 'sudo ai-tools-admin operators add %s' "$3"
+        printf 'atr admin operators add %s' "$3"
     else
         printf 'sudo dnf reinstall %s, or sudo ./install.sh install on a source install' "${2%%,*}"
     fi
@@ -1477,7 +1533,7 @@ ai_tools_layout__write_check_records() {
 : "${AI_TOOLS_LAYOUT_LOCK:=/run/lock/ai-tools-layout.lock}"
 : "${AI_TOOLS_LAYOUT_LOCK_WAIT:=60}"
 readonly _AI_TOOLS_LAYOUT__LIBRARY_DIR="${BASH_SOURCE[0]%/*}"
-readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="sudo ai-tools-admin system layout reconcile, or sudo ./install.sh install on a source install"
+readonly _AI_TOOLS_LAYOUT__FULL_PASS_REMEDY="atr admin system layout reconcile, or sudo ./install.sh install on a source install"
 
 # What one reconcile accumulates: the outcome counts its exit status folds, the paths of the rows in the set,
 # and the state each row reached after its own step, which the rows under it read. Both maps are keyed by the decoded

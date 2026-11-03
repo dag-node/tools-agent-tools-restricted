@@ -40,6 +40,8 @@ cli_cmd() {
     case "$1" in
         ai-tools.help)                    CLI_ARGV=(--help) ;;
         ai-tools.version)                 CLI_ARGV=(--version) ;;
+        ai-tools.projects.help)           CLI_ARGV=(projects help) ;;
+        ai-tools.providers.help)          CLI_ARGV=(providers help) ;;
         ai-tools.projects.list)           CLI_ARGV=(projects list) ;;
         ai-tools.projects.create)         CLI_ARGV=(projects create) ;;
         ai-tools.projects.claim)          CLI_ARGV=(projects claim) ;;
@@ -53,6 +55,7 @@ cli_cmd() {
         ai-tools.projects.push)           CLI_ARGV=(projects push) ;;
         ai-tools.projects.lockdown)       CLI_ARGV=(projects lockdown) ;;
         ai-tools.projects.handback)       CLI_ARGV=(projects handback) ;;
+        ai-tools.projects.inspect)        CLI_ARGV=(projects inspect) ;;
         ai-tools.status)                  CLI_ARGV=(status) ;;
         ai-tools.providers)               CLI_ARGV=(providers) ;;
         ai-tools.audit)                   CLI_ARGV=(audit) ;;
@@ -62,10 +65,14 @@ cli_cmd() {
 }
 
 # cli_cmd_option <key>: the same keys in the option spelling, one token each. `ai-tools.help` has no option spelling
-# of its own: `--help` and `-h` are the command in either form.
+# of its own: `--help` and `-h` are the command in either form. The `help` word after a collection has no option
+# spelling either, so its two keys take the collection form in both, and so does the claim's owner-side read, a verb
+# the CLI added after the option spellings.
 cli_cmd_option() {
     case "$1" in
         ai-tools.help)                    CLI_ARGV=(--help) ;;
+        ai-tools.projects.help)           CLI_ARGV=(projects help) ;;
+        ai-tools.providers.help)          CLI_ARGV=(providers help) ;;
         ai-tools.version)                 CLI_ARGV=(-V) ;;
         ai-tools.projects.list)           CLI_ARGV=(--list) ;;
         ai-tools.projects.create)         CLI_ARGV=(--project-create) ;;
@@ -80,6 +87,7 @@ cli_cmd_option() {
         ai-tools.projects.push)           CLI_ARGV=(--sandbox-push) ;;
         ai-tools.projects.lockdown)       CLI_ARGV=(--lockdown) ;;
         ai-tools.projects.handback)       CLI_ARGV=(--reclaim) ;;
+        ai-tools.projects.inspect)        CLI_ARGV=(projects inspect) ;;
         ai-tools.status)                  CLI_ARGV=(--status) ;;
         ai-tools.providers)               CLI_ARGV=(--providers) ;;
         ai-tools.audit)                   CLI_ARGV=(--audit) ;;
@@ -106,7 +114,6 @@ cli_flag() {
         full)           printf -- '--full' ;;
         group)          printf -- '--group' ;;
         group.short)    printf -- '-g' ;;
-        keep-entry)     printf -- '--keep-entry' ;;
         since)          printf -- '--since' ;;
         from)           printf -- '--from' ;;
         branch)         printf -- '--branch' ;;

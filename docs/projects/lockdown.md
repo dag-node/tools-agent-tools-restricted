@@ -11,14 +11,15 @@ that finds one runs on its own, and what the pattern set can and cannot
 recognize.
 
 ```bash
-ai-tools projects lockdown ~/src/api   # scan for secret-named files and lock what it finds
+atr projects lockdown ~/src/api   # scan for secret-named files and lock what it finds
 ```
 
 Lists every file under the project whose name matches a secret pattern, asks
 `Lock down these secrets now?` (default Yes), and makes each one yours alone,
 which takes the agent's read away. It runs through `sudo` and asks before it
 changes a file. Run it after adding a credential file to a claimed tree,
-or before re-running a claim that stopped.
+or before re-running a claim that stopped. Without a directory it acts
+on the project the current directory is in, named on its first line.
 
 ## A secret-named file is locked, not shared
 
@@ -45,7 +46,7 @@ clone puts an operator-written file such as `hooks/deploy.pem`. The walk is
 [ref-section-g6s6](../../.claude/rules/secret-handling.rule.md#ref-section-g6s6).
 
 ```bash
-ai-tools projects lockdown --dry-run ~/src/api
+atr projects lockdown --dry-run ~/src/api
 ```
 
 `--dry-run` names every path the lockdown would lock, and what it would strip
@@ -57,7 +58,7 @@ since a dry run neither changes a path nor asks.
 
 ```bash
 chmod -R go-rwx path/to/dir
-ai-tools projects lockdown path/to/project   # apply the seal's cleanup now
+atr projects lockdown path/to/project   # apply the seal's cleanup now
 ```
 
 A path with no group and no other bits — a file or directory only you can open
@@ -76,17 +77,18 @@ Two things to know:
 - A setgid bit set to some third group is taken as deliberate and kept.
   The claim reports it rather than clearing it; clear it with `chmod g-s` if it
   was not intended.
-- For a seal that does not depend on a mode at all, add a `!` line for the path
-  to `~/.config/ai-tools/allowed-projects`. An excluded subtree is skipped
-  by every walk whatever its mode.
+- To keep every walk out of a subtree whatever its mode, add an excluded line,
+  `!` and the path, to `~/.config/ai-tools/project-registry`. The line does not
+  take back the access a claim already granted there; the owner-only mode does.
 
 ## What the patterns do not cover
 
 Matching is on **names**, not contents, and the shipped list is a baseline
 of the credential names software writes in general. A secret under a name
 the list does not know is yours to handle first: make it owner-only,
-which a claim then leaves alone, or `!`-exclude it from your allowlist,
-which every walk skips whatever its mode.
+which a claim then leaves alone, or exclude it with a `!` line in your project
+registry, which the hand-back and the claim's permission walks skip whatever
+its mode.
 
 Your own list lives at `~/.config/ai-tools/secret-patterns` and **replaces**
 the baseline rather than adding to it, so a file written once holds this host

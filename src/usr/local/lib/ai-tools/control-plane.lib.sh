@@ -14,7 +14,8 @@
 # That is what lets a second agent bring its own control-plane directory without the base layer naming it. The agent's
 # own subtrees (.nvm/.cache/.npm) stay agent-owned and .git is root-private 0700, so they are not described here.
 #
-# It also carries the unit search path chain of the account's `systemd --user` manager (ownership-and-hooks.rule.md).
+# It also carries the unit search path chain of the account's `systemd --user` manager (ownership-and-hooks.rule.md),
+# and the applier a root writer calls after it replaces a control-plane file by rename.
 
 # Sourced more than once in a single shell: this library's readonly constants would abort under `set -e` on the second
 # pass. Return early (an if-statement, not `[[ ]] && return`, which returns 1 for an unset guard and trips the sourcing
@@ -89,6 +90,63 @@ source "${BASH_SOURCE[0]%/*}/providers.lib.sh" 2>/dev/null || true
 ai_tools_control_plane__apply_mode() {
     local mode="0000${1}"; shift
     chmod "0${mode: -4}" "$@"
+}
+
+# The warnings the last ai_tools_control_plane__restore_file_attributes call printed, `<code><TAB><text>` each.
+AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS=()
+
+# _ai_tools_control_plane__warn <code> <text> : print one coded warning on stderr, the code on its own line ahead
+#   of the text (msg.lib.sh states the form), and append `<code><TAB><text>` to AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS
+#   for a caller that records it. This library does not load a logger, since an RPM scriptlet sources it.
+_ai_tools_control_plane__warn() {
+    printf '%s\ncontrol-plane: warn: %s\n' "$1" "$2" >&2
+    AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS+=("$1"$'\t'"$2")
+}
+
+# _ai_tools_control_plane__is_selinux_in_use : 0 when SELinux is enabled on the host: `selinuxenabled` where it is
+#   installed, and the kernel's selinuxfs otherwise.
+_ai_tools_control_plane__is_selinux_in_use() {
+    if command -v selinuxenabled >/dev/null 2>&1; then selinuxenabled; return; fi
+    [[ -e /sys/fs/selinux/enforce ]]
+}
+
+# ai_tools_control_plane__restore_file_attributes <owner:group> <mode> <path> : bring a control-plane file a root writer
+#   has replaced by rename back to its declared owner, mode and SELinux label. `git config --file` writes <path>.lock
+#   and renames it over <path>, so each write is a new inode, born with root's group and umask and the type of its
+#   parent directory rather than the one the policy's file context gives the path; without the label step the installed
+#   layout reports the file's row as label drift until the next reconcile. The label is written by path
+#   (`restorecon -F`, which resets the SELinux user to the file context's as well; the layout's pinned apply compares
+#   the type alone, so either form clears the row), which is sound only while no component of <path> is the sandbox
+#   account's to rename: each caller passes a file directly under CP_HOME, whose mode (CP_HOME_MODE) does not carry
+#   group write, so the account cannot plant a name there. `ai-tools-safedir`'s AI_TOOLS_GITCONFIG moves its path,
+#   and that condition does not cover the file it names: the variable is a test hook only root sets, since sudo's
+#   env_reset does not carry it. A file under a directory the account can write takes the layout reconcile's pinned
+#   apply instead. Where SELinux is not in use the label step is skipped without a line. Each step that does not take
+#   prints a coded warning and is left in AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS, which the call empties first.
+#   Returns 1 when a step did not take, 0 otherwise. Best-effort: the content is already written, so a caller reports
+#   and continues.
+ai_tools_control_plane__restore_file_attributes() {
+    local owner="$1" mode="$2" path="$3" status=0 label_status=0 label_reason=""
+    AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS=()
+    if ! chown -- "${owner}" "${path}" 2>/dev/null; then
+        _ai_tools_control_plane__warn MSG-Y5R2 "could not chown ${path} to ${owner}"
+        status=1
+    fi
+    if ! ai_tools_control_plane__apply_mode "${mode}" "${path}" 2>/dev/null; then
+        _ai_tools_control_plane__warn MSG-V8E9 "could not chmod ${path} to ${mode}"
+        status=1
+    fi
+    _ai_tools_control_plane__is_selinux_in_use || return "${status}"
+    if ! command -v restorecon >/dev/null 2>&1; then
+        label_reason="restorecon is not installed"
+    else
+        # restorecon writes its "no default label" warning to stdout, which a caller may be reading as data.
+        restorecon -F -- "${path}" >/dev/null 2>&1 || label_status=$?
+        (( label_status == 0 )) || label_reason="restorecon exited ${label_status}"
+    fi
+    [[ -n "${label_reason}" ]] || return "${status}"
+    _ai_tools_control_plane__warn MSG-K6D7 "could not restore the SELinux label of ${path} -- ${label_reason}; atr admin system layout reconcile restores it"
+    return 1
 }
 
 # _ai_tools_control_plane__format_printable <text> : print <text> with every byte outside printable ASCII and tab

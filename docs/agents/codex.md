@@ -9,7 +9,7 @@ files you may edit. The package ships off, like every agent package.
 ## Turn Codex on
 
 ```bash
-sudo ai-tools-admin system bootstrap --agents agent-codex
+atr admin system bootstrap --agents agent-codex
 ```
 
 The bootstrap writes `agent-codex` into `AI_TOOLS_AGENTS`
@@ -20,10 +20,9 @@ the bootstrap asks, offering every installed agent. To run Codex beside another
 agent, add `agent-<name>` to the line by hand and re-run the bootstrap; every
 agent named there shares one sandbox account, and [Scope](../about/scope.md)
 states what that shares between them. Once you take an agent off the key,
-the next provisioning run — the nightly update,
-or `sudo ai-tools-admin system bootstrap` — removes its package
-from the toolchain, and no session starts until it has. Start a session
-in a claimed project by typing `codex`, as you type `claude`.
+the next provisioning run — the nightly update, or `atr admin system bootstrap`
+— removes its package from the toolchain, and no session starts until it has.
+Start a session in a claimed project by typing `codex`, as you type `claude`.
 
 Codex needs a login before its first turn. The sandbox has no browser, so use
 the device-code login from inside a session:
@@ -66,7 +65,7 @@ is yours. A row matches the habitual spelling of a command and no more;
 what bounds a session is the sandbox account's own access.
 
 The npm channel does not publish a signed per-release checksum, so Codex's
-binary is pinned as installed: `ai-tools status` reports the pin, and a binary
+binary is pinned as installed: `atr status` reports the pin, and a binary
 that changes under the same version refuses the next session. That pin
 satisfies `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`. [Entrypoint
 verification](../system/entrypoint-verification.md) states what each tier
@@ -85,7 +84,7 @@ with `sudo`:
 An edit survives an upgrade: a package upgrade leaves the live file in place
 and puts the newer copy beside it as `.rpmnew`, and a from-source install keeps
 the file and says whether it matches the shipped one. A file you have not
-edited takes the new release's copy on either route. `ai-tools status` reports
+edited takes the new release's copy on either route. `atr status` reports
 a managed file that differs from the shipped copy
 under `/usr/share/ai-tools/codex`. Codex reads the live file alone, so a key
 a new release adds is in effect once you carry it over.
@@ -104,11 +103,11 @@ group loaded, since without it the app-server cannot create its socket
 and every Codex start fails:
 
 ```bash
-sudo ai-tools-admin selinux groups enable localipc
+atr admin selinux groups enable localipc
 ```
 
 That group widens what every session may do, for every agent on the host.
-`sudo ai-tools-admin selinux groups` lists what each group grants.
+`atr admin selinux groups` lists what each group grants.
 
 ## Shared skills and the orientation text
 
@@ -121,9 +120,9 @@ in every session.
 ## A Codex you installed yourself
 
 `/usr/local/bin/codex` answers to the name `codex` ahead of a copy installed
-under your own account, because `ai-tools-admin operators add` orders your
-shell's `PATH` root-owned-first, and `ai-tools status` reports a shell
-where the other copy would win. That copy runs unconfined as you and is
-configured by your own files, not by `/etc/codex`: do not carry
-`danger-full-access` into it. [Setting names](setting-names.md) states
-what each pinned setting does here and what it would do there.
+under your own account, because `atr admin operators add` orders your shell's
+`PATH` root-owned-first, and `atr status` reports a shell where the other copy
+would win. That copy runs unconfined as you and is configured by your own
+files, not by `/etc/codex`: do not carry `danger-full-access` into it. [Setting
+names](setting-names.md) states what each pinned setting does here and what it
+would do there.

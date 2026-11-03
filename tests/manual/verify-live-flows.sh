@@ -46,7 +46,7 @@
 # exercises everything that is reversible (the dry run, the refusals, the trail). Run it when no session holds work you
 # want.
 #
-# A SECOND OPT-IN COVERS --for. projects create/projects remove are the two verbs that touch the filesystem
+# A SECOND OPT-IN COVERS --for. projects create/project-registry remove are the two verbs that touch the filesystem
 # AS the operator they act for (`sudo -u <target>`), so proving them needs a second enrolled operator and a Runas grant
 # -- neither of which this script may manufacture. With --for-drill it uses one that ALREADY exists on the host,
 # and skips with the reason otherwise.
@@ -109,6 +109,13 @@ sudo_why() { printf '  %ssudo%s  %s\n' "${C_Y}" "${C_0}" "$*"; }
 check() { local d="$1"; shift; if "$@"; then pass "${d}"; else fail "${d}"; fi; }
 # has_acl <entry-prefix> <path> : 0 when the path carries an ACL entry starting <entry-prefix>.
 has_acl() { getfacl -c -- "$2" 2>/dev/null | grep -q "^$1"; }
+# registry_path: the operator's project registry, as ai_tools_conf__resolve_registry picks it --
+# `~/.config/ai-tools/allowed-projects` while an earlier release's file stands, `~/.config/ai-tools/project-registry`
+# otherwise.
+registry_path() {
+    if [[ -e "${HOME}/.config/ai-tools/allowed-projects" ]]; then printf '%s' "${HOME}/.config/ai-tools/allowed-projects"
+    else printf '%s' "${HOME}/.config/ai-tools/project-registry"; fi
+}
 mode_of()  { stat -c '%a' "$1" 2>/dev/null; }
 group_of() { stat -c '%G' "$1" 2>/dev/null; }
 owner_of() { stat -c '%U:%G' "$1" 2>/dev/null; }
@@ -194,9 +201,11 @@ cleanup() {
     # fcontext rule -- is outside the workspace, where no later step removes it, and the copy is never registered
     # (section 4 runs `ai-tools projects unclaim --force` on it), so a silent attempt on it would hide the one
     # on the project.
-    local allowlist="${HOME}/.config/ai-tools/allowed-projects" path out line
+    local allowlist path out line
+    allowlist="$(registry_path)"
     for path in "${PROJ}" "${COPY}"; do
-        grep -qsxF -e "${path}" -e "!${path}" "${allowlist}" || continue
+        { sed 's/^[[:space:]]*//' "${allowlist}" 2>/dev/null || true; } | grep -qxF -e "@ ${path}" -e "% ${path}" \
+            || continue
         if ! out="$("${CLI}" projects unclaim -y --group "${MY_GROUP}" "${path}" 2>&1)"; then
             note "cleanup: the unclaim of ${path} failed, so its allowlist entry and its SELinux file-context rule stay registered"
             while IFS= read -r line; do note "  ${line}"; done <<<"${out}"
@@ -386,40 +395,40 @@ check "  and leaves that dir's group alone (it was never the agent's)" \
       test "$(group_of "${SEALED_OWN}")" = "${MY_GROUP}"
 fi
 
-# ── 2b. disable / enable: the park-and-restore round trip, on the REAL registry ───────────────
+# ── 2b. disable / enable: the disable-and-enable round trip, on the REAL registry ─────────────
 # Runs while the project is still claimed, and does not need sudo at all: the pair edits one line of this operator's own
 # allowlist. That is exactly why it belongs in a live run rather than only in the hermetic suites -- what it proves is
 # that the edit lands in the FILE the launch gate reads, at the position the operator left it, and comes back
 # byte-identical.
 section "2b. ai-tools projects disable / projects enable"
-AL="${HOME}/.config/ai-tools/allowed-projects"
+AL="$(registry_path)"
 if [[ ! -r "${AL}" ]]; then
-    skip "the park/restore round trip (no readable allowlist at ${AL})"
+    skip "the disable/enable round trip (no readable allowlist at ${AL})"
 elif ! ${TREE_CLAIMED}; then
-    skip "the park/restore round trip (the claim did not complete, so there is no entry to park)"
+    skip "the disable/enable round trip (the claim did not complete, so there is no entry to disable)"
 else
     AL_BEFORE="$(cat "${AL}")"
-    AL_LINE_BEFORE="$(grep -nxF "${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    AL_LINE_BEFORE="$(grep -nxF "@ ${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
     DIS_OUT="$("${CLI}" projects disable "${PROJ}" 2>&1)"; DIS_RC=$?
     check "the disable completes (rc=${DIS_RC})" test "${DIS_RC}" -eq 0
-    if grep -qxF "!${PROJ}" "${AL}"; then
-        pass "the entry is parked in the operator's real allowlist"
+    if grep -qxF "% ${PROJ}" "${AL}"; then
+        pass "the entry is disabled in the operator's real allowlist"
     else
-        fail "the entry was not parked: $(printf '%s' "${DIS_OUT}" | tail -2 | tr '\n' ' ')"
+        fail "the entry was not disabled: $(printf '%s' "${DIS_OUT}" | tail -2 | tr '\n' ' ')"
     fi
-    AL_LINE_AFTER="$(grep -nxF "!${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    AL_LINE_AFTER="$(grep -nxF "% ${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
     check "it kept its line number (${AL_LINE_BEFORE:-?} -> ${AL_LINE_AFTER:-?})" \
           test "${AL_LINE_BEFORE:-x}" = "${AL_LINE_AFTER:-y}"
-    # The consequence an operator has to be told about, since it is the one that costs data: while parked, the handback
-    # no longer restores files written under this path.
+    # The consequence an operator has to be told about, since it is the one that costs data: while disabled,
+    # the handback no longer restores files written under this path.
     check "the disable says the ownership handback stops" grep -qi 'handback' <<<"${DIS_OUT}"
 
-    # A parked project is not an unclaimed one, and the verbs that would silently no-op say so.
+    # A disabled project is not an unclaimed one, and the verbs that would silently no-op say so.
     REC_OUT="$("${CLI}" projects handback "${PROJ}" 2>&1)"; REC_RC=$?
     if [[ "${REC_RC}" -ne 0 ]] && ! grep -qi 'not a claimed project' <<<"${REC_OUT}"; then
-        pass "projects handback over the parked project does not report it as unclaimed"
+        pass "projects handback over the disabled project does not report it as unclaimed"
     else
-        fail "projects handback called the parked project unclaimed: $(printf '%s' "${REC_OUT}" | tail -2 | tr '\n' ' ')"
+        fail "projects handback called the disabled project unclaimed: $(printf '%s' "${REC_OUT}" | tail -2 | tr '\n' ' ')"
     fi
 
     ENA_OUT="$("${CLI}" projects enable "${PROJ}" 2>&1)"; ENA_RC=$?
@@ -458,7 +467,7 @@ fi
 # call sudo, and none may put sudo under `timeout`: timeout runs its command in a background process group,
 # where a password read on the tty stops the job.
 section "2c. the ownership-handback hooks, end to end"
-if ! grep -qx "${PROJ}" "${HOME}/.config/ai-tools/allowed-projects" 2>/dev/null; then
+if ! grep -qxF "${PROJ}" "$(registry_path)" 2>/dev/null; then
     skip "handback hooks (the claim in section 1 did not register ${PROJ}, so the daemon would refuse it)"
 else
     # The fixture directory, named by the suite's fixture rule so a leftover reads as the suite's. 2770: the hook stats
@@ -649,7 +658,9 @@ else
         note "the project goes in the shared area, not the workspace: it is created AS ${OTHER_OP},"
         note "who cannot write inside ${HOME}"
         sudo_why "creating a project AS ${OTHER_OP} (sudo -u), and its claim's root steps"
-        FC_OUT="$("${CLI}" projects create --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; FC_RC=$?
+        # The create asks whether the agent may read .git, default yes; AI_TOOLS_ASSUME_YES takes that default, as
+        # an unattended create does, and answers none of the questions that default to no.
+        FC_OUT="$(AI_TOOLS_ASSUME_YES=1 "${CLI}" projects create --for "${OTHER_OP}" "${FOR_PROJ}" 2>&1)"; FC_RC=$?
         printf '%s\n' "${FC_OUT}" | sed 's/^/        /'
         if grep -qi 'holds no sudo grant to run' <<<"${FC_OUT}"; then
             # The refusal this section exists to be able to see: helper grants are not a Runas grant, and a host can
@@ -726,7 +737,7 @@ if grep -qi 'unbound variable' <<<"${UNCLAIM_OUT}"; then
 else
     pass "the unclaim ran through its hand-back without an unbound-variable abort"
 fi
-if grep -q "^${PROJ}\$" "${HOME}/.config/ai-tools/allowed-projects" 2>/dev/null; then
+if grep -qxF "${PROJ}" "$(registry_path)" 2>/dev/null; then
     fail "the allowlist entry survived the unclaim"
 else
     pass "the allowlist entry is gone"

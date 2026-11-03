@@ -281,7 +281,7 @@ ai_tools_providers__evaluate_empty_agents() {
     if [[ "${gate}" == allowlist ]]; then
         ai_tools_conf__read_kind_list requested_names "${AI_TOOLS_OPERATOR_CONF}" AI_TOOLS_AGENTS 2>/dev/null || true
         if (( ai_tools_conf__list_unprefixed )); then
-            printf 'fault\tAI_TOOLS_AGENTS in %s holds a name not written as agent-<name>, so it enables no agent -- rewrite it: sudo ai-tools-admin system post-upgrade\n' \
+            printf 'fault\tAI_TOOLS_AGENTS in %s holds a name not written as agent-<name>, so it enables no agent -- rewrite it: atr admin system post-upgrade\n' \
                 "${AI_TOOLS_OPERATOR_CONF}"
         elif (( ai_tools_conf__list_invalid )); then
             printf 'fault\tAI_TOOLS_AGENTS in %s is not a valid list, so it enables no agent -- write it as [agent-<name>, agent-<name>]\n' \
@@ -299,7 +299,7 @@ ai_tools_providers__evaluate_empty_agents() {
     if (( installed == 0 )); then
         printf 'none\tno agent manifest is installed under %s\n' "${AI_TOOLS_AGENTS_DIR}"
     else
-        printf 'none\t%d agent manifest(s) under %s and AI_TOOLS_AGENTS unset, so no agent is enabled -- sudo ai-tools-admin system bootstrap asks which one\n' \
+        printf 'none\t%d agent manifest(s) under %s and AI_TOOLS_AGENTS unset, so no agent is enabled -- atr admin system bootstrap asks which one\n' \
             "${installed}" "${AI_TOOLS_AGENTS_DIR}"
     fi
     return 0
@@ -307,7 +307,7 @@ ai_tools_providers__evaluate_empty_agents() {
 
 # ── The kind-prefix migration: the one rewrite of an earlier release's list values ───────────
 # An earlier release wrote the items of AI_TOOLS_AGENTS, AI_TOOLS_INTEGRATIONS and AI_TOOLS_FILTERS as bare names,
-# which ai_tools_conf__read_kind_list refuses (conf.lib.sh). `ai-tools-admin system post-upgrade` and `system bootstrap`
+# which ai_tools_conf__read_kind_list refuses (conf.lib.sh). `atr admin system post-upgrade` and `system bootstrap`
 # rewrite them through ai_tools_providers__migrate_kinds, a key at a time and only when every item the key holds maps
 # onto a name this host installs, so a rewritten line always reads back whole, and a line holding a name no installed
 # manifest or rule set matches stays as written and is named for the operator. The base package's %post and install.sh

@@ -22,13 +22,14 @@ agent's launch hook and its agent-specific inputs live in that agent's own rule 
 Every agent's command runs one wrapper, `/usr/local/bin/ai-tools-launch` (`ai-tools-base`, `root:root 0755`), running
 as the invoking operator. An `ai-tools-agents-*` package ships its launcher as a symlink to it,
 `/usr/local/bin/<launcher>`, and the name the wrapper was invoked as (`$0`) selects the agent. `path-order.sh`, wired
-into the operator's dotfiles by `ai-tools-admin operators add`, ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims,
+into the operator's dotfiles by `atr admin operators add`, ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims,
 so a launcher shadows the nvm-managed one of the same name on the operator's PATH. The wrapper's startup hardening —
 the interpreter by absolute path in privileged mode, PATH pinned — is stated in its header.
 
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
 `ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_wrapper__init <name>`, which loads
-`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed and accepts the name only in a launcher's charset,
+`msg.lib.sh`, `safe-paths.lib.sh` and `conf.lib.sh` fail-closed, requiring of `conf.lib.sh` each function the gates
+call (`MSG-C2M7`), and accepts the name only in a launcher's charset,
 matched in the C locale (`MSG-Z6F8`); `ai_tools_launch_wrapper__run_gates "$@"`, which runs the numbered gates in their
 order — the operator gate first, then the clock gate (`ai_tools_launch_wrapper__gate_clock`, `MSG-U8K6`: a file this
 host wrote dated after the system clock, read by `ai_tools_conf__find_paths_ahead_of_clock` over the library,
@@ -46,8 +47,8 @@ when it is reached without the gates' two results, so the wrapper cannot skip to
 what the security model rests on, and every one of them refuses toward *less* access:
 
 1. **Operator gate first** — a caller not in the `ai-ops` operators group is refused before anything else happens,
-   with a framed `msg.lib` message naming the `ai-tools-admin operators add` fix rather than leaking the raw `sudo`
-   denial the `%ai-ops` rule would otherwise produce.
+   with a framed `msg.lib` message naming the `atr admin operators add` fix rather than leaking the raw `sudo` denial
+   the `%ai-ops` rule would otherwise produce.
 2. **Provider-list gate** — a launch is refused (`MSG-V3Q5`) while `operator.conf` holds a provider list item written
    without its kind prefix, the spelling an earlier release wrote (`ai_tools_conf__find_unmigrated_items`,
    [providers](providers.rule.md)). The list reader reads such a list as empty, so without the gate an unmigrated
@@ -84,13 +85,14 @@ what the security model rests on, and every one of them refuses toward *less* ac
    (backstop, allowlist, claim): such a run stays out of the working tree, so no project grant is implied. It still
    launches the same validated binary confined as `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
 7. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
-   inside an allowed project and never in a CWD carved out by a `!` exclusion. Every allow entry is canonicalized
-   before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past
-   the gate and a sibling sharing a name prefix does not match; a `!` entry is matched as written and as the real path
-   the loader resolved for it, so a carve-out spelled through a symlink refuses the directory it names, and a read
-   the loader refuses refuses the launch outright (`MSG-Z3Q6`), wherever the CWD is under that allowlist. The read
-   and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3), and `ai-tools-chown` makes the same ones,
-   so the launch gate and the ownership handback agree on what is in-project.
+   inside an allowed project and never in a CWD a `!` excluded line or a `%` disabled line covers. Every allow entry is
+   canonicalized before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle
+   a CWD past the gate and a sibling sharing a name prefix does not match; an exclusion is matched as written
+   and as the real path the loader resolved for it, so an excluded path spelled through a symlink refuses the directory
+   it names, a read the loader refuses refuses the launch outright (`MSG-Z3Q6`, `MSG-D9R4`), wherever the CWD is
+   under that file, and a match the library does not make -- the matcher returning a status other than its 0 and 1 --
+   refuses it too (`MSG-T6U6`). The read and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3),
+   and `ai-tools-chown` makes the same ones, so the launch gate and the ownership handback agree on what is in-project.
 8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
 The agent's launch hook then appends its arguments, and the launch ends
@@ -98,7 +100,7 @@ in **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-r
 `AI_TOOLS_AGENT_EXEC` and `AI_TOOLS_PROJECT_DIR` through `env_keep`.
 
 The wrapper **detects and delegates; it never repairs.** Ownership, label, and `safe.directory` gaps are reported
-read-only by the library's claim guard, which follows the CWD gate, and fixed by `ai-tools projects claim` (see
+read-only by the library's claim guard, which follows the CWD gate, and fixed by `atr projects claim` (see
 [cli](cli.rule.md)) — the library performs neither a `chgrp` nor a relabel. Each gate's refusal set is driven
 in `tests/unit/launch-wrapper.sh`, and `tests/integration/wrapper.sh` drives the installed wrapper through its launcher
 symlinks to show it reaches the gates in this order.
@@ -235,9 +237,9 @@ as an `EXIT` trap before the launch, so it also runs on an interrupted shim.
 session-end sweep alike — runs over `/run/ai-tools/handback.sock`. If it is down, every `CHOWN` fails and the tree
 silently rots into "dubious ownership". Before launch (when a project directory is set — a bare `--version`/`--help` run
 writes to no project), the shim checks the socket and, if absent, emits a framed NOTICE naming the fix
-(`systemctl enable --now ai-tools-handback.socket`, then `ai-tools projects handback <project>`) and **proceeds**. This
-is not a confinement boundary — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's access
-intact regardless — so a down socket warns rather than refusing the launch (refusing would trade availability
+(`systemctl enable --now ai-tools-handback.socket`, then `atr projects handback <project>`) and **proceeds**. This is
+not a confinement boundary — DAC, `ai_tools_t`, and the project `user:<operator>` ACL keep the operator's access intact
+regardless — so a down socket warns rather than refusing the launch (refusing would trade availability
 for a non-security convenience). The session-end sweep re-checks the socket and, when it is down, skips the walk
 and records the stranded count rather than a tally of failed calls (see [handback-bridge](handback-bridge.rule.md),
 [ownership-and-hooks](ownership-and-hooks.rule.md)).
@@ -258,7 +260,7 @@ configuration file in the project's ancestry that a build toolchain reads and th
 `ancestor-config.lib.sh`), the launch-side half of the report `ai-tools projects claim` prints. It is warn-not-block
 and best-effort like the other notices — a missing library skips it — and it reports rather than repairs, no launch path
 reaching outside the project. It is **not** in the claim guard: each of that guard's findings is closed
-by `ai-tools projects claim`, which does not close this one. The print-and-exit path exec'd earlier, so a bare
+by `atr projects claim`, which does not close this one. The print-and-exit path exec'd earlier, so a bare
 `--version`/`--help` does not take the reading. What the report is about is
 [ref-section-t8k3](dotnet.rule.md#ref-section-t8k3).
 
@@ -311,8 +313,8 @@ under `/usr/local/bin`, and the operator gate refuses the sandbox account (`MSG-
 on a claude child under a codex session and a codex child under a claude session:
 
 - **It runs inside the parent's session.** Same cgroup, so the same unit, seccomp filter, `NoNewPrivs` and `UMask`;
-  `ai_tools_t` with no transition. The journal holds one `launch:` line, the parent's; `ai-tools status` and the stop
-  helper see one session.
+  `ai_tools_t` with no transition. The journal holds one `launch:` line, the parent's; `atr status` and the stop helper
+  see one session.
 - **Its own configuration applies, and so does the handback.** `HOME` is the sandbox home and the shim sources every
   enabled agent's pins into every session, so the child's state directory is the one its pins set (`~/.claude`,
   `~/.codex`) — a claude child under codex reads the pinned `.claude/.claude.json` and does not self-update, a codex
@@ -406,7 +408,7 @@ CLI contract).
 **The entrypoint relabel is reached three ways, and none of them is a rule here.** After a Node upgrade the agent binary
 carries the wrong label, so a launch fail-closes until it is restored, which needs the `unconfined_t` that root holds
 (see [updater](updater.rule.md)): the automatic reconcile runs through the root-side `ai-tools-relabel.path` watcher,
-the agent package's `%post` runs it as root, and an administrator runs `sudo ai-tools-admin system entrypoints relabel`
+the agent package's `%post` runs it as root, and an administrator runs `atr admin system entrypoints relabel`
 through the host's own general sudo grant. The toolchain update likewise runs as `SANDBOX_USER` in its own
 `systemd --user instance`. The consequence for the account shape `--for` exists to serve is stated plainly: an `ai-ops`
 operator holding no general sudo grant reaches the launch and the stop, and does not reach the on-demand relabel —
@@ -430,20 +432,29 @@ from the `UMask=0007` unit property. `AI_TOOLS_AGENT_EXEC` carries the wrapper-v
 for re-validation; `AI_TOOLS_PROJECT_DIR` carries the validated project directory, becoming the unit's
 `WorkingDirectory`.
 
-## Allowlist `!` exclusions are honored by both consumers
+## Registry exclusions are honored by both consumers
 
-`!`-prefixed lines in `allowed-projects` are exclusions and override allows. The wrapper refuses to launch
-with an excluded CWD, and `ai-tools-chown` skips ownership restoration on excluded paths. One loader and one matcher
-in `conf.lib.sh` keep the two in sync: a plain `!`-path also covers its contents, a glob matches as-is, a glob-free
-`!`-path covers its real path as well where the loader follows the link, and a read the loader refuses leaves neither
-consumer allowing a path under that file ([ref-section-d2n3](providers.rule.md#ref-section-d2n3)). The wrapper's own
-loop over the loaded entries decides the refusal's wording alone.
+The registry is `~/.config/ai-tools/project-registry`, and `allowed-projects` in its place while a host upgraded
+from a release that wrote it has not run `atr admin system post-upgrade`; `ai_tools_conf__resolve_registry` picks
+the file for both consumers, and the wrapper reads the operator's own file under `${HOME}` alone, not
+the `AI_TOOLS_ALLOWLIST` test hook. An excluded (`!`) and a disabled (`%`) line are exclusions and override the allow
+of an enclosing project. A line naming the same directory as an entry of another sign is read by the file's grammar:
+a format 1.0 file refuses the pair, and a legacy `allowed-projects` keeps the exclusion winning
+([ref-section-d2n3](providers.rule.md#ref-section-d2n3)). The wrapper refuses to launch with an excluded CWD,
+and `ai-tools-chown` skips ownership restoration on excluded paths. One loader and one matcher in `conf.lib.sh` keep
+the two in sync: an excluded path covers the path it matches and its contents, a glob included
+(`ai_tools_conf__find_covering_path`), a glob-free exclusion covers its real path as well where the loader follows the
+link, and a read the loader refuses — a link the sandbox account can change (`MSG-Z3Q6`), or a line the grammar does not
+recognise or two signs on one directory (`MSG-D9R4`, after the library's line) — leaves neither consumer allowing a path
+under that file ([ref-section-d2n3](providers.rule.md#ref-section-d2n3)).
 
-**The refusal distinguishes the two things a `!` line means**, applying the same test the CLI does (see
-[cli](cli.rule.md)): a line naming the CWD with an approved project **strictly enclosing** it is a carve-out — a subtree
-withheld from that project — and the remedy is to edit that line; one with no approved project enclosing it is a project
-that was **parked**, and the refusal names `ai-tools projects enable` instead. Both refuse identically; what differs is
-the way back, and an operator told only "excluded" is left to work out which of the two they are standing in.
+**The refusal is worded from the kind of the line that matched**, which the loader returns beside each exclusion, since
+the way back differs: a `%` line naming the CWD is a disabled project, and the refusal names
+`atr projects enable <path>`; a `!` line naming it is an excluded path wherever it sits, and the remedy is to edit
+that line; a line covering the CWD from an ancestor names the line, with the re-enable of the disabled project
+or the edit of the excluded line as its remedy. All of them refuse identically. On a legacy `allowed-projects` a `!`
+line naming the CWD is refused as an excluded path with the migration named beside it, since an earlier release wrote
+a disabled project that way and the migration copies the line unchanged.
 
 ## PATH ordering
 
@@ -459,7 +470,7 @@ lead Tier 1, matching EL's order. On systems where `/usr/sbin` links to `/usr/bi
 a distribution-provided binary before an identically named binary in `/usr/local/bin`. `~/.local/bin` ranks ahead
 of `~/.dotnet/tools` because the user curates the former, while NuGet populates the latter.
 
-The fragment is sourced per-account: `ai-tools-admin operators add` offers to add the guard line to the operator's
+The fragment is sourced per-account: `atr admin operators add` offers to add the guard line to the operator's
 `~/.bashrc` and `~/.bash_profile` **after** their nvm init, the one position where the ordering holds (the fragment must
 follow anything that prepends to PATH, and non-login interactive shells read `~/.bashrc` only). Those two files govern
 **bash**, so an account whose login shell reads its own init instead is named in the enrolment output, with the ordering
@@ -501,17 +512,17 @@ A reading of **another** account is taken from a login shell of that account (`r
 only its own init files can say what its sessions get, and grepping them answers for the guard line rather than
 for the ordering — which is exactly the distinction the `wired`-and-still-`shadowed` case turns on, where the line is
 present and something after it prepends to PATH. A reading of **this** shell does not need any privilege, which is
-why `ai-tools status` makes it: the CLI runs in the operator's own login shell, so `command -v` there resolves
-what typing the name would run. The launcher name is accepted only in a launcher's own charset before it reaches
-that command, and the answer only as an absolute path with no whitespace or control byte. An accepted answer is compared
+why `atr status` makes it: the CLI runs in the operator's own login shell, so `command -v` there resolves what typing
+the name would run. The launcher name is accepted only in a launcher's own charset before it reaches that command,
+and the answer only as an absolute path with no whitespace or control byte. An accepted answer is compared
 with the wrapper by file identity (`-ef`), not by path: on a host where `/usr/local/sbin` is a symlink
 to `/usr/local/bin` and ranks first, `command -v` names `/usr/local/sbin/<launcher>`, which is the wrapper.
 
 The consumers read it at the moments the state can change: `operators add` (asks with the stake named, and warns rather
-than passing in silence when a shadowed account declines), `ai-tools status` (re-checks, and counts a shadowed launcher
-toward its non-zero exit), and `ai-tools-admin system bootstrap` (names each shadowed operator once the toolchain it
-just provisioned is in place — a reading of another account needs the root that command already holds, and a host is
-told it is ready there). The base package's `%post` reads the **init files** rather than this state, naming an operator
+than passing in silence when a shadowed account declines), `atr status` (re-checks, and counts a shadowed launcher
+toward its non-zero exit), and `atr admin system bootstrap` (names each shadowed operator once the toolchain it just
+provisioned is in place — a reading of another account needs the root that command already holds, and a host is told it
+is ready there). The base package's `%post` reads the **init files** rather than this state, naming an operator
 whose guard line still points at the fragment's former path.
 
 `install.sh` closes with the same per-operator report and one reading none of the others makes: an agent of a launcher's

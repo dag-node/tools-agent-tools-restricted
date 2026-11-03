@@ -46,7 +46,7 @@ as the implementation changes without a docs page going stale, because no docs p
 | A docs page states | A docs page links to a rule for |
 |---|---|
 | the guarantee as an operator experiences it — "files the agent writes come back to you" | which inode is acted on, the race-safe re-check, the refusal on a symlink |
-| the command, its arguments, and what it does — `ai-tools projects claim DIRECTORY` | the ACL entries the claim writes, and the mode each path ends at |
+| the command, its arguments, and what it does — `atr projects claim DIRECTORY` | the ACL entries the claim writes, and the mode each path ends at |
 | the configuration key and its effect — `AI_TOOLS_AGENTS`, `CLAUDE_SYSTEM_PROMPT_FILE` | the trust predicate a manifest passes, and the fail-closed resolution behind it |
 | the shape of a refusal, and what to do about it | the verdict tokens, the exit codes, the branch that decides each |
 | what the project is not, and the boundary it does not draw | the SELinux types and the DAC modes that draw the one it does |
@@ -88,16 +88,16 @@ Naming follows the command surface, so a reader who knows `ai-tools projects cla
 - **Plural names a collection** (`operators`, `projects`, `sessions`, `agents`, `tests`), where the pages under it are
   instances of one kind. **Singular names a singleton** (`about`, `install`, `system`, `development`),
   where the children are aspects of one topic. `system` takes its name from the CLI's own singleton domain
-  (`ai-tools-admin system bootstrap`).
+  (`atr admin system bootstrap`).
 - **A name is a noun or a bare verb, never a gerund**: `install/` rather than `installing/`, `stop.md` rather than
   `stopping.md`. The path is what a search engine prints.
 - **Under `projects/`, a page is named for the command it documents**, so `/docs/projects/remove` maps
-  onto `ai-tools projects remove`. A new verb is a new page rather than a new heading in a long one.
+  onto `atr projects remove`. A new verb is a new page rather than a new heading in a long one.
 - **A page name may not match a secret pattern.** `ai-tools-chown` quarantines a secret-named file the agent writes (see
   [secret-handling](secret-handling.rule.md)), and a page named for the topic matches the same globs a credential does:
   `secrets.md` matches `secrets.*` and is chowned to `<you>:<you> 600` the moment a session writes it, which leaves
   the page unreadable to every later session. The verb name is the one to reach for — `lockdown.md` documents
-  `ai-tools projects lockdown` and does not match any pattern — and the same stems [authoring](authoring.rule.md) names
+  `atr projects lockdown` and does not match any pattern — and the same stems [authoring](authoring.rule.md) names
   for rule files are the ones to steer clear of here.
 
 **An `index.md` carries prose, not a link list.** It opens with what the category covers and when a reader wants it,

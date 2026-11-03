@@ -8,7 +8,7 @@ an agent here is the coding assistant itself. They come from asset sets:
 
 ```bash
 sudo dnf install ai-tools-assets-sets-core
-sudo ai-tools-admin assets enable --set core
+atr admin assets enable --set core
 ```
 
 `core` carries `ai-tools-reference-docs-maintainer`;
@@ -18,7 +18,6 @@ package does not seed a subagent.
 A subagent of your own for one agent is a file in that agent's directory,
 `root:ai-tools` and mode 640, so the agent reads it and cannot write it. One
 for one project goes in `<project>/.claude/agents/`. An entry the sandbox
-account can write is reported by `sudo ai-tools-admin status`
-as `agent-entry-untrusted`.
+account can write is reported by `atr admin status` as `agent-entry-untrusted`.
 
 Each reason `status` names, and the view's rules: `man ai-tools-assets`.

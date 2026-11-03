@@ -487,6 +487,7 @@ fi
 # or reads prose as a code. Checked in the source tree (the copies are text), and skipped outside a checkout.
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 inline_matchers=(
+    src/usr/local/lib/ai-tools/help.lib.sh
     src/usr/local/libexec/ai-tools/ai-tools-admin.sh
     src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh
     src/usr/local/libexec/ai-tools/ai-tools-audit.sh

@@ -8,8 +8,9 @@
 # a caller that is not root, an account that is root, an account that is not the sandbox's, and a malformed bound each
 # leave the command unrun or narrow to the default. The child is asserted to run as the account with no controlling
 # terminal, no descriptor above 2, a clean environment, each stream through the allowlist, the command's own status,
-# and a bound past which every process of its session is gone. The identity check is driven from the vantage the suite
-# has -- root, and the projects user through runuser -- so both negatives are real accounts.
+# and a bound past which every process of its session is gone, from a scope in the account's own slice. The identity
+# check is driven from the vantage the suite has -- root, and the projects user through runuser -- so both negatives are
+# real accounts.
 #
 # The library's account name is what the installer substituted, so a source-tree copy (the fallback when no library is
 # installed) holds a token no account resolves, and every case that needs the account skips through the library's own
@@ -97,6 +98,19 @@ out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c 'source "
 # ── The child's properties ────────────────────────────────────────────────────────────────────
 out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" id -un 2>/dev/null)"
 [[ "${out}" == "${SANDBOX_USER}" ]] && pass "the command runs as ${SANDBOX_USER}" || fail "ran as '${out}'"
+
+# The run's place: a child of the account's own slice, the tree ai-tools-stop sweeps and the relabel gate reads.
+# The control is a plain runuser child, which stays in the suite's own cgroup and so is not under that slice's scopes.
+sandbox_scope_prefix="/user.slice/user-${sandbox_uid}.slice/ai-tools-sandbox-exec-"
+control="$(runuser -u "${SANDBOX_USER}" -- sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"
+out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"
+if [[ -z "${control}" || "${control}" == "${sandbox_scope_prefix}"* ]]; then
+    fail "control: a plain runuser child read its cgroup as '${control}', so the run's placement is not measured"
+elif [[ "${out}" == "${sandbox_scope_prefix}"*.scope ]]; then
+    pass "the run is a scope in the account's slice (${out}), where a plain runuser child is not (${control})"
+else
+    fail "the run's cgroup is '${out}', not a scope under ${sandbox_scope_prefix%ai-tools-sandbox-exec-}"
+fi
 
 # No controlling terminal: /dev/tty does not open, which is the terminal a child could otherwise inject into. A control
 # first, since the suite may itself run without one.

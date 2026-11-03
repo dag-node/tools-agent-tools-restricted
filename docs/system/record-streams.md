@@ -7,14 +7,13 @@ docs](../index.md)
 Read the rows a report writes for a machine consumer, in the order they arrive,
 from a .NET 10 program that treats the stream as bytes.
 
-The reports `man 5 ai-tools-records` lists,
-`ai-tools projects claim --format tsv` among them, write what they found
-as a record stream on standard output: a header row, then one tab-separated row
-per finding, each ending in a line feed. The contract is
-`man 5 ai-tools-records`; this reads one as it arrives:
+The reports `man 5 ai-tools-records` lists, `atr projects claim --format tsv`
+among them, write what they found as a record stream on standard output:
+a header row, then one tab-separated row per finding, each ending in a line
+feed. The contract is `man 5 ai-tools-records`; this reads one as it arrives:
 
 ```bash
-dotnet run ReadRecords.cs -- ai-tools projects claim --format tsv /srv/project
+dotnet run ReadRecords.cs -- atr projects claim --format tsv /srv/project
 ```
 
 ```csharp
@@ -154,9 +153,9 @@ so a consumer that stores or compares paths keeps the `byte[]`.
 
 ## Order
 
-`ai-tools projects claim` writes its rows in the byte order of `subject`,
-the same order on every filesystem, so the consumer reads them as they arrive
-and does not sort. `StringComparer.Ordinal` over the decoded strings agrees
+`atr projects claim` writes its rows in the byte order of `subject`, the same
+order on every filesystem, so the consumer reads them as they arrive and does
+not sort. `StringComparer.Ordinal` over the decoded strings agrees
 with that order for every character in the Basic Multilingual Plane,
 and a comparison over the bytes (`ReadOnlySpan<byte>.SequenceCompareTo`) agrees
 everywhere. The order `Directory.EnumerateFiles` returns and the order

@@ -22,9 +22,9 @@
 # an operator wants available to every project. The tools directory is root-owned and read-only to the agent, so only
 # this command changes its content.
 #
-#   sudo ai-tools-admin dotnet bootstrap             # create and label the state tree (offline, idempotent)
-#   sudo ai-tools-admin dotnet tools install <pkg...> # install global tools into the shared dir (network)
-#   sudo ai-tools-admin dotnet status                # show host SDKs/runtimes + sandbox state
+#   atr admin dotnet bootstrap             # create and label the state tree (offline, idempotent)
+#   atr admin dotnet tools install <pkg...> # install global tools into the shared dir (network)
+#   atr admin dotnet status                # show host SDKs/runtimes + sandbox state
 #
 # Every step fails loudly with the cause logged to journald and /var/log/ai-tools/dotnet.log under the ai-tools-dotnet
 # tag, and the genuine no-ops (SELinux disabled, no policycoreutils, the ai_tools module not loaded) are recognized
@@ -92,30 +92,52 @@ reject() {
     local code=""
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; printf '%s\n' "${code}" >&2; fi
     printf 'ai-tools-admin dotnet: %s\n' "$*" >&2
-    printf "try 'ai-tools-admin dotnet --help'\n" >&2
+    printf "try 'atr admin dotnet --help'\n" >&2
     exit 2
 }
 
-# usage: this domain's commands. Orientation, like ai-tools-admin's own: the mechanism each one applies is
-# in .claude/rules/dotnet.rule.md and providers.rule.md.
+# usage: this domain's commands, in the layout ai-tools-admin's help takes. Orientation, like that tool's own: what each
+# command does is in .claude/rules/dotnet.rule.md and providers.rule.md.
 usage() {
     cat <<EOF
-ai-tools-admin dotnet -- the .NET toolchain: its sandbox state and shared tools
+Agent Tools Restricted -- .NET integration (ai-tools-admin dotnet)
 
-    dotnet bootstrap                    create and label the sandbox-side .NET state
-    dotnet tools install <pkg>...       install shared global tools (reaches the network)
-    dotnet status                       host SDKs and runtimes, and the sandbox state
+Usage:
+  atr admin dotnet COMMAND [ARGUMENT...]
 
-  The .NET SDK is the host's own; this integration ships no runtime. A session gets
-  it once 'integration-dotnet' is named in AI_TOOLS_INTEGRATIONS in ${OPERATOR_CONF}.
+Commands:
+  dotnet bootstrap                 Create and label the sandbox-side .NET state
+  dotnet tools install PACKAGE...  Install shared global tools from the network
+  dotnet status                    Show host SDKs/runtimes and the sandbox state
+
+Options:
+  -h, --help                       Show this help
+
+The .NET SDK is the host's own; this integration ships no runtime. A session
+gets it once integration-dotnet is in AI_TOOLS_INTEGRATIONS, which
+${OPERATOR_CONF} sets.
+
+More: man ai-tools-admin · atr admin help
 EOF
 }
 
-# `--help` leaves the host as it is and does not read its state, so it answers any caller and is handled ahead
-# of the root check -- ai-tools-admin's own rule, applied one level down.
-case "${1:-}" in
-    --help|-h) usage; exit 0 ;;
-esac
+# is_help_request <arg>...: succeed when the command line asks for this help, by ai-tools-admin's rule applied to this
+# domain's words: -h or --help anywhere ahead of the first `--`, or the bare word `help` where a command word goes
+# (first, or after `tools`). After `tools install` it is a package name.
+is_help_request() {
+    local argument
+    for argument in "$@"; do
+        [[ "${argument}" != -- ]] || break
+        [[ "${argument}" != -h && "${argument}" != --help ]] || return 0
+    done
+    [[ "${1:-}" == help ]] && return 0
+    [[ "${1:-}" == tools && "${2:-}" == help ]] && return 0
+    return 1
+}
+
+# A help request leaves the host as it is and does not read its state, so it answers any caller ahead of the root check,
+# and no command it names runs: `tools install --help` does not reach the reconcile or the install.
+if is_help_request "$@"; then usage; exit 0; fi
 
 [[ "${EUID}" -eq 0 ]] || die MSG-C4T6 "run as root (sudo)"
 
@@ -228,7 +250,7 @@ bootstrap() {
     /usr/local/libexec/ai-tools/ai-tools-admin system layout reconcile --without-rpm || :
     local refusal
     refusal="$(read_state_rows_refusal)" \
-        || die MSG-N6G6 "the state tree is not at its layout rows after the reconcile: ${refusal}; see: sudo ai-tools-admin system layout"
+        || die MSG-N6G6 "the state tree is not at its layout rows after the reconcile: ${refusal}; see: atr admin system layout"
     # The rows carry the label, from the base policy's static rule, and the reconcile applies it to each directory
     # through its pin; a file a session creates under them takes the type from its parent. A recursive restorecon here
     # would walk `nuget` and `nuget/packages`, which the account writes, by path. The type grants ai_tools_t the SELinux
@@ -319,7 +341,7 @@ selinux_status() {
         if ai_tools_selinux_groups__is_module_loaded "${module}"; then
             log "SELinux layout module: ${module} loaded (build output typed at creation)"
         else
-            log "SELinux layout module: ${module} NOT loaded -- re-run: sudo ai-tools-admin dotnet bootstrap"
+            log "SELinux layout module: ${module} NOT loaded -- re-run: atr admin dotnet bootstrap"
         fi
     fi
     declared="$(manifest_field selinux_groups || true)"
@@ -335,7 +357,7 @@ selinux_status() {
             log "SELinux group ${name}: NOT loaded"; missing+="${missing:+ }${name}"
         fi
     done
-    [[ -z "${missing}" ]] || log "enable with: sudo ai-tools-admin selinux groups enable ${missing}"
+    [[ -z "${missing}" ]] || log "enable with: atr admin selinux groups enable ${missing}"
     [[ -z "${experimental}" ]] \
         || log "experimental, from a source checkout: sudo selinux/install-selinux.sh enable-group ${experimental}"
 }

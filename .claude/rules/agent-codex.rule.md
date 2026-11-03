@@ -58,8 +58,8 @@ is the vendor's; the containment is the host's.
 | `handback` | `none` | `ai-tools-run` — the shim sweeps the project at session end (see [Handback](#handback-the-shims-sweep-is-the-guarantee-the-hooks-are-the-cadence)) |
 | `config_dir` | `.codex` | the control-plane mode/label set, and `→ ai_tools_home_t`; the pins set `CODEX_HOME` there |
 | `memory_file` | `AGENTS.md` | where the shared orientation text is linked — the global-scope instructions codex reads first ([shipped-assets](shipped-assets.rule.md)) |
-| `skills_root` | `/etc/codex/skills` | the assets reconcile and `ai-tools-admin status` — whether that path is the link to the skills view, reported, not written (see [Skills at the admin scope](#skills-at-the-admin-scope-and-the-orientation-text)) |
-| `managed_files` | `/etc/codex/requirements.toml`, `/etc/codex/managed_config.toml` | `ai-tools status` and `ai-tools-admin status` — which live files to compare against the pristine copies under `/usr/share/ai-tools/codex/` ([providers](providers.rule.md)) |
+| `skills_root` | `/etc/codex/skills` | the assets reconcile and `atr admin status` — whether that path is the link to the skills view, reported, not written (see [Skills at the admin scope](#skills-at-the-admin-scope-and-the-orientation-text)) |
+| `managed_files` | `/etc/codex/requirements.toml`, `/etc/codex/managed_config.toml` | `atr status` and `atr admin status` — which live files to compare against the pristine copies under `/usr/share/ai-tools/codex/` ([providers](providers.rule.md)) |
 | `entrypoint_fcontext` | a regex ending on the same vendor path `launcher_target` names | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
 | `default_enable` | `no` | every agent manifest's value: the agents' baseline is empty, and the bootstrap writes the enabled set |
 
@@ -236,7 +236,7 @@ the shim's sweep **off** and leave convergence to a driver codex enforces — a 
 would then leave the tree sandbox-owned with no sweep behind it. The cost is one sweep per session over the project
 tree, redundant on a session whose hooks all ran. What neither covers is the same as for claude: a `SIGKILL`
 or `ai-tools stop` leaves in-flight writes to the next session's `SessionStart` pass, the next shim sweep,
-or `ai-tools projects handback`.
+or `atr projects handback`.
 
 The hooks live in the config directory, `750 root:SANDBOX_GROUP` under the sticky `.codex`, and are declared
 in `requirements.toml` with the argument each dispatches on. The session hook is the same stub over the shared session
