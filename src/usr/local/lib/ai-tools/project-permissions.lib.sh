@@ -495,23 +495,23 @@ if paths and paths[-1] == b"":
     paths.pop()
 not_a_hit = {errno.ENODATA, errno.EOPNOTSUPP, errno.ENOENT}
 unread = None
-root_fd = os.open(root, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+project_root_fd = os.open(root, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
 for path in paths:
     if not path.startswith(root + b"/"):
         unread = unread or "%s: not under the project root" % os.fsdecode(path)
         continue
-    parts = path[len(root) + 1:].split(b"/")
-    if b"" in parts or b"." in parts or b".." in parts:
+    path_components = path[len(root) + 1:].split(b"/")
+    if b"" in path_components or b"." in path_components or b".." in path_components:
         unread = unread or "%s: not a plain path under the project root" % os.fsdecode(path)
         continue
-    held = []
+    opened_component_fds = []
     try:
-        fd = root_fd
-        for part in parts[:-1]:
+        fd = project_root_fd
+        for part in path_components[:-1]:
             fd = os.open(part, os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
-            held.append(fd)
-        fd = os.open(parts[-1], os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
-        held.append(fd)
+            opened_component_fds.append(fd)
+        fd = os.open(path_components[-1], os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
+        opened_component_fds.append(fd)
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode) or st.st_uid != uid or st.st_gid != gid or not st.st_mode & 0o077:
             continue
@@ -523,8 +523,8 @@ for path in paths:
         unread = unread or "%s: %s" % (os.fsdecode(path), errno.errorcode.get(error.errno, error.errno))
         continue
     finally:
-        for held_fd in held:
-            os.close(held_fd)
+        for opened_component_fd in opened_component_fds:
+            os.close(opened_component_fd)
     if len(data) < 4 or (len(data) - 4) % 8 or struct.unpack_from("<I", data, 0)[0] != 2:
         unread = unread or "%s: the ACL does not decode" % os.fsdecode(path)
         continue

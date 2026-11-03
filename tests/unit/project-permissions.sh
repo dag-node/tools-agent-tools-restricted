@@ -618,11 +618,19 @@ feed"
         setfacl -m "g:${my_gid}:rw-" "${ne}/sub/item" "${ne}/elsewhere/item"
         assert_narrow_acl_entry_paths "control: a narrow file reached through a real directory" 0 \
             "$(printf '%q ' "${ne}/sub/item")" "${my_uid}" "${ne}/sub/item"
+        if getfacl -p -n "${ne}/elsewhere/item" 2>/dev/null | grep -q "^group:${my_gid}:rw-"; then
+            pass "narrow entries: control: the symlink's target carries the narrow entry"
+        else
+            fail "narrow entries: control: the symlink's target is not narrow -- the case below is not evidence"
+        fi
         mv "${ne}/sub" "${ne}/sub.aside"; ln -s elsewhere "${ne}/sub"
         assert_narrow_acl_entry_paths "a directory on the way swapped for a symlink to a narrow file" 1 "" \
             "${my_uid}" "${ne}/sub/item"
         rm -f "${ne}/sub"; mv "${ne}/sub.aside" "${ne}/sub"
-        assert_narrow_acl_entry_paths "a path outside the root" 1 "" "${my_uid}" "${TESTDIR}/outside-the-root"
+        # A narrow file outside the root, readable and eligible but for where it is.
+        : > "${TESTDIR}/outside-the-root"; chmod 0660 "${TESTDIR}/outside-the-root"
+        setfacl -m "g:${my_gid}:rw-" "${TESTDIR}/outside-the-root"
+        assert_narrow_acl_entry_paths "a narrow file outside the root" 1 "" "${my_uid}" "${TESTDIR}/outside-the-root"
         # An owner-only file keeping an earlier claim's narrow entries, the state a `chmod 600` leaves, renamed
         # into a listed name: the walk leaves a sealed file alone, so the reader does not list it.
         : > "${ne}/sealed"; setfacl -m "g:${my_gid}:rw-" "${ne}/sealed"; chmod 0600 "${ne}/sealed"

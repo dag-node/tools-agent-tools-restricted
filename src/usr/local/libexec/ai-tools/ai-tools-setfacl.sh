@@ -224,7 +224,11 @@ _is_allowed  "${canonical}" || exit 0
 # follow the symlink and ACL an arbitrary target (e.g. /etc) as root. Pin the inode with an open fd and operate
 # through /proc/self/fd, re-checking it is still the same inode, at <path> (ai_tools_safe_paths__is_pinned_fd_at_path,
 # safe-paths.lib.sh). Directories get the access AND default ACL; regular files the access ACL only. Mirrors
-# ai-tools-setgid's pinned-fd apply. Returns 0 on apply, 1 when skipped or on error.
+# ai-tools-setgid's pinned-fd apply. Returns 0 on apply, 1 when skipped or on error. Under `gitfile` (the project's
+# `.git` entry, which the main walk hands over by name) the pinned object takes the ACL only as a regular file,
+# the pointer a worktree or a submodule carries, and returns 5 as anything else: a `.git` directory is the `--with-git`
+# pass's. The type is read from the pinned inode, so a `.git` swapped between a file and a directory cannot have
+# the directory treated as the pointer.
 _safe_setfacl() {
     local path="$1" normalize="${2:-}" expect_ident fd got_ident got_uid got_grp got_mode got_ftype
     expect_ident="$(stat -c '%d:%i' "${path}" 2>/dev/null)" || return 1
@@ -238,6 +242,10 @@ _safe_setfacl() {
         return 1
     fi
     ai_tools_safe_paths__is_pinned_fd_at_path "${fd}" "${path}" || { exec {fd}<&-; return 1; }
+    if [[ "${normalize}" == gitfile && "${got_ftype}" != "regular file" && "${got_ftype}" != "regular empty file" ]]; then
+        exec {fd}<&-
+        return 5
+    fi
     # Owner guard (checked on the pinned inode, TOCTOU-safe): only the projects user's or the sandbox account's own
     # files are eligible; anything else is left untouched. Returns 3, not 1, so the walk can tell a third-party owner
     # from a stat failure and report it. Without that split, a claim whose every path was foreign-owned closes
@@ -324,15 +332,17 @@ find "${expr[@]}" 2>/dev/null \
             [[ -n "${p}" && ( "$1" == "${p}" || "$1" == "${p}/"* ) ]] && return 0; done; return 1; }
         while IFS= read -r -d '' p; do
             _under_skip "${p}" && continue
-            # The project's `.git` is the `--with-git` pass's alone, the share the claim asks about: pruned here
-            # whatever the skip list holds, since an operator may clear SKIP_VCS_DIRS and a skip list that did not load
-            # is empty.
-            if [[ "${p}" == "${canonical}/.git" ]]; then skip+=("${p}"); continue; fi
+            # The project's `.git` is the `--with-git` pass's alone, the share the claim asks about: its subtree is
+            # pruned here by name whatever the skip list holds, since an operator may clear SKIP_VCS_DIRS and a skip
+            # list that did not load is empty. The entry itself goes to _safe_setfacl as `gitfile`, which grants
+            # a worktree's or a submodule's pointer file like any other file and leaves a directory alone.
+            mode_arg=""
+            if [[ "${p}" == "${canonical}/.git" ]]; then skip+=("${p}"); mode_arg=gitfile; fi
             if _is_excluded "${p}" || _is_secret_name "${p}"; then
                 [[ -d "${p}" ]] && skip+=("${p}")     # skip the whole subtree of a dir
                 continue
             fi
-            rc=0; _safe_setfacl "${p}" || rc=$?
+            rc=0; _safe_setfacl "${p}" "${mode_arg}" || rc=$?
             case "${rc}" in
                 0) applied=$(( applied + 1 )) ;;
                 2) owneronly=$(( owneronly + 1 ))

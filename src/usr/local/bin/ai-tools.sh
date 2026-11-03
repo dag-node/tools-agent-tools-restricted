@@ -1556,7 +1556,9 @@ acl_drift_scan() {
 narrow_acl_entry_scan() {
     local dir="$1" work="$2" exclusion resolved status=0 excluded_status path operator_uid sandbox_gid reader_detail=""
     local -n _narrow_acl_scan_paths="$3" _narrow_acl_scan_detail="$4"
-    local -a skip=( -path "${dir}/.git" -prune -o -type d ! -perm /077 -prune ) candidates=() narrow=() covering=()
+    # `.git` is pruned as a directory, the `--with-git` pass's; a worktree's or a submodule's `.git` file is
+    # a candidate, as the walk grants it.
+    local -a skip=( -path "${dir}/.git" -type d -prune -o -type d ! -perm /077 -prune ) candidates=() narrow=() covering=()
     _narrow_acl_scan_paths=() _narrow_acl_scan_detail=""
     for exclusion in "${SCAN_EXCLUSIONS[@]+"${SCAN_EXCLUSIONS[@]}"}"; do
         [[ "${exclusion}" == "${dir}"/* ]] && skip+=( -o -path "${exclusion}" -prune )

@@ -438,20 +438,23 @@ else fail "the report does not count three paths: $(tr '\n' ' ' <<< "${sd_err}")
 # ── The project's `.git` with the VCS skip list cleared ──────────────────────────────────
 # `SKIP_VCS_DIRS=[]` takes `.git` off the skip list, which leaves the main walk the one thing between it and the project
 # ACL, so the walk prunes it by name: `.git` and the file inside keep their group and carry no entry, while the file
-# beside it takes the ACL (the control that the walk ran under the override). `--with-git` is the route that shares it,
-# and the control that the fixture's `.git` is reachable.
+# beside it takes the ACL (the control that the walk ran) and so does a file in a `.git` nested deeper, which only
+# the cleared list lets the walk reach (the control that the override took effect). `--with-git` is the route
+# that shares the project's `.git`, and the control that the fixture's `.git` is reachable.
 section "ai-tools-setfacl: the project's .git with SKIP_VCS_DIRS cleared"
 vcs="${TESTDIR}/vcs-cleared"
-mkdir -p "${vcs}/.git/objects"; : > "${vcs}/README.md"; : > "${vcs}/.git/objects/o"
+mkdir -p "${vcs}/.git/objects" "${vcs}/sub/.git"
+: > "${vcs}/README.md"; : > "${vcs}/.git/objects/o"; : > "${vcs}/sub/.git/HEAD"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${vcs}"
-chmod 0750 "${vcs}" "${vcs}/.git" "${vcs}/.git/objects"; chmod 0640 "${vcs}/README.md" "${vcs}/.git/objects/o"
+chmod 0750 "${vcs}" "${vcs}/.git" "${vcs}/.git/objects" "${vcs}/sub" "${vcs}/sub/.git"
+chmod 0640 "${vcs}/README.md" "${vcs}/.git/objects/o" "${vcs}/sub/.git/HEAD"
 mk_allowlist "@ ${vcs}"
 printf 'SKIP_VCS_DIRS=[]\n' >> "${TESTDIR}/operator.conf"
 setsid "${HELPER}" "${vcs}" < /dev/null > /dev/null 2>&1 || true
-if g "${vcs}/README.md"; then
-    pass "control: the walk under the cleared VCS list gives the file beside .git the project ACL"
+if g "${vcs}/README.md" && g "${vcs}/sub/.git/HEAD"; then
+    pass "control: the walk under the cleared VCS list gives the file beside .git, and one in a nested .git, the ACL"
 else
-    fail "control: README.md carries no group entry -- the walk did not run, so the case below is not evidence"
+    fail "control: README.md or sub/.git/HEAD carries no group entry -- the walk or the override did not take, so the case below is not evidence"
 fi
 if ! g "${vcs}/.git" && ! g "${vcs}/.git/objects/o" && ! u "${vcs}/.git/objects/o" \
         && [[ "$(stat -c '%G' "${vcs}/.git")" == "${PROJECTS_GROUP}" ]]; then
@@ -462,5 +465,26 @@ fi
 setsid "${HELPER}" --with-git "${vcs}" < /dev/null > /dev/null 2>&1 || true
 if g "${vcs}/.git/objects/o"; then pass "control: --with-git shares the same .git"
 else fail "control: --with-git did not share the fixture's .git -- the refusal above is not evidence"; fi
+
+# A worktree's or a submodule's `.git` is a regular file pointing at the git directory elsewhere, and the main walk
+# grants it like any other file: the agent's git reads it to find the repository. The name guard leaves the `.git`
+# directory to `--with-git` and not the pointer, under the default skip list, which skips `.git` only as a directory.
+section "ai-tools-setfacl: a worktree's .git pointer file takes the project ACL"
+wt="${TESTDIR}/worktree"
+mkdir -p "${wt}"; printf 'gitdir: /elsewhere/.git/worktrees/wt\n' > "${wt}/.git"; : > "${wt}/README.md"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${wt}"
+chmod 0750 "${wt}"; chmod 0640 "${wt}/.git" "${wt}/README.md"
+mk_allowlist "@ ${wt}"
+setsid "${HELPER}" "${wt}" < /dev/null > /dev/null 2>&1 || true
+if g "${wt}/README.md" && [[ -f "${wt}/.git" && ! -L "${wt}/.git" ]]; then
+    pass "control: the walk ran over the worktree, whose .git is a regular file"
+else
+    fail "control: the worktree walk did not run or its .git is not a file -- the case below is not evidence"
+fi
+if g "${wt}/.git" && u "${wt}/.git"; then
+    pass "the worktree's .git pointer file carries the group and operator entries"
+else
+    fail "the worktree's .git pointer was left without the project ACL: $(getfacl -p "${wt}/.git" 2>/dev/null | tr '\n' ' ')"
+fi
 
 finish
