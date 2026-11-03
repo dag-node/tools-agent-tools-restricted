@@ -277,7 +277,7 @@ expect 0 "control: the set verifies again once every input is restored" ai_tools
 gpgv_keywords() {
     gpgv --status-fd 1 --keyring "$1" "${SET}/SHA256SUMS.asc" "${SET}/SHA256SUMS" 2>/dev/null | awk '{ print $2 }' | tr '\n' ' '
 }
-gen_key EXPIRED expired 1d 20200101T000000
+gen_key EXPIRED expired 1d 20190101T000000
 write_set; sign_set expired
 write_binding acme "${KEYS}/expired.gpg" "openpgp:${EXPIRED}"
 if [[ " $(gpgv_keywords "${KEYS}/expired.gpg")" == *" EXPKEYSIG "* ]]; then
@@ -300,7 +300,7 @@ if asset_signing_revoke_key revoked "${REVOKED}"; then
 else
     fail "setup: gpg wrote no revocation certificate for the key it made"
 fi
-gen_key EXPSIG expsig never 20200101T000000
+gen_key EXPSIG expsig never 20190101T000000
 write_set; sign_set expsig --default-sig-expire 1d
 write_binding acme "${KEYS}/expsig.gpg" "openpgp:${EXPSIG}"
 if [[ " $(gpgv_keywords "${KEYS}/expsig.gpg")" == *" EXPSIG "* ]]; then
