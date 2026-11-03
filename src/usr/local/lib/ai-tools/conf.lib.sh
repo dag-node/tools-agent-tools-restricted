@@ -1797,9 +1797,10 @@ ai_tools_conf__allowlist_remove() {
 
 # _ai_tools_conf__change_registry_entry_kind <registry-file> <path> <disable|enable> : the shared line rewrite behind
 #   the two verbs -- every `@` line naming <path> takes `%`, or every `%` line takes `@` -- written
-#   through the canonical writer, so each line keeps its comment and the file its order. Return 1 when <registry-file>
-#   cannot be read, 2 when no line of the kind the direction reads names <path>, and the writer's own 1 or 4
-#   where the rewrite does not land. An excluded line is not among the lines either direction reads.
+#   through the canonical writer, so each line keeps its comment and the file takes the canonical order, a canonical
+#   file coming back byte-identical. Return 1 when <registry-file> cannot be read, 2 when no line of the kind
+#   the direction reads names <path>, and the writer's own 1 or 4 where the rewrite does not land. An excluded line is
+#   not among the lines either direction reads.
 _ai_tools_conf__change_registry_entry_kind() {
     local file="$1" path="$2" direction="$3" from_kind=project to_kind=disabled resolved_path i changed=0
     # shellcheck disable=SC2034  # filled through their names by _ai_tools_conf__read_registry_lines
@@ -2067,9 +2068,11 @@ ai_tools_conf__list_registry_entries_under() {
 # without the operator: every allow and `!` line means in format 1.0 what the launch gate already made of it, a `!`
 # being an exclusion either way. Whole-line comments are dropped, since format 1.0 carries a note at the end
 # of an entry. What changes meaning is the CLI's reading of a `!` that disabled a project, which format 1.0 reads
-# as an excluded path; the plan names each such line with the `%` spelling, and the operator changes it by hand. Until
-# the rename the legacy file is the truth: a run that stops part-way leaves `allowed-projects` under its active name,
-# the resolver keeps reading it, and the next run replaces whatever `~/.config/ai-tools/project-registry` it finds.
+# as an excluded path; the plan names each plain `!` line no project line encloses with the `%` spelling,
+# and the operator changes it by hand. A `!` nested in a project is not named, since it reads as an exclusion there,
+# and stays one, the direction that gives less access. Until the rename the legacy file is the truth: a run that stops
+# part-way leaves `allowed-projects` under its active name, the resolver keeps reading it, and the next run replaces
+# whatever `~/.config/ai-tools/project-registry` it finds.
 
 # ai_tools_conf__plan_registry_migration <legacy-file> : print one TSV row per line of <legacy-file> by its line
 #   number, after a `marker` row carrying the marker line: `keep\t<n>\t<line>` for an entry, with the line it becomes

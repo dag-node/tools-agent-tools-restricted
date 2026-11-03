@@ -33,9 +33,10 @@ A `!` line is an excluded path wherever it sits, and not a disabled project,
 and `projects enable` refuses it for that reason: lifting it would let sessions
 start in that subtree and the walks act on it. No command writes or lifts such
 a line, so one in your file was written by hand and is deleted by hand if
-that is what you mean. A `!` line that meant a disabled project in an earlier
-release is named by the upgrade ([Upgrade](../install/upgrade.md)).
-The reasoning is
+that is what you mean. The upgrade names each `!` line no project encloses
+as one that may be a disabled project; one nested in a project is not named,
+and stays excluded until you change it to `%`
+([Upgrade](../install/upgrade.md)). The reasoning is
 [ref-section-v2n3](../../.claude/rules/cli.rule.md#ref-section-v2n3).
 
 An excluded path keeps sessions from starting in the subtree and does not take

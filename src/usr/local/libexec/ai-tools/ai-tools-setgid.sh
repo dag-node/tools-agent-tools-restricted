@@ -4,8 +4,8 @@
 # Normalizes group ownership and the setgid bit on the directories of an approved project, so that files EITHER
 # an operator OR the agent creates there are born in group @SANDBOX_GROUP@ -- the shared group both can read/write.
 # setgid carries that group onto new files regardless of the creator's own group membership; the operator stays
-# a NON-member of @SANDBOX_GROUP@ and reaches agent-written files through the named ACL entry instead (CLAUDE.md,
-# Collaborative ownership).
+# a NON-member of @SANDBOX_GROUP@ and reaches agent-written files through the named ACL entry instead
+# (ownership-and-hooks.rule.md, ref-section-y9z4).
 #
 # Invoked as root two ways: by `atr projects claim` via operator `sudo` (the operator is not a SANDBOX_GROUP member,
 # so changing the project's group needs root), and by the ai-tools-handback daemon when the SessionStart hook

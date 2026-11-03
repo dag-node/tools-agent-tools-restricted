@@ -23,6 +23,9 @@ Findings from the root-only files and refusals from the session's own journald
 tag are reported **separately**, because only the first is a trail the agent
 cannot write.
 
+Run it as yourself: it reads the trails through a root-only helper over `sudo`,
+so it needs a general sudo grant as well as membership of `ai-ops`.
+
 ## An agent started from inside a session
 
 A session can start an agent's binary directly, at its path in the sandbox

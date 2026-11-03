@@ -138,11 +138,11 @@ from which `operator.lib.sh` resolves each path's owner). An account holding onl
 on the projects claimed for it, and is a first-class operator — the shape `atr --for <operator>` exists to serve,
 and the one a passwordless service account takes.
 
-Claim, create, unclaim, remove, lockdown, handback and clone reach root helpers carrying **no** NOPASSWD rule, so each
-needs a **general sudo grant** as well. That grant is a third, independent axis: this project does not install it
-or record it, and cannot infer it from the other two — `ai-tools-admin` writes `operator.conf` and the group, never
-sudoers, and the RPM enrols nobody at all. The CLI answers for it by asking `sudo` before the verb's first prompt (see
-[cli](.claude/rules/cli.rule.md)).
+Claim, create, unclaim, an in-place remove, lockdown, handback and clone reach root helpers carrying **no** NOPASSWD
+rule, so each needs a **general sudo grant** as well. That grant is a third, independent axis: this project does not
+install it or record it, and cannot infer it from the other two — `ai-tools-admin` writes `operator.conf` and the group,
+never sudoers, and the RPM enrols nobody at all. The CLI answers for it by asking `sudo` before the verb's first prompt
+(see [cli](.claude/rules/cli.rule.md)).
 
 **A host needs at least one operator holding that grant.** Without one, no project can be claimed on it by any principal
 — root included, since every mutating verb refuses root to keep an operator's registries out of root's ownership.

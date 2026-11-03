@@ -45,9 +45,12 @@ to the operator who made it and pushes with that operator's git credentials.
   in the governance framework of the asset set `core` (its
   `ai-tools-agent-governance` skill, where `core` is enabled), and it is
   granted without a password so that an unattended monitor can reach it.
-- **Not create, claim, clone, unclaim, remove, lock down or hand back.** Each
-  of those reaches a root helper over `sudo`. The refusal names the command
-  an operator with a sudo grant runs for it.
+- **Remove a sandbox clone it owns** with `atr projects remove`, which deletes
+  the clone as its owner.
+- **Not create, claim, clone, unclaim, lock down, hand back, read the audit
+  trail, or remove a project claimed in place.** Each of those reaches a root
+  helper over `sudo`. The refusal names the command an operator with a sudo
+  grant runs for it.
 
 The account needs a home directory, since its project registry lives
 under `~/.config/ai-tools`. A home with no `~/.config` in it yet — the usual

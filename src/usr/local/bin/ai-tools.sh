@@ -295,10 +295,11 @@ unset _forless_args _forless_arg _for_value_refused
 # published, so the unknown-command line a stranger gets would read as a typo. It is a pointer and not an alias:
 # the command reconciles a root-owned pin and a file context, so it runs as root, which this CLI refuses.
 #
-# It answers ahead of every gate on purpose. The bootstrap gate would otherwise send an unprovisioned host
-# to the provisioning command, and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs
-# printed -- with a list of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented
-# code for a rejected command line (ai-tools(1)).
+# It answers after the sandbox-account refusal and the `--for` value check, and ahead of the bootstrap gate and the root
+# guard, on purpose. The bootstrap gate would otherwise send an unprovisioned host to the provisioning command,
+# and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs printed -- with a list
+# of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented code for a rejected
+# command line (ai-tools(1)).
 if [[ "${1:-}" == "--relabel" ]]; then
     echo "ai-tools: --relabel is a root command:" >&2
     echo "              atr admin system entrypoints relabel" >&2
@@ -3714,7 +3715,7 @@ cmd_project_claim() {
     [[ "${safedir}" == true  ]] || say "    - add git safe.directory"
     ${need_filemode} && say "    - set git core.filemode true"
     [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
-    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwx)"
+    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwx, masked to your own permissions on each path)"
     ${needs_acl_entry_repair} \
         && say "    - apply the group-permission ACL again: ${narrow_acl_entry_path_count} file(s) carry an earlier claim's entries"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
@@ -3751,8 +3752,8 @@ cmd_project_claim() {
         ! ${narrow_acl_entry_capped} || say "        ${C_DIM}(list capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
     fi
 
-    # Heavy steps close the Review block behind the proceed confirm, the one prompt `--yes` pre-answers; a pristine tree
-    # skips it with the warnings it authorizes.
+    # Heavy steps close the Review block behind the proceed confirm, which `--yes` pre-answers with the SELinux type
+    # question; a pristine tree skips it with the warnings it authorizes.
     if ${heavy} && ! ${fresh}; then
         ${ASSUME_YES} || confirm "Apply these pending steps to the tree in place?" n \
             || die "aborted"
@@ -4860,8 +4861,8 @@ die_remove_incomplete() {
 # A project's authorization is an EXACT registry entry, enabled or disabled; a clone's is its place, its owner and its
 # shape (remove_clone). The verb does not take `--force`. Teardown in either kind is registries first, deletion last,
 # so a failed deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be
-# deleted (cli.rule.md, ref-section-k3v7). `-y` pre-answers the default-NO confirm and the typed-name challenge
-# of either kind.
+# deleted (cli.rule.md, ref-section-k3v7). `-y` pre-answers the default-NO confirm of either kind and the in-place
+# kind's typed-name challenge; the clone kind does not ask for a typed name.
 cmd_project_remove() {
     local a path="" assume_yes=false
     local -a remedy=()

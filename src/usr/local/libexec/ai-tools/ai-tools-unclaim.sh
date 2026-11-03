@@ -9,9 +9,9 @@
 #      the tree out of @SANDBOX_GROUP@;
 #   3. removes group WRITE: 660 -> 640, 770 -> 750, 400 stays 400; group read and traverse stay. Group
 #      execute comes off a data file alone, keyed on OWNER-execute (the bit git records): `setfacl -b`
-#      promotes the tree's `group::r-x` base into the mode, so a plain file the agent wrote can surface
-#      as 0650. On a DIRECTORY the setgid bit claim added is cleared too (`chmod g-w,g-s`; a numeric chmod
-#      leaves a directory's setgid standing). A file keeps its setuid/setgid bits.
+#      promotes the tree's `group::r-x` base into the mode, under the mask the path carried, so a plain file
+#      the agent wrote can surface as 0650. On a DIRECTORY the setgid bit claim added is cleared too
+#      (`chmod g-w,g-s`; a numeric chmod leaves a directory's setgid standing). A file keeps its setuid/setgid bits.
 # Net effect: the agent (group @SANDBOX_GROUP@) loses access through the group owner and the named ACL entry alike,
 # and the tree carries plain Unix permissions under the new group. `.git`, which the main walk skips with the other
 # heavy trees, is reverted by a dedicated pass, so git history is revoked with the rest.
@@ -337,10 +337,10 @@ _safe_unclaim() {
         chmod g-w,g-s "/proc/self/fd/${fd}" 2>/dev/null || rc=1
     else
         # Drop group WRITE; also drop a stray group EXECUTE on a data file. `setfacl -b` promoted the ACL's group:: base
-        # (r-x on a tree the agent wrote) into the mode, so a data file can land group-executable (0650); strip
-        # that, keyed on OWNER-execute (the bit git records) so a genuine script (owner rwx) keeps group r-x (-> 750)
-        # while a data file (owner rw) drops to 640. Relative g-w[,g-x] leaves any setuid/setgid bit on the file
-        # untouched (an sgid binary is not altered).
+        # (r-x on a tree the agent wrote) into the mode under the path's mask, so a data file can land group-executable
+        # (0650); strip that, keyed on OWNER-execute (the bit git records) so a genuine script (owner rwx) keeps group
+        # r-x (-> 750) while a data file (owner rw) drops to 640. Relative g-w[,g-x] leaves any setuid/setgid bit
+        # on the file untouched (an sgid binary is not altered).
         local fmode gxarg=""
         fmode="$(stat -L -c '%a' "/proc/self/fd/${fd}" 2>/dev/null)" || fmode=""
         if [[ -n "${fmode}" ]] && (( ( ( 8#${fmode} >> 6 ) & 1 ) == 0 )); then

@@ -55,11 +55,11 @@ as an excluded path and names every one no project encloses. Change such a line
 to `%` if it was a disabled project, and keep the `!` if the subtree is to stay
 excluded (`man 5 ai-tools-project-registry`).
 
-A project an earlier release claimed carries grants written without execute.
-The next `atr projects claim` lists those files under *ACL entries
-from an earlier claim*, and applying the pending steps, or `-y`, walks
-the project and sets each file's access from your own permissions
-([Permissions](../projects/permissions.md)).
+A project an earlier release claimed can carry grants written without execute
+on its files. The next `atr projects claim` lists the files that carry them
+under *ACL entries from an earlier claim*, and applying the pending steps,
+or `-y`, walks the project and sets each file's access from your own
+permissions ([Permissions](../projects/permissions.md)).
 
 ## Every installed path is restored to its owner, mode and ACL
 

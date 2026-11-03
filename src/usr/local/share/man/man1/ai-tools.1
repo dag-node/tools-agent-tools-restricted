@@ -545,8 +545,9 @@ applies.
 .RE
 .IP
 The clone is created owner-only; tip-commit secrets are locked down first, under
-every directory of the clone, and only past that gate is the clone labelled,
-opened to the agent and registered. A declined or failed lockdown, and a clone
+every directory of the clone, and only past that gate is the clone labelled
+and opened to the agent. The registry entry the lockdown acts on is written
+ahead of the gate and removed again when the gate or the label fails. A declined or failed lockdown, and a clone
 the SELinux policy could not label, stop fail-closed \(em the clone stays
 private and unregistered; re-run this command on the clone path to resume
 securing it. Where SELinux runs without the ai-tools policy the clone is

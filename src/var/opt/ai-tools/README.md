@@ -87,12 +87,14 @@ in depth:
 
 `atr projects clone` runs this lockdown on the fresh clone **before** granting
 the agent any access: the clone is created owner-only, and only
-after the lockdown gate passes is it labelled, opened to the agent group
-and registered. When the operator declines, or lockdown fails, the create stops
-fail-closed — the clone stays private and unregistered, with a guard
-`CLAUDE.md` written into it (any existing `CLAUDE.md` is preserved
-as `CLAUDE.md.bak`); re-running `atr projects clone <clone>` resumes securing
-and registering it, removing the guard and restoring the original.
+after the lockdown gate passes is it labelled and opened to the agent group.
+The registry entry the lockdown acts on is written ahead of the gate
+and removed again when the gate or the label fails. When the operator declines,
+or lockdown fails, the create stops fail-closed — the clone stays private
+and unregistered, with a guard `CLAUDE.md` written into it (any existing
+`CLAUDE.md` is preserved as `CLAUDE.md.bak`); re-running
+`atr projects clone <clone>` resumes securing and registering it, removing
+the guard and restoring the original.
 
 A shallow clone is not a substitute for keeping the agent away from live
 secrets — it only keeps *past* ones out.

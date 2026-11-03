@@ -464,11 +464,11 @@ ai_tools_project_permissions__check_group() {
 # ai_tools_project_permissions__find_paths_with_narrow_acl_entries <list-file> <work-dir> <root> <operator-uid>
 # <sandbox-gid> <paths-array> <detail-var>  -- read the access ACL of each NUL-separated path in <list-file>, each one
 # under the directory <root>, and fill <paths-array>, in list order, with the paths carrying a `user:<operator-uid>`
-# or `group:<sandbox-gid>` entry written narrower than `rwx`: the entries an earlier claim wrote (`rw-` on a file
-# without an execute bit), which a walk resets (cli.rule.md, ref-section-a9b2). <root> is opened once, and each path is
-# reached from it one component at a time, every component opened `O_PATH | O_NOFOLLOW` relative to the one
-# before, so a directory on the way swapped for a symlink after the caller listed the path is not followed; every fact
-# the answer rests on is then read from the final object, which is a hit only while it is a regular file held
+# or `group:<sandbox-gid>` entry written narrower than `rwx`: the entries a claim made before the owner-permissions mask
+# wrote (`rw-` on a file without an execute bit), which a walk resets (cli.rule.md, ref-section-a9b2). <root> is opened
+# once, and each path is reached from it one component at a time, every component opened `O_PATH | O_NOFOLLOW` relative
+# to the one before, so a directory on the way swapped for a symlink after the caller listed the path is not followed;
+# every fact the answer rests on is then read from the final object, which is a hit only while it is a regular file held
 # by <operator-uid> in <sandbox-gid> with a group or other bit: an owner-only file is the operator's seal,
 # which the walk leaves alone, so listing one would put it on every re-claim. The ACL is the kernel's
 # `system.posix_acl_access` value, read through `/proc/self/fd` (an `O_PATH` descriptor does not need read permission)
