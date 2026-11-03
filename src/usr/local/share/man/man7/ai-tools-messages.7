@@ -1089,7 +1089,7 @@ config library defines no allowlist matcher \-\- refusing (fail closed)
 .TP
 .B MSG-D3T3
 ERROR.
-could not add ${canonical} to ${OPERATOR}'s allowlist \-\- nothing changed
+could not add ${canonical} to ${OPERATOR}'s project registry \-\- nothing changed
 .TP
 .B MSG-E2G7
 NOTICE.
@@ -1129,7 +1129,7 @@ one of \-\-print, \-\-add, \-\-remove, \-\-enable, \-\-disable is required
 .TP
 .B MSG-K2G9
 ERROR.
-could not remove ${entry_path} from ${OPERATOR}'s allowlist \-\- a line naming it survived, so that project is still registered
+could not remove ${entry_path} from ${OPERATOR}'s project registry \-\- a line naming it survived, so that project is still registered
 .TP
 .B MSG-M3R6
 ERROR.
@@ -1173,7 +1173,7 @@ that path is DISABLED or excluded for ${OPERATOR}: ${canonical} \-\- a '%' line 
 .TP
 .B MSG-V9K7
 NOTICE.
-no allowlist for ${OPERATOR} \-\- nothing to remove
+no project registry for ${OPERATOR} \-\- nothing to remove
 .TP
 .B MSG-W6P5
 ERROR.
@@ -1475,7 +1475,7 @@ not a directory: $(ai_tools_log__sanitize "${target}")
 .TP
 .B MSG-J3F9
 ERROR.
-excluded in the allowlist: ${target}; nothing to do
+excluded in the project registry: ${target}; nothing to do
 .TP
 .B MSG-J8H9
 WARNING.

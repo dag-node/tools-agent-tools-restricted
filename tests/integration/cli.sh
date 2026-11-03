@@ -342,7 +342,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # A path is REQUIRED: the cwd always exists, so a defaulted create could only ever refuse.
     out="$(create_cli)" && rc=0 || rc=$?
-    refused "ai-tools.projects.create refuses to run without a path" MSG-A7D3
+    refused "ai-tools.projects.create refuses to run without a path" MSG-A7D3 2
 
     # An EXISTING directory is refused, naming the verb that does claim one. This is the line between the two verbs:
     # a create that quietly claimed what was already there would make them interchangeable, and only one of them grants

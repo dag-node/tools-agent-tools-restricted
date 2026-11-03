@@ -305,7 +305,7 @@ case "${ACTION}" in
             4) ai_tools_conf__is_registry_path_representable "${canonical}" && die_unrenderable_line add
                printf 'MSG-Z9R2\nai-tools-allowlist: %s\n' "this directory's name cannot be written as a registry line: ${canonical} -- nothing changed; rename the directory, then claim it" >&2
                exit 1 ;;
-            *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
+            *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s project registry -- nothing changed" ;;
         esac
         ai_tools_log__structured info \
             "operator ${caller} added ${canonical} to ${OPERATOR}'s allowlist" \
@@ -318,7 +318,7 @@ case "${ACTION}" in
         # no '%' behind to disable whatever is claimed at that path next; a `!` line is the operator's own edit
         # and stays.
         if [[ ! -f "${allowlist}" ]]; then
-            note MSG-V9K7 "no allowlist for ${OPERATOR} -- nothing to remove"
+            note MSG-V9K7 "no project registry for ${OPERATOR} -- nothing to remove"
             exit 0
         fi
         require_migrated_registry
@@ -330,7 +330,7 @@ case "${ACTION}" in
         rc=0; ai_tools_conf__allowlist_remove "${allowlist}" "${entry_path}" || rc=$?
         (( rc == 4 )) && die_unrenderable_line remove
         (( rc == 0 )) \
-            || die MSG-K2G9 "could not remove ${entry_path} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
+            || die MSG-K2G9 "could not remove ${entry_path} from ${OPERATOR}'s project registry -- a line naming it survived, so that project is still registered"
         ai_tools_log__structured info \
             "operator ${caller} removed ${entry_path} from ${OPERATOR}'s allowlist" \
             "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"

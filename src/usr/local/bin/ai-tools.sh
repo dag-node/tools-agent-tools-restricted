@@ -301,7 +301,7 @@ unset _forless_args _forless_arg _for_value_refused
 # printed -- with a list of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented
 # code for a rejected command line (ai-tools(1)).
 if [[ "${1:-}" == "--relabel" ]]; then
-    echo "ai-tools: --relabel is now a root command:" >&2
+    echo "ai-tools: --relabel is a root command:" >&2
     echo "              atr admin system entrypoints relabel" >&2
     exit 2
 fi
@@ -3713,7 +3713,7 @@ cmd_project_claim() {
     [[ "${safedir}" == true  ]] || say "    - add git safe.directory"
     ${need_filemode} && say "    - set git core.filemode true"
     [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
-    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
+    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwx)"
     ${needs_acl_entry_repair} \
         && say "    - apply the group-permission ACL again: ${narrow_acl_entry_path_count} file(s) carry an earlier claim's entries"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
@@ -3985,7 +3985,7 @@ cmd_project_create() {
                 else die_usage MSG-Z5Y7 "projects create takes a single path"; fi ;;
         esac
     done
-    [[ -n "${path}" ]] || die MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
+    [[ -n "${path}" ]] || die_usage MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
         "To claim a directory that already exists, use:" \
         "       $(format_projects_command claim "") <path>"
 
@@ -4380,10 +4380,10 @@ unclaim_one() {
     if ${entry_active}; then
         local files_note=""
         ${handback_missing} && files_note=" Its files were not handed back either, so they still carry group ${SANDBOX_GROUP}."
-        headline_warn "WARNING: the allowlist entry was not disabled" \
+        headline_warn "WARNING: the registry entry was not disabled" \
             "${d} is still enabled in ${REGISTRY_DISPLAY_PATH}, so a session can still start there.${files_note} The lines above name what completes the reversal."
         ai_tools_log__structured warning \
-            "unclaim of ${d} incomplete (allowlist entry not disabled, still active)" \
+            "unclaim of ${d} incomplete (registry entry not disabled, still active)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
@@ -4391,7 +4391,7 @@ unclaim_one() {
         headline_warn "WARNING: disabled, but the files were not handed back" \
             "${d} is ${entry_word}, so no session can launch there, and its line stays for the unclaim that completes the reversal. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
         ai_tools_log__structured warning \
-            "unclaim of ${d} incomplete (allowlist entry disabled; filesystem hand-back did NOT run)" \
+            "unclaim of ${d} incomplete (registry entry disabled; filesystem hand-back did NOT run)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
@@ -4649,7 +4649,7 @@ cmd_project_unclaim() {
     # registry snapshot, the run's first sudo.
     if ${force} && [[ -n "${FOR_OPERATOR}" ]]; then
         die MSG-B5K3 "--for cannot be combined with --force" \
-            "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
+            "an unlisted tree has no registry entry naming its owner, so the unclaim is bound to" \
             "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
             "       project without --force"
     fi
@@ -4682,8 +4682,8 @@ cmd_project_unclaim() {
     # between what the operator asked for and what ran, and ai-tools(1) states the refusal. The registered unclaim is
     # one word away.
     if ${force}; then
-        die "--force does not apply here -- this path is covered by the allowlist: ${targets[0]}" \
-            "       --force reaches a tree the allowlist does not name; unclaim a registered project without it:" \
+        die "--force does not apply here -- this path is covered by the project registry: ${targets[0]}" \
+            "       --force reaches a tree the project registry does not name; unclaim a registered project without it:" \
             "       $(format_projects_command unclaim "${targets[0]}")"
     fi
 
@@ -5932,7 +5932,7 @@ status_path_order() {
     case "${state}" in
         shadowed)
             say "      typing that name starts an agent OUTSIDE the sandbox: as you, with your"
-            say "      credentials and home, and no allowlist, confinement or ownership handback"
+            say "      credentials and home, and no project registry, confinement or ownership handback"
             say "      ${C_BOLD}atr admin operators add ${INVOKING_USER}${C_RST}"
             return 1 ;;
         # Reaching the wrapper without the ordering line is right today and right by accident: the next thing

@@ -661,7 +661,7 @@ path_order_explain() {
             "" \
             "    ${winner}" \
             "" \
-            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project allowlist, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}, so that directory has to come first on the PATH." \
+            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project registry, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}, so that directory has to come first on the PATH." \
             "" \
             "ai-tools ships one line that deduplicates the PATH and ranks the root-owned directories ahead of the nvm shims. It is appended after the nvm init, changes nothing else about the shell, and is undone by deleting it." ;;
     clear)
