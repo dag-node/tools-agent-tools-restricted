@@ -153,8 +153,8 @@ included. A hand-back you declined at the group question is a choice, not
 a failure: the line is dropped as usual. A registry line the command could not
 remove, or could not disable, is reported the same way, with the command
 that finishes the edit, because a session can still start there while the line
-stands. A label the command could not revert, one left while an agent session
-or the toolchain update runs included, is reported the same way,
+stands. A label the command could not revert, including one it left because
+a process of the sandbox account was live, is reported the same way,
 with the command that reverts it. What each verb does after a root step fails
 is [ref-table-b9q6](../../.claude/rules/cli.rule.md#ref-table-b9q6).
 

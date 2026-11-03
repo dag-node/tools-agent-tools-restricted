@@ -3485,8 +3485,8 @@ cmd_project_claim() {
         ${need_label} || (( ${#label_drift[@]} )) || return 0
         declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
         [[ "$(ai_tools_sessions__read_live_session_state)" == live ]] || return 0
-        headline_warn "NOTICE: a session of the sandbox account is running" \
-            "An agent session or the toolchain update runs as ${SANDBOX_USER}. The SELinux label step walks the tree as root, and the helper refuses that step while one runs, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
+        headline_warn "NOTICE: a process of the sandbox account is running" \
+            "An agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live. The SELinux label step walks the tree as root, and the helper refuses that step while one is live, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
         say "      ${C_BOLD}atr stop${C_RST}"
     }
 
@@ -5001,7 +5001,7 @@ cmd_project_remove() {
         if (( relabel_status == RELABEL_LIVE_SESSION_STATUS )); then
             say  "    let each session end (/exit inside it) and the toolchain update finish, or end them all"
             say  "    with ${C_BOLD}atr stop${C_RST}, then re-run the removal; the project is left as it was"
-            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running"
+            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session, the toolchain update, or a step run as the sandbox account may be live"
         elif (( relabel_status != 0 )); then
             label_outcome=failed
             warn "could not revert the SELinux label -- run it by hand:"

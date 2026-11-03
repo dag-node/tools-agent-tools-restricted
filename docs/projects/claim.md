@@ -159,20 +159,21 @@ Two more notices name what the claim saw and left alone:
   `atr projects handback --full`.
 
 Where your account can read the sandbox account's sessions, a claim whose label
-step is pending while a session or the toolchain update runs says
-so in the same block, before it asks for a password. On a host where it cannot,
-the refusal of the label step is the first report, after the password:
+step is pending says so in the same block, before it asks for a password,
+when an agent session, the toolchain update, or a step run as the sandbox
+account is live. On a host where it cannot, the refusal of the label step is
+the first report, after the password:
 
 ```text
-NOTICE: a session of the sandbox account is running
+NOTICE: a process of the sandbox account is running
   ... The SELinux label step walks the tree as root, and the helper refuses
-  that step while one runs, where the claim runs it: the other steps apply,
+  that step while one is live, where the claim runs it: the other steps apply,
   the label is reported pending ...
       atr stop
 ```
 
-The label step walks the tree as root, and is refused while a session
-of the sandbox account or the toolchain update runs
+The label step walks the tree as root, and is refused while an agent session,
+the toolchain update, or a step run as the sandbox account is live
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)). Let
 each session end with `/exit` and the toolchain update finish, or end them all
 with `atr stop`, then claim again: the re-run applies the label alone.

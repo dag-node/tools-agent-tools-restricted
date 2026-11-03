@@ -118,7 +118,7 @@ if [[ "${1:-}" == --remove ]]; then
         # The rules are dropped; the config directory keeps its type until a walk runs with no session live, since
         # a walk while one runs could be redirected outside the directory. A package erase completes either way.
         3) remove_config_dir="${CP_HOME:-/opt/ai-tools}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
-           warn MSG-G9X3 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${remove_config_dir}"
+           warn MSG-G9X3 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${remove_config_dir}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory was not relabelled while a session was live" ;;
         *) die MSG-S6C5 "no usable path rules declared by ${agent} -- nothing dropped" ;;
     esac
@@ -427,9 +427,9 @@ record_label_outcomes() {
 #   its state. What each files for atr status, and what the oneshot unit then reports, is updater.rule.md's.
 report_live_sessions() {
     (( live_session_count == 0 )) \
-        || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"
+        || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"
     (( live_mislabelled_count == 0 )) \
-        || die MSG-G6D2 "the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"
+        || die MSG-G6D2 "the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"
 }
 
 render_label_report "${report}"
