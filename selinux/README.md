@@ -413,9 +413,10 @@ while one stands), unloads every `ai_tools*` module, and `restorecon`s each
 agent's config directory, the nvm tree, and each project back to default
 contexts. A module left loaded ends the run with exit 1 and semanage's reason.
 DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is
-untouched. While an agent session or the toolchain update runs, the command
-refuses before it changes anything: let each session end (`/exit` inside it)
-and the update finish, or end them all with `atr stop`, then run it again.
+untouched. While an agent session, the toolchain update, or a step run
+as the sandbox account is live, the command refuses before it changes anything:
+let each session end (`/exit` inside it) and the update finish, or end them all
+with `atr stop`, then run it again.
 
 ## Notes
 

@@ -892,7 +892,7 @@ _unlabel_project() { local rc=0; ai_tools_relabel__unlabel_project "$1" || rc=$?
                      *) warn MSG-W8J4 "could not unlabel $1" ;;
                  esac; }
 _warn_live_session() {
-    warn MSG-E9S6 "left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run this command"
+    warn MSG-E9S6 "left the label on $1 as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run this command"
 }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --
@@ -1169,7 +1169,7 @@ case "${ACTION}" in
     # in place under the gate, and the unload refuses on any local rule naming a type it removes. The sweep
     # after the registry walks drops the rules they do not derive, for the same reason.
     [[ "${_sandbox_session_state}" == none ]] \
-        || die MSG-H7Q2 "left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run: sudo $0 remove"
+        || die MSG-H7Q2 "left the policy loaded: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run: sudo $0 remove"
     log "dropping project fcontext rules"
     _locked _labels_drop
     log "dropping the file-context rules outside this host's registries"

@@ -1198,7 +1198,7 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         fi
     fi
     if [ "${_sandbox_trees_skipped}" = 1 ]; then
-        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then restore the labels:" >&2
+        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then restore the labels:" >&2
         echo "ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects" >&2
     fi
     exec 9>&-
@@ -1241,7 +1241,7 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
     if [ "${_sandbox_session_state}" != none ]; then
         loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
-        echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then re-run this step:" >&2
+        echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then re-run this step:" >&2
         echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
         echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
         exec 9>&-

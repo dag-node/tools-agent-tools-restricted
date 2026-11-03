@@ -3485,8 +3485,8 @@ cmd_project_claim() {
         ${need_label} || (( ${#label_drift[@]} )) || return 0
         declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
         [[ "$(ai_tools_sessions__read_live_session_state)" == live ]] || return 0
-        headline_warn "NOTICE: a session of the sandbox account is running" \
-            "An agent session or the toolchain update runs as ${SANDBOX_USER}. The SELinux label step walks the tree as root, and the helper refuses that step while one runs, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
+        headline_warn "NOTICE: a process of the sandbox account is running" \
+            "An agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live. The SELinux label step walks the tree as root, and the helper refuses that step while one is live, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
         say "      ${C_BOLD}atr stop${C_RST}"
     }
 
@@ -4321,6 +4321,8 @@ unclaim_one() {
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
             # The gate's refusal came after sudo authenticated, so the steps after it are attempted without asking.
             (( relabel_status == RELABEL_LIVE_SESSION_STATUS )) || note_root_failure || stopped=true
+        else
+            say "    SELinux label: reverted"
         fi
     fi
 
@@ -5001,7 +5003,7 @@ cmd_project_remove() {
         if (( relabel_status == RELABEL_LIVE_SESSION_STATUS )); then
             say  "    let each session end (/exit inside it) and the toolchain update finish, or end them all"
             say  "    with ${C_BOLD}atr stop${C_RST}, then re-run the removal; the project is left as it was"
-            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running"
+            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session, the toolchain update, or a step run as the sandbox account may be live"
         elif (( relabel_status != 0 )); then
             label_outcome=failed
             warn "could not revert the SELinux label -- run it by hand:"
@@ -5009,6 +5011,7 @@ cmd_project_remove() {
             note_root_failure || cleanup_stopped=true
         else
             label_outcome=completed
+            say "    SELinux label: reverted"
         fi
     fi
     unreg_allow "${d}"
@@ -6179,8 +6182,9 @@ status_entrypoint_label() {
                      say "      nothing to label and no session of it starts; reinstall the package:"
                      say "      ${C_BOLD}atr admin system bootstrap${C_RST} ${C_DIM}(its output names an install that did not complete)${C_RST}"
                  elif [[ "${reason}" == live-session ]]; then
-                     say "      its config directory was not labelled while a session ran and carries a type the"
-                     say "      agent cannot write; once none runs: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
+                     say "      its config directory was not labelled while a process of the sandbox account was"
+                     say "      live, or its sessions could not be read, and carries a type the agent cannot write;"
+                     say "      once none is live: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  else
                      say "      the last reconciliation could not apply this agent's labels; the label its"
                      say "      entrypoint carries now is read by: ${C_BOLD}atr admin status${C_RST}"
@@ -6188,12 +6192,13 @@ status_entrypoint_label() {
                  fi
                  return 1 ;;
         # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet -- or the config
-        # directory's walk left while a session ran, over a directory an earlier run labelled. None is a fault, so none
-        # is coloured or counted; the last names the run that completes it.
+        # directory's walk left while a process of the sandbox account was live, over a directory an earlier run
+        # labelled. None is a fault, so none is coloured or counted; the last names the run that completes it.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
                      "${reason:-nothing to label}" "${C_RST}"
                  if [[ "${reason}" == live-session ]]; then
-                     say "      ${C_DIM}the config directory was not relabelled while a session ran; once none runs:${C_RST}"
+                     say "      ${C_DIM}the config directory was not relabelled while a process of the sandbox account was${C_RST}"
+                     say "      ${C_DIM}live, or its sessions could not be read; once none is live:${C_RST}"
                      say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  fi ;;
         # No record at all: this host has not run a reconciliation since the record was introduced, or the state

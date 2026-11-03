@@ -320,7 +320,7 @@ unknown command: ${path} \-\- run '${help_command}'
 .TP
 .B MSG-S3B9
 ERROR.
-project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session or the toolchain update may be running
+project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session, the toolchain update, or a step run as the sandbox account may be live
 .TP
 .B MSG-S3F4
 WARNING.
@@ -523,7 +523,7 @@ declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be s
 .TP
 .B MSG-B9C4
 WARNING.
-left the labels under ${clones} as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${clones}
+left the labels under ${clones} as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${clones}
 .TP
 .B MSG-C2H5
 WARNING.
@@ -1561,7 +1561,7 @@ takes a single path
 .TP
 .B MSG-H8V6
 ERROR.
-left the SELinux label on ${dir} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read, and a walk while one runs could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run: $1 $(printf '%q' "${dir}")
+left the SELinux label on ${dir} as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read, and a walk while one is live could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run: $1 $(printf '%q' "${dir}")
 .TP
 .B MSG-M2D2
 ERROR.
@@ -1606,7 +1606,7 @@ an incomplete agent package stops this relabel: ${incomplete} agent(s) do not ha
 .TP
 .B MSG-E4E8
 WARNING.
-the config directory of ${live_session_count} agent(s) was not relabelled: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai\-tools\-relabel.service
+the config directory of ${live_session_count} agent(s) was not relabelled: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-E4U5
 WARNING.
@@ -1618,7 +1618,7 @@ could not record ${1}'s labelling outcome for atr status
 .TP
 .B MSG-G6D2
 ERROR.
-the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai\-tools\-relabel.service
+the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-G7C7
 WARNING.
@@ -1626,7 +1626,7 @@ wrong type on ${subject}: it is '${detail}', NOT ${wanted}
 .TP
 .B MSG-G9X3
 WARNING.
-dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${remove_config_dir}
+dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${remove_config_dir}
 .TP
 .B MSG-H9M5
 WARNING.
@@ -1924,7 +1924,7 @@ unknown option: ${_arg}
 .TP
 .B MSG-T6T2
 WARNING.
-left the SELinux label under ${canonical} as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-RF ${canonical}
+left the SELinux label under ${canonical} as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-RF ${canonical}
 .TP
 .B MSG-V9Q6
 ERROR.
@@ -2098,7 +2098,7 @@ labelling did not complete for ${subject} \-\- see its lines above
 .TP
 .B MSG-E9S6
 WARNING.
-left the label on $1 as it was: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run this command
+left the label on $1 as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run this command
 .TP
 .B MSG-F2V5
 WARNING.
@@ -2118,7 +2118,7 @@ selinux: cannot source required library ${1}
 .TP
 .B MSG-H7Q2
 ERROR.
-left the policy loaded: an agent session or the toolchain update runs as the sandbox account, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run: sudo $0 remove
+left the policy loaded: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run: sudo $0 remove
 .TP
 .B MSG-J7J5
 ERROR.
@@ -2251,7 +2251,7 @@ no account named
 .TP
 .B MSG-D6A5
 WARNING.
-left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session or the toolchain update runs as ${SANDBOX_USER}, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
+left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-D7C6
 ERROR.
