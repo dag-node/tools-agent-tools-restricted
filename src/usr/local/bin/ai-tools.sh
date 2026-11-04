@@ -1979,24 +1979,29 @@ grant_ancestor_traversal() {
     ! ${failed}
 }
 
-# normalize_clone <dir> [locked-path...]  -- make a freshly created clone agent-accessible: group rwX on every path
-# and the setgid bit on every directory (the owner stays the projects user), with every <locked-path> -- the secret
-# gate's finds, locked owner-only by ai-tools-lockdown -- PRUNED from both walks, since re-opening one would undo
-# the lockdown this step follows. It prunes what THIS run's gate reported alone, which is why sandbox_finalize runs it
-# once, while the root is still owner-only (clone_is_private). The gate's walk covers every tree this opens
-# (ai-tools-lockdown's header). Both walks act on regular files and directories alone and stay on the clone's filesystem
-# (`-xdev`): chmod follows a symlink named on its command line, so a tracked symlink handed to it would change a target
-# outside the clone. A locked path is pruned by its literal name: `-path` reads its argument as a pattern, so `[`, `*`,
-# `?` and `\` are escaped first (find_pattern_literal), or the walk would re-open the secret.
+# normalize_clone <dir> [locked-path...]  -- open a freshly created clone's modes and ACL: group rwX on every path
+# and `g+s` on every directory (the owner stays the projects user), with every <locked-path> -- the secret gate's finds,
+# locked owner-only by ai-tools-lockdown -- PRUNED from both walks, since re-opening one would undo the lockdown this
+# step follows. It prunes what THIS run's gate reported alone, which is why sandbox_finalize runs it once, while
+# the root is still owner-only (clone_is_private). The gate's walk covers every tree this opens (ai-tools-lockdown's
+# header). Both walks act on regular files and directories alone and stay on the clone's filesystem (`-xdev`): chmod
+# follows a symlink named on its command line, so a tracked symlink handed to it would change a target outside
+# the clone. A locked path is pruned by its literal name: `-path` reads its argument as a pattern, so `[`, `*`, `?`
+# and `\` are escaped first (find_pattern_literal), or the walk would re-open the secret.
 #
-# The clone is created with its ACL stripped (clone_privately), so the walk then gives every opened path the access ACL
-# the clone area's default ACL would have given it at creation, and every directory that default ACL itself: the named
-# and `group::` entries as the default holds them, and the mask the kernel derives from the create mode -- `rwx`
-# on a directory and on a file with an owner execute bit, `rw-` on any other file, the rule ai-tools-setfacl applies
-# to a claimed file. A umask-077 create does not leave a group or other execute bit, so this is also what `chmod g+rwX`
-# leaves after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries and would open every file
-# to execute, so each class takes its mask explicitly under `-n`. `user::` and `other::` keep the bits the create's
-# umask 077 left.
+# The walks run as the operator, who is not in SANDBOX_GROUP, and the kernel clears the setgid bit of a directory
+# in that group on every chmod and access-ACL write such a caller makes. So on the directories clone_privately left
+# in SANDBOX_GROUP the setgid bit does not hold after this walk, and sandbox_finalize's root steps that follow it set
+# the bit, and regroup a path git created in the operator's group.
+#
+# The clone is created without the area's default ACL (clone_privately), so the walk then gives every opened path
+# the access ACL the clone area's default ACL would have given it at creation, and every directory that default ACL
+# itself: the named and `group::` entries as the default holds them, and the mask the kernel derives from the create
+# mode -- `rwx` on a directory and on a file with an owner execute bit, `rw-` on any other file, the rule
+# ai-tools-setfacl applies to a claimed file. A umask-077 create does not leave a group or other execute bit, so this is
+# also what `chmod g+rwX` leaves after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries
+# and would open every file to execute, so each class takes its mask explicitly under `-n`. `user::` and `other::` keep
+# the bits the create's umask 077 left.
 normalize_clone() {
     local d="$1"; shift
     local -a prune=() p pattern
@@ -2045,6 +2050,38 @@ clone_is_private() {
     mode="$(stat -c '%a' "$1" 2>/dev/null)" || return 1
     [[ "${mode}" =~ ^[0-7]+$ ]] || return 1
     (( ( 8#${mode} & 077 ) == 0 ))
+}
+
+# clone_access_ready <dir>  -- 0 when an opened clone holds one group throughout: the root and its .git carry
+# the setgid bit, and every file and directory with a group permission bit is in the root's group. The clone area's
+# setgid hands the root SANDBOX_GROUP, so a path in another group -- the operator's, where git created the tree in it --
+# is one the agent's group bits do not reach, and the steps before this one each succeed over such a tree; this reads
+# the tree back before sandbox_finalize reports it ready. It reads as the operator, with stat and find, prints each
+# finding, and returns 1 for a finding and for a reading it could not make.
+clone_access_ready() {
+    local d="$1" p group mode root_group="" stray ready=0
+    for p in "${d}" "${d}/.git"; do
+        if ! IFS=' ' read -r group mode < <(stat -c '%G %a' -- "${p}" 2>/dev/null) \
+                || ! [[ "${mode}" =~ ^[0-7]+$ ]]; then
+            say "    could not read the group and mode of $(ai_tools_log__sanitize "${p}")"
+            ready=1; continue
+        fi
+        [[ -n "${root_group}" ]] || root_group="${group}"
+        if [[ "${group}" != "${root_group}" ]] || (( ( 8#${mode} & 02000 ) == 0 )); then
+            say "    $(ai_tools_log__sanitize "${p}"): group ${group}, mode ${mode} -- want group ${root_group} with setgid"
+            ready=1
+        fi
+    done
+    [[ -n "${root_group}" ]] || return 1
+    if ! stray="$(find "${d}" -xdev '(' -type f -o -type d ')' -perm /070 ! -group "${root_group}" \
+                      -print -quit 2>/dev/null)"; then
+        say "    could not read every path under $(ai_tools_log__sanitize "${d}") for its group"
+        ready=1
+    elif [[ -n "${stray}" ]]; then
+        say "    $(ai_tools_log__sanitize "${stray}"): group $(stat -c '%G' -- "${stray}" 2>/dev/null || printf '?') -- want ${root_group}"
+        ready=1
+    fi
+    return "${ready}"
 }
 
 # relabel_clone <dir>  -- apply the SELinux project label so the agent (ai_tools_t) can read/write the clone. A static
@@ -5061,12 +5098,13 @@ cmd_project_remove() {
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run once the clone exists: allowlist
 # entry (the lockdown scan acts only on an allowlisted path; rolled back on a failed gate), the secret gate, then --
-# past the gate alone -- relabel, normalize (pruning the locked paths), and register. A declined or failed gate leaves
-# the clone on disk, private and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed:
-# cli.rule.md, ref-section-u9a9). The relabel and the normalize run once, while the root is still owner-only
-# (clone_is_private), in that order (relabel_clone states why), and the relabel before the guard comes off: a clone
-# that could not be labelled stops the create the same way, since the agent cannot enter a clone opened unlabelled
-# and a resume over an opened clone does not label it.
+# past the gate alone -- relabel, normalize (pruning the locked paths), the root group and setgid steps, a read-back
+# of the result (clone_access_ready), and register. A declined or failed gate leaves the clone on disk, private
+# and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed: cli.rule.md, ref-section-u9a9).
+# The relabel and the normalize run once, while the root is still owner-only (clone_is_private), in that order
+# (relabel_clone states why), and the relabel before the guard comes off: a clone that could not be labelled stops
+# the create the same way, since the agent cannot enter a clone opened unlabelled and a resume over an opened clone does
+# not label it.
 sandbox_finalize() {
     local dst="$1"
     reg_allow "${dst}"
@@ -5091,24 +5129,45 @@ sandbox_finalize() {
         die MSG-Z7B9 "sandbox create stopped -- the clone could not be labelled ai_tools_project_t"
     fi
     clear_lockdown_guard "${dst}"
+    # The access steps and the safe.directory step each return non-zero when they did not take, so a bare call
+    # under `set -e` would abort the create; each failure is reported at the close rather than left under the ✓.
+    local access_ok=true
     if ${opening}; then
         normalize_clone "${dst}" "${SECRET_MATCH_PATHS[@]}"
-        say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
+        say "    access: opened to group ${SANDBOX_GROUP} (locked secrets stay private)"
+        # The operator cannot give a path SANDBOX_GROUP or keep a setgid bit in it (normalize_clone's header), so root
+        # does both through the two helpers a claim runs, in the claim's order: ai-tools-setgid on the work tree's
+        # directories, then `ai-tools-setfacl --with-git`, which regroups each opened path left in another group
+        # and normalizes .git. Each re-validates the registry entry reg_allow wrote and leaves an owner-only
+        # or secret-named path, which covers every path the gate locked, as it is. They run after normalize_clone,
+        # whose chmods would clear the setgid bit again.
+        reg_ownership "${dst}" force || access_ok=false
+        claim_setfacl "${dst}" true || access_ok=false
     else
         say "    access: already granted; the tree is left as it is"
     fi
-    # A clone exists to run git in, and without safe.directory the agent's git refuses the tree ("dubious ownership"),
-    # so the failure is reported at the close rather than left under the ✓; reg_safedir returns non-zero, so a bare call
-    # under `set -e` would abort the create.
+    clone_access_ready "${dst}" || access_ok=false
+    # A clone exists to run git in, and without safe.directory the agent's git refuses the tree ("dubious ownership").
     local safedir_ok=true
     reg_safedir "${dst}" || safedir_ok=false
     say ""
+    if ! ${access_ok}; then
+        headline_warn "WARNING: the agent cannot use the clone yet" \
+            "${dst} is created, secured and registered, but a path in it is outside the clone's group or a directory lacks the setgid bit, so the agent cannot read the tree. These commands set group ${SANDBOX_GROUP} and the setgid bit; nothing else about the clone needs redoing:"
+        say  "      ${C_BOLD}sudo ${SETGID_BIN} ${dst}${C_RST}"
+        say  "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git ${dst}${C_RST}"
+        ai_tools_log__structured warning \
+            "sandbox ${dst} registered with a path outside the clone's group or a directory without setgid" \
+            "AI_TOOLS_PROJECT=${dst}"
+    fi
     if ! ${safedir_ok}; then
         headline_warn "WARNING: the clone is not git-ready" \
             "${dst} is created, secured and registered, but git safe.directory could not be added, so the agent's git will refuse to operate in it. The command above adds the entry; nothing else about the clone needs redoing."
         ai_tools_log__structured warning \
             "sandbox ${dst} registered without a git safe.directory entry" \
             "AI_TOOLS_PROJECT=${dst}"
+    fi
+    if ! ${access_ok} || ! ${safedir_ok}; then
         return 1
     fi
     ok "sandbox ready: ${dst}"
@@ -5156,15 +5215,20 @@ sandbox_resolve_base() {
 # owner-only throughout: the tip commit's files -- possibly checked-in credentials -- stay unreadable to the sandbox
 # account until the gate has run and normalize_clone opens the non-secret paths. A umask alone does not do it: the clone
 # area carries a default ACL, and a path created under one takes that ACL in place of the umask (acl(5)), so git's own
-# mkdir would make the root group-accessible at creation. The root is therefore made here, 0700, with its inherited ACL
-# stripped before git writes into it, and git creates every path inside under umask 077; git accepts an existing empty
-# directory as a clone destination. A failure removes the directory while it is empty, and dies.
+# mkdir would make the root group-accessible at creation. The root is therefore made here, 0700, and its inherited
+# default ACL removed before git writes into it, and git creates every path inside under umask 077; git accepts
+# an existing empty directory as a clone destination. A failure removes the directory while it is empty, and dies.
+#
+# The root takes the area's group and setgid bit at creation, so every path git creates is in SANDBOX_GROUP. Only
+# the default ACL is removed (`setfacl -k`): the kernel clears a directory's setgid bit on a mode or access-ACL change
+# by a caller outside its group, which the operator is, so `setfacl -b` would leave git to create the tree
+# in the operator's own group. The access entries the root inherited stay, masked to `---` by the 0700 create mode.
 clone_privately() {
     local url="$1" branch="$2" dst="$3"
     mkdir -m 0700 -- "${dst}" || die "could not create ${dst}"
-    if ! setfacl -b -- "${dst}"; then
+    if ! setfacl -k -- "${dst}"; then
         rmdir -- "${dst}" 2>/dev/null || true
-        die MSG-U3Q6 "could not strip the inherited ACL from ${dst} -- the clone was not created"
+        die MSG-U3Q6 "could not remove the inherited default ACL from ${dst} -- the clone was not created"
     fi
     if ! ( umask 077 && git clone --depth=1 -b "${branch}" "${url}" "${dst}" ); then
         rmdir -- "${dst}" 2>/dev/null || true

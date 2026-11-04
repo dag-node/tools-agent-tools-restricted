@@ -1472,6 +1472,15 @@ EOF
     expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate${T}--${T}"
     expect "the scan is given the clone's path"                       cli_called ai-tools-lockdown "${T}--${T}${SBROOT}/${N_SRC}$"
     expect "clone registers safe.directory for the clone"             cli_called ai-tools-safedir "^${SBROOT}/${N_SRC}$"
+    # The operator is outside the sandbox group, so its group and setgid bit come from root (tests/unit/sandbox.sh
+    # measures the tree an operator outside the group leaves).
+    expect "clone sets the group and setgid through ai-tools-setgid"  cli_called ai-tools-setgid "^${SBROOT}/${N_SRC}$"
+    expect "clone applies the ACL, .git included, through ai-tools-setfacl" \
+        cli_called ai-tools-setfacl "^--with-git${T}${SBROOT}/${N_SRC}$"
+    expect "the root steps follow the secret scan" \
+        before ai-tools-lockdown "^--gate${T}" ai-tools-setgid "^${SBROOT}/${N_SRC}$"
+    expect "the ACL step follows the setgid step" \
+        before ai-tools-setgid "^${SBROOT}/${N_SRC}$" ai-tools-setfacl "^--with-git${T}"
     expect "the clone is shallow"                                     test "$(gitr -C "${SBROOT}/${N_SRC}" rev-list --count HEAD)" -eq 1
 
     cli_stub_reset; drive cli ai-tools.projects.clone "$(f branch)" "feature/x" "$(f dir)" "${N_C2}" "${SRC}"
@@ -1498,6 +1507,8 @@ EOF
     expect "the resume is given that clone's path"                    cli_called ai-tools-lockdown "${T}--${T}${SBROOT}/${N_C4}$"
     expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
     expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" enabled
+    expect "a resume over an opened clone runs neither root step"     not_called ai-tools-setgid
+    expect "nor the ACL step"                                         not_called ai-tools-setfacl
     # A resume on a clone already opened leaves the tree as it is: a directory the operator sealed inside it since keeps
     # its mode, where a normalize re-run over the tree would open it to the group.
     sealed="${SBROOT}/${N_C4}/private"

@@ -141,13 +141,13 @@ an agent-written secret, so a secret ends up identically owned whether it was lo
 on write; leaving the group as `SANDBOX_GROUP` would re-expose it the moment the mode was widened. Each locked path also
 has its sandbox residue stripped. The seal pass that follows covers the owner-only paths **under** the target and leaves
 the target directory itself as it is, still pruning the subtree of an owner-only root the way the claim walkers do.
-`atr projects clone` creates the clone root owner-only without an ACL and runs its `git clone` under `umask 077`,
-so a clone reaches the gate owner-only throughout, and a root on the seal list would lose the setgid bit and the sandbox
-group the clone area gave it before `normalize_clone` opens the tree, which restores the mode bits and not the group. It
-runs only when that directory is an enabled project — it refuses under a disabled (`%`) line, as every walking helper
-does ([cli](cli.rule.md)) — and skips `!`-excluded paths, and applies each change through a pinned fd (re-verifying
-inode and type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--yes` skips the TTY confirmation,
-and is refused with exit 2 beside `--dry-run`, which does not ask.
+`atr projects clone` creates the clone root owner-only without a default ACL and runs its `git clone` under `umask 077`,
+so a clone reaches the gate owner-only throughout, and the seal pass leaving the target alone keeps the setgid bit
+and the sandbox group the clone area gave the root ([ref-section-u9a9](cli.rule.md#ref-section-u9a9)). It runs only
+when that directory is an enabled project — it refuses under a disabled (`%`) line, as every walking helper does
+([cli](cli.rule.md)) — and skips `!`-excluded paths, and applies each change through a pinned fd (re-verifying inode
+and type) so a `SANDBOX_USER` path swap cannot redirect root's chmod/chown. `--yes` skips the TTY confirmation, and is
+refused with exit 2 beside `--dry-run`, which does not ask.
 
 `--dry-run` previews **both** passes — the secret lock and the seal — naming each path and, for a seal, what would come
 off it. The seal half is the one that acts on paths the operator did not name, so a preview that showed only the secret

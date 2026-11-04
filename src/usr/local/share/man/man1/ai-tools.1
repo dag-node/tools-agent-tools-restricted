@@ -551,7 +551,12 @@ ahead of the gate and removed again when the gate or the label fails. A declined
 the SELinux policy could not label, stop fail-closed \(em the clone stays
 private and unregistered; re-run this command on the clone path to resume
 securing it. Where SELinux runs without the ai-tools policy the clone is
-created unlabelled and the command says so.
+created unlabelled and the command says so. Opening the clone sets its group
+and permissions through
+.BR sudo ,
+as a claim does; a clone those steps leave unfinished, or one without its
+git safe.directory entry, is reported not ready with the commands that finish
+it, and the command exits 1.
 .TP
 .B projects push \fR[\fIDIRECTORY\fR]
 Push the sandbox clone's commits to the remote branch it tracks

@@ -7,7 +7,9 @@
 # takes as unknown (read_project_state), the exclusion reader whose list the claim-time scans prune their walks
 # with (allowlist_exclusions), the re-claim's SELinux drift scan (label_drift_scan), and the checks the claim runs
 # after its Apply block (claim_verify_label, claim_verify_group), and both ends of the owner-side read the claim makes
-# them through (cmd_project_inspect's record stream, and the claim's parser of it).
+# them through (cmd_project_inspect's record stream, and the claim's parser of it). The clone's open steps
+# (clone_privately, normalize_clone, the order sandbox_finalize runs them and the root helpers in, and its read-back,
+# clone_access_ready) are driven too, the group a clone holds as an operator outside SANDBOX_GROUP among them.
 #
 # The ai-tools.projects.clone pair:
 #   * sandbox_default_branch -- composes the DEFAULT sandbox branch (sandbox/<leaf-of-from>) with no
@@ -1191,22 +1193,32 @@ finalize_order='
     clone_is_private()     { [[ "${stub_private}" == yes ]]; }
     relabel_clone()        { printf "relabel_clone " >&3; [[ "${stub_label}" == ok ]]; }
     normalize_clone()      { printf "normalize_clone " >&3; }
+    reg_ownership()        { printf "reg_ownership:%s " "$2" >&3; }
+    claim_setfacl()        { printf "claim_setfacl:%s " "$2" >&3; }
+    clone_access_ready()   { printf "clone_access_ready " >&3; [[ "${stub_ready}" == yes ]]; }
     reg_safedir()          { printf "reg_safedir " >&3; return 0; }
-    stub_private="${args[1]}"; stub_label="${args[2]}"
-    sandbox_finalize "${args[0]}" >/dev/null 2>&1 || true
-    printf "returned" >&3
+    stub_private="${args[1]}"; stub_label="${args[2]}"; stub_ready="${args[3]:-yes}"
+    rc=0; sandbox_finalize "${args[0]}" >/dev/null 2>&1 || rc=$?
+    printf "returned=%s" "${rc}" >&3
 '
+opening_steps="reg_allow relabel_clone clear_lockdown_guard normalize_clone reg_ownership:force claim_setfacl:true"
 order="$(call_script "${finalize_order}" "${TESTDIR}/clone" yes ok 2>/dev/null || true)"
-if [[ "${order}" == "reg_allow relabel_clone clear_lockdown_guard normalize_clone reg_safedir returned" ]]; then
-    pass "a private clone is relabelled before its guard comes off and normalize_clone opens it"
+if [[ "${order}" == "${opening_steps} clone_access_ready reg_safedir returned=0" ]]; then
+    pass "a private clone is relabelled before its guard comes off, opened, then regrouped and setgid by root"
 else
     fail "the finalize order on a private clone was: ${order:-<none>}"
 fi
 order="$(call_script "${finalize_order}" "${TESTDIR}/clone" no ok 2>/dev/null || true)"
-if [[ "${order}" == "reg_allow clear_lockdown_guard reg_safedir returned" ]]; then
-    pass "a resume over a clone already opened runs neither the relabel nor the normalize"
+if [[ "${order}" == "reg_allow clear_lockdown_guard clone_access_ready reg_safedir returned=0" ]]; then
+    pass "a resume over a clone already opened runs neither the relabel, the normalize nor the root steps, and reads it back"
 else
     fail "the finalize order on an opened clone was: ${order:-<none>}"
+fi
+order="$(call_script "${finalize_order}" "${TESTDIR}/clone" yes ok no 2>/dev/null || true)"
+if [[ "${order}" == "${opening_steps} clone_access_ready reg_safedir returned=1" ]]; then
+    pass "a clone the read-back finds outside one group is registered and reported not ready (exit 1)"
+else
+    fail "the finalize over a failed read-back was: ${order:-<none>}"
 fi
 order_status=0
 order="$(call_script "${finalize_order}" "${TESTDIR}/clone" yes failed 2>/dev/null)" || order_status=$?
@@ -1322,7 +1334,10 @@ else
         clone_privately "${origin}" main "${area}/created" >/dev/null 2>&1
         printf "created_root=%s\n" "$(stat -c %a "${area}/created")"
         printf "created_file=%s\n" "$(stat -c %a "${area}/created/plain.txt")"
-        printf "created_entries=%s\n" "$(getfacl -p -c -- "${area}/created" | grep -cE "^(user|group):[^:]+:|^default:")"
+        printf "created_root_defaults=%s\n" "$(getfacl -p -c -- "${area}/created" | grep -c "^default:")"
+        printf "created_root_mask=%s\n" "$(getfacl -p -c -- "${area}/created" | sed -n "s/^mask:://p")"
+        printf "created_file_entries=%s\n" \
+            "$(getfacl -p -c -- "${area}/created/plain.txt" | grep -cE "^(user|group):[^:]+:|^default:")"
         normalize_clone "${area}/control" >/dev/null 2>&1
         normalize_clone "${area}/created" >/dev/null 2>&1
         printf "created_plain_mask=%s\n" "$(getfacl -p -c -- "${area}/created/plain.txt" | sed -n "s/^mask:://p")"
@@ -1346,11 +1361,14 @@ else
     else
         fail "control: the umask-077 clone root is $(cp_value control_root), want 770 -- the fixture does not carry the area ACL"
     fi
+    # The root keeps the access entries it inherited, masked by its 0700 create mode, and loses only its default ACL,
+    # so the paths git creates inside take the umask.
     if [[ "$(cp_value created_root)" == *700 && "$(cp_value created_file)" == 600 \
-            && "$(cp_value created_entries)" == 0 ]]; then
-        pass "clone_privately makes an owner-only root and files with no named or default ACL entry"
+            && "$(cp_value created_root_defaults)" == 0 && "$(cp_value created_root_mask)" == --- \
+            && "$(cp_value created_file_entries)" == 0 ]]; then
+        pass "clone_privately makes an owner-only root with no default ACL, and files with no named or default ACL entry"
     else
-        fail "clone_privately: root $(cp_value created_root), file $(cp_value created_file), $(cp_value created_entries) ACL entries"
+        fail "clone_privately: root $(cp_value created_root) with $(cp_value created_root_defaults) default entries and mask '$(cp_value created_root_mask)', file $(cp_value created_file) with $(cp_value created_file_entries) ACL entries"
     fi
     if [[ "$(cp_value trees)" == equal && "$(cp_value control_named)" -gt 0 ]]; then
         pass "normalize_clone opens a private clone to the ACL the area gives a clone created under it"
@@ -1363,6 +1381,158 @@ else
         pass "normalize_clone gives a data file the mask rw- and a script the mask rwx"
     else
         fail "normalize_clone: plain.txt mask '$(cp_value created_plain_mask)', run.sh mask '$(cp_value created_run_mask)' (want rw-, rwx)"
+    fi
+fi
+
+# ── A clone made by an operator outside SANDBOX_GROUP ──────────────────────────────────────────
+# The clone area is root:SANDBOX_GROUP and setgid, and the operator is not in that group. The kernel clears
+# a directory's setgid bit on a mode or access-ACL change by a caller outside its group, so every step the operator runs
+# over the root can drop it, and git then creates the tree in the operator's own group, where the agent's group bits do
+# not reach. The section drives the clone stage by stage over a fixture area of that shape, with the root steps run
+# as sandbox_finalize runs them, and prints each stage's owner, group and mode per path as NOTE lines, so a run
+# against the code before a change and one after it compare as a table. The control is the defect's own step:
+# `setfacl -b` on a fresh root, which must clear the bit for the fixture to show anything.
+section "a clone made by an operator outside ${SANDBOX_GROUP} holds one group, through a push (unit)"
+cg_setgid="/usr/local/libexec/ai-tools/ai-tools-setgid"; cg_setfacl="/usr/local/libexec/ai-tools/ai-tools-setfacl"
+if (( EUID != 0 )) || ! command -v setfacl >/dev/null 2>&1 || ! getent group "${SANDBOX_GROUP}" >/dev/null 2>&1; then
+    skip "a clone made outside ${SANDBOX_GROUP}" "needs root, setfacl and the ${SANDBOX_GROUP} group"
+elif [[ " $(id -nG "${PROJECTS_USER}" 2>/dev/null) " == *" ${SANDBOX_GROUP} "* ]]; then
+    skip "a clone made outside ${SANDBOX_GROUP}" \
+        "${PROJECTS_USER} is in ${SANDBOX_GROUP}, so the kernel keeps the setgid bit for it and the fixture cannot show the defect"
+else
+    cg_work="${TESTDIR}/clone-group"; cg_area="${cg_work}/area"; cg_clone="${cg_area}/created"
+    mkdir -p "${cg_area}"
+    chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${cg_work}"; chmod 0755 "${cg_work}"
+    chown "root:${SANDBOX_GROUP}" "${cg_area}"; chmod 2770 "${cg_area}"
+    setfacl -m "u:${PROJECTS_USER}:rwx,d:u:${PROJECTS_USER}:rwx" "${cg_area}"
+    # shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+    cg_rows='
+        cg_rows() {
+            local rel
+            for rel in . sub sub/nested.txt plain.txt .env .git .git/refs "$@"; do
+                printf "row %s %s\n" "${rel}" "$(stat -c "%a %U:%G" -- "${args[0]}/${rel}" 2>/dev/null || printf "absent")"
+            done
+        }
+    '
+    cg_value() {
+        local line
+        while IFS= read -r line; do
+            [[ "${line}" == "$2="* ]] && { printf '%s' "${line#*=}"; return 0; }
+        done <<< "$1"
+    }
+    # cg_table <stage> <output>: one NOTE per path the stage's script listed, and the rows in the global cg_row.
+    declare -A cg_row=()
+    cg_table() {
+        local line rel state
+        while IFS= read -r line; do
+            [[ "${line}" == "row "* ]] || continue
+            line="${line#row }"; rel="${line%% *}"; state="${line#* }"
+            cg_row["$1:${rel}"]="${state}"
+            note "clone state, $1" "${rel}: ${state}"
+        done <<< "$2"
+    }
+    # Stage 1, as the operator: the control, then the private clone.
+    # shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+    cg_out="$(call_script "${cg_rows}"'
+        work="${args[1]}"; area="${args[2]}"
+        git init -q --bare "${work}/origin.git"
+        git init -q -b main "${work}/seed"
+        mkdir "${work}/seed/sub"
+        printf "plain\n" > "${work}/seed/plain.txt"; printf "nested\n" > "${work}/seed/sub/nested.txt"
+        printf "TOKEN=fixture\n" > "${work}/seed/.env"
+        git -C "${work}/seed" add -A
+        git -C "${work}/seed" -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false \
+            commit -qm fixture
+        git -C "${work}/seed" push -q "${work}/origin.git" main
+        mkdir -m 0700 "${area}/control" && setfacl -b -- "${area}/control"
+        printf "control=%s\n" "$(stat -c %a "${area}/control")"
+        clone_privately "file://${work}/origin.git" main "${args[0]}" >/dev/null 2>&1 || { echo "clone=failed"; exit 0; }
+        printf "root_defaults=%s\n" "$(getfacl -p -c -- "${args[0]}" | grep -c "^default:")"
+        printf "root_mask=%s\n" "$(getfacl -p -c -- "${args[0]}" | sed -n "s/^mask:://p")"
+        cg_rows
+    ' "${cg_clone}" "${cg_work}" "${cg_area}" 2>&1)" || true
+    cg_control="$(cg_value "${cg_out}" control)"
+    if [[ "${cg_control}" =~ ^[0-7]+$ ]] && (( ( 8#${cg_control} & 02000 ) == 0 )); then
+        pass "control: setfacl -b by the operator clears the root's setgid bit (mode ${cg_control})"
+    else
+        fail "control: the root kept '${cg_control:-<unread>}' after the operator's setfacl -b -- the fixture does not reproduce the defect"
+    fi
+    if [[ "$(cg_value "${cg_out}" clone)" == failed ]]; then
+        fail "clone_privately could not clone the fixture: ${cg_out//$'\n'/ | }"
+    else
+        cg_table "after clone_privately" "${cg_out}"
+        cg_want="${PROJECTS_USER}:${SANDBOX_GROUP}"
+        if [[ "${cg_row[after clone_privately:.]}" == "2700 ${cg_want}" && "${cg_row[after clone_privately:sub]}" == "2700 ${cg_want}" \
+                && "${cg_row[after clone_privately:plain.txt]}" == "600 ${cg_want}" \
+                && "$(cg_value "${cg_out}" root_defaults)" == 0 && "$(cg_value "${cg_out}" root_mask)" == --- ]]; then
+            pass "clone_privately keeps the area's group and setgid bit, so git creates every path in ${SANDBOX_GROUP}, owner-only"
+        else
+            fail "clone_privately: root '${cg_row[after clone_privately:.]}', sub '${cg_row[after clone_privately:sub]}', plain.txt '${cg_row[after clone_privately:plain.txt]}', $(cg_value "${cg_out}" root_defaults) default entries, mask '$(cg_value "${cg_out}" root_mask)' (want 2700/2700/600 ${cg_want}, 0, ---)"
+        fi
+        # Stage 2: the gate's lock on the secret, as ai-tools-lockdown leaves it, then the operator's normalize.
+        chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${cg_clone}/.env"; chmod 0600 "${cg_clone}/.env"
+        # shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+        cg_out="$(call_script "${cg_rows}"'
+            normalize_clone "${args[0]}" "${args[0]}/.env" >/dev/null 2>&1
+            cg_rows
+            rc=0; clone_access_ready "${args[0]}" >/dev/null 2>&1 || rc=$?
+            printf "ready=%s\n" "${rc}"
+        ' "${cg_clone}" 2>&1)" || true
+        cg_table "after normalize_clone" "${cg_out}"
+        if [[ "${cg_row[after normalize_clone:plain.txt]}" == "660 ${cg_want}" && "$(cg_value "${cg_out}" ready)" == 1 ]]; then
+            pass "normalize_clone opens files in ${SANDBOX_GROUP}, and clone_access_ready reports the setgid bits its chmods clear"
+        else
+            fail "after normalize_clone: plain.txt '${cg_row[after normalize_clone:plain.txt]}', read-back status '$(cg_value "${cg_out}" ready)' (want 660 ${cg_want}, 1)"
+        fi
+        # Stage 3: the root steps sandbox_finalize runs, against the clone's registry entry.
+        if [[ ! -x "${cg_setgid}" || ! -x "${cg_setfacl}" ]]; then
+            skip "the clone after the root steps" "ai-tools-setgid or ai-tools-setfacl is not installed"
+        else
+            mk_allowlist "@ ${cg_clone}"
+            setsid "${cg_setgid}" "${cg_clone}" < /dev/null > /dev/null 2>&1 || true
+            setsid "${cg_setfacl}" --with-git "${cg_clone}" < /dev/null > /dev/null 2>&1 || true
+            # Stage 4, as the operator: a ref written as `git push` writes the remote-tracking ref, and a file created
+            # in the tree afterwards.
+            # shellcheck disable=SC2016  # the script runs inside the sourced CLI's shell; its expansions are that shell's
+            cg_out="$(call_script "${cg_rows}"'
+                rc=0; clone_access_ready "${args[0]}" >/dev/null 2>&1 || rc=$?
+                printf "ready=%s\n" "${rc}"
+                git -C "${args[0]}" update-ref refs/remotes/origin/probe HEAD
+                printf "later\n" > "${args[0]}/sub/later.txt"
+                cg_rows .git/refs/remotes/origin/probe sub/later.txt
+            ' "${cg_clone}" 2>&1)" || true
+            cg_table "after the root steps and a push" "${cg_out}"
+            cg_stage="after the root steps and a push"
+            cg_dirs_ok=true
+            for rel in . sub .git .git/refs; do
+                [[ "${cg_row[${cg_stage}:${rel}]}" == 2770\ "${cg_want}" ]] || cg_dirs_ok=false
+            done
+            if ${cg_dirs_ok} && [[ "$(cg_value "${cg_out}" ready)" == 0 ]]; then
+                pass "the root steps leave every directory, .git included, 2770 in ${SANDBOX_GROUP}, and the read-back passes"
+            else
+                fail "after the root steps: . '${cg_row[${cg_stage}:.]}', sub '${cg_row[${cg_stage}:sub]}', .git '${cg_row[${cg_stage}:.git]}', .git/refs '${cg_row[${cg_stage}:.git/refs]}', read-back '$(cg_value "${cg_out}" ready)'"
+            fi
+            if [[ "${cg_row[${cg_stage}:.env]}" == "600 ${PROJECTS_USER}:${PROJECTS_GROUP}" ]]; then
+                pass "the locked secret stays 600 in the operator's group through the root steps"
+            else
+                fail "the locked secret after the root steps is '${cg_row[${cg_stage}:.env]}'"
+            fi
+            cg_probe="${cg_row[${cg_stage}:.git/refs/remotes/origin/probe]}"; cg_later="${cg_row[${cg_stage}:sub/later.txt]}"
+            if [[ "${cg_probe}" == *" ${cg_want}" && "${cg_later}" == *" ${cg_want}" ]]; then
+                pass "a ref the operator's push writes and a file created later are born in ${SANDBOX_GROUP}"
+            else
+                fail "born after the root steps: the ref '${cg_probe}', the later file '${cg_later}' (want group ${SANDBOX_GROUP})"
+            fi
+            cg_reads=""
+            for rel in plain.txt sub/later.txt .git/refs/remotes/origin/probe .env; do
+                if as_sandbox test -r "${cg_clone}/${rel}" >/dev/null 2>&1; then cg_reads+="${rel}=yes "; else cg_reads+="${rel}=no "; fi
+            done
+            if [[ "${cg_reads}" == "plain.txt=yes sub/later.txt=yes .git/refs/remotes/origin/probe=yes .env=no " ]]; then
+                pass "the agent reads the clone's files, the later file and the pushed ref, and not the locked secret"
+            else
+                fail "what the agent reads after a push: ${cg_reads}"
+            fi
+        fi
     fi
 fi
 

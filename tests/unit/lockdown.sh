@@ -240,10 +240,9 @@ fi
 
 # (6) The seal enumeration leaves the target directory itself alone. The CLI's pinned `umask 077` makes a clone
 #     owner-only throughout, so with the root on the seal list an apply on a tip commit holding a secret would clear
-#     the root's setgid bit and move its group off the sandbox account's -- and normalize_clone restores the mode
-#     bits, not the group, so the agent would be refused at the root of a clone reported ready. The root keeps its
-#     mode and group, the pass does not descend into it (the depth-one directory keeps both too), and the secret
-#     inside is still locked.
+#     the root's setgid bit and move its group off the sandbox account's, both of which the clone root keeps from
+#     the clone area. The root keeps its mode and group, the pass does not
+#     descend into it (the depth-one directory keeps both too), and the secret inside is still locked.
 run_ld "${clone}" "${TESTDIR}/clone-apply" --yes
 if [[ "${LD_RC}" -ne 0 ]]; then
     fail "lockdown --yes on the clone exited ${LD_RC}: $(cat "${TESTDIR}/clone-apply")"

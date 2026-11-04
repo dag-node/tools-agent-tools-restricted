@@ -976,7 +976,7 @@ does:
 | `projects claim` | stops, reports what is pending, exits 1 | fewer steps applied is *less* access, and a re-run is idempotent |
 | `projects unclaim` | applies the registry reversal **anyway**, then reports — dropping the entry, or disabling it where the hand-back did not run | either disposition ends with no session able to start there; stopping short would leave the project launchable |
 | `projects remove` | deletes **anyway**, notes the cleanup that did not run | the leftovers point at a path that no longer exists; refusing to delete would leave the tree |
-| `projects clone` | reports the clone is not git-ready, exits 1 | a clone exists to run git in, and without `safe.directory` the agent's git refuses the tree |
+| `projects clone` | reports the clone is not ready, exits 1 | a clone exists for the agent to run git in, and without the sandbox group, the setgid bits or `safe.directory` it cannot |
 
 **Two read-only notices in the Review block name what no claim step changes.** A build toolchain collects configuration
 by walking from the project toward `/`, and a file it opens in an ancestor the sandbox account is denied fails the build
@@ -1292,26 +1292,48 @@ through `require_sandbox_clone_shape`: a direct child of `SANDBOX_ROOT` that pas
 by the acting owner or the invoker, with a `.git` directory holding a `HEAD` file, read as data ([Commands](#commands)),
 which scopes the `rm -rf` to one tree of that shape.
 
-The create is **lock-before-grant**, by construction. `clone_privately` creates the clone root `0700` with its inherited
-ACL stripped before git writes into it, and git creates every path inside under `umask 077`. A umask alone does not make
-the clone private: the clone area carries a default ACL, which a path created under it takes in place of the umask.
-A checked-in credential is therefore unreadable to the sandbox account until the gate has run. `sandbox_finalize` then
-writes the registry entry (the lockdown acts only on a registered path; rolled back on a failed gate), runs the same
-secret gate as a claim, and only past it labels and opens the clone: the label is applied while the root is still
-owner-only, then `normalize_clone` adds group `rwX`, setgid directories and the ACL the area would have given each path,
-pruning every path the gate locked, and the clone is registered. A registry line the writer cannot write back refuses
-the clone ahead of the branch push (`MSG-A5Y2`), since the registry write follows the push and the clone. A declined
-or failed gate, and a label the clone root does not take, **fail closed**: the clone stays on disk, private and
-unregistered, and the resume command is printed.
-A host where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
+The create is **lock-before-grant**, by construction: the clone root stays `0700` until the secret gate has passed,
+so the sandbox account cannot enter the tree before then.
+
+**Private until the gate.** `clone_privately` creates the clone root `0700`, removes the default ACL the root inherited
+from the clone area, and runs `git clone` under `umask 077`. The default ACL has to go first: a path created
+in a directory carrying one takes its permissions from that ACL, and the umask is not applied (acl(5)). With it removed,
+git creates every path owner-only, so a checked-in credential stays unreadable to the sandbox account until the gate has
+run.
+
+**In `SANDBOX_GROUP` from creation.** The root takes `SANDBOX_GROUP` and the setgid bit from the area, so every path git
+creates under it is in that group. The kernel clears a directory's setgid bit when a caller outside the directory's
+group changes its mode or its access ACL, and the operator is outside `SANDBOX_GROUP`. `clone_privately` therefore
+removes the default ACL alone (`setfacl -k`), which changes neither, and the bit holds while git writes.
+
+**Opened past the gate.** `sandbox_finalize` runs these steps in order:
+
+1. Writes the registry entry, since the lockdown acts only on a registered path. A failed gate rolls it back.
+2. Runs the same secret gate as a claim.
+3. Labels the clone while its root is still owner-only (`relabel_clone`).
+4. Opens the tree with `normalize_clone`: group `rwX` and the ACL the area would have given each path, with every path
+   the gate locked pruned. Its chmods run as the operator, so they clear the setgid bit on each directory they change.
+5. Sets the setgid bits again as root, through the two helpers a claim runs: `ai-tools-setgid` on the work tree's
+   directories, then `ai-tools-setfacl --with-git`, which also normalizes `.git` and regroups an opened path left
+   in another group. They follow step 4 because its chmods would clear the bits again. Both leave an owner-only
+   or secret-named path as it is, so every path the gate locked stays locked.
+6. Reads the tree back with `clone_access_ready`: the root and `.git` carry the setgid bit, and every path with a group
+   permission bit is in the root's group.
+7. Adds the clone's `safe.directory` entry.
+
+A clone that fails step 5, 6 or 7 stays registered and opened, is reported not ready with the commands that finish it,
+and exits 1. A registry line the writer cannot write back refuses the clone ahead of the branch push (`MSG-A5Y2`), since
+the registry write follows the push and the clone. A declined or failed gate, and a label the clone root does not take,
+**fail closed**: the clone stays on disk, private and unregistered, and the resume command is printed. A host
+where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
 through (`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
 not exist there; a module shipped and not loaded, and a reading that cannot be made, keep the stop. A declined or failed
 gate also leaves a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) telling the agent to wait until the lockdown
 runs, with a real `CLAUDE.md` preserved by `git mv` to `CLAUDE.md.bak`. Re-running `projects clone` on the clone path
 resumes `sandbox_finalize`, which removes the guard and restores the original on success. A resume is idempotent:
-the label and `normalize_clone` run while the root is still owner-only (`clone_is_private`), the state the private
-create and a stopped finalize each leave, so a resume over an opened clone re-runs the gate and leaves the tree's modes
-alone, and a directory the operator sealed inside it keeps its mode.
+the label, `normalize_clone` and the root steps run while the root is still owner-only (`clone_is_private`), the state
+the private create and a stopped finalize each leave, so a resume over an opened clone re-runs the gate
+and the read-back and leaves the tree's modes alone, and a directory the operator sealed inside it keeps its mode.
 
 The shared area carries the `ai-ops` ACL entries its layout rows state — read-and-traverse on `/var/opt/ai-tools`, `rwx`
 with a matching default on `sandbox-projects`, written by the layout reconcile over the first state `install.sh`
