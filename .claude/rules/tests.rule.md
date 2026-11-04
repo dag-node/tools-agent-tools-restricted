@@ -871,7 +871,11 @@ that place the gzip reader's tools ahead of it.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text: the notice prints on `live` alone, with a label step or a drift relabel
-pending, and the `live` case reaching the renderer is the control that the extraction found the function.
+pending, and the `live` case reaching the renderer is the control that the extraction found the function. It reads
+`require_open_project_root` out of the same file and drives the owner-only refusal over a table of root modes: each mode
+without a group or other bit refused under the code for a first claim or for a listed project, with exit 1, beside
+a `750` root that passes as the control, a mode the owner-side read could not make passing, and the leftover-directory
+name of `projects create` cleared for that root alone.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `atr admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)

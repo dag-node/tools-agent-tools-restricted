@@ -2851,6 +2851,23 @@ require_claimable_owner() {
         "${why[@]}"
 }
 
+# require_open_project_root <dir> <root-mode> <has-entry>  -- die when <root-mode>, the owner-side read's mode of
+# the project root, has no group or other bit: ai-tools-setgid and ai-tools-setfacl leave an owner-only path as it is
+# (owner-only.lib.sh), so a claim would register the root and grant the sandbox account no access under it. The mode is
+# the operator's decision and its intent is not readable from it, so neither refusal names a command that changes it.
+# <has-entry> is true for a root a registry line names, whose line the refusal keeps; an empty <root-mode> is a reading
+# the owner could not make and passes. A directory projects create made is named by the refusal, so the create's
+# leftover-directory line, which names a claim, is not printed. The consequence is cli.rule.md's (Claim in place).
+require_open_project_root() {
+    local d="$1" mode="$2" has_entry="$3"
+    [[ -n "${mode}" ]] && (( ( 8#${mode} & 077 ) == 0 )) || return 0
+    [[ "${CREATE_LEFT_TREE}" != "${d}" ]] || CREATE_LEFT_TREE=""
+    if [[ "${has_entry}" == true ]]; then
+        die MSG-B5D2 "the project root ${d} is mode ${mode} (owner-only) -- the claim leaves it as it is; no change applied, and no session can start here"
+    fi
+    die MSG-H6J3 "refusing to claim -- ${d} is mode ${mode} (owner-only); a claim leaves an owner-only mode as it is and does not grant the sandbox account access under it, and no session could start here"
+}
+
 # ── The owner-side read: `projects inspect` ────────────────────────────────────────
 # The claim reads a project's tree as the account whose tree it is: it runs this file again as the owner, through
 # run_as_owner (`sudo -u <target> -H` under `--for`, directly otherwise), as `projects inspect`, and reads the record
@@ -3431,6 +3448,11 @@ cmd_project_claim() {
         claim_write_row error directory inspect "${d}" "the tree was not read as ${OWNER_USER} (${INSPECT_FAILURE})"
         claim_end
     fi
+    # Ahead of the re-enable offer, the first step that can write. The mode is the owner-side read's, so a `--for` run
+    # reads it as the target.
+    local has_entry=false
+    { ${listed} || ${reenable}; } && has_entry=true
+    require_open_project_root "${d}" "${root_mode}" "${has_entry}"
 
     # The trust list is read ahead of the re-enable offer, the first step that can write: a claim that cannot read it
     # does not describe its pending steps, and applies none.
@@ -3702,17 +3724,6 @@ cmd_project_claim() {
     fi
 
     find_blocking_ancestors "${d}"
-
-    # The project root being owner-only is find_blocking_ancestors's problem one level down: ai-tools-setfacl honours
-    # a 0600/0700 mode and skips the path, so every later step still succeeds and the claim closes with its ✓ while
-    # the sandbox account cannot enter the tree at all. Stated here, before the confirm, rather than left
-    # to the helper's skip count afterwards; the mode is the owner-side read's, and a mode it could not read does
-    # not raise the notice.
-    if [[ -n "${root_mode}" ]] && (( ( 8#${root_mode} & 077 ) == 0 )); then
-        headline_warn "NOTICE: this project directory is owner-only" \
-            "${d} is mode ${root_mode}, which keeps it out of the sandbox account's reach: the claim honours that mode and grants nothing on it."
-        say ""
-    fi
 
     # A claimed project can still sit under a non-traversable parent (a later chmod 700 on an ancestor), and the grant
     # that closes that is a pending step like the others -- it takes the gate -- so a project with one takes
@@ -6726,7 +6737,7 @@ cmd_project_list() {
         say "  ${C_YEL}the projects verbs other than this list refuse until it is. Migrate it with:${C_RST}"
         say "      ${C_BOLD}atr admin system post-upgrade${C_RST}"
     fi
-    local raw entry excl kind safe sd shown=0
+    local raw entry excl kind safe sd row_mode shown=0
     local -a cleanup=()
 
     # _is_labelled <dir>  -- 0 when SELinux is active and <dir> carries ai_tools_project_t.
@@ -6767,6 +6778,14 @@ cmd_project_list() {
         [[ -z "${FOR_OPERATOR}" ]] || cleanup+=( "      ${FOR_OPERATOR}'s own atr projects reads it" )
         return 0
     }
+    # _read_owner_only_mode <dir>  -- print the mode of the directory <dir> names and return 0 when it has no group
+    # or other bit, as the invoker reads it; return 1 for any other mode and for a mode the invoker cannot read.
+    _read_owner_only_mode() {
+        local owner_only_mode
+        owner_only_mode="$(stat -L -c '%a' -- "$1" 2>/dev/null)" || return 1
+        [[ "${owner_only_mode}" =~ ^[0-7]{1,4}$ ]] && (( ( 8#${owner_only_mode} & 077 ) == 0 )) || return 1
+        printf '%s\n' "${owner_only_mode}"
+    }
     # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
     # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
     # the removal command deletes.
@@ -6793,6 +6812,9 @@ cmd_project_list() {
         [[ "${k}" == project ]] || return 0            # a sandbox clone takes the clone kind of `projects remove`
         # Not fully claimed: agent has no group access, the ACL is missing, or (SELinux active) the tree is unlabelled.
         # Read from the same read_project_state tokens the claim flow uses.
+        # An owner-only root is annotated on its row: the claim leaves that mode as it is, so a claim command is not
+        # a remedy for it.
+        _read_owner_only_mode "${e}" >/dev/null && return 0
         local listed safedir filemode owngap acl labelled git
         IFS=' ' read -r listed safedir filemode owngap acl labelled git < <(read_project_state "${e}")
         if [[ "${owngap}" == true || "${acl}" == true || "${labelled}" == false ]]; then
@@ -6842,7 +6864,12 @@ cmd_project_list() {
         esac
         _read_safedir_column "${entry}"
         read_path_class "$(resolve_entry_path "${entry}")"
-        printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
+        if row_mode="$(_read_owner_only_mode "${entry}")"; then
+            printf '  %-8s %-50s %s  %s\n' "${kind}" "${entry}" "${safe}" \
+                "${C_YEL}mode ${row_mode} (owner-only)${C_RST} ${C_DIM}-- no session can start here${C_RST}"
+        else
+            printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
+        fi
         # A listed project under a `%`, a `!` or a glob line is still this operator's entry, and no session reaches it
         # while that line stands.
         [[ "${CLASS_STATE}" != enabled || "${CLASS_BLOCKED}" == - ]] \

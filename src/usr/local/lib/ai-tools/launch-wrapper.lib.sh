@@ -577,11 +577,18 @@ _ai_tools_launch_wrapper__is_project_labelled() {
 #                 so the claim runs it via sudo. It relabels in place, so no clone is needed.
 #   safe.dir   -- cwd absent from the sandbox account's git safe.directory. git refuses to operate ("dubious
 #                 ownership"). Non-fatal; only git, no ownership/label change.
+# A cwd whose own mode has no group or other bit is refused ahead of the three, without the claim: the claim leaves
+# an owner-only mode as it is.
 ai_tools_launch_wrapper__guard_claim() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" cwd="${AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR}"
     local own_gap=false label_gap=false safe_gap=false cwd_gid cwd_mode claim_default claim_ok
     cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
     cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
+    # An owner-only directory is the operator's mode, which a claim leaves as it is, so the claim is not offered.
+    # An empty reading of the mode leaves the cwd to the ownership, label and safe.directory gaps.
+    if [[ "${cwd_mode}" =~ ^[0-7]{1,4}$ ]] && (( (8#${cwd_mode} & 077) == 0 )); then
+        ai_tools_launch_wrapper__die MSG-H2E2 "refusing to launch -- ${cwd} is mode ${cwd_mode} (owner-only), and the sandbox account cannot enter it"
+    fi
     if [[ "${cwd_gid}" != "${SANDBOX_GROUP}" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
         own_gap=true
     fi

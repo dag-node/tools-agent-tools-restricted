@@ -212,7 +212,12 @@ A claim refuses, before it writes anything:
 - a path an excluded line (`!`) names, since an excluded path is not a project;
 - a path inside a disabled project, or under an excluded or glob line, since
   the steps that grant the agent access do not act there. The refusal shows
-  the line; for a `%` line it names the `atr projects enable` that lifts it.
+  the line; for a `%` line it names the `atr projects enable` that lifts it;
+- a directory whose own mode has no group or other bit, such as `700`, `600`
+  or `500`. The claim leaves an owner-only mode as it is, so the agent does not
+  get access under it and no session could start there. The mode is yours to
+  keep or change. On a project already listed, the refusal keeps its line,
+  and `atr projects list` marks the row with the mode.
 
 A directory with registered projects under it is claimed as one project,
 and the Review block names the projects it holds.

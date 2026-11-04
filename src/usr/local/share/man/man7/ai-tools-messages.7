@@ -70,6 +70,10 @@ could not add ${dir} to ${FOR_OPERATOR}'s project registry \-\- it is not regist
 ERROR.
 ai\-tools: \-\-for needs an operator name
 .TP
+.B MSG-B5D2
+ERROR.
+the project root ${d} is mode ${mode} (owner\-only) \-\- the claim leaves it as it is; no change applied, and no session can start here
+.TP
 .B MSG-B5K3
 ERROR.
 \-\-for cannot be combined with \-\-force
@@ -169,6 +173,10 @@ providers list takes no arguments
 .B MSG-H3F6
 ERROR.
 the parent directory is not writable by ${OWNER_USER}: ${rm_parent}
+.TP
+.B MSG-H6J3
+ERROR.
+refusing to claim \-\- ${d} is mode ${mode} (owner\-only); a claim leaves an owner\-only mode as it is and does not grant the sandbox account access under it, and no session could start here
 .TP
 .B MSG-H6R3
 ERROR.
@@ -2497,6 +2505,10 @@ resolved path '${AI_TOOLS_LAUNCH_WRAPPER__EXEC}' contains parent\-directory refe
 .B MSG-G9H2
 ERROR.
 the ${agent} launch hook cannot be loaded \-\- refusing to start
+.TP
+.B MSG-H2E2
+ERROR.
+refusing to launch \-\- ${cwd} is mode ${cwd_mode} (owner\-only), and the sandbox account cannot enter it
 .TP
 .B MSG-H4E2
 ERROR.

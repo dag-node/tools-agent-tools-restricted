@@ -339,6 +339,9 @@ line with the command that finishes it, and the claim exits 5.
 On a disabled project the claim offers the re-enable first, defaulting to no.
 It refuses an excluded path, and a path a disabled, excluded or glob line
 covers.
+It refuses a directory whose own mode has no group or other bit, such as 700,
+600 or 500, before it writes anything: the claim leaves an owner-only mode as it is,
+so no session could start there. On a listed project the refusal keeps its registry line.
 A directory with projects under it is claimed as one, and the review names
 the projects it holds.
 .RS

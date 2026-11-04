@@ -448,6 +448,32 @@ else
     fail "the agent changed the permissions of a file the operator holds: $(getfacl -p -c "${acl_file}" 2>/dev/null | tr '\n' ' ') $(stat -c '%a' "${acl_file}")"
 fi
 
+# The project root's mode, from the agent's side: the boundary half of the claim's owner-only refusal and the launch
+# wrapper's (unit/claim-notice.sh and integration/cli-flags.sh are the runtime half). The claim and the wrapper read
+# the root's mode to decide whether a session can start there, and chmod(2) takes the directory's owner, so the agent
+# cannot seal a project root against a re-claim or open one the operator sealed. Both directions are tried on a root
+# the operator holds, in the sandbox group with the setgid bit, as a claim leaves it, and read back afterwards.
+claimed_root="${TESTDIR}/claimed"
+root_before="$(stat -c '%a' "${claimed_root}")"
+if runuser -u "${SANDBOX_USER}" -- test -x "${claimed_root}" 2>/dev/null; then
+    pass "control: the agent can enter the claimed root"
+else
+    fail "control: the agent cannot enter the claimed root fixture -- the probes below are not evidence"
+fi
+runuser -u "${SANDBOX_USER}" -- chmod 0700 "${claimed_root}" >/dev/null 2>&1 || true
+root_after_seal="$(stat -c '%a' "${claimed_root}")"
+# A numeric chmod keeps a directory's setgid bit, so the sealed mode is read back rather than assumed.
+chmod 0700 "${claimed_root}"
+root_sealed="$(stat -c '%a' "${claimed_root}")"
+runuser -u "${SANDBOX_USER}" -- chmod 2770 "${claimed_root}" >/dev/null 2>&1 || true
+root_after_open="$(stat -c '%a' "${claimed_root}")"
+chmod "${root_before}" "${claimed_root}"
+if [[ "${root_after_seal}" == "${root_before}" && "${root_after_open}" == "${root_sealed}" ]]; then
+    pass "the agent cannot change the mode of a project root the operator holds, to owner-only or out of it"
+else
+    fail "the agent changed a project root's mode: ${root_before} -> ${root_after_seal} (seal), ${root_sealed} -> ${root_after_open} (open)"
+fi
+
 # ai-tools-allowlist edits an operator's allowed-projects -- the launch gate deciding where a session may start.
 # Reaching it would let the agent approve its own projects, so this is the boundary half of the pair whose runtime half
 # (each of the helper's gates fires) is in tests/unit/allowlist-helper.sh. The helper is 750 root:root inside a 750

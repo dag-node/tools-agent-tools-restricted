@@ -624,13 +624,13 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "ai-tools.projects.create seeded owner-only path(s) the claim will skip:${_sealed}"
     fi
-    # Matched on the NOTICE's own title, not on the phrase "owner-only": the create prints that phrase itself when it
+    # Matched on the refusal's codes, not on the phrase "owner-only": the create prints that phrase itself when it
     # explains the modes it set on a umask-077 host, so a looser grep asserts the opposite of what it means on exactly
     # the hosts this case exists for.
-    if ! grep -qi 'this project directory is owner-only' <<<"${out}"; then
-        pass "the claim does not report the new project as out of the agent's reach"
+    if ! grep -qxE 'MSG-(H6J3|B5D2)' <<<"${out}"; then
+        pass "the claim does not refuse the new project as owner-only"
     else
-        fail "the created project was claimed as owner-only: $(brief "${out}" 'owner-only')"
+        fail "the created project was refused as owner-only: $(brief "${out}" 'owner-only')"
     fi
 
     # (6d) ai-tools.projects.remove.inplace deletes, so every assertion here is that it did NOT. Its authorization is
