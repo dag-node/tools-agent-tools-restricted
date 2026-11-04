@@ -384,7 +384,7 @@ the secret/exclusion/skip-list skips, and -- for `-lockdown` -- the proactive sw
 user-owned** secrets (files `600`, dirs `700`, `<you>:<you>`) which the reactive `-chown` never reaches, plus its seal
 pass over the paths sealed by *mode* rather than by name — held to leave the target directory itself alone, on a fixture
 shaped like a fresh sandbox clone, whose owner-only root the seal would otherwise strip of the group and setgid bit
-`normalize_clone` does not restore — and its refusal to run as the sandbox account. `chown.sh` also hands back a file
+the clone area gave it — and its refusal to run as the sandbox account. `chown.sh` also hands back a file
 and a directory typed `ai_tools_tmp_t`, as a move from `/tmp` leaves them, and asserts the helper keeps their type,
 and it reads the pin's open line for the exit 4 a refused open takes, since no fixture a root run arranges reaches
 that branch. The seal cases run across three files, because the same guarantee has three consumers: `owner-only.sh` pins
@@ -693,7 +693,13 @@ difference while dropping a difference in the SELinux user alone, an owner-only 
 read a stray line among the records as an incomplete scan that still reports the drift it read. Its last section drives
 the two verifiers the claim runs after its Apply block over a stubbed `restorecon`, and pins that a batch which fails is
 never read as `fixed`. `relabel_clone` is driven over the host readings with `restorecon` stubbed: the one state
-the launch proceeds through creates the clone unlabelled, and every other keeps the stop.
+the launch proceeds through creates the clone unlabelled, and every other keeps the stop. The clone's group is driven
+as the projects user outside `SANDBOX_GROUP`, over a clone area of the real one's owner, group and mode:
+through `clone_privately`, `normalize_clone`, the two root helpers `sandbox_finalize` runs, and a ref and a file written
+afterwards, with each stage's mode and owner per path printed as `note` lines, so a run before a change and one after it
+compare as a table. Its control is the operator's `setfacl -b` on a fresh root, which must clear the setgid bit
+for the fixture to show the defect, and the last check reads the files, the ref and the locked secret as the sandbox
+account.
 
 `project-permissions.sh` pins the checks that scan and the claim's verification rest on, unprivileged
 and against the checkout: every way `restorecon`'s output can be incomplete is asserted to read unknown, not `match`,
