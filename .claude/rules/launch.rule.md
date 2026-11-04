@@ -93,9 +93,10 @@ what the security model rests on, and every one of them refuses toward *less* ac
    under that file, and a match the library does not make -- the matcher returning a status other than its 0 and 1 --
    refuses it too (`MSG-T6U6`). The read and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3),
    and `ai-tools-chown` makes the same ones, so the launch gate and the ownership handback agree on what is in-project.
-8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only. A CWD whose own mode
-   has no group or other bit is refused ahead of them (`MSG-H2E2`), without the claim offered, since a claim leaves
-   an owner-only mode as it is ([cli](cli.rule.md)); a mode the operator cannot read takes the gaps.
+   A CWD whose own mode has no group or other bit is refused next, listed or not (`MSG-H2E2`), ahead of the setup menu
+   and the claim guard, since a claim leaves an owner-only mode as it is ([cli](cli.rule.md)) and neither screen then
+   offers one; a mode the operator cannot read leaves the CWD to the screens.
+8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
 The agent's launch hook then appends its arguments, and the launch ends
 in **`exec sudo -u SANDBOX_USER -g SANDBOX_GROUP -- /opt/ai-tools/bin/ai-tools-run`**, carrying exactly

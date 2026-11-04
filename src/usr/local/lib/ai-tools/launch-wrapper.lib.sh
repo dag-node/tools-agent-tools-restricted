@@ -403,8 +403,9 @@ ai_tools_launch_wrapper__print_and_exit() {
 # picks in ~/.config/ai-tools -- `~/.config/ai-tools/project-registry`, or `~/.config/ai-tools/allowed-projects` until
 # it is migrated -- read through the shared grammar; an excluded-path (`!`) or disabled-project (`%`) line overrides
 # an allow, exactly as in ai-tools-chown, so a line means the same thing in the launch gate as it does in the ownership
-# hand-back. A CWD that is not approved draws the setup menu (create a sandbox clone, claim here, cancel) on a terminal,
-# and is refused without one. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
+# hand-back. A CWD at an owner-only mode is refused next, listed or not. A CWD that is not approved draws the setup
+# menu (create a sandbox clone, claim here, cancel) on a terminal, and is refused without one. AI_TOOLS_ALLOWLIST is not
+# read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind covering
     IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
@@ -487,6 +488,16 @@ ai_tools_launch_wrapper__gate_project() {
             ai_tools_launch_wrapper__die MSG-W2P3 "excluded by a line in your project registry: ${cwd}" "${remedy_lines[@]}"
         fi
     done
+
+    # A directory whose own mode has no group or other bit is refused whether or not the registry lists it, ahead of the
+    # setup menu and the claim guard: the mode is the operator's, a claim leaves an owner-only mode as it is, and the
+    # sandbox account cannot enter the directory, so neither screen offers a claim that would be refused. A mode stat
+    # does not return leaves the directory to the screens.
+    local cwd_mode
+    cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
+    if [[ "${cwd_mode}" =~ ^[0-7]{1,4}$ ]] && (( (8#${cwd_mode} & 077) == 0 )); then
+        ai_tools_launch_wrapper__die MSG-H2E2 "refusing to launch -- ${cwd} is mode ${cwd_mode} (owner-only), and the sandbox account cannot enter it"
+    fi
 
     local approved=false
     if [[ "${#allowed_directories[@]}" -gt 0 ]]; then
@@ -577,18 +588,13 @@ _ai_tools_launch_wrapper__is_project_labelled() {
 #                 so the claim runs it via sudo. It relabels in place, so no clone is needed.
 #   safe.dir   -- cwd absent from the sandbox account's git safe.directory. git refuses to operate ("dubious
 #                 ownership"). Non-fatal; only git, no ownership/label change.
-# A cwd whose own mode has no group or other bit is refused ahead of the three, without the claim: the claim leaves
-# an owner-only mode as it is.
+# A cwd whose own mode has no group or other bit does not reach this guard: ai_tools_launch_wrapper__gate_project
+# refuses it first.
 ai_tools_launch_wrapper__guard_claim() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" cwd="${AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR}"
     local own_gap=false label_gap=false safe_gap=false cwd_gid cwd_mode claim_default claim_ok
     cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
     cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
-    # An owner-only directory is the operator's mode, which a claim leaves as it is, so the claim is not offered.
-    # An empty reading of the mode leaves the cwd to the ownership, label and safe.directory gaps.
-    if [[ "${cwd_mode}" =~ ^[0-7]{1,4}$ ]] && (( (8#${cwd_mode} & 077) == 0 )); then
-        ai_tools_launch_wrapper__die MSG-H2E2 "refusing to launch -- ${cwd} is mode ${cwd_mode} (owner-only), and the sandbox account cannot enter it"
-    fi
     if [[ "${cwd_gid}" != "${SANDBOX_GROUP}" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
         own_gap=true
     fi
