@@ -551,15 +551,17 @@ record directories, so the label line under each pin reads from a fixture too â€
 the opposite of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its own,
 as a verification that succeeded. So the tier line is asserted as a control, then the mark replacing it and counting
 toward the exit status, then a mark saying anything but `stale` leaving the line as it was â€” the record grammar
-deciding, rather than the file's presence. A further section drives the Version section's Node line against fixture
-links: the version a link points into is the one named, two links naming different versions are reported as such,
-and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole, the host-reading
-sections stubbed to a known answer, over the exit fold `ai-tools-records(5)` states: a section that read a fault exits
-4, the service registry's readers removed after the CLI loaded them exits 5 under its code with the later sections still
-printed, a section returning its unreadable status exits 5, and a fault beside an unreadable reading exits 5. Its last
-section drives the Caches section over fixture state files: each verdict the library counts returns 1 with the library's
-remedy under the line, an overdue cache returns 0 with the line its recorded reason selects, and an empty file
-and a value forged with a control byte read as `?` and are not counted.
+deciding, rather than the file's presence. The pin reader and the label-record reader are each removed after the CLI
+loaded them, through `cmd_status`, which must exit 5 under that line's code with the later sections still printed,
+beside the same run with both readers as the control. A further section drives the Version section's Node line
+against fixture links: the version a link points into is the one named, two links naming different versions are reported
+as such, and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole,
+the host-reading sections stubbed to a known answer, over the exit fold `ai-tools-records(5)` states: a section
+that read a fault exits 4, the service registry's readers removed after the CLI loaded them exits 5 under its code
+with the later sections still printed, a section returning its unreadable status exits 5, and a fault beside
+an unreadable reading exits 5. Its last section drives the Caches section over fixture state files: each verdict
+the library counts returns 1 with the library's remedy under the line, an overdue cache returns 0 with the line its
+recorded reason selects, and an empty file and a value forged with a control byte read as `?` and are not counted.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is

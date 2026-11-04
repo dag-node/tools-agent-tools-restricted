@@ -142,6 +142,10 @@ not a configured ai\-tools operator: ${FOR_OPERATOR} \-\- enrol it first with:
 NOTICE.
 label\-gone
 .TP
+.B MSG-E5C3
+WARNING.
+the provider or entrypoint library (${providers_lib}, ${verify_lib}) did not load \-\- no entrypoint pin was read; reinstall the ai\-tools package
+.TP
 .B MSG-E8W4
 ERROR.
 could not read ${FOR_OPERATOR}'s project registry \-\- nothing changed
@@ -237,6 +241,10 @@ projects $1 needs the directory it acts on; it does not take the current directo
 .B MSG-K7K4
 ERROR.
 unknown projects inspect option: $(ai_tools_log__sanitize "${a}")
+.TP
+.B MSG-K8K4
+WARNING.
+the entrypoint library did not load its label\-record reader \-\- the labelling of ${agent} was not read; reinstall the ai\-tools package
 .TP
 .B MSG-K8R8
 ERROR.

@@ -390,8 +390,8 @@ being the authoritative one.
   otherwise. Each section returns 1 for a fault and `STATUS_UNREADABLE` for a reading it could not make,
   and `status_fold` turns the two into the fold, so the sections stay free of the library and drivable on their own.
   What exits 5 is a library base ships that did not load — the service registry, the provider resolver, the toolchain
-  readers — a broken install, reported under a code and still followed by every later section, so the page carries each
-  reading it could make beside the one it could not.
+  readers, the entrypoint readers — a broken install, reported under a code and still followed by every later section,
+  so the page carries each reading it could make beside the one it could not.
 
   **Both halves of the entrypoint reconciliation are reported, from the records it writes.** Neither the binary nor its
   label can be inspected from this account, so each half leaves a root-owned record where the operator can read it.

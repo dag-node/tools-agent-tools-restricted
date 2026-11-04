@@ -5975,16 +5975,17 @@ status_sandbox_unit_commands() {
 # through the SAME accessors -- charset-clamped fields and one age implementation - rather than a second reader
 # that could drift. Its path comes from entrypoint-verify.lib.sh, never hardcoded.
 #
-# Returns non-zero only when an unpinned entrypoint is actionable, which is exactly when the operator has required
-# verification: everywhere else unpinned is a legitimate state (an air-gapped host, a release the vendor published no
-# manifest for) and must not make a healthy host alarm, the same rule the unqueryable units follow. A pin this account
-# has no read on is reported as unknown, which ai_tools_services__is_attention_needed does not count as a fault:
-# `status` stays open to a non-operator, whom the state directory's mode keeps out. status_path_order -- where THIS
-# shell finds each enabled agent's launcher. The one reading this report can make for free and no other vantage can make
-# at all: the CLI runs in the operator's own login shell, so `command -v claude` resolves exactly what typing `claude`
-# would run. A launcher resolving to a file other than the wrapper starts UNCONFINED, as the operator, so it counts
-# toward the report's exit status and names the command that repairs it. What each state means is launch.rule.md's PATH
-# ordering section; what this report says about each is cli.rule.md.
+# Returns STATUS_UNREADABLE when the provider or entrypoint library did not load, and 1 for a stale pin, a recorded
+# labelling failure, and an unpinned entrypoint where the operator has required verification: everywhere else unpinned
+# is a legitimate state (an air-gapped host, a release the vendor published no manifest for) and must not make a healthy
+# host alarm, the same rule the unqueryable units follow. A pin this account has no read on is reported as unknown,
+# which ai_tools_services__is_attention_needed does not count as a fault: `status` stays open to a non-operator, whom
+# the state directory's mode keeps out. status_path_order -- where THIS shell finds each enabled agent's launcher. The
+# one reading this report can make for free and no other vantage can make at all: the CLI runs in the operator's own
+# login shell, so `command -v claude` resolves exactly what typing `claude` would run. A launcher resolving to a file
+# other than the wrapper starts UNCONFINED, as the operator, so it counts toward the report's exit status and names the
+# command that repairs it. What each state means is launch.rule.md's PATH ordering section; what this report says about
+# each is cli.rule.md.
 #
 # Best-effort like the rest of this report: without the library or the provider resolver this vantage has no launcher
 # to resolve, so the section is omitted rather than guessed at.
@@ -6040,15 +6041,23 @@ status_entrypoint_pins() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/entrypoint-verify.lib.sh
     source "${verify_lib}" 2>/dev/null || true
-    declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 || return 0
-    declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 || return 0
+    # Both libraries ship with base, so one that did not load is a broken install: a reading this section promises and
+    # could not make. The label-record reader is status_entrypoint_label's to report, and the service registry's absence
+    # the Services section's (MSG-X5Z8).
+    if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1; then
+        section "Entrypoint verification"
+        warn MSG-E5C3 "the provider or entrypoint library (${providers_lib}, ${verify_lib}) did not load -- no entrypoint pin was read; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1 || return 0
 
     local strict=no
     declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
         && ai_tools_entrypoint_verify__is_required && strict=yes
 
-    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0
+    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0 unreadable=0 label_status
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
@@ -6104,9 +6113,13 @@ status_entrypoint_pins() {
                     "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
             fi
         fi
-        status_entrypoint_label "${agent}" || mislabelled=$(( mislabelled + 1 ))
+        label_status=0
+        status_entrypoint_label "${agent}" || label_status=$?
+        if (( label_status == STATUS_UNREADABLE )); then unreadable=$(( unreadable + 1 ))
+        elif (( label_status != 0 )); then mislabelled=$(( mislabelled + 1 )); fi
     done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
 
+    [[ "${unreadable}" -gt 0 ]] && return "${STATUS_UNREADABLE}"
     [[ "${stale}" -gt 0 ]] && return 1
     [[ "${mislabelled}" -gt 0 ]] && return 1
     [[ "${strict}" == yes && "${blocking}" -gt 0 ]] && return 1
@@ -6247,10 +6260,14 @@ status_entrypoint_stale() {
 # which reads the labels as root, and the service start that re-runs the work and clears the unit's own recorded failure
 # with it.
 #
-# Returns non-zero only for a recorded failure, which is the one state that stops a launch.
+# Returns 1 for a recorded failure, which is the one state that stops a launch, and STATUS_UNREADABLE when
+# entrypoint-verify.lib.sh's record-path reader is not defined, a library base ships that did not load.
 status_entrypoint_label() {
     local agent="$1" record result reason age
-    declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; then
+        warn MSG-K8K4 "the entrypoint library did not load its label-record reader -- the labelling of ${agent} was not read; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
     result="$(ai_tools_services__read_stamp_field "${record}" RESULT)"
     age="$(status_fmt_age "$(ai_tools_services__read_stamp_age "${record}" LABELLED)")"
