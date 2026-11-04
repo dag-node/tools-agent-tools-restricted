@@ -831,36 +831,38 @@ fi
 export npm_config_ignore_scripts=true
 nvm install "${NODE_MAJOR}"
 nvm alias default "${NODE_MAJOR}"
-# Install each enabled agent's npm package. npm 11.5+ gates preinstall/install/postinstall
-# behind an allowScripts allowlist, so a bare `npm install -g` BLOCKS the postinstall --
-# @anthropic-ai/claude-code copies its platform-native binary over bin/claude.exe there (node
-# install.cjs); blocked, the JS launcher installs but exits "native binary not installed" at
-# every launch. npm re-scans the WHOLE global tree on each install, so the allowlist must cover
-# the full set on every call (mirrors nvm-update.sh's install_packages) -- scoped to the named
-# agents, never `--dangerously-allow-all-scripts`. With no agents enabled, Node is provisioned bare.
+# npm 11.5+ gates preinstall/install/postinstall behind an allowScripts allowlist, so a bare `npm install -g` BLOCKS
+# the postinstall -- @anthropic-ai/claude-code copies its platform-native binary over bin/claude.exe there (node
+# install.cjs); blocked, the JS launcher installs but exits "native binary not installed" at every launch. npm re-scans
+# the WHOLE global tree on each install, so the allowlist covers the full managed set on every call -- npm and the named
+# agents, as nvm-update.sh's install_packages passes it -- and never `--dangerously-allow-all-scripts`.
 read -ra agent_packages <<< "${AGENT_PACKAGES}"
-if [ "${#agent_packages[@]}" -gt 0 ]; then
-    allow_scripts="$(IFS=,; printf '%s' "${agent_packages[*]}")"
-    # The cache first. It is content-addressed with no eviction, so it holds every release the nightly runs
-    # downloaded, and an install that ran out of space leaves an index entry whose content was never written, which
-    # the next fetch reports as ENOENT. An install downloads what it needs again. The removal goes through the remover
-    # every path that empties a cache under this home takes (cache-cleanup.lib.sh), which journals itself; a library
-    # that did not load leaves the cache in place.
-    if . "${CACHE_CLEANUP_LIB}" 2>/dev/null && declare -F ai_tools_cache_cleanup__remove_group >/dev/null 2>&1; then
-        cache_record="$(AI_TOOLS_LOG_TAG=ai-tools-bootstrap \
-            ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache)" || true
-        IFS=$'\t' read -r _ cache_result cache_bytes _ _ <<< "${cache_record}"
-        printf "npm's cache: %s (%s)\n" "${cache_result}" "$(ai_tools_cache_cleanup__format_bytes "${cache_bytes}")"
-        ai_tools_cache_cleanup__write_state "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" \
-                "${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}" "${cache_record}" \
-            || printf "npm's cache: the removal was not recorded in %s\n" "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}"
-    else
-        printf "npm's cache: left in place -- %s did not load\n" "${CACHE_CLEANUP_LIB}"
-    fi
-    for agent_package in "${agent_packages[@]}"; do
-        npm install -g --allow-scripts="${allow_scripts}" "${agent_package}"
-    done
+allow_scripts="$(IFS=,; printf '%s' "npm${agent_packages[*]:+,}${agent_packages[*]}")"
+# The cache first. It is content-addressed with no eviction, so it holds every release the nightly runs downloaded,
+# and an install that ran out of space leaves an index entry whose content was never written, which the next fetch
+# reports as ENOENT. An install downloads what it needs again. The removal goes through the remover every path that
+# empties a cache under this home takes (cache-cleanup.lib.sh), which journals itself; a library that did not load
+# leaves the cache in place.
+if . "${CACHE_CLEANUP_LIB}" 2>/dev/null && declare -F ai_tools_cache_cleanup__remove_group >/dev/null 2>&1; then
+    cache_record="$(AI_TOOLS_LOG_TAG=ai-tools-bootstrap \
+        ai_tools_cache_cleanup__remove_group "${AI_TOOLS_CACHE_CLEANUP__SANDBOX_HOME}" npm-cache)" || true
+    IFS=$'\t' read -r _ cache_result cache_bytes _ _ <<< "${cache_record}"
+    printf "npm's cache: %s (%s)\n" "${cache_result}" "$(ai_tools_cache_cleanup__format_bytes "${cache_bytes}")"
+    ai_tools_cache_cleanup__write_state "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}" \
+            "${AI_TOOLS_CACHE_CLEANUP__LAUNCH_BOUND_SECONDS}" "${cache_record}" \
+        || printf "npm's cache: the removal was not recorded in %s\n" "${AI_TOOLS_CACHE_CLEANUP__STATE_FILE}"
+else
+    printf "npm's cache: left in place -- %s did not load\n" "${CACHE_CLEANUP_LIB}"
 fi
+# npm itself next, as nvm-update updates it first on every run, so the agents install and the signature check (2a)
+# audits with the npm the nightly run maintains rather than the one bundled with the Node release. An update that
+# fails leaves the bundled npm, which installs and audits too.
+npm update -g --allow-scripts="${allow_scripts}" npm \
+    || printf 'npm update failed -- keeping the npm bundled with Node %s\n' "$(node --version 2>/dev/null)"
+# Each enabled agent's package. With no agents enabled, Node and npm are provisioned bare.
+for agent_package in "${agent_packages[@]}"; do
+    npm install -g --allow-scripts="${allow_scripts}" "${agent_package}"
+done
 EOSU
 
 # 2a. Verify the installed toolchain's npm registry signatures BEFORE any of its install scripts

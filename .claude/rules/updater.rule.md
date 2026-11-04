@@ -59,18 +59,19 @@ a download is applied — the account and its home, the launcher links, the rela
 the prompts — and the nvm, Node and npm install is skipped over a toolchain that is already installed, or ends the run
 under `MSG-R5Z3` where none is, since the download is the one step this command cannot make without the network. It then
 creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`,
-default 22), and each enabled agent's npm package as `SANDBOX_USER` (the enabled set resolved
-via [providers](providers.rule.md)), re-links each versioned launcher at the target its manifest declares (see [The
-versioned launcher and its declared target](#the-versioned-launcher-and-its-declared-target)), points
-`/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly installed entrypoint
-(`ai-tools-relabel-agent`, gated on that helper being deployed, so the first launch after a fresh provision is confined
-without a manual `atr admin system entrypoints relabel`), and captures the initial control plane in a root-private git
-repo. It is the one network step, so it is an operator command rather than an RPM scriptlet (which must succeed
-offline). It is idempotent: an existing account, nvm install, or Node version is reused. It enables `SANDBOX_USER`
-linger and the `nvm-update.timer` in that instance (best-effort), so the maintenance schedule is live once the toolchain
-exists. Root starts the timer over the machine transport (`systemctl --user -M SANDBOX_USER@.host`), the route
-the system bus authorizes for root; a `sudo -u` call on the account's own bus is refused there even while the manager is
-healthy ([cli](cli.rule.md)).
+default 22), then updates npm, as `nvm-update` does first on every run, so the agents install and the signature check
+audits with the npm the updater maintains rather than the one bundled with Node, then each enabled agent's npm package
+as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each versioned launcher
+at the target its manifest declares (see [The versioned launcher and its declared
+target](#the-versioned-launcher-and-its-declared-target)), points `/opt/ai-tools/bin/<launcher>` at each versioned
+binary, relabels the freshly installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed,
+so the first launch after a fresh provision is confined without a manual `atr admin system entrypoints relabel`),
+and captures the initial control plane in a root-private git repo. It is the one network step, so it is an operator
+command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an existing account, nvm install,
+or Node version is reused. It enables `SANDBOX_USER` linger and the `nvm-update.timer` in that instance (best-effort),
+so the maintenance schedule is live once the toolchain exists. Root starts the timer over the machine transport
+(`systemctl --user -M SANDBOX_USER@.host`), the route the system bus authorizes for root; a `sudo -u` call
+on the account's own bus is refused there even while the manager is healthy ([cli](cli.rule.md)).
 
 **It offers the entrypoint requirement where confinement is in force** (`offer_launch_requirements`). On a host
 where SELinux is enforcing and the `ai_tools` module is loaded, it asks once, through `ai_tools_msg__confirm` defaulting
@@ -825,10 +826,17 @@ as a fail-closed backstop. The pure decision `ai_tools_npm_verify__evaluate_audi
 `confinement.lib.sh`'s pure verdict. That verdict parses its JSON with the host's `/usr/bin/python3` in isolated mode,
 so it does not execute any file of the toolchain and the root-run test drives it directly ([tests](tests.rule.md)).
 
-An invalid signature is reported with the packages that failed and, for each of the first 20, npm's own `code`, `keyid`
-and `integrity`, the inputs npm checked, so the journal holds what a reader compares with the registry's keys endpoint
-and the package's published integrity. Each field passes the printable-ASCII allowlist without the space, capped at 160
-characters, since the audit JSON is the sandbox account's to write.
+An invalid signature is reported with the packages that failed and, for each of the first 20, npm's own `code`, `keyid`,
+`integrity` and `message`, the inputs npm checked and its account of the failure, so the journal holds what a reader
+compares with the registry's keys endpoint and the package's published integrity. Each field passes the printable-ASCII
+allowlist without the space, capped at 160 characters, since the audit JSON is the sandbox account's to write;
+the message keeps the space, closes the line, and is quoted with every quote inside it replaced.
+
+**An invalid signature is audited once more** after a pause, since a registry's answer can be inconsistent for a moment
+while the installed tree is not, and both audits are reported. Only a second verified result clears the first: it means
+every installed package verified against the registry's key, which a tampered tarball does not. Every other second
+answer keeps the invalid verdict, so an audit that cannot run the second time does not move a tamper to unable
+to verify.
 
 The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the install scripts, the prune
 and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired
