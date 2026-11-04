@@ -56,10 +56,12 @@ chmod -R 0755 "${home}" "${approved}" "${sibling}" "${disabled_dir}" "${unapprov
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${sibling}" "${disabled_dir}" "${unapproved}"
 
 # allowlist <line>... : the fixture registry, the format marker then one entry per argument; no argument removes it.
+# Each write sets the file's mode, since `>` keeps the mode of a file that exists and the MSG-X4N6 case leaves it 000.
 allowlist() {
     if [[ $# -eq 0 ]]; then rm -f "${allowlist}"; return; fi
     printf '%s\n' "# ai-tools-project-registry-format: 1.0" "$@" > "${allowlist}"
     chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
+    chmod 0600 "${allowlist}"
 }
 # legacy <line>... : the allowed-projects an earlier release wrote, one entry per argument and no marker; no argument
 # removes it. While it exists the wrapper reads it in place of the registry.
