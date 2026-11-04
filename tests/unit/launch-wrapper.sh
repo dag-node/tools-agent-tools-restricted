@@ -15,7 +15,8 @@
 # with the migration named beside it, and an allowlisted protected directory are refused, each with its own code;
 # a legacy allowed-projects is read while it exists beside project-registry; an approved directory passes, reached
 # through a symlink too, since the CWD is canonicalized first), the claim guard (an approved directory the sandbox group
-# does not own is refused without a terminal), and the exec (refused when the gates did not run). It closes
+# does not own is refused without a terminal, and one at an owner-only mode is refused without the claim offered),
+# and the exec (refused when the gates did not run). It closes
 # with the order: the gate runner answers a non-operator before it reads the allowlist.
 #
 # The library reads the allowlist off ${HOME} and the stable launcher symlink under AI_TOOLS_LAUNCHER_DIR, so each is
@@ -536,6 +537,17 @@ allowlist "@ ${approved}" "! ${excluded}" "% ${disabled_dir}"
 FIXTURE_PROJECT_DIR="${approved}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__guard_claim
 refused "an approved directory the sandbox group does not own is refused without a terminal" MSG-W4X4
 says "and the screen names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
+# The same directory at an owner-only mode is refused ahead of the gaps, without the finish-setup screen and its
+# claim: the claim leaves that mode as it is. The 0755 run of the W4X4 case is the control.
+chmod 0700 "${approved}"
+FIXTURE_PROJECT_DIR="${approved}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__guard_claim
+refused "an approved directory at mode 700 is refused as owner-only" MSG-H2E2
+if grep -qxF MSG-W4X4 <<<"${OUT}" || grep -qF "$(cli_cmd_text ai-tools.projects.claim)" <<<"${OUT}"; then
+    fail "the owner-only refusal still reached the finish-setup screen: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"
+else
+    pass "and the refusal does not offer the claim"
+fi
+chmod 0755 "${approved}"
 
 # ── (5) The exec refuses when the gates did not run ───────────────────────────
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__launch_session --version
