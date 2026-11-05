@@ -224,18 +224,36 @@ def main():
     check('a directory without -- exits 2 (rc=%d)' % rc, rc == 2)
 
     absent = os.path.join(BASE, 'absent')
-    check('setup: the root handed to the import check does not exist', not os.path.lexists(absent))
-    saved = sys.modules.get('selinux')
-    sys.modules['selinux'] = None
+    check('setup: the root handed to the load check does not exist', not os.path.lexists(absent))
+    saved = walker._LIBSELINUX
+    walker._LIBSELINUX = 'libai-tools-test-absent.so.0'
     try:
         rc, _out, err = run_main(walker, ['--', absent])
     finally:
-        if saved is None:
-            del sys.modules['selinux']
-        else:
-            sys.modules['selinux'] = saved
-    check('import selinux failing exits 3 before the root is opened, naming python3-libselinux (rc=%d)' % rc,
-          rc == 3 and 'python3-libselinux' in err and 'failed to open the root' not in err)
+        walker._LIBSELINUX = saved
+    check('libselinux not loading exits 3 before the root is opened, naming the library (rc=%d)' % rc,
+          rc == 3 and 'libai-tools-test-absent.so.0 does not load' in err and 'failed to open the root' not in err)
+
+    # ── A lookup raising anything is that entry's failure, and the walk goes on ──
+    raising = build_tree('raising', hardlinks=False)
+    bad_name = os.fsdecode(b'bad-\xff')
+    with open(os.path.join(raising, bad_name), 'w') as handle:
+        handle.write('x')
+    check('setup: the fixture holds a name with an invalid UTF-8 byte',
+          os.fsencode(bad_name) in os.listdir(os.fsencode(raising)))
+
+    def lookup_raising(path, ifmt):
+        if path.endswith('/' + bad_name):
+            raise TypeError("in method 'selabel_lookup', argument 3 of type 'char const *'")
+        return WANTED
+    xattr, reports = FakeXattr(), Reports()
+    rc = walker.walk(raising, lookup_raising, xattr, walker.OS_OPENER, reports)
+    check('a lookup raising TypeError for one entry is counted, the walk goes on, and it exits 1 (rc=%d, %r)'
+          % (rc, reports.errors()),
+          rc == 1 and xattr.written(raising + '/sub/b.txt') == [WANTED.encode()]
+          and xattr.written(os.path.join(raising, bad_name)) == []
+          and reports.errors()[-1] == '1 entries not labelled'
+          and reports.errors()[0].startswith("failed to restore the file context of $'%s/bad-\\xff'" % raising))
 
     # ── `--dry-run`: no write, one line per change, names escaped ──
     dry = build_tree('dry', hardlinks=False)

@@ -24,23 +24,26 @@
 # residual is a host running Permissive whose operator set AI_TOOLS_REQUIRE_SELINUX=no in operator.conf, where the
 # policy does not bound those moves.
 #
-# The label is the file-context database's for the logical path (the root plus the names opened under it), looked up
-# once per entry through one selabel handle per run and written in full when it differs, customizable types included
-# (`restorecon -F`). A path the database maps to <<none>> is left as it is. A regular file with more than one link is
-# not written: through its other name it may be another project's or another operator's. It is listed on stderr
-# when its label differs, and the walk exits 4.
+# The label is the file-context database's for the logical path (the root plus the names opened under it), looked
+# up once per entry through one selabel handle per run and written in full when it differs, customizable types included
+# (`restorecon -F`). The lookup calls libselinux.so.1 through ctypes with the path as bytes: the selinux module's
+# selabel_lookup refuses a str carrying an undecodable byte and refuses bytes, so a name the account gives an invalid
+# UTF-8 byte would otherwise stop the walk. A path the database maps to <<none>> is left as it is. A regular file
+# with more than one link is not written: through its other name it may be another project's or another operator's. It
+# is listed on stderr when its label differs, and the walk exits 4.
 #
-# Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked files left; 1 an entry could
-# not be labelled (the first named on stderr, then the count), a read-back differing from the write (which ends
-# the walk), or the root check; 2 usage; 3 the selinux module (python3-libselinux) is not importable. A real run prints
-# nothing on stdout. `--dry-run` writes nothing and prints `<path> <from> <to>` for each entry it would write, `-` for
-# no current label; `--expected-context` replaces the lookup with <ctx> there and does not import selinux. Every path
-# printed is escaped to printable ASCII in bash `printf %q` form, since a name in the tree is the account's.
+# Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked files left; 1 an entry could not
+# be labelled (the first named on stderr, then the count), a read-back differing from the write (which ends the walk),
+# or the root check; 2 usage; 3 libselinux.so.1 does not load or lacks a function the lookup calls. A real run prints
+# nothing on stdout. `--dry-run` writes nothing and prints `<path> <from> <to>` for each entry it would write, `-`
+# for no current label; `--expected-context` replaces the lookup with <ctx> there and does not load libselinux. Every
+# path printed is escaped to printable ASCII in bash `printf %q` form, since a name in the tree is the account's.
 #
 # walk() takes its collaborators as parameters, so tests/unit/relabel-tree-harness.py imports this file by path
 # and drives it with fakes; main() binds the real ones. Installed 0750 root:root as ai-tools-relabel-tree.
 # Its domain rule is cli.rule.md.
 
+import ctypes
 import errno
 import os
 import re
@@ -49,6 +52,8 @@ import sys
 import types
 
 _PROGRAM = 'ai-tools-relabel-tree'
+_LIBSELINUX = 'libselinux.so.1'
+_SELABEL_CTX_FILE = 0
 _XATTR = 'security.selinux'
 _FLAGS_PATH = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
 _FLAGS_LIST = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
@@ -127,7 +132,7 @@ class _Walk:
                 return True
             self.fail(path, error)
             return True
-        except (UnicodeError, ValueError) as error:
+        except Exception as error:  # recorded as the entry's failure; the walk goes on
             self.fail(path, error)
             return True
         wanted = context.encode('utf-8')
@@ -331,23 +336,43 @@ def _report(kind, text):
 
 
 def _selinux_lookup():
-    """Returns a lookup bound to one selabel handle, or an int exit status after the diagnostic."""
+    """Returns a lookup bound to one selabel handle, or an int exit status after the diagnostic.
+
+    The lookup takes (path: str, ifmt: int) and returns the context as str; it raises OSError carrying
+    selabel_lookup's errno, ENOENT for <<none>>. Its close() releases the handle.
+    """
     try:
-        import selinux  # python3-libselinux
-    except ImportError as error:
-        sys.stderr.write('%s: the selinux module from python3-libselinux is not importable: %s\n' % (_PROGRAM, error))
+        library = ctypes.CDLL(_LIBSELINUX, use_errno=True)
+        selabel_open, selabel_lookup = library.selabel_open, library.selabel_lookup
+        selabel_close, freecon = library.selabel_close, library.freecon
+    except (OSError, AttributeError) as error:
+        sys.stderr.write('%s: %s does not load: %s\n' % (_PROGRAM, _LIBSELINUX, error))
         return 3
-    try:
-        handle = selinux.selabel_open(selinux.SELABEL_CTX_FILE, None, 0)
-    except OSError as error:
-        sys.stderr.write('%s: failed to open the file-context database: %s\n' % (_PROGRAM, _error_text(error)))
+    selabel_open.restype = ctypes.c_void_p
+    selabel_open.argtypes = [ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
+    selabel_lookup.restype = ctypes.c_int
+    selabel_lookup.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_char_p, ctypes.c_int]
+    selabel_close.restype = None
+    selabel_close.argtypes = [ctypes.c_void_p]
+    freecon.restype = None
+    freecon.argtypes = [ctypes.c_void_p]
+    handle = selabel_open(_SELABEL_CTX_FILE, None, 0)
+    if not handle:
+        sys.stderr.write('%s: failed to open the file-context database: %s\n'
+                         % (_PROGRAM, os.strerror(ctypes.get_errno() or errno.EINVAL)))
         return 1
 
     def lookup(path, ifmt):
-        result, context = selinux.selabel_lookup(handle, path, ifmt)
-        if result < 0:
-            raise OSError(errno.EINVAL, 'selabel_lookup returned %d' % result)
-        return context
+        context = ctypes.c_void_p()
+        ctypes.set_errno(0)
+        if selabel_lookup(handle, ctypes.byref(context), os.fsencode(path), ifmt) < 0:
+            code = ctypes.get_errno() or errno.EINVAL
+            raise OSError(code, os.strerror(code))
+        try:
+            return ctypes.string_at(context.value).decode('utf-8')
+        finally:
+            freecon(context)
+    lookup.close = lambda: selabel_close(handle)
     return lookup
 
 
@@ -359,11 +384,14 @@ def main(argv=None):
     if expected_context is not None:
         def lookup(_path, _ifmt):
             return expected_context
-    else:
-        lookup = _selinux_lookup()
-        if isinstance(lookup, int):
-            return lookup
-    return walk(root, lookup, OS_XATTR, OS_OPENER, _report, dry_run=dry_run)
+        return walk(root, lookup, OS_XATTR, OS_OPENER, _report, dry_run=dry_run)
+    lookup = _selinux_lookup()
+    if isinstance(lookup, int):
+        return lookup
+    try:
+        return walk(root, lookup, OS_XATTR, OS_OPENER, _report, dry_run=dry_run)
+    finally:
+        lookup.close()
 
 
 if __name__ == '__main__':

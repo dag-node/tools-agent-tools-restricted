@@ -182,7 +182,7 @@ fi
 
 # die_walker_unavailable : the library's status 6 from a walk that could not start; exits 6.
 die_walker_unavailable() {
-    err MSG-W9Y5 "the SELinux label on ${dir} was left as it was: the tree walker could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; install python3-libselinux, which ai-tools-selinux requires, then re-run"
+    err MSG-W9Y5 "the SELinux label on ${dir} was left as it was: the tree walker could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then re-run"
     exit 6
 }
 

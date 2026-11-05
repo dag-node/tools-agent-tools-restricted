@@ -120,7 +120,7 @@ report_unlabel_outcome() {
         4) warn MSG-R5M2 "dropped the file-context rules for ${agent}; the walk over its config directory left these entries: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no reason}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory's walk did not complete" ;;
         # The rules are dropped and the walk could not start.
-        6) warn MSG-M5X4 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree or python3-libselinux is not installed -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; install python3-libselinux, then run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${remove_config_dir}"
+        6) warn MSG-M5X4 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${remove_config_dir}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; the tree walker could not run" ;;
         # A status 1 that carries the walker's lines is a walk over the config directory that could not label an entry,
         # after the rules were dropped; without them the agent declared no usable rule.

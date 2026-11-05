@@ -216,9 +216,9 @@ for fn in _label_project _unlabel_project; do
     else
         fail "${fn} at status 4 printed: ${project_out//$'\n'/ | }"
     fi
-    project_out="$(project_run "${fn}" 6 "python3-libselinux is not installed")"
+    project_out="$(project_run "${fn}" 6 "ai-tools-relabel-tree: libselinux.so.1 does not load")"
     assert_msg MSG-G6X4 "${project_out}" "${fn} at status 6 warns that the walker could not run"
-    if grep -qF "python3-libselinux is not installed" <<<"${project_out}"; then
+    if grep -qF "libselinux.so.1 does not load" <<<"${project_out}"; then
         pass "${fn} at status 6 carries the walker's reason"
     else
         fail "${fn} at status 6 does not carry the reason: ${project_out//$'\n'/ | }"

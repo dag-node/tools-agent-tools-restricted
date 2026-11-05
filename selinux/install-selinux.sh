@@ -916,7 +916,7 @@ _note_walk_left() {
 # _warn_walker_unavailable <dir>: the walk over <dir> did not start, because the tree walker or the selinux module it
 # imports is not installed.
 _warn_walker_unavailable() {
-    warn MSG-G6X4 "left the labels on $1 as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; install python3-libselinux and ai-tools-base, then re-run this command"
+    warn MSG-G6X4 "left the labels on $1 as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then re-run this command"
 }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --

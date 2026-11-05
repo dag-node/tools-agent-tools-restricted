@@ -127,9 +127,10 @@ Summary:        SELinux confinement policy for the ai-tools sandbox
 License:        GPL-2.0-or-later
 Requires:       ai-tools-base = %{version}-%{release}
 Requires(post): policycoreutils
-# The tree relabel ai-tools-base ships imports the selinux module. Base runs DAC-only without it, and the walker exits 3
-# there only when a label is asked for, which the helper reports.
-Requires:       python3-libselinux
+# The tree relabel ai-tools-base ships loads libselinux.so.1 through ctypes, which rpm's dependency generator does not
+# read. Base runs DAC-only without it, and the walker exits 3 there only when a label is asked for, which the helper
+# reports.
+Requires:       libselinux
 Requires(post): libselinux-utils
 Requires(postun): policycoreutils
 

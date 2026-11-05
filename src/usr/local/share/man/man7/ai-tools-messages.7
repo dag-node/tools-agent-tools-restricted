@@ -1629,7 +1629,7 @@ restorecon is not installed while SELinux is enabled \-\- install policycoreutil
 .TP
 .B MSG-W9Y5
 ERROR.
-the SELinux label on ${dir} was left as it was: the tree walker could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; install python3\-libselinux, which ai\-tools\-selinux requires, then re\-run
+the SELinux label on ${dir} was left as it was: the tree walker could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; reinstall ai\-tools\-base, or install libselinux where the line names libselinux.so.1, then re\-run
 .TP
 .B MSG-Y2P3
 ERROR.
@@ -1682,7 +1682,7 @@ must run as root (via sudo)
 .TP
 .B MSG-M5X4
 WARNING.
-dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree or python3\-libselinux is not installed \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; install python3\-libselinux, then run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${remove_config_dir}
+dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; reinstall ai\-tools\-base, or install libselinux where the line names libselinux.so.1, then run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${remove_config_dir}
 .TP
 .B MSG-M6C3
 WARNING.
@@ -2158,7 +2158,7 @@ integration ${integration} declares layout module ${module}, which has no source
 .TP
 .B MSG-G6X4
 WARNING.
-left the labels on $1 as they were: the tree walker /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; install python3\-libselinux and ai\-tools\-base, then re\-run this command
+left the labels on $1 as they were: the tree walker /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; reinstall ai\-tools\-base, or install libselinux where the line names libselinux.so.1, then re\-run this command
 .TP
 .B MSG-G9M3
 WARNING.

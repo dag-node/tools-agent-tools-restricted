@@ -120,12 +120,12 @@ else
     fail "status 4 does not carry the walker's diagnostics: ${OUT//$'\n'/ | }"
 fi
 if [[ "${RC}" -eq 0 ]]; then pass "status 4 exits 0, so the erase completes"; else fail "status 4 exits ${RC}"; fi
-unlabel_run 6 "python3-libselinux is not installed"
+unlabel_run 6 "ai-tools-relabel-tree: libselinux.so.1 does not load"
 assert_msg MSG-M5X4 "${OUT}" "status 6 warns that the walk could not start"
-if command grep -qF 'python3-libselinux' <<< "${OUT}" && command grep -qF 'ai-tools-relabel-tree -- /opt/ai-tools/.acme' <<< "${OUT}"; then
-    pass "status 6 names python3-libselinux and the walk to run over the config directory"
+if command grep -qF 'libselinux.so.1 does not load' <<< "${OUT}" && command grep -qF 'ai-tools-relabel-tree -- /opt/ai-tools/.acme' <<< "${OUT}"; then
+    pass "status 6 carries the walker's reason and names the walk to run over the config directory"
 else
-    fail "status 6 does not name python3-libselinux and the walk: ${OUT//$'\n'/ | }"
+    fail "status 6 does not carry the walker's reason and the walk: ${OUT//$'\n'/ | }"
 fi
 if [[ "${RC}" -eq 0 ]]; then pass "status 6 exits 0, so the erase completes"; else fail "status 6 exits ${RC}"; fi
 unlabel_run 1

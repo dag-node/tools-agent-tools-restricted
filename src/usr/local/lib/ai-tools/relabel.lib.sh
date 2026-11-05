@@ -168,7 +168,7 @@ AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
 #   ai-tools-relabel-tree, its stderr kept in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS. Returns 0 when the walk labelled every
 #   entry, 4 when it completed and left hardlinked files at their type, 1 when an entry could not be labelled or
 #   the walker refused its root or its command line, and 6 when the walker could not run: not installed or not
-#   executable, or its selinux import failed, which names python3-libselinux.
+#   executable, or libselinux.so.1 did not load, which the walker names.
 _ai_tools_relabel__relabel_tree() {
     local dir="$1" rc=0 diagnostics
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
@@ -181,7 +181,7 @@ _ai_tools_relabel__relabel_tree() {
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${diagnostics//$'\n'/; }"
     case "${rc}" in
         0|4) return "${rc}" ;;
-        3) AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="python3-libselinux is not installed"
+        3) AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-libselinux.so.1 did not load}"
            return 6 ;;
         *) return 1 ;;
     esac

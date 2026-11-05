@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/relabel-tree.sh
-# Unit test for the descriptor-pinned tree relabel, src/usr/local/libexec/ai-tools/ai-tools-relabel-tree.py, read from
-# the checkout so a source change is what runs. The first section runs relabel-tree-harness.py beside this file under
-# `python3 -I`; it imports the walker by path and drives walk() and main() with a fake lookup and a fake xattr store:
-# the lookup's inputs, the write and its read-back, <<none>>, hardlinks, symlinks, the root checks and the command line.
-# The second runs the real `--dry-run --expected-context <ctx>` over a fixture tree and reads each entry's current
-# context with getfattr to build the expected `<from>` column, since a host with SELinux labels the fixture and this
-# one may not.
+# Unit test for the descriptor-pinned tree relabel, src/usr/local/libexec/ai-tools/ai-tools-relabel-tree.py, read
+# from the checkout so a source change is what runs. The first section runs relabel-tree-harness.py beside this file
+# under `python3 -I`; it imports the walker by path and drives walk() and main() with a fake lookup and a fake xattr
+# store: the lookup's inputs, the write and its read-back, <<none>>, hardlinks, symlinks, the root checks
+# and the command line. The second runs the real lookup, libselinux.so.1 through ctypes, over a path whose name carries
+# an invalid UTF-8 byte: it must answer as it does for the same path with a valid name. The third runs the real
+# `--dry-run --expected-context <ctx>` over a fixture tree and reads each entry's current context with getfattr to build
+# the expected `<from>` column, since a host with SELinux labels the fixture and this one may not.
 #
 # The real mode writes security.selinux and needs a loaded policy, so it is not driven here.
 #
@@ -46,6 +47,39 @@ while IFS=$'\t' read -r verdict text; do
 done <<< "${out}"
 (( rc == 0 )) || fail "the harness exited ${rc}"
 (( rows > 0 )) || fail "the harness reported no rows"
+
+# ── The real lookup over a name the selinux module refuses ── Prints
+# `<status> <context for the valid name> <context for the invalid one>`, or `load <status>` where the lookup does not
+# open (no libselinux, no file-context database: a host without SELinux).
+lookup_out="$(python3 -I - "${WALKER}" <<'PY' 2>&1
+import importlib.util, stat, sys
+spec = importlib.util.spec_from_file_location('relabel_tree', sys.argv[1])
+walker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(walker)
+lookup = walker._selinux_lookup()
+if isinstance(lookup, int):
+    print('load %d' % lookup)
+    sys.exit(0)
+try:
+    valid = lookup('/home/ai-tools-test-lookup/name', stat.S_IFREG)
+    invalid = lookup('/home/ai-tools-test-lookup/name-' + '\udcff', stat.S_IFREG)
+    print('0 %s %s' % (valid, invalid))
+except Exception as error:
+    print('raised %s: %s' % (type(error).__name__, error))
+finally:
+    lookup.close()
+PY
+)" || true
+case "${lookup_out}" in
+    "load "*) skip "real lookup" "the file-context lookup does not open here (${lookup_out})" ;;
+    "0 "*)    read -r _ valid_context invalid_context <<< "${lookup_out}"
+              if [[ -n "${valid_context}" && "${invalid_context}" == "${valid_context}" ]]; then
+                  pass "the real lookup answers a name with an invalid UTF-8 byte as it answers a valid one (${valid_context})"
+              else
+                  fail "the real lookup answered |${invalid_context}| for the invalid name, |${valid_context}| for the valid one"
+              fi ;;
+    *)        fail "the real lookup over an invalid UTF-8 name did not answer: ${lookup_out}" ;;
+esac
 
 # ── The real `--dry-run --expected-context` over a fixture tree ──
 command -v getfattr >/dev/null 2>&1 || { skip_required "real dry run" "getfattr (attr) is not installed"; finish; exit; }
