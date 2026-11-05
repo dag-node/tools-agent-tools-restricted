@@ -701,8 +701,9 @@ if ${walk_ready}; then
     else
         overlap_state="$(bash -c 'source /usr/local/lib/ai-tools/sessions.lib.sh && ai_tools_sessions__read_live_session_state' 2>/dev/null || true)"
         overlap_rc=0; overlap_errors="$("${WALKER}" -- "${walk_root}" 2>&1 >/dev/null)" || overlap_rc=$?
+        # The line ends in a newline: the sandbox side's `read` returns non-zero at an end of input before one.
         # shellcheck disable=SC2016  # $1 is the inner bash's argument
-        timeout 30 bash -c 'printf release > "$1"' _ "${overlap_dir}/release" 2>/dev/null || true
+        timeout 30 bash -c 'printf "release\n" > "$1"' _ "${overlap_dir}/release" 2>/dev/null || true
         overlap_sandbox_rc=0; wait "${overlap_pid}" || overlap_sandbox_rc=$?
         if [[ "${overlap_sandbox_rc}" -ne 0 ]]; then
             fail "W4: the process as the sandbox account exited ${overlap_sandbox_rc}, so it may not have run through the walk"
