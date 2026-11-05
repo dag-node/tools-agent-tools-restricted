@@ -1560,6 +1560,11 @@ else
     # the claim refuses under the listed-project code and leaves the registry as it was.
     pd_held="$(cat "${pd_al}")"
     chmod 0700 "${pd_proj}"
+    if [[ "$(stat -c '%a %U' "${pd_proj}")" == "700 ${PROJECTS_USER}" ]]; then
+        pass "control: the disabled project's root is mode 700, held by ${PROJECTS_USER}"
+    else
+        fail "control: the disabled project's root reads '$(stat -c '%a %U' "${pd_proj}")', expected '700 ${PROJECTS_USER}'"
+    fi
     out="$(pd_cli ai-tools.projects.claim "${pd_proj}")" && rc=0 || rc=$?
     chmod 0755 "${pd_proj}"
     refused "ai-tools.projects.claim over a disabled project at mode 700 refuses it as owner-only" MSG-B5D2 1

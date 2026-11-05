@@ -542,8 +542,20 @@ says "and the screen names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
 # A directory at an owner-only mode does not start a session. Listed, the CWD gate refuses it ahead of the claim guard
 # and its finish-setup screen; unlisted, it reaches the setup menu without the claim, since a claim refuses such a root
 # and the clone leaves the source as it is. The menu is driven without a terminal, so it takes Cancel, whose command
-# list names what the menu offered. The 0750 unlisted run is the control that lists both commands.
+# list names what the menu offered. The 0750 unlisted run is the control that lists both commands. Each fixture's mode
+# and owner are read back before the probe, so a chmod that did not apply fails as that and not as a gate verdict.
+# fixture_mode <what> <dir> <mode> : a control line of its own, that <dir> is at <mode> and held by the projects user.
+fixture_mode() {
+    local observed
+    observed="$(stat -c '%a %U' "$2" 2>/dev/null || true)"
+    if [[ "${observed}" == "$3 ${PROJECTS_USER}" ]]; then
+        pass "control: $1 is mode $3, held by ${PROJECTS_USER}"
+    else
+        fail "control: $1 reads '${observed}', expected '$3 ${PROJECTS_USER}'"
+    fi
+}
 chmod 0700 "${approved}"
+fixture_mode "the listed owner-only fixture" "${approved}" 700
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
 refused "a listed directory at mode 700 is refused as owner-only by the CWD gate" MSG-H2E2
 says "and the refusal states the mode and what the wrapper does" \
@@ -555,6 +567,7 @@ else
 fi
 chmod 0755 "${approved}"
 chmod 0700 "${unapproved}"
+fixture_mode "the unlisted owner-only fixture" "${unapproved}" 700
 run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
 refused "an unlisted directory at mode 700 reaches the setup menu and, without a terminal, takes Cancel" MSG-N2Z7
 silent "and the owner-only refusal does not fire for it" 'MSG-H2E2'
@@ -565,6 +578,7 @@ else
     pass "and the cancel path of the owner-only menu does not name the claim"
 fi
 chmod 0750 "${unapproved}"
+fixture_mode "the unlisted 750 control fixture" "${unapproved}" 750
 run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
 refused "control: an unlisted directory at mode 750 takes Cancel without a terminal" MSG-N2Z7
 says "control: and the cancel path names the clone" "$(cli_cmd_text ai-tools.projects.clone)"

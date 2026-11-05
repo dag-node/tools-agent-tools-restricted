@@ -455,6 +455,18 @@ fi
 # the operator holds, in the sandbox group with the setgid bit, as a claim leaves it, and read back afterwards.
 claimed_root="${TESTDIR}/claimed"
 root_before="$(stat -c '%a' "${claimed_root}")"
+# The fixture is read back before the probes: a root that is already owner-only, or held by another account, would make
+# an unchanged mode say nothing about the agent.
+if [[ "${root_before}" =~ ^[0-7]{3,4}$ ]] && (( (8#${root_before} & 077) != 0 )); then
+    pass "control: the claimed root starts at ${root_before}, with a group or other bit"
+else
+    fail "control: the claimed root starts at '${root_before}', not a mode with a group or other bit -- the probes below are not evidence"
+fi
+if [[ "$(stat -c '%U' "${claimed_root}")" == "${PROJECTS_USER}" ]]; then
+    pass "control: the claimed root is held by the operator ${PROJECTS_USER}"
+else
+    fail "control: the claimed root is held by $(stat -c '%U' "${claimed_root}"), not ${PROJECTS_USER} -- the probes below are not evidence"
+fi
 if runuser -u "${SANDBOX_USER}" -- test -x "${claimed_root}" 2>/dev/null; then
     pass "control: the agent can enter the claimed root"
 else
@@ -465,6 +477,11 @@ root_after_seal="$(stat -c '%a' "${claimed_root}")"
 # A numeric chmod keeps a directory's setgid bit, so the sealed mode is read back rather than assumed.
 chmod 0700 "${claimed_root}"
 root_sealed="$(stat -c '%a' "${claimed_root}")"
+if [[ "${root_sealed}" =~ ^[0-7]{3,4}$ ]] && (( (8#${root_sealed} & 077) == 0 )); then
+    pass "control: the operator's seal leaves the claimed root owner-only (${root_sealed})"
+else
+    fail "control: the operator's seal left the claimed root at '${root_sealed}' -- the open probe below is not evidence"
+fi
 runuser -u "${SANDBOX_USER}" -- chmod 2770 "${claimed_root}" >/dev/null 2>&1 || true
 root_after_open="$(stat -c '%a' "${claimed_root}")"
 chmod "${root_before}" "${claimed_root}"
