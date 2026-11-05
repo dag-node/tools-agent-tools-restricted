@@ -1399,6 +1399,14 @@ between the two is not seen, and leaves the walk on the opened tree. A root rena
 only a project nested in a claimed one gives the account write on a root's parent, and there the outer project's rule
 types the tree either way.
 
+**A walk is one pass, not a snapshot.** A writer that moves an entry the walk has not reached into a directory it has
+passed, or renames a directory the walk holds open and puts another at its name, leaves that entry at the type it
+carries, and the walk still exits 0: the walker labels what it holds open, and a check that failed the walk
+on a directory renamed under it would fail every claim beside a session running a package install. On a label, an entry
+the sandbox account moved carries a type it writes, and one the operator moved keeps its own, which is less access
+the next claim's drift scan names. On a revert it keeps the project type, and the hand-back that follows is what takes
+the agent's group and ACL access to it away.
+
 **Hardlinks, by direction.** An entry other than a directory with more than one link is not written where its label
 differs, since through another name it may be another project's or another operator's. The walker names the first 20
 such paths with their link count and inode, counts the rest, exits 4, and closes stderr with one `summary` line

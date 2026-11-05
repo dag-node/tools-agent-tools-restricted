@@ -9,12 +9,14 @@
 # <dir> is one absolute path, taken as given: the caller has canonicalized it. The walker opens it O_PATH|O_NOFOLLOW
 # and exits 1 unless `/proc/self/fd/<fd>` reads back as the same path, so a symlink swapped into an ancestor the account
 # can write (a project nested under another) is not followed. A root that is not a directory exits 1 as well: the caller
-# read it as a directory when it canonicalized it, so a file or a symlink there was placed after that read. After
-# the walk it reads `/proc/self/fd/<fd>` again, and a name other than <dir>, a ` (deleted)` suffix among them, is
+# read it as a directory when it canonicalized it, so a file or a symlink there was placed after that read.
+# After the walk it reads `/proc/self/fd/<fd>` again, and a name other than <dir>, a ` (deleted)` suffix among them, is
 # reported with both names and exits 1. A walk therefore exits 0 only where <dir> named the walked tree at the open
 # and at the end of the walk. The two reads do not see a rename away and back between them, which leaves the walk
 # on the opened tree, the one at <dir> at both reads; the walk ends at the second read, so a rename after it is not
-# a race on the walk.
+# a race on the walk. Inside the root the walk is one pass: an entry a writer moves into a directory the walk has
+# passed, or the contents of a directory put at the name of one the walk holds open, keep the type they carry,
+# and the walk exits 0 (cli.rule.md, ref-section-e6c6).
 #
 # Every entry under it is opened O_PATH|O_NOFOLLOW relative to its parent's listing descriptor and typed with fstat,
 # and its label is read, written and read back through `/proc/self/fd/<fd>`, so a rename or a planted symlink after
