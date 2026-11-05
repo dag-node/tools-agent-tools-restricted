@@ -23,7 +23,8 @@ section "relabel-agent: closing a run over the library's status lines (unit)"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HELPER="/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
-if [[ ! -r "${HELPER}" ]] || ! command grep -q '^report_live_sessions() {' "${HELPER}"; then
+# The deployed helper is current when it defines report_unlabel_outcome, the last of the closing functions to arrive.
+if [[ ! -r "${HELPER}" ]] || ! command grep -q '^report_unlabel_outcome() {' "${HELPER}"; then
     HELPER="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh"
 fi
 note "the closing functions" "read from ${HELPER}"

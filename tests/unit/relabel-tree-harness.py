@@ -230,6 +230,47 @@ def main():
                                    % (failing, os.strerror(errno.EACCES)), '1 entries not labelled',
                                    'summary hardlinks-left=0 failures=1'])
 
+    # ── A rename and a planted symlink after the open do not redirect the write ── SwappingXattr resolves the name it
+    # is handed by following it, as a path-based setxattr would: the walker's /proc/self/fd/<fd> reaches the opened
+    # inode, and the entry's own path reaches whatever was planted there. Before the first write to the file
+    # and to the directory, it renames each aside and plants a symlink of the same name to an outside target, so a write
+    # or a descent by path would land outside the tree.
+    swap = build_tree('swap', hardlinks=False)
+    outside = os.path.join(BASE, 'swap-outside')
+    os.makedirs(os.path.join(outside, 'dir'))
+    with open(os.path.join(outside, 'canary'), 'w') as handle:
+        handle.write('canary')
+    with open(os.path.join(outside, 'dir', 'inside.txt'), 'w') as handle:
+        handle.write('inside')
+    file_inode, dir_inode = inode_of_path(swap + '/a.txt'), inode_of_path(swap + '/sub')
+    swaps = {file_inode: ('a.txt', os.path.join(outside, 'canary')), dir_inode: ('sub', os.path.join(outside, 'dir'))}
+    swapped = []
+
+    class SwappingXattr(FakeXattr):
+        def set(self, link, value):
+            key = (os.stat(link).st_dev, os.stat(link).st_ino)
+            if key in swaps and key not in swapped:
+                name, target = swaps[key]
+                os.rename(os.path.join(swap, name), os.path.join(swap, name + '.aside'))
+                os.symlink(target, os.path.join(swap, name))
+                swapped.append(key)
+                key = (os.stat(link).st_dev, os.stat(link).st_ino)
+            self.writes.append((key, value))
+            self.values[key] = value
+
+    xattr, lookup = SwappingXattr(), FakeLookup()
+    rc = walker.walk(swap, lookup, xattr, walker.OS_OPENER, Reports())
+    written = {key for key, _value in xattr.writes}
+    check('setup: the file and the directory were renamed aside and replaced by symlinks during the walk',
+          len(swapped) == 2 and os.path.islink(swap + '/a.txt') and os.path.islink(swap + '/sub')
+          and os.path.isfile(swap + '/a.txt.aside') and os.path.isdir(swap + '/sub.aside'))
+    check('the write after the swap lands on the opened file, not on the planted target (rc=%d)' % rc,
+          file_inode in written and inode_of_path(os.path.join(outside, 'canary')) not in written)
+    check('the descent after the swap lists the opened directory, not the planted one',
+          inode_of_path(swap + '/sub.aside/b.txt') in written
+          and inode_of_path(os.path.join(outside, 'dir', 'inside.txt')) not in written
+          and not any(path.endswith('/inside.txt') for path, _mode in lookup.calls))
+
     # ── The root checks ──
     file_root = os.path.join(BASE, 'file-root')
     with open(file_root, 'w') as handle:
