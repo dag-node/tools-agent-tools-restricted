@@ -669,7 +669,7 @@ if ! command -v sesearch >/dev/null 2>&1; then
     skip "W3: the policy's rename and link set" "sesearch (setools-console) not installed"
 else
     move_status=0
-    move_rules="$(sesearch -A -s ai_tools_t -c file,dir,lnk_file,fifo_file,sock_file -p rename,link 2>&1)" || move_status=$?
+    move_rules="$(sesearch -A -s ai_tools_t -c file,dir,lnk_file,fifo_file,sock_file,chr_file,blk_file -p rename,link 2>&1)" || move_status=$?
     move_tuples="$(w3_classify_all "${move_rules}")"
     move_module="$(grep -c '^module ' <<<"${move_tuples}" || true)"
     if [[ "${move_status}" -ne 0 ]] || ! grep -q '^module ai_tools_t ai_tools_project_t:file ' <<<"${move_tuples}"; then

@@ -81,9 +81,9 @@ usage() {
 usage:
   sudo ${BASH_SOURCE[0]##*/}                  # ROOT: -DB bracket + analyze (default)
   bash ${BASH_SOURCE[0]##*/} probe            # AGENT: trigger denials; output -> audits/
-  bash ${BASH_SOURCE[0]##*/} probe --run-id <id> --groups <a,b|none> [--enforcing-confirmed]
+  bash ${BASH_SOURCE[0]##*/} probe --run-id <id> --groups <a,b|none> [--fips-mode on|off] [--enforcing-confirmed]
                                              # AGENT: as printed by the root half -- its run, the
-                                             # loaded groups and the enforcement it verified
+                                             # loaded groups, fips_mode and the enforcement it verified
   bash ${BASH_SOURCE[0]##*/} probe --force    # skip the enforcing+module safety check
 exit status (probe): 0 clean, 1 a check FAILED, 2 aborted before any check, 3 a check was INCONCLUSIVE
 exit status (run):   0 when enforcement was confirmed, the window was searched, and the probe bound to the run
@@ -358,7 +358,8 @@ do_probe() {
   #   dirwrite <dir>              access(2) W_OK on a directory -- the write check a create would meet, with no entry
   #                               created
   #   ownfifo <dir>               mkfifo(3) in <dir> under an fscreate context of the process's own domain type,
-  #                               the FIFO unlinked at once where the kernel made it
+  #                               the FIFO unlinked at once where the kernel made it; a context that could not be set
+  #                               is reported without an errno name, as not exercised
   # Exits 0 when the call succeeded, and on failure prints "<errno name>: <message>" to stderr and exits 1, so _attempt
   # reads EACCES/EPERM as a denial and every other errno as not exercised.
   _py() {
@@ -381,9 +382,16 @@ try:
         current = open("/proc/thread-self/attr/current").read().rstrip("\0\n")
         user, _role, domain, level = current.split(":", 3)
         path = os.path.join(args[0], ".avc-denials-ownfifo-%d" % os.getpid())
-        fscreate = os.open("/proc/thread-self/attr/fscreate", os.O_WRONLY)
+        # A refusal before mkfifo is reported by number, without the errno names avc_attempt_reason reads as
+        # a denial, so a check that never reached the FIFO's create reads as not exercised.
         try:
+            fscreate = os.open("/proc/thread-self/attr/fscreate", os.O_WRONLY)
             os.write(fscreate, ("%s:object_r:%s:%s" % (user, domain, level)).encode())
+        except OSError as e:
+            print("the creation context was not set (errno %d), so the FIFO's create was not reached" % e.errno,
+                  file=sys.stderr)
+            sys.exit(1)
+        try:
             os.mkfifo(path)
             os.unlink(path)
         finally:
@@ -1033,7 +1041,16 @@ the project's filesystem needs that filesystem's associate permission as well."
 
   _type="ai_tools_t:fifo_file create (fips_mode) + ai_tools_t:filesystem associate (not granted)"
   _why="A FIFO of the domain's own type in a claimed tree is the one inode outside the module's four types that the walker could reach and relabel; tests/integration/selinux.sh W3 lists the grant as a reviewed base-policy exception on the strength of this denial."
-  if command -v python3 >/dev/null 2>&1; then
+  # The FIFO's create is granted under fips_mode alone, so with the Boolean off a denial comes from the create and says
+  # nothing about the filesystem check; the session cannot read the Boolean, so the root half passes it.
+  if [[ "${FIPS_MODE:-}" == off ]]; then
+    skip_check WLK-001 SELinux "create a named FIFO labelled ai_tools_t" \
+      "fips_mode is off, so the grant this check exists for is not in force"
+  elif [[ "${FIPS_MODE:-}" != on ]]; then
+    _header WLK-001 SELinux "create a named FIFO labelled ai_tools_t"
+    _result INCONCLUSIVE "not exercised: the root half did not pass --fips-mode, so a denial could be the create's"
+    _why="" _type=""
+  elif command -v python3 >/dev/null 2>&1; then
     check WLK-001 SELinux "create a named FIFO labelled ai_tools_t in the project (unlinked if made)" \
       _py ownfifo "${PWD}"
   else
@@ -1135,8 +1152,10 @@ do_run() {
   note "groups loaded: ${groups:-none}"
   # The conditional Booleans that widen ai_tools_t without a module change (the confinement rule lists what each
   # grants), recorded so the run states the policy it verified.
-  note "booleans: $(getsebool nis_enabled domain_can_mmap_files authlogin_nsswitch_use_ldap kerberos_enabled 2>&1 \
-    | tr '\n' ';' || true)"
+  note "booleans: $(getsebool nis_enabled domain_can_mmap_files authlogin_nsswitch_use_ldap kerberos_enabled fips_mode \
+    2>&1 | tr '\n' ';' || true)"
+  local fips_mode
+  fips_mode="$(getsebool fips_mode 2>/dev/null | awk '{print $NF}' || true)"
 
   # auditd must be running; without it ausearch reports an empty result even when denials fire. The group-disabled exec
   # denials (systemctl, rpm, podman) are NOT dontaudit'd and should always appear -- an empty log for those is
@@ -1170,6 +1189,7 @@ do_run() {
   echo
   step "ACTION REQUIRED -- in a CONFINED claude (approved project), run:"
   local probe_flags=" --run-id ${run_id} --groups ${groups:-none}"
+  [[ "${fips_mode}" == on || "${fips_mode}" == off ]] && probe_flags+=" --fips-mode ${fips_mode}"
   (( enforcing_confirmed )) && probe_flags+=" --enforcing-confirmed"
   printf '\n      bash %s/avc-denials.sh probe%s\n\n' "${DIR}" "${probe_flags}"
   note "Let the claude turn finish (so any Stop-sweep AVCs land too)."
@@ -1233,6 +1253,10 @@ case "${1:-}" in
         --run-id)
           [[ "${2:-}" =~ ^[0-9a-f]{16}$ ]] || { err "--run-id takes the 16 hex digits the root half printed"; exit 1; }
           RUN_ID="$2"
+          shift 2 ;;
+        --fips-mode)
+          [[ "${2:-}" == on || "${2:-}" == off ]] || { err "--fips-mode takes on or off"; exit 1; }
+          FIPS_MODE="$2"
           shift 2 ;;
         --groups)
           [[ "${2:-}" =~ ^[a-z0-9_,]+$ ]] || { err "--groups takes a comma-separated list of group names (or 'none')"; exit 1; }

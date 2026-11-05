@@ -195,9 +195,10 @@ _b2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:[a-z_]+_port_t:' | gre
 # Category 3: other-domain /proc reads (dev="proc", tcontext not ai_tools_t).
 _b3="$(printf '%s\n' "${LINES}" | grep -E 'dev="proc"' | grep -Ev 'tcontext=[^ ]*:ai_tools_t:' || true)"
 
-# Category 4: a FIFO of the domain's own type on a filesystem (avc-denials.sh WLK-001) -- its create without fips_mode,
-# and the filesystem associate the label needs with it.
-_b4="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=fifo_file|denied  \{ associate \} .*scontext=[^ ]*:ai_tools_t:.* tclass=filesystem' || true)"
+# Category 4: avc-denials.sh WLK-001's own FIFO, by the name the probe gives it -- the create of a FIFO of the domain's
+# type, or the filesystem associate its label needs. Any other denial on either keeps its own bucket.
+_b4="$(printf '%s\n' "${LINES}" | grep -E 'name="\.avc-denials-ownfifo-[0-9]+"' \
+  | grep -E 'denied  \{ create \} .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=fifo_file|denied  \{ associate \} .*scontext=[^ ]*:ai_tools_t:[^ ]* .*tclass=filesystem' || true)"
 
 boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" | sort -u | grep -v '^$' || true)"
 

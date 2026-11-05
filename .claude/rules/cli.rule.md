@@ -1377,9 +1377,10 @@ adds two grants. The account's `nsswitch_domain` attribute manages the Kerberos 
 write included); which such file the account can bring into a tree is decided by DAC and by where the cache lives, not
 by the type. Under `fips_mode` every domain manages FIFOs of its own type (`ai_tools_t:fifo_file`, without write):
 a pipe carries that type in pipefs, where no tree is, and a named FIFO of it on a project's filesystem needs
-that filesystem's `associate` permission, which `selinux/avc/avc-denials.sh` (WLK-001) attempts from inside a session.
-The label the walker writes is the walked path's: on a label a type the account manages, and on a revert the default
-type, which narrows the account's access to that inode through every name. `fs.protected_hardlinks` holds the account
+that filesystem's `associate` permission, which `selinux/avc/avc-denials.sh` (WLK-001) attempts from inside a session
+on a host where `fips_mode` is on, reading as not exercised where the creation context could not be set. The label
+the walker writes is the walked path's: on a label a type the account manages, and on a revert the default type,
+which narrows the account's access to that inode through every name. `fs.protected_hardlinks` holds the account
 to linking a file it owns or can read and write. `tests/integration/selinux.sh` reads the sysctl as a boundary row,
 and holds every `(type, class, permission)` the loaded policy grants `ai_tools_t` for `rename` or `link`, the optional
 groups included, to that reviewed table: the four types in any file class, and each base-policy grant by its source
