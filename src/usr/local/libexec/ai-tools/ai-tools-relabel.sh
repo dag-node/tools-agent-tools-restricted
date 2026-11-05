@@ -27,9 +27,10 @@
 #
 # Exits 0 on success, a label that left hardlinked paths at their type included; 5 where this host has no label to apply
 # (SELinux disabled, or no ai_tools policy installed), named on stderr; 4 when a revert left hardlinked paths at their
-# current type, the first 20 named with the count of the rest; 6 when the tree walker could not run, so no path was walked; 3 on a protected target; and 1
-# on every other refusal or failure, restorecon missing while SELinux is enabled and a tree moved or deleted
-# during a revert among them. The CLI discards this helper's stdout, so every outcome it reads is on stderr.
+# current type, the first 20 named with the count of the rest; 6 when the tree walker could not run, so no path was
+# walked; 3 on a protected target; and 1 on every other refusal or failure, restorecon missing while SELinux is enabled
+# and a tree moved or deleted during a revert among them. The CLI discards this helper's stdout, so every outcome it
+# reads is on stderr.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -218,9 +219,10 @@ report_revert_status() {
     exit 0
 }
 
-# report_label_status <status> : report ai_tools_relabel__label_project's <status> for ${dir} and exit with this helper's
-#   status for it. A failure carries the library's diagnostic where it set one -- the walk's first failed path and its
-#   error, or a root no rule matched -- and the policy remedy where it did not, which is a rule semanage refused.
+# report_label_status <status> : report ai_tools_relabel__label_project's <status> for ${dir} and exit with this
+#   helper's status for it. A failure carries the library's diagnostic where it set one -- the walk's first failed path
+#   and its error, or a root no rule matched -- and the policy remedy where it did not, which is a rule semanage
+#   refused.
 report_label_status() {
     local skipped_hardlink_count
     case "$1" in
