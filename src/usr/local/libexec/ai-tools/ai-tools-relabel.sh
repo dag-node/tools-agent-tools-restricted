@@ -218,14 +218,12 @@ report_revert_status() {
     exit 0
 }
 
-if ${remove}; then
-    rc=0; ai_tools_relabel__unlabel_project "${dir}" || rc=$?
-    report_revert_status "${rc}"
-else
-    allowlisted "${dir}" \
-        || die MSG-P8J7 "refusing to label ${dir}: not an enabled project in the operator's project registry"
-    rc=0; ai_tools_relabel__label_project "${dir}" || rc=$?
-    case "${rc}" in
+# report_label_status <status> : report ai_tools_relabel__label_project's <status> for ${dir} and exit with this helper's
+#   status for it. A failure carries the library's diagnostic where it set one -- the walk's first failed path and its
+#   error, or a root no rule matched -- and the policy remedy where it did not, which is a rule semanage refused.
+report_label_status() {
+    local skipped_hardlink_count
+    case "$1" in
         0) echo "ai-tools-relabel: labelled ${dir} ai_tools_project_t"
            ai_tools_log__structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
@@ -235,6 +233,20 @@ else
            skipped_hardlink_count="$(ai_tools_relabel__get_skipped_hardlink_count)"
            notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${skipped_hardlink_count} hardlinked path(s) kept their current type; the lines above name up to 20 of them" ;;
         6) exit_walker_unavailable ;;
-        *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
+        *) if [[ -n "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ]]; then
+               die MSG-F8F6 "failed to label ${dir} -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"
+           fi
+           die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
+    exit 0
+}
+
+if ${remove}; then
+    rc=0; ai_tools_relabel__unlabel_project "${dir}" || rc=$?
+    report_revert_status "${rc}"
+else
+    allowlisted "${dir}" \
+        || die MSG-P8J7 "refusing to label ${dir}: not an enabled project in the operator's project registry"
+    rc=0; ai_tools_relabel__label_project "${dir}" || rc=$?
+    report_label_status "${rc}"
 fi

@@ -160,7 +160,8 @@ ai_tools_relabel__is_available() {
 readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=/usr/local/libexec/ai-tools/ai-tools-relabel-tree
 # What the last walk printed on stderr but its summary line -- the hardlinked paths it listed, or why it failed -- its
 # lines joined with "; ", since the walker escapes a `;` inside a path; the walker bounds what it prints. Set
-# by _ai_tools_relabel__relabel_tree for the caller that just called it.
+# by _ai_tools_relabel__relabel_tree for the caller that just called it, and by ai_tools_relabel__label_project to why
+# the label did not hold where the walk completed and the root's type is not the project's.
 # shellcheck disable=SC2034  # read by ai-tools-relabel, ai-tools-relabel-agent and install-selinux.sh
 AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
 # The hardlinked paths the last walk skipped, from the walker's summary line; 0 where it printed none.
@@ -332,6 +333,7 @@ ai_tools_relabel__list_local_rules_naming_policy_types() {
 # restorecon, and re-asserting it is how a type change from a policy bump reaches an existing project.
 ai_tools_relabel__label_project() {
     local dir="$1" build_pattern project_fcontext_literal walk_status=0
+    AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
     ai_tools_relabel__is_available || return 2
     if ! _ai_tools_relabel__is_under_sandbox_root "${dir}"; then
         project_fcontext_literal="$(ai_tools_relabel__get_fcontext_literal "${dir}")"
@@ -358,7 +360,10 @@ ai_tools_relabel__label_project() {
     # libselinux aliases away, e.g. `/var/opt` -> `/opt` via file_contexts.subs_dist, does not match a path and leaves
     # the tree on its default type). Left unchecked that is a silent mislabel the confined agent cannot use; treat it as
     # a hard failure the caller reports rather than a false success.
-    ai_tools_relabel__is_project_labelled "${dir}" || return 1
+    if ! ai_tools_relabel__is_project_labelled "${dir}"; then
+        AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="the walk completed and ${dir} does not carry ${AI_TOOLS_RELABEL__PROJECT_TYPE}: no file-context rule matches the path"
+        return 1
+    fi
     return "${walk_status}"
 }
 

@@ -881,7 +881,7 @@ _label_project() {
         4) ok "labelled project ai_tools_project_t: $1"
            _report_skipped_walk_entries "$1" ;;
         6) _warn_walker_unavailable "$1" ;;
-        *) warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?" ;;
+        *) warn MSG-S5E4 "could not label $1 -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-is the ai_tools module loaded?}" ;;
     esac
 }
 _unlabel_project() {

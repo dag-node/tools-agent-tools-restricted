@@ -340,6 +340,24 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
     walk_is ai_tools_relabel__label_project /home/op/proj 4 0 4 1 "a label whose walk left hardlinked files passes the post-condition"
     walk_is ai_tools_relabel__label_project /home/op/proj 4 1 1 1 "a label whose walk left hardlinked files and a root on another type fails"
     walk_is ai_tools_relabel__label_project /home/op/proj 1 0 1 0 "a label whose walk could not label an entry fails"
+    # A root the walk left on another type carries why, in place of the walk's own lines, for the helper to print.
+    stub_walk_status=4; stub_labelled=1
+    ai_tools_relabel__label_project /home/op/proj >/dev/null 2>&1 || true
+    if [[ "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == *"/home/op/proj does not carry ai_tools_project_t"* ]]; then
+        pass "a root the walk left on another type sets the diagnostic that names it"
+    else
+        fail "a root left on another type: diagnostic '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
+    fi
+    # A label refused before the walk starts finds no diagnostic, an earlier walk's included.
+    AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="left by an earlier walk"
+    semanage() { return 1; }
+    ai_tools_relabel__label_project /home/op/proj >/dev/null 2>&1 || true
+    if [[ -z "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ]]; then
+        pass "a label refused at its rule clears an earlier walk's diagnostic"
+    else
+        fail "a label refused at its rule kept '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
+    fi
+    semanage() { return 0; }
     walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 0 0 0 0 "control: an unlabel of a directory walks it"
     walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 4 0 4 0 "an unlabel whose walk left hardlinked files"
     walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 6 0 6 0 "an unlabel whose walker could not run"
@@ -928,6 +946,36 @@ else
     if [[ -z "${revert_body}" ]]; then
         fail "ai-tools-relabel does not define report_revert_status() in the form this file reads"
     else
+        # The label's twin: report_label_status over a failure with and without the library's diagnostic.
+        label_body="$(extract_function "${relabel_helper}" report_label_status)"
+        # shellcheck disable=SC2016  # the inner shell expands these, not this one
+        label_run() {
+            bash -c '
+                set -euo pipefail
+                eval "$1"
+                dir=/home/op/proj AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="$3"
+                ai_tools_log__structured() { :; }
+                die()  { printf "%s\n" "$@"; exit 1; }
+                report_label_status "$2"
+            ' _ "${label_body}" "$1" "$2" 2>&1 && printf 'exit=0\n' || printf 'exit=%s\n' "$?"
+        }
+        if [[ -z "${label_body}" ]]; then
+            fail "ai-tools-relabel does not define report_label_status() in the form this file reads"
+        else
+            label_out="$(label_run 1 "failed to restore the file context of /home/op/proj/a: Permission denied")"
+            if [[ "${label_out}" == *"MSG-F8F6"*"failed to label /home/op/proj -- failed to restore the file context of /home/op/proj/a: Permission denied"* \
+                    && "${label_out}" != *"policy module loaded"* && "${label_out}" == *$'\n'"exit=1" ]]; then
+                pass "a label whose walk failed names the path and its error, not the policy remedy"
+            else
+                fail "a label whose walk failed: ${label_out//$'\n'/ | }"
+            fi
+            label_out="$(label_run 1 "")"
+            if [[ "${label_out}" == *"MSG-M2D2"*"is the ai_tools policy module loaded?"* && "${label_out}" == *$'\n'"exit=1" ]]; then
+                pass "control: a label refused at its rule names the policy remedy"
+            else
+                fail "a label refused at its rule: ${label_out//$'\n'/ | }"
+            fi
+        fi
         revert_out="$(revert_run 3 false)"
         if [[ "${revert_out}" == *$'\n'"exit=0" && "${revert_out}" != *MSG-* ]]; then
             pass "control: a revert of a path absent at the helper's start that finds no tree exits 0"

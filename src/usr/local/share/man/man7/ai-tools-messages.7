@@ -1599,6 +1599,10 @@ must run as root (via sudo)
 ERROR.
 takes a single path
 .TP
+.B MSG-F8F6
+ERROR.
+failed to label ${dir} \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}
+.TP
 .B MSG-J5P7
 NOTICE.
 no SELinux label to apply on ${dir}: $1
@@ -2242,7 +2246,7 @@ no path to label for ${subject}: ${detail} is not installed
 .TP
 .B MSG-S5E4
 WARNING.
-could not label $1 \-\- is the ai_tools module loaded?
+could not label $1 \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-is the ai_tools module loaded?}
 .TP
 .B MSG-S9J3
 WARNING.
