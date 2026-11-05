@@ -26,10 +26,11 @@
 # crossed, as `restorecon -R` crosses them; the sandbox account cannot create a mount.
 #
 # The guarantee a descriptor gives is bounded by what the account can bring into the tree. The walker reaches only
-# an inode the account could move or link there, and selinux/policy/ai_tools.te grants ai_tools_t rename and link
-# (manage_*_pattern) on ai_tools_project_t, ai_tools_project_build_t, ai_tools_home_t and ai_tools_tmp_t alone. The
-# residual is a host running Permissive whose operator set AI_TOOLS_REQUIRE_SELINUX=no in operator.conf, where the
-# policy does not bound those moves.
+# an inode the account could move or link there, and the loaded policy grants ai_tools_t rename and link on a reviewed
+# set of types: ai_tools_project_t, ai_tools_project_build_t, ai_tools_home_t and ai_tools_tmp_t (manage_*_pattern in
+# selinux/policy/ai_tools.te), and two base-policy grants, the Kerberos replay cache and, under fips_mode, FIFOs
+# of the domain's own type (cli.rule.md, ref-section-e6c6). The residual is a host running Permissive whose operator set
+# AI_TOOLS_REQUIRE_SELINUX=no in operator.conf, where the policy does not bound those moves.
 #
 # The label is the file-context database's for the logical path (the root plus the names opened under it), looked
 # up once per entry through one selabel handle per run and written in full when it differs, customizable types included

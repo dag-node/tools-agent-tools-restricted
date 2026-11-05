@@ -240,10 +240,10 @@ in place, unregistered. See [cli](.claude/rules/cli.rule.md).
   not take a root write inside it, so its interior is that account's as its content is. A recursive relabel of a tree
   that account can write holds each entry by a descriptor opened relative to its parent without following a link
   and labels the inode it opened, so a write reaches only an inode the account could already move or link into the tree,
-  which the policy limits to the types that account writes; an install-time restore that walks by path instead runs only
-  while no process of the account is live. A file the operator hardlinks into a tree during its walk, and a session
-  launched during a gated restore, are the stated residuals
-  ([ref-section-e6c6](.claude/rules/cli.rule.md#ref-section-e6c6)).
+  which the policy limits to a reviewed set of types, those of the account's own trees and named base-policy grants;
+  an install-time restore that walks by path instead runs only while no process of the account is live. A file
+  the operator hardlinks into a tree during its walk, and a session launched during a gated restore, are the stated
+  residuals ([ref-section-e6c6](.claude/rules/cli.rule.md#ref-section-e6c6)).
 - **Rewriting a command does not widen what it may do.** A `PreToolUse` filter narrows how much a command prints (see
   [filters](.claude/rules/filters.rule.md)); it does not return a permission decision, so the harness re-runs its full
   permission pipeline on the **rewritten** command — an `allow` entry must still match it and a `deny` entry still

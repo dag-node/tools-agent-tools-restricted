@@ -1260,8 +1260,9 @@ the rest and offer its `find` as a listing of the tree now. `relabel-tree.sh` dr
 store over the lookup's inputs, the write and its read-back, `<<none>>`, hardlinks, symlinks, the root checks
 and the command line; then the real `libselinux` lookup over a name carrying an invalid UTF-8 byte, and the real dry run
 over a fixture tree. Its enforcing-host half is `integration/selinux.sh`'s walk rows: a tmpfs tree under per-run rules
-where each entry takes its rule's type and a link's target keeps its own, the hardlink sysctl and the policy's `rename`
-and `link` set as boundary rows, a walk beside a live process of the sandbox account, a revert over a hardlinked file
+where each entry takes its rule's type and a link's target keeps its own, the hardlink sysctl as a boundary row,
+the policy's `rename` and `link` grants held to a reviewed table of `(type, class, permission)` behind a classifier
+control over synthetic rules, a walk beside a live process of the sandbox account, a revert over a hardlinked file
 at exit 4, an invalid UTF-8 name, and a `<<none>>` path. `sessions.sh` pins the reader the install-time restores read
 on two properties: each walk function is held equal to `ai-tools-stop`'s through `declare -f`, beside a control
 that a one-character change breaks the equality, and every reading that cannot be made reads `unreadable` rather than

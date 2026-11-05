@@ -1368,19 +1368,26 @@ in `relabel.lib.sh`), which labels the entry it holds open rather than the one a
 the account's sessions: a claim, an unclaim, a removal and an agent relabel label while a session runs.
 
 **The invariant.** The walker reaches only an inode the account could already move or link into the tree, and the policy
-limits those to the types the account writes. A descriptor keeps a rename or a planted link from redirecting the write
-it holds; it does not keep the account from renaming an opened directory out of the tree and moving another entry
-in, or from linking a file in after the walker reads its link count. `selinux/policy/ai_tools.te` bounds both:
-`ai_tools_t` holds `rename` and `link`, through `manage_*_pattern`, on `ai_tools_project_t`, `ai_tools_project_build_t`,
-`ai_tools_home_t` and `ai_tools_tmp_t` alone, so an inode the account places in a tree already carries a type it writes.
+limits those to a reviewed set of types. A descriptor keeps a rename or a planted link from redirecting the write it
+holds; it does not keep the account from renaming an opened directory out of the tree and moving another entry
+in, or from linking a file in after the walker reads its link count. The loaded policy bounds those moves and links.
+`ai_tools.te` grants `ai_tools_t` `rename` and `link`, through `manage_*_pattern`, on the types of the account's own
+trees, `ai_tools_project_t`, `ai_tools_project_build_t`, `ai_tools_home_t` and `ai_tools_tmp_t`, and the base policy
+adds two grants. The account's `nsswitch_domain` attribute manages the Kerberos replay cache (`krb5_host_rcache_t:file`,
+write included); which such file the account can bring into a tree is decided by DAC and by where the cache lives, not
+by the type. Under `fips_mode` every domain manages FIFOs of its own type (`ai_tools_t:fifo_file`, without write):
+a pipe carries that type in pipefs, where no tree is, and a named FIFO of it on a project's filesystem needs
+that filesystem's `associate` permission, which `selinux/avc/avc-denials.sh` (WLK-001) attempts from inside a session.
 The label the walker writes is the walked path's: on a label a type the account manages, and on a revert the default
 type, which narrows the account's access to that inode through every name. `fs.protected_hardlinks` holds the account
-to linking a file it owns or can read and write. `tests/integration/selinux.sh` reads the sysctl and the policy's
-`rename` and `link` set as boundary rows, the optional groups loaded included. Two residuals remain. On a host running
-Permissive whose operator set `AI_TOOLS_REQUIRE_SELINUX=no`, no type check holds. A hardlink the **operator** makes
-during a walk — a `pnpm install` while a claim walks — can be written, since the walker's link-count read precedes its
-write; a second read before the write narrows that window without closing it, and is not made. A host without the policy
-does not write a label.
+to linking a file it owns or can read and write. `tests/integration/selinux.sh` reads the sysctl as a boundary row,
+and holds every `(type, class, permission)` the loaded policy grants `ai_tools_t` for `rename` or `link`, the optional
+groups included, to that reviewed table: the four types in any file class, and each base-policy grant by its source
+and condition, reported apart. Any other tuple fails the row. Two residuals remain. On a host running Permissive
+whose operator set `AI_TOOLS_REQUIRE_SELINUX=no`, no type check holds. A hardlink the **operator** makes during a walk —
+a `pnpm install` while a claim walks — can be written, since the walker's link-count read precedes its write; a second
+read before the write narrows that window without closing it, and is not made. A host without the policy does not write
+a label.
 
 **How the walk holds an entry.** The root is opened `O_PATH|O_NOFOLLOW`, and every entry under it relative to its
 parent's listing descriptor, typed with `fstat`. A directory is listed through a second, `O_RDONLY|O_DIRECTORY` open
