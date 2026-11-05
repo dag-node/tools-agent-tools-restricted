@@ -2171,8 +2171,8 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel.sh" \
         /usr/local/libexec/ai-tools/ai-tools-relabel
 
-    # Descriptor-pinned tree relabel. 750 root:root -- run AS root by the relabel helpers over a tree the sandbox account
-    # can write; never by ai-tools. No placeholders.
+    # Descriptor-pinned tree relabel. 750 root:root -- run AS root by the relabel helpers over a tree the sandbox
+    # account can write; never by ai-tools. No placeholders.
     log "/usr/local/libexec/ai-tools/ai-tools-relabel-tree"
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel-tree.py" \
