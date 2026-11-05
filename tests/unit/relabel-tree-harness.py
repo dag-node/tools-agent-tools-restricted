@@ -102,6 +102,13 @@ def build_tree(name, hardlinks=True):
         with open(os.path.join(root, 'hard1'), 'w') as handle:
             handle.write('hard')
         os.link(os.path.join(root, 'hard1'), os.path.join(root, 'hard2'))
+        # A symlink and a FIFO, each with its second name outside the tree.
+        outside = os.path.join(BASE, name + '-outside')
+        os.makedirs(outside)
+        os.symlink('a.txt', os.path.join(root, 'hardlink-symlink'))
+        os.link(os.path.join(root, 'hardlink-symlink'), os.path.join(outside, 'symlink'), follow_symlinks=False)
+        os.mkfifo(os.path.join(root, 'hardlink-fifo'))
+        os.link(os.path.join(root, 'hardlink-fifo'), os.path.join(outside, 'fifo'))
     return root
 
 
@@ -116,9 +123,13 @@ def main():
     # ── The main fixture: the lookup's inputs, the control, the write and its read-back, <<none>>, hardlinks, links ──
     root = build_tree('tree')
     setup = (stat.S_ISDIR(os.lstat(root + '/sub').st_mode) and stat.S_ISLNK(os.lstat(root + '/dirlink').st_mode)
-             and os.lstat(root + '/hard1').st_nlink == 2 and os.path.isfile(root + '/sub/b.txt'))
-    check('setup: the fixture holds a directory, a file under it, a symlinked directory and a hardlinked pair',
-          setup)
+             and os.lstat(root + '/hard1').st_nlink == 2 and os.path.isfile(root + '/sub/b.txt')
+             and stat.S_ISLNK(os.lstat(root + '/hardlink-symlink').st_mode)
+             and os.lstat(root + '/hardlink-symlink').st_nlink == 2
+             and stat.S_ISFIFO(os.lstat(root + '/hardlink-fifo').st_mode)
+             and os.lstat(root + '/hardlink-fifo').st_nlink == 2)
+    check('setup: the fixture holds a directory, a file under it, a symlinked directory, a hardlinked pair, '
+          'and a hardlinked symlink and FIFO', setup)
     xattr, lookup, reports = FakeXattr(), FakeLookup(none_paths={root + '/none.txt'}), Reports()
     xattr.preset(root + '/a.txt', WANTED.encode())
     xattr.preset(root + '/sub/b.txt', OLD)
@@ -143,8 +154,12 @@ def main():
           and not any('none.txt' in line for line in reports.errors()))
     check('a hardlinked file is not written and is listed with its link count: %r' % reports.errors(),
           xattr.written(root + '/hard1') == [] and xattr.written(root + '/hard2') == []
-          and 'skipped hardlinked file %s/hard1 (link count 2)' % root in reports.errors()
-          and 'skipped hardlinked file %s/hard2 (link count 2)' % root in reports.errors())
+          and 'skipped hardlinked path %s/hard1 (link count 2)' % root in reports.errors()
+          and 'skipped hardlinked path %s/hard2 (link count 2)' % root in reports.errors())
+    check('a hardlinked symlink and a hardlinked FIFO are not written, and each is listed: %r' % reports.errors(),
+          xattr.written(root + '/hardlink-symlink') == [] and xattr.written(root + '/hardlink-fifo') == []
+          and 'skipped hardlinked path %s/hardlink-symlink (link count 2)' % root in reports.errors()
+          and 'skipped hardlinked path %s/hardlink-fifo (link count 2)' % root in reports.errors())
     check('the walk with hardlinked files left exits 4 (rc=%d)' % rc, rc == 4)
     check('the rest of the tree is written beside the hardlinks (the root, sub, the links)',
           xattr.written(root) and xattr.written(root + '/sub') and xattr.written(root + '/filelink'))

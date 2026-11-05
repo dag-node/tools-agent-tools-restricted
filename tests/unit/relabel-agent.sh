@@ -89,7 +89,7 @@ section "a walk that left hardlinked files is said, and the agent is filed by it
 close_run $'ok /opt/ai-tools/.acme
 partial acme 2
 agent acme ok'
-has_line "the left files are said with their count" "ai-tools-relabel-agent: acme: 2 hardlinked file(s) in its config directory kept their type"
+has_line "the left files are said with their count" "ai-tools-relabel-agent: acme: 2 hardlinked path(s) in its config directory kept their current type"
 has_line "the agent is filed as its verdict reads" "record acme ok "
 if [[ "${RC}" -eq 0 ]]; then pass "the run exits 0"; else fail "the run exits ${RC} over a walk that left hardlinked files"; fi
 
@@ -112,9 +112,9 @@ unlabel_run() {
 unlabel_run 0
 has_line "control: status 0 reports the rules dropped" "ai-tools-relabel-agent: dropped the file-context rules for acme"
 if [[ "${RC}" -eq 0 ]]; then pass "control: status 0 exits 0"; else fail "control: status 0 exits ${RC}"; fi
-unlabel_run 4 "skipped hardlinked file /opt/ai-tools/.acme/x (link count 2)"
+unlabel_run 4 "skipped hardlinked path /opt/ai-tools/.acme/x (link count 2)"
 assert_msg MSG-R5M2 "${OUT}" "status 4 warns that the config directory's walk left entries"
-if command grep -qF 'skipped hardlinked file /opt/ai-tools/.acme/x (link count 2)' <<< "${OUT}"; then
+if command grep -qF 'skipped hardlinked path /opt/ai-tools/.acme/x (link count 2)' <<< "${OUT}"; then
     pass "status 4 carries the walker's diagnostics"
 else
     fail "status 4 does not carry the walker's diagnostics: ${OUT//$'\n'/ | }"

@@ -1086,7 +1086,7 @@ drive_rows() {
     seed "@ ${R}/rm6"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm6"
     expect "a removal whose revert left hardlinked files exits non-zero" rc_not0
-    expect "that removal names the files' other names"                out_has_text "a hardlinked file's other names outside it keep ai_tools_project_t"
+    expect "that removal names the files' other names"                out_has_text "a hardlinked path's other names outside it keep its current type"
     expect "that removal still deletes the tree"                      test ! -e "${R}/rm6"
     expect "that removal drops the entry"                             st_is "${R}/rm6" absent
     RUN_EXTRA_ENV=()

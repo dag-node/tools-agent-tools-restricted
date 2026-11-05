@@ -23,11 +23,11 @@
 #       sudo ai-tools-relabel --remove <dir>   # revert <dir> to its default type
 #       ```
 #
-# Exits 0 on success, a label that left hardlinked files at their type included; 5 where this host has no label to apply
-# (SELinux disabled, or no ai_tools policy installed), named on stderr; 6 when a revert left hardlinked files
-# on ai_tools_project_t, each named, or the tree walker could not run; 3 on a protected target; and 1 on every other
-# refusal or failure, restorecon missing while SELinux is enabled among them. The CLI discards this helper's stdout,
-# so every outcome it reads is on stderr.
+# Exits 0 on success, a label that left hardlinked paths at their type included; 5 where this host has no label to apply
+# (SELinux disabled, or no ai_tools policy installed), named on stderr; 6 when a revert left hardlinked paths at their
+# current type, each named, or the tree walker could not run; 3 on a protected target; and 1 on every other refusal
+# or failure, restorecon missing while SELinux is enabled among them. The CLI discards this helper's stdout, so every
+# outcome it reads is on stderr.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -191,10 +191,10 @@ if ${remove}; then
     case "${rc}" in
         0) echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
            ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok" ;;
-        # A hardlinked file keeps ai_tools_project_t: through its other name it may be another tree's, so the walk does
-        # not write it, and a file left on the type the agent reads and writes is more access, so the exit is a failure.
+        # A hardlinked path keeps its current type: through its other name it may be another tree's, so the walk does
+        # not write it, and a path left on a type the agent reads and writes is more access, so the exit is a failure.
         4) quoted_dir="$(printf '%q' "${dir}")"
-           err MSG-D2T9 "reverted ${dir} to its default SELinux type except these hardlinked files, which keep ai_tools_project_t: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} -xdev -type f -links +1"
+           err MSG-D2T9 "reverted ${dir} to its default SELinux type except these hardlinked paths, which keep their current type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} -not -type d -links +1"
            exit 6 ;;
         6) die_walker_unavailable ;;
         *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}}" ;;
@@ -208,10 +208,10 @@ else
            ai_tools_log__structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
         2) not_applicable "SELinux is not active on this host" ;;
-        # Through another name a hardlinked file may be another tree's, so the walk does not write it.
+        # Through another name a hardlinked path may be another tree's, so the walk does not write it.
         4) printf 'ai-tools-relabel: %s\n' "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" >&2
            hardlinks_left="$(_ai_tools_relabel__get_hardlinks_left_count)"
-           notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked file(s) kept their type; they are listed above" ;;
+           notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked path(s) kept their current type; they are listed above" ;;
         6) die_walker_unavailable ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac

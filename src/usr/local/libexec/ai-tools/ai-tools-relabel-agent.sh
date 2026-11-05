@@ -20,9 +20,9 @@
 #
 # Exits 1 for an entrypoint that does not match its pin, a path that did not take its type, a rule that could not be
 # applied, and a launcher the declared rule does not cover, each a session that breaks, and for every refusal ahead
-# of the work (a caller that is not root, a library that did not load, a usage error). Exits 0 where SELinux
-# confinement is inactive, an entrypoint could not be verified, a config directory's walk left hardlinked files at their
-# type, and under `--remove` wherever the rules were dropped, a config directory's walk that did not complete included,
+# of the work (a caller that is not root, a library that did not load, a usage error). Exits 0 where SELinux confinement
+# is inactive, an entrypoint could not be verified, a config directory's walk left hardlinked paths at their type,
+# and under `--remove` wherever the rules were dropped, a config directory's walk that did not complete included,
 # so a package erase completes.
 #
 # It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext and config_dir in its
@@ -396,9 +396,9 @@ render_label_report() {
        ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
        the package is missing the executable a session is meant to exec"
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
-            # The config directory's walk completed and left hardlinked files at their type; the walker listed them.
-            partial) say "${subject}: ${detail} hardlinked file(s) in its config directory kept their type"
-                   ai_tools_log__warn "${subject}: ${detail} hardlinked file(s) in its config directory not relabelled" ;;
+            # The config directory's walk completed and left hardlinked paths at their type; the walker listed them.
+            partial) say "${subject}: ${detail} hardlinked path(s) in its config directory kept their current type"
+                   ai_tools_log__warn "${subject}: ${detail} hardlinked path(s) in its config directory not relabelled" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"

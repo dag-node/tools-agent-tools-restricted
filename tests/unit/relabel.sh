@@ -324,7 +324,7 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
     # walk_is <function> <dir> <walk-status> <labelled-status> <expected> <expected-checks> <why>
     walk_is() {
         local fn="$1" dir="$2" expected="$5" expected_checks="$6" why="$7" status=0
-        stub_walk_status="$3"; stub_labelled="$4"; stub_walk_diagnostics="skipped hardlinked file ${dir}/x (link count 2)"
+        stub_walk_status="$3"; stub_labelled="$4"; stub_walk_diagnostics="skipped hardlinked path ${dir}/x (link count 2)"
         WALKS=""; LABEL_CHECKS=0
         "${fn}" "${dir}" >/dev/null 2>&1 || status=$?
         if [[ "${status}" -eq "${expected}" && "${WALKS}" == "${dir}"$'\n' && "${LABEL_CHECKS}" -eq "${expected_checks}" ]]; then
@@ -368,7 +368,7 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
         # config_is <walk-status> <expected-status> <expected-lines> <why>
         config_is() {
             local status=0 line
-            stub_walk_status="$1"; stub_walk_diagnostics="skipped hardlinked file ${config_path}/a (link count 2); skipped hardlinked file ${config_path}/b (link count 3)"
+            stub_walk_status="$1"; stub_walk_diagnostics="skipped hardlinked path ${config_path}/a (link count 2); skipped hardlinked path ${config_path}/b (link count 3)"
             line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
             if [[ "${status}" -eq "$2" && "${line}" == "$3" ]]; then
                 pass "$4: status $2"
@@ -378,7 +378,7 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
         }
         config_is 0 0 "ok ${config_path}" "control: a config directory whose walk labelled every entry"
         config_is 4 0 "partial acme 2"$'\n'"ok ${config_path}" "a config directory whose walk left two hardlinked files"
-        config_is 6 1 "skip acme could not walk its config directory -- skipped hardlinked file ${config_path}/a (link count 2); skipped hardlinked file ${config_path}/b (link count 3)" \
+        config_is 6 1 "skip acme could not walk its config directory -- skipped hardlinked path ${config_path}/a (link count 2); skipped hardlinked path ${config_path}/b (link count 3)" \
             "a config directory whose walker could not run"
         config_is 1 1 "bad ${config_path} unknown ${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" "a config directory whose walk could not label an entry"
         # The agent's closing verdict over a walker that could not run: the config half returns 1, so it is filed

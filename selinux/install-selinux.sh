@@ -800,10 +800,10 @@ verify_agent_labels() {
                       warn "    -- and no installed file matches the entrypoint its manifest declares"
                       warn "    Reinstall it: atr admin system bootstrap" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
-                # The config directory's walk completed and left hardlinked files at their type. Not `bad`: every other
-                # entry took the type, and the files are listed for review.
+                # The config directory's walk completed and left hardlinked paths at their type. Not `bad`: every other
+                # entry took the type, and the paths are listed for review.
                 partial) partial_dir="${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${subject}" config_dir 2>/dev/null || true)"
-                      warn MSG-A5V5 "the walk over the config directory of ${subject} left ${detail} hardlinked file(s) at their type; list them with: sudo find ${partial_dir} -xdev -type f -links +1" ;;
+                      warn MSG-A5V5 "the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${partial_dir} -not -type d -links +1" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
                 # so `failed` prints, naming the agent those lines omit.
@@ -886,7 +886,7 @@ _restore_home_state_labels() {
 # writes only a file whose context differs), so a clean tree costs a walk and no writes; a file that drifted
 # in with a foreign context -- a customizable type a plain restorecon would preserve -- is forced back
 # to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep. A status of 4 is a walk that completed
-# and left hardlinked files at their type, and 6 a walk that could not start.
+# and left hardlinked paths at their type, and 6 a walk that could not start.
 _label_project() {
     local rc=0
     ai_tools_relabel__label_project "$1" || rc=$?
@@ -908,8 +908,8 @@ _unlabel_project() {
         *) warn MSG-W8J4 "could not unlabel $1" ;;
     esac
 }
-# _note_walk_left <dir>: the walk over <dir> completed and left the hardlinked files the tree walker lists in
-# AI_TOOLS_RELABEL__TREE_DIAGNOSTICS at the type they carry, since through another name a file may be another tree's.
+# _note_walk_left <dir>: the walk over <dir> completed and left the hardlinked paths the tree walker lists
+# in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS at the type they carry, since through another name a path may be another tree's.
 _note_walk_left() {
     log "  the walk over $1 left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}"
 }

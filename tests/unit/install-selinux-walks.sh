@@ -164,8 +164,8 @@ else
 fi
 verdict_out="$(verdict_run $'ok /x/.acme\npartial acme 2\nagent acme ok')"
 assert_msg MSG-A5V5 "${verdict_out}" "a config directory walk that left hardlinked files is named"
-if grep -qF "left 2 hardlinked file(s)" <<<"${verdict_out}" \
-        && grep -qF "find ${TESTDIR}/home/.acme -xdev -type f -links +1" <<<"${verdict_out}"; then
+if grep -qF "left 2 hardlinked path(s) at their current type" <<<"${verdict_out}" \
+        && grep -qF "find ${TESTDIR}/home/.acme -not -type d -links +1" <<<"${verdict_out}"; then
     pass "the partial walk names its count and the find that lists the files"
 else
     fail "the partial walk does not name its count and the find: ${verdict_out//$'\n'/ | }"
@@ -209,8 +209,8 @@ else
     fail "control: a label at status 0 printed: ${project_out//$'\n'/ | }"
 fi
 for fn in _label_project _unlabel_project; do
-    project_out="$(project_run "${fn}" 4 "skipped hardlinked file /p/x (link count 2)")"
-    if grep -qF "LOG   the walk over /p left these entries at their type: skipped hardlinked file /p/x (link count 2)" \
+    project_out="$(project_run "${fn}" 4 "skipped hardlinked path /p/x (link count 2)")"
+    if grep -qF "LOG   the walk over /p left these entries at their type: skipped hardlinked path /p/x (link count 2)" \
             <<<"${project_out}" && ! grep -q '^MSG-' <<<"${project_out}"; then
         pass "${fn} at status 4 notes the walker's list without a warning"
     else

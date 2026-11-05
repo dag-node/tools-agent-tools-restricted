@@ -2147,8 +2147,8 @@ run_lockdown() {
 # The helper found no label to apply on this host -- SELinux disabled, or no ai_tools policy installed -- and said why
 # on stderr.
 readonly RELABEL_NOT_APPLICABLE_STATUS=5
-# The revert completed except on the hardlinked files the helper listed on stderr, which keep ai_tools_project_t, or the
-# tree walker it runs could not start.
+# The revert completed except on the hardlinked paths the helper listed on stderr, which keep their current type,
+# or the tree walker it runs could not start.
 readonly RELABEL_PARTIAL_REVERT_STATUS=6
 run_relabel() {
     local d="$1"; shift
@@ -4352,7 +4352,7 @@ resolve_verb_target() {
 # `projects enable`, `projects handback` and ai-tools-unclaim each refusing a path the registry no longer names.
 # Best-effort except for the allowlist line: every other step warns and the pass goes on, while a drop that did not
 # apply refuses (unreg_allow) and a disable that did not apply returns 1 without the ✓, since either leaves a session
-# able to start here. A label reversal that did not apply, or that left hardlinked files on the project type, returns 1
+# able to start here. A label reversal that did not apply, or that left hardlinked paths at their type, returns 1
 # without the ✓ as well, after the registry reversal (cli.rule.md, ref-section-m5n5).
 unclaim_one() {
     local d="$1" group="$2" hint="$3" retry="$4"; shift 4
@@ -5059,7 +5059,7 @@ cmd_project_remove() {
             say "    SELinux label: not applicable on this host (the helper's line above says why)"
         elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
             label_outcome=partial
-            warn "the SELinux label was not reverted on every file -- the helper's lines above name what it left; the deletion removes their names in this tree, and a hardlinked file's other names outside it keep ai_tools_project_t"
+            warn "the SELinux label was not reverted on every file -- the helper's lines above name what it left; the deletion removes their names in this tree, and a hardlinked path's other names outside it keep its current type"
             note_root_failure || cleanup_stopped=true
         elif (( relabel_status != 0 )); then
             label_outcome=failed

@@ -1581,7 +1581,7 @@ usage: ai\-tools\-relabel [\-\-remove] <dir>
 .TP
 .B MSG-D2T9
 ERROR.
-reverted ${dir} to its default SELinux type except these hardlinked files, which keep ai_tools_project_t: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} \-xdev \-type f \-links +1
+reverted ${dir} to its default SELinux type except these hardlinked paths, which keep their current type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} \-not \-type d \-links +1
 .TP
 .B MSG-D6R4
 ERROR.
@@ -1613,7 +1613,7 @@ failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ \
 .TP
 .B MSG-R5F8
 NOTICE.
-labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked file(s) kept their type; they are listed above
+labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked path(s) kept their current type; they are listed above
 .TP
 .B MSG-S3E7
 ERROR.
@@ -2130,7 +2130,7 @@ sandbox clone NOT labelled ai_tools_project_t: ${clone}
 .TP
 .B MSG-A5V5
 WARNING.
-the walk over the config directory of ${subject} left ${detail} hardlinked file(s) at their type; list them with: sudo find ${partial_dir} \-xdev \-type f \-links +1
+the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${partial_dir} \-not \-type d \-links +1
 .TP
 .B MSG-B8Q9
 WARNING.

@@ -28,11 +28,11 @@
 # up once per entry through one selabel handle per run and written in full when it differs, customizable types included
 # (`restorecon -F`). The lookup calls libselinux.so.1 through ctypes with the path as bytes: the selinux module's
 # selabel_lookup refuses a str carrying an undecodable byte and refuses bytes, so a name the account gives an invalid
-# UTF-8 byte would otherwise stop the walk. A path the database maps to <<none>> is left as it is. A regular file
-# with more than one link is not written: through its other name it may be another project's or another operator's. It
-# is listed on stderr when its label differs, and the walk exits 4.
+# UTF-8 byte would otherwise stop the walk. A path the database maps to <<none>> is left as it is. An entry other than
+# a directory with more than one link is not written, whatever its file type: through its other name it may be another
+# project's or another operator's. It is listed on stderr when its label differs, and the walk exits 4.
 #
-# Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked files left; 1 an entry could not
+# Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked paths left; 1 an entry could not
 # be labelled (the first named on stderr, then the count), a read-back differing from the write (which ends the walk),
 # or the root check; 2 usage; 3 libselinux.so.1 does not load or lacks a function the lookup calls. A real run prints
 # nothing on stdout. `--dry-run` writes nothing and prints `<path> <from> <to>` for each entry it would write, `-`
@@ -110,7 +110,7 @@ def _error_text(error):
 
 
 class _Walk:
-    """The state of one run: the first failure, the failure count, and the hardlinked files left."""
+    """The state of one run: the first failure, the failure count, and the hardlinked paths left."""
 
     def __init__(self, lookup, xattr, opener, report, dry_run):
         self.lookup, self.xattr, self.opener, self.report, self.dry_run = lookup, xattr, opener, report, dry_run
@@ -143,9 +143,9 @@ class _Walk:
             return True
         if current == wanted:
             return True
-        if stat.S_ISREG(st.st_mode) and st.st_nlink > 1:
+        if not stat.S_ISDIR(st.st_mode) and st.st_nlink > 1:
             self.hardlinks_left += 1
-            self.report('error', 'skipped hardlinked file %s (link count %d)' % (quote(path), st.st_nlink))
+            self.report('error', 'skipped hardlinked path %s (link count %d)' % (quote(path), st.st_nlink))
             return True
         if self.dry_run:
             shown = '-' if current is None else quote(current.decode('utf-8', 'surrogateescape'))
