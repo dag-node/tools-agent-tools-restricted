@@ -294,7 +294,9 @@ _teardown() {
     for p in "${_cleanup[@]:-}"; do [[ -n "${p}" ]] && rm -rf "${p}"; done
     for (( i = 0; i < _teardown_n; i++ )); do
         local -n _run_from="_teardown_cmd_${i}"
-        "${_run_from[@]}" >/dev/null 2>&1
+        # Best-effort: under the file's `set -e` a command that fails here would end the trap, and every command
+        # registered after it would not run.
+        "${_run_from[@]}" >/dev/null 2>&1 || true
         unset -n _run_from
     done
     return 0
