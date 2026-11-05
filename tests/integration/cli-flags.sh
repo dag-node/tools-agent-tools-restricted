@@ -617,7 +617,9 @@ drive_rows() {
     done
     RUN_EXTRA_ENV=()
     # A secret-named path in a drift list is marked, read with the operator's patterns -- here a fixture set
-    # through the classifier's own file override -- and a plain path beside it is not.
+    # through the classifier's own file override -- and a plain path beside it is not. A drift list is a re-claim's,
+    # and the label rows above seeded the registry with pl alone, so ph is listed again first.
+    seed "@ ${R}/ph"; seed_gc "${R}/ph"
     printf '*.pem\n' > "${R}/secret-patterns"; chmod 0644 "${R}/secret-patterns"
     : > "${R}/ph/deploy.pem"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/ph/deploy.pem"; chmod 0640 "${R}/ph/deploy.pem"
     RUN_EXTRA_ENV=(AI_TOOLS_SECRET_PATTERNS_FILE="${R}/secret-patterns")
