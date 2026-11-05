@@ -2889,6 +2889,11 @@ status_labels() {
         st "n/a" "SELinux confinement is inactive here -- there is no agent label to carry"
         return 0
     fi
+    if [[ "${rc}" -eq 3 ]]; then
+        st UNREADABLE "live labels: a reader the label report calls did not load -- no agent label was read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
     [[ -n "${report}" ]] || return 0
     while read -r verdict agent what path actual wanted; do
         case "${verdict}" in

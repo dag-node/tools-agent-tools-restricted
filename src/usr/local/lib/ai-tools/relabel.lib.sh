@@ -855,8 +855,11 @@ ai_tools_relabel__unlabel_agent_paths() {
 #                                                  state)
 #   <what> is one token, `entrypoint` or `config-directory`, so the field after it is always the
 #   path and a caller never has to count words.
-#   Returns 0 when every path it could inspect carries its type, 1 when one does not, and 2 when
-#   the SELinux layer is inactive, which yields an empty report and is not a fault.
+#   Returns 0 when every path it could inspect carries its type, 1 when one does not, 2 when
+#   the SELinux layer is inactive, which yields an empty report and is not a fault, and 3 with an empty
+#   report when a function it calls is not defined (the enabled-agent resolver, the manifest-field
+#   reader, the entrypoint resolver): a reading it could not make, which must not read as an inactive
+#   layer, an uninstalled entrypoint or an agent without a config directory.
 #
 #   READ-ONLY, which is the whole difference from ai_tools_relabel__label_agent_paths: it calls
 #   neither _ai_tools_relabel__register_fcontext, nor restorecon, nor ai_tools_relabel__lock, so it answers a status
@@ -869,7 +872,9 @@ ai_tools_relabel__unlabel_agent_paths() {
 #   which a declared pattern can have stopped describing.
 ai_tools_relabel__list_agent_labels() {
     _ai_tools_relabel__is_entrypoint_policy_active || return 2
-    declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 2
+    declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 3
+    declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || return 3
+    declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 || return 3
     local agent entrypoint config_dir path context status=0
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue

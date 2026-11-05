@@ -962,8 +962,9 @@ a counted fault exits 4, the service registry's readers removed after the librar
 and a fault beside that exits 5. The Entrypoints, Version and managed-files sections are driven directly over the loaded
 libraries, since `relabel.lib.sh` has no include guard: each reader they call, removed, prints one unreadable line
 and counts it, the Node line then does not claim a link read, and Entrypoints without a pin reader still names
-a mislabelled entrypoint from the live label reader, stubbed to report one. Its Caches case pins the count this report
-keeps and the size it reads with `du` over a fixture home.
+a mislabelled entrypoint from the live label reader, stubbed to report one, while the real reader with a function it
+calls removed reads as an unreadable label reading and never as inactive SELinux. Its Caches case pins the count this
+report keeps and the size it reads with `du` over a fixture home.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `atr status` re-checks
@@ -1245,7 +1246,8 @@ with a plain `read`, so an unreadable label must report `unknown` rather than an
 later field left, rendering a type where a path belongs in a report whose whole job is to be believed. `CP_HOME` is
 a readonly constant, so the config directory cannot be moved into the testdir; the fixture agent's name is one no
 package ships, which makes that half report deterministically as not installed and leaves the entrypoint half to carry
-the type comparisons.
+the type comparisons. A function the report calls, removed, returns 3 with no report, apart from the inactive layer's 2,
+so a partial load does not read as SELinux off or an entrypoint not installed.
 
 A fifth covers the live-session gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)): each gated walk is driven
 with the session reader stubbed to `live` and to `unreadable`, and must return its status with no `semanage`
