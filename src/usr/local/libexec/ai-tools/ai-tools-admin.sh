@@ -2697,10 +2697,11 @@ status_provisioning() {
 # The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
 # a supported state and is not counted; a missing one is, since the package is then broken. Prints no line for a file
 # matching the shipped copy. Without the resolver status_provisioning has already said so; a resolver that loaded
-# without its managed-files reader is a reading this section could not make.
+# without its managed-files reader or the comparison it runs per file is a reading this section could not make.
 status_managed_files() {
     declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 0
-    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1; then
+    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__evaluate_managed_file >/dev/null 2>&1; then
         st UNREADABLE "managed files: ${PROVIDERS_LIB} did not load its managed-files reader; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
@@ -2736,29 +2737,32 @@ status_managed_files() {
 status_entrypoints() {
     heading "Entrypoints"
     # The provider, entrypoint, relabel and service libraries answer this section between them, and a partial load must
-    # report that rather than reach an undefined function -- which under `set -e` would abort the whole report over the
-    # section it could not give. Each ships with base, so a missing one is a reading this section could not make, not a
-    # `?`. Every reader an agent's line calls is checked here, the ones entrypoint_live_verdict and
-    # entrypoint_stale_mark call included: a reader missing past this point would leave the pin's own fields to render
-    # as VERIFIED or UNCHANGED for a binary the report did not hash.
+    # report that rather than reach an undefined function -- which under `set -e` would abort the whole report
+    # over the section it could not give. Each ships with base, so a missing one is a reading this section could not
+    # make, not a `?`. Every reader an agent's line calls is checked here, the ones entrypoint_live_verdict
+    # and entrypoint_stale_mark call included: a reader missing past this point would leave the pin's own fields
+    # to render as VERIFIED or UNCHANGED for a binary the report did not hash, and a missing verification-policy reader
+    # would render an unpinned agent as not blocked on a host that requires verification. The live labels have a reader
+    # and a guard of their own, so status_labels runs on this branch too.
     if ! declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 \
             || ! declare -F ai_tools_providers__read_agent_manifest_field  >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__get_pin_path   >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__read_pin_kind  >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__check          >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__is_required    >/dev/null 2>&1 \
             || ! declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__read_stamp_field   >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__read_stamp_age     >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__format_age       >/dev/null 2>&1; then
         st UNREADABLE "the provider, entrypoint, relabel or service libraries did not load -- no entrypoint was read; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        status_labels
         return 0
     fi
 
     local agent pin version age live strict=no seen=0
-    declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
-        && ai_tools_entrypoint_verify__is_required && strict=yes
+    ai_tools_entrypoint_verify__is_required && strict=yes
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         seen=1

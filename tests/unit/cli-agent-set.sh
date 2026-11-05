@@ -351,6 +351,25 @@ if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && grep -qF 'atr provide
 else
     fail "the label reader missing for an agent with no manifest URL and no pin exited ${rc}, expected 5 with MSG-E5C3: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
 fi
+# A host that requires verification refuses an unpinned agent's launch, so the verification-policy reader is checked
+# at the head as well: without it the agent's line would read as not blocked. The control, with the reader in place,
+# names the agent as one whose sessions will not launch and exits 4.
+operator_conf "AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes"
+printf 'release_manifest_url=https://example.invalid/manifest.json\n' >> "${AGENTS_DIR}/alpha.conf"
+rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+if [[ "${rc}" -eq 4 ]] && grep -qF 'sessions will not launch' <<<"${out}"; then
+    pass "control: an unpinned agent on a host requiring verification is named as blocked, and status exits 4"
+else
+    fail "control: an unpinned agent on a host requiring verification (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__is_required')" || rc=$?
+if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && ! grep -qF 'launches are not blocked' <<<"${out}" \
+        && grep -qF 'atr providers' <<<"${out}"; then
+    pass "the verification-policy reader missing exits 5 under MSG-E5C3 and does not report the unpinned agent as unblocked"
+else
+    fail "the verification-policy reader missing exited ${rc}, expected 5 with MSG-E5C3 and no unblocked line: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+operator_conf; manifest alpha la yes
 # status_entrypoint_label keeps its own guard: called directly without its reader, it returns the unreadable status
 # under MSG-K8K4.
 # call_label_unloaded : the label line for alpha with the record-path reader removed after the library loaded.
@@ -487,7 +506,8 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
         fail "control: the PATH ordering and managed-files readers loaded (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
     fi
     for row in "ai_tools_path_order__read_here MSG-N9Q3 status_path_order" \
-               "ai_tools_providers__list_agent_managed_files MSG-K9T3 status_managed_files"; do
+               "ai_tools_providers__list_agent_managed_files MSG-K9T3 status_managed_files" \
+               "ai_tools_providers__evaluate_managed_file MSG-K9T3 status_managed_files"; do
         read -r reader code section_fn <<<"${row}"
         rc=0; out="$(call_status_readers "unset -f ${reader}")" || rc=$?
         if [[ "${rc}" -eq 5 ]] && grep -qx "${code}" <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then

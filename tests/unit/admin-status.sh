@@ -209,7 +209,8 @@ fi
 # Each section is driven directly over the libraries status() loads, with the reader removed after the load, since
 # relabel.lib.sh has no include guard and status()'s own source would restore it. Each case prints the section and
 # the unreadable count: one coded or UNREADABLE line and a count of 1, where the same run with every reader in place,
-# the control, prints neither and counts 0. The live label report is stubbed, so no case reads the host's labels.
+# the control, prints neither and counts 0. The live label reader under status_labels is stubbed to an empty report,
+# so no case reads the host's labels, and a case that needs a label line replaces the stub in its <pre>.
 # call_section <pre> <section> : source the helper and the libraries with the hooks set, run <pre>, then <section>.
 # shellcheck disable=SC2016  # the $1/$2/$3 are for the inner `bash -c`, not this shell -- do not expand here
 call_section() {
@@ -219,13 +220,13 @@ call_section() {
                  for lib in "${SERVICES_LIB}" "${PROVIDERS_LIB}" "${RELABEL_LIB}" "${ENTRYPOINT_VERIFY_LIB}" "${TOOLCHAIN_LIB}"; do
                      source "${lib}" >/dev/null 2>&1 || exit 98
                  done
-                 status_labels() { :; }
+                 ai_tools_relabel__list_agent_labels() { :; }
                  eval "${pre}"; "${section_fn}"; printf "unreadable=%s\n" "${STATUS_UNREADABLE}"' \
         _ "${HELPER}" "$1" "$2" 2>&1
 }
 mkdir -m 0755 "${TESTDIR}/pins"
 reset_fixtures; manifest alpha la; vlink la v9.9.9
-for section_fn in status_entrypoints status_agent_versions status_node_version; do
+for section_fn in status_entrypoints status_agent_versions status_node_version status_managed_files; do
     rc=0; out="$(call_section ':' "${section_fn}")" || rc=$?
     if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=0' <<<"${out}" && ! grep -qF '[UNREADABLE]' <<<"${out}" \
             && ! grep -qxE 'MSG-(M9D4|B5R6)' <<<"${out}"; then
@@ -235,13 +236,40 @@ for section_fn in status_entrypoints status_agent_versions status_node_version; 
     fi
 done
 for reader in ai_tools_entrypoint_verify__get_stale_path ai_tools_entrypoint_verify__read_pin_kind \
-              ai_tools_entrypoint_verify__check ai_tools_relabel__resolve_agent_entrypoint_path; do
+              ai_tools_entrypoint_verify__check ai_tools_entrypoint_verify__is_required \
+              ai_tools_relabel__resolve_agent_entrypoint_path; do
     rc=0; out="$(call_section "unset -f ${reader}" status_entrypoints)" || rc=$?
     if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
-            && ! grep -qE '\[(VERIFIED|UNCHANGED)\]' <<<"${out}"; then
+            && ! grep -qE '\[(VERIFIED|UNCHANGED)\]' <<<"${out}" && ! grep -qF 'launches are not blocked' <<<"${out}"; then
         pass "Entrypoints without ${reader} prints its UNREADABLE line before any agent line and counts it"
     else
         fail "Entrypoints without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+# The live labels have a reader of their own, so a pin reader missing does not take them with it: a mislabelled
+# entrypoint is still named beside the UNREADABLE line. The same label report with every reader loaded is the control.
+bad_label='ai_tools_relabel__list_agent_labels() { printf "bad alpha entrypoint /fixture/la bin_t ai_tools_exec_t\n"; }'
+for pre in ':' 'unset -f ai_tools_entrypoint_verify__read_pin_kind'; do
+    rc=0; out="$(call_section "${pre}; ${bad_label}" status_entrypoints)" || rc=$?
+    if [[ "${pre}" == ':' ]]; then
+        if [[ "${rc}" -eq 0 ]] && grep -qF '[NOT LABELLED]' <<<"${out}" && grep -qx 'unreadable=0' <<<"${out}"; then
+            pass "control: with every reader loaded, a mislabelled entrypoint is named under Entrypoints"
+        else
+            fail "control: a mislabelled entrypoint with every reader loaded (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+        fi
+    elif [[ "${rc}" -eq 0 ]] && grep -qF '[NOT LABELLED]' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
+            && grep -qx 'unreadable=1' <<<"${out}"; then
+        pass "Entrypoints without the pin-kind reader still names a mislabelled entrypoint beside its UNREADABLE line"
+    else
+        fail "Entrypoints without the pin-kind reader and a mislabelled entrypoint (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+for reader in ai_tools_providers__list_agent_managed_files ai_tools_providers__evaluate_managed_file; do
+    rc=0; out="$(call_section "unset -f ${reader}" status_managed_files)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}"; then
+        pass "Managed files without ${reader} prints its UNREADABLE line and counts it"
+    else
+        fail "Managed files without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
 done
 for reader in ai_tools_relabel__resolve_agent_entrypoint_path ai_tools_entrypoint_verify__read_installed_version; do

@@ -6045,16 +6045,18 @@ status_entrypoint_pins() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/entrypoint-verify.lib.sh
     source "${verify_lib}" 2>/dev/null || true
-    # Both libraries ship with base, so one that did not load is a broken install: a reading this section promises and
-    # could not make. Every reader an agent's lines call is checked here, ahead of the first agent, so a missing one
-    # does not leave the pin's own fields to render as VERIFIED, and an agent that takes `continue` before its label
-    # line still has its label reader checked; status_entrypoint_label keeps its own guard (MSG-K8K4). The service
-    # registry's absence is the Services section's to report (MSG-X5Z8).
+    # Both libraries ship with base, so one that did not load is a broken install: a reading this section promises
+    # and could not make. Every reader an agent's lines call is checked here, ahead of the first agent, so a missing one
+    # does not leave the pin's own fields to render as VERIFIED, a missing verification-policy reader does not leave
+    # an unpinned agent to render as not blocked where the host requires verification, and an agent that takes
+    # `continue` before its label line still has its label reader checked; status_entrypoint_label keeps its own guard
+    # (MSG-K8K4). The service registry's absence is the Services section's to report (MSG-X5Z8).
     if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
             || ! declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__read_pin_kind >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; then
         section "Entrypoint verification"
         warn MSG-E5C3 "the provider or entrypoint library (${providers_lib}, ${verify_lib}) did not load -- no entrypoint pin was read; reinstall the ai-tools package"
@@ -6063,8 +6065,7 @@ status_entrypoint_pins() {
     declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1 || return 0
 
     local strict=no
-    declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
-        && ai_tools_entrypoint_verify__is_required && strict=yes
+    ai_tools_entrypoint_verify__is_required && strict=yes
 
     local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0 unreadable=0 label_status
     while IFS=$'\t' read -r agent _ _; do
@@ -6481,11 +6482,13 @@ status_node_version() {
 # is where an operator learns the live file differs: the agent reads it alone, a key this release adds is not in it,
 # and what it declares is the host's rather than the package's. A file matching the shipped copy is not reported,
 # and an edited one is not counted -- it is a supported state -- while a missing one is, since the package is then
-# broken and a reinstall is the remedy. Returns 1 for a missing file, and STATUS_UNREADABLE under MSG-K9T3 where
-# providers.lib.sh did not define its managed-files reader, a library base ships.
+# broken and a reinstall is the remedy. Returns 1 for a missing file, and STATUS_UNREADABLE under MSG-K9T3
+# where providers.lib.sh did not define the managed-files reader or the comparison it runs per file, a library base
+# ships.
 status_managed_files() {
     local agent="$1" live reference state rc=0
-    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1; then
+    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__evaluate_managed_file >/dev/null 2>&1; then
         warn MSG-K9T3 "the provider library did not load its managed-files reader -- the managed files of ${agent} were not compared; reinstall the ai-tools package"
         return "${STATUS_UNREADABLE}"
     fi

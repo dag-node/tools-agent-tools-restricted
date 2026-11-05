@@ -555,16 +555,17 @@ deciding, rather than the file's presence. Each reader the section's lines call 
 kind, the label record — is removed after the CLI loaded it, through `cmd_status`, which must exit 5 under the section's
 code with no tier line and the later sections still printed, beside the same run with every reader as the control;
 the label reader is removed for an agent with no manifest URL and no pin as well, which no label line reaches,
-and the label line's own guard keeps its code when it is called alone. A further section drives the Version section's
-Node line against fixture links: the version a link points into is the one named, two links naming different versions
-are reported as such, and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole,
-the host-reading sections stubbed to a known answer, over the exit fold `ai-tools-records(5)` states: a section
-that read a fault exits 4, the service registry's readers removed after the CLI loaded them exits 5 under its code
-with the later sections still printed, a section returning its unreadable status exits 5, a fault beside an unreadable
-reading exits 5, and the PATH ordering reader and the managed-files reader each removed exit 5 under their section's
-code. Its last section drives the Caches section over fixture state files: each verdict the library counts returns 1
-with the library's remedy under the line, an overdue cache returns 0 with the line its recorded reason selects,
-and an empty file and a value forged with a control byte read as `?` and are not counted.
+the verification-policy reader for an unpinned agent on a host requiring verification, which must not read as not
+blocked, and the label line's own guard keeps its code when it is called alone. A further section drives the Version
+section's Node line against fixture links: the version a link points into is the one named, two links naming different
+versions are reported as such, and a link outside the versioned shape claims none. Its closing section drives
+`cmd_status` whole, the host-reading sections stubbed to a known answer, over the exit fold `ai-tools-records(5)`
+states: a section that read a fault exits 4, the service registry's readers removed after the CLI loaded them exits 5
+under its code with the later sections still printed, a section returning its unreadable status exits 5, a fault beside
+an unreadable reading exits 5, and the PATH ordering reader and the managed-files reader each removed exit 5 under their
+section's code. Its last section drives the Caches section over fixture state files: each verdict the library counts
+returns 1 with the library's remedy under the line, an overdue cache returns 0 with the line its recorded reason
+selects, and an empty file and a value forged with a control byte read as `?` and are not counted.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is
@@ -957,10 +958,11 @@ holds a base file, which is the state every installed host is in, and a present 
 section drives `status` whole with the host-reading sections stubbed, over the same exit fold the CLI's test pins:
 a counted fault exits 4, the service registry's readers removed after the library loaded (its include guard keeps
 `status`'s own re-source from restoring them) exits 5 under `MSG-V6N9` with the later sections still printed,
-and a fault beside that exits 5. The Entrypoints and Version sections are driven directly over the loaded libraries,
-since `relabel.lib.sh` has no include guard: each reader they call, removed, prints one unreadable line and counts it,
-and the Node line then does not claim a link read. Its Caches case pins the count this report keeps and the size it
-reads with `du` over a fixture home.
+and a fault beside that exits 5. The Entrypoints, Version and managed-files sections are driven directly over the loaded
+libraries, since `relabel.lib.sh` has no include guard: each reader they call, removed, prints one unreadable line
+and counts it, the Node line then does not claim a link read, and Entrypoints without a pin reader still names
+a mislabelled entrypoint from the live label reader, stubbed to report one. Its Caches case pins the count this report
+keeps and the size it reads with `du` over a fixture home.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `atr status` re-checks
