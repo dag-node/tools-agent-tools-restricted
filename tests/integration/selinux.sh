@@ -590,21 +590,114 @@ else
     fail "W2: fs.protected_hardlinks reads '${protected_hardlinks:-unread}', not 1 -- the sandbox account can link a file it cannot write into a tree a walk labels"
 fi
 
-# (W3) The walker reaches only an inode the account could rename or link into the tree, so the policy's rename and link
-# grants to ai_tools_t bound what a walk can write. sesearch reads the loaded policy, the optional groups included;
-# a grant on an attribute lists the attribute and fails the row, since it may cover a type outside the set.
+# (W3) The walker reaches only an inode the account could rename or link into the tree, so the rename and link grants
+# to ai_tools_t bound what a walk can write. sesearch reads the loaded policy, the optional groups included, and the row
+# holds each (type, class, permission) it lists for those two permissions to a reviewed table: any file class
+# of the four types the module declares for the account's own trees, and the base-policy grants in W3_INHERITED, each
+# matched on the rule's source and condition as well. Any other tuple fails the row. The classifier first runs
+# over synthetic rules, so a table that accepted every rule fails its control before the policy's listing is read.
+W3_MODULE_TYPES=" ai_tools_project_t ai_tools_project_build_t ai_tools_home_t ai_tools_tmp_t "
+# source|target|class|permission|condition, the condition `<boolean>:<branch>` as sesearch prints it, or `-`.
+W3_INHERITED=(
+    # auth_use_nsswitch makes ai_tools_t an nsswitch_domain, which the base policy lets manage the Kerberos replay
+    # cache.
+    'nsswitch_domain|krb5_host_rcache_t|file|link|-'
+    'nsswitch_domain|krb5_host_rcache_t|file|rename|-'
+    # Under fips_mode the base policy lets every domain manage FIFOs of its own type; a pipe carries that type
+    # in pipefs, and avc-denials.sh probes for a named one on a project's filesystem (WLK-001).
+    'ai_tools_t|ai_tools_t|fifo_file|link|fips_mode:True'
+    'ai_tools_t|ai_tools_t|fifo_file|rename|fips_mode:True'
+)
+# w3_classify <sesearch-line>: print `module|inherited|unexpected <source> <target>:<class> <permission> <condition>`
+#   for each of rename and link the rule grants; a line that does not parse as an allow rule prints `unparsed <line>`.
+w3_classify() {
+    local line="$1" source target class perms condition perm kind entry
+    local rule_pattern='^allow ([^ ]+) ([^ :]+):([^ ]+) (\{ ([^}]*) \}|([^ ;{]+));( \[ (.*) \]:(True|False))?$'
+    [[ -n "${line}" ]] || return 0
+    if [[ ! "${line}" =~ ${rule_pattern} ]]; then
+        printf 'unparsed %s\n' "${line}"
+        return 0
+    fi
+    source="${BASH_REMATCH[1]}"; target="${BASH_REMATCH[2]}"; class="${BASH_REMATCH[3]}"
+    perms=" ${BASH_REMATCH[5]:-${BASH_REMATCH[6]}} "
+    condition="-"
+    [[ -n "${BASH_REMATCH[8]}" ]] && condition="${BASH_REMATCH[8]// /}:${BASH_REMATCH[9]}"
+    for perm in link rename; do
+        [[ "${perms}" == *" ${perm} "* ]] || continue
+        kind=unexpected
+        if [[ "${W3_MODULE_TYPES}" == *" ${target} "* ]]; then
+            kind=module
+        else
+            for entry in "${W3_INHERITED[@]}"; do
+                [[ "${entry}" == "${source}|${target}|${class}|${perm}|${condition}" ]] && kind=inherited
+            done
+        fi
+        printf '%s %s %s:%s %s %s\n' "${kind}" "${source}" "${target}" "${class}" "${perm}" "${condition}"
+    done
+}
+# w3_classify_all <rules>: w3_classify over each line of <rules>.
+w3_classify_all() {
+    local rule
+    while IFS= read -r rule; do w3_classify "${rule}"; done <<<"$1"
+}
+
+w3_control="$(w3_classify_all 'allow ai_tools_t ai_tools_project_t:file { create link rename };
+allow nsswitch_domain krb5_host_rcache_t:file { create link open rename write };
+allow ai_tools_t ai_tools_t:fifo_file { create link rename }; [ fips_mode ]:True
+allow ai_tools_t user_home_t:file { link rename };
+allow ai_tools_t ai_tools_t:fifo_file { link }; [ fips_mode ]:False
+allow ai_tools_t ai_tools_t:file rename;
+allow nsswitch_domain krb5_host_rcache_t:file link; [ kerberos_enabled ]:True')"
+w3_control_expected='module ai_tools_t ai_tools_project_t:file link -
+module ai_tools_t ai_tools_project_t:file rename -
+inherited nsswitch_domain krb5_host_rcache_t:file link -
+inherited nsswitch_domain krb5_host_rcache_t:file rename -
+inherited ai_tools_t ai_tools_t:fifo_file link fips_mode:True
+inherited ai_tools_t ai_tools_t:fifo_file rename fips_mode:True
+unexpected ai_tools_t user_home_t:file link -
+unexpected ai_tools_t user_home_t:file rename -
+unexpected ai_tools_t ai_tools_t:fifo_file link fips_mode:False
+unexpected ai_tools_t ai_tools_t:file rename -
+unexpected nsswitch_domain krb5_host_rcache_t:file link kerberos_enabled:True'
+if [[ "${w3_control}" == "${w3_control_expected}" ]]; then
+    pass "W3 control: the classifier reads a type, a class, a branch or a condition outside the table as unexpected"
+else
+    fail "W3 control: the classifier over synthetic rules: ${w3_control//$'\n'/ | }"
+fi
+
 if ! command -v sesearch >/dev/null 2>&1; then
     skip "W3: the policy's rename and link set" "sesearch (setools-console) not installed"
 else
-    move_rules="$(sesearch -A -s ai_tools_t -c file,dir,lnk_file,fifo_file,sock_file -p rename,link 2>/dev/null || true)"
-    move_outside="$(awk '$1 == "allow" { split($3, target, ":"); print target[1] }' <<<"${move_rules}" | LC_ALL=C sort -u \
-        | grep -vxE 'ai_tools_(project|project_build|home|tmp)_t' || true)"
-    if ! grep -q '^allow ai_tools_t ai_tools_project_t:' <<<"${move_rules}"; then
-        fail "W3: sesearch did not list the ai_tools_project_t grant, so its listing was not read: $(head -c 200 <<<"${move_rules}" | tr '\n' '|')"
-    elif [[ -n "${move_outside}" ]]; then
-        fail "W3: ai_tools_t holds rename or link on a type outside the walker's set: ${move_outside//$'\n'/ }"
+    move_status=0
+    move_rules="$(sesearch -A -s ai_tools_t -c file,dir,lnk_file,fifo_file,sock_file -p rename,link 2>&1)" || move_status=$?
+    move_tuples="$(w3_classify_all "${move_rules}")"
+    move_module="$(grep -c '^module ' <<<"${move_tuples}" || true)"
+    if [[ "${move_status}" -ne 0 ]] || ! grep -q '^module ai_tools_t ai_tools_project_t:file ' <<<"${move_tuples}"; then
+        fail "W3: sesearch did not list the ai_tools_project_t grant (exit ${move_status}), so its listing was not read: $(head -c 200 <<<"${move_rules}" | tr '\n' '|')"
     else
-        pass "W3: ai_tools_t holds rename and link on ai_tools_project_t, ai_tools_project_build_t, ai_tools_home_t and ai_tools_tmp_t alone"
+        pass "W3: ${move_module} rename and link grant(s) on the four types the module declares"
+        while read -r _ move_source move_target move_perm move_condition; do
+            [[ -n "${move_target}" ]] || continue
+            move_state=""
+            if [[ "${move_condition}" != - ]]; then
+                move_boolean="${move_condition%%:*}" move_branch="${move_condition##*:}"
+                move_value="$(getsebool "${move_boolean}" 2>/dev/null | awk '{print $NF}')"
+                case "${move_value}:${move_branch}" in
+                    on:True|off:False) move_state=", in force (${move_boolean} ${move_value})" ;;
+                    on:False|off:True) move_state=", not in force (${move_boolean} ${move_value})" ;;
+                    *)                 move_state=", ${move_boolean} unread" ;;
+                esac
+            fi
+            pass "W3: base-policy grant ${move_target} ${move_perm} through ${move_source}${move_state} -- reviewed"
+        done < <(grep '^inherited ' <<<"${move_tuples}" || true)
+        move_unexpected="$(grep -E '^(unexpected|unparsed) ' <<<"${move_tuples}" || true)"
+        if [[ -n "${move_unexpected}" ]]; then
+            while IFS= read -r move_line; do
+                fail "W3: a rename or link grant outside the reviewed table: ${move_line#* }"
+            done <<<"${move_unexpected}"
+        else
+            pass "W3: no rename or link grant outside the reviewed table"
+        fi
     fi
 fi
 

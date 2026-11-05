@@ -357,6 +357,8 @@ do_probe() {
   #                               on an existing file, which neither truncates nor creates it
   #   dirwrite <dir>              access(2) W_OK on a directory -- the write check a create would meet, with no entry
   #                               created
+  #   ownfifo <dir>               mkfifo(3) in <dir> under an fscreate context of the process's own domain type,
+  #                               the FIFO unlinked at once where the kernel made it
   # Exits 0 when the call succeeded, and on failure prints "<errno name>: <message>" to stderr and exits 1, so _attempt
   # reads EACCES/EPERM as a denial and every other errno as not exercised.
   _py() {
@@ -375,6 +377,18 @@ try:
         finally: s.close()
     elif op == "write":
         os.close(os.open(args[0], os.O_WRONLY | os.O_APPEND))
+    elif op == "ownfifo":
+        current = open("/proc/thread-self/attr/current").read().rstrip("\0\n")
+        user, _role, domain, level = current.split(":", 3)
+        path = os.path.join(args[0], ".avc-denials-ownfifo-%d" % os.getpid())
+        fscreate = os.open("/proc/thread-self/attr/fscreate", os.O_WRONLY)
+        try:
+            os.write(fscreate, ("%s:object_r:%s:%s" % (user, domain, level)).encode())
+            os.mkfifo(path)
+            os.unlink(path)
+        finally:
+            os.write(fscreate, b"")
+            os.close(fscreate)
     elif op == "dirwrite":
         if not os.path.isdir(args[0]):
             raise FileNotFoundError(errno.ENOENT, "no such directory", args[0])
@@ -1011,6 +1025,21 @@ the SELinux gates."
     skip_check SES-004 SELinux "the account's session bus" "no cgroup v2 line, no uid, or no python3"
   fi
 
+  section "SECTION Z: A NAMED FIFO OF THE DOMAIN'S OWN TYPE  [goal 2]" \
+"Under fips_mode the base policy grants every domain create, link and rename on FIFOs
+of its own type, so ai_tools_t may move such a FIFO into a tree the relabel walker
+labels. A pipe carries the type in pipefs, where no tree is; a named FIFO of it on
+the project's filesystem needs that filesystem's associate permission as well."
+
+  _type="ai_tools_t:fifo_file create (fips_mode) + ai_tools_t:filesystem associate (not granted)"
+  _why="A FIFO of the domain's own type in a claimed tree is the one inode outside the module's four types that the walker could reach and relabel; tests/integration/selinux.sh W3 lists the grant as a reviewed base-policy exception on the strength of this denial."
+  if command -v python3 >/dev/null 2>&1; then
+    check WLK-001 SELinux "create a named FIFO labelled ai_tools_t in the project (unlinked if made)" \
+      _py ownfifo "${PWD}"
+  else
+    skip_check WLK-001 SELinux "create a named FIFO labelled ai_tools_t" "python3 not available to attempt it"
+  fi
+
   # ── Audit footer ──────────────────────────────────────────────────────────
   printf '\n\n================================================================\n'
   printf 'END OF PROBE AUDIT TRAIL\n'
@@ -1023,7 +1052,7 @@ the SELinux gates."
   printf '\nNext steps:\n'
   printf '  1. Let this turn finish (Stop sweep AVCs land), then press Enter in root terminal.\n'
   printf '  2. Sections A-F: AVCs appear under -DB only (dontaudit'"'"'d). Expected.\n'
-  printf '  3. Sections G-Y: AVCs log without -DB. A confirmed boundary type is added to\n'
+  printf '  3. Sections G-Z: AVCs log without -DB. A confirmed boundary type is added to\n'
   printf '     BOUNDARY_NAMED_RE in avc-analyze.sh so it files as EXPECTED BOUNDARY. A\n'
   printf '     dontaudit is for a flood alone: the core policy keeps breach attempts\n'
   printf '     visible on purpose, and a silenced denial is not evidence the boundary holds.\n'
