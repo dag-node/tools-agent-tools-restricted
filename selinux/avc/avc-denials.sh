@@ -358,8 +358,9 @@ do_probe() {
   #   dirwrite <dir>              access(2) W_OK on a directory -- the write check a create would meet, with no entry
   #                               created
   #   ownfifo <dir>               mkfifo(3) in <dir> under an fscreate context of the process's own domain type,
-  #                               the FIFO unlinked at once where the kernel made it; a context that could not be set
-  #                               is reported without an errno name, as not exercised
+  #                               the FIFO unlinked at once where the kernel made it, after a plain file's create
+  #                               and removal there as the control; a control or a context that failed is reported
+  #                               without an errno name, as not exercised, and a FIFO made and not removed exits 4
   # Exits 0 when the call succeeded, and on failure prints "<errno name>: <message>" to stderr and exits 1, so _attempt
   # reads EACCES/EPERM as a denial and every other errno as not exercised.
   _py() {
@@ -382,6 +383,15 @@ try:
         current = open("/proc/thread-self/attr/current").read().rstrip("\0\n")
         user, _role, domain, level = current.split(":", 3)
         path = os.path.join(args[0], ".avc-denials-ownfifo-%d" % os.getpid())
+        # The control: a plain file created and removed in the directory, so a denial below is not the directory's.
+        control = path + ".control"
+        try:
+            os.close(os.open(control, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            os.unlink(control)
+        except OSError as e:
+            print("the directory refused a plain file's create or removal (errno %d), so the FIFO's create was not"
+                  " reached" % e.errno, file=sys.stderr)
+            sys.exit(1)
         # A refusal before mkfifo is reported by number, without the errno names avc_attempt_reason reads as
         # a denial, so a check that never reached the FIFO's create reads as not exercised.
         try:
@@ -393,10 +403,16 @@ try:
             sys.exit(1)
         try:
             os.mkfifo(path)
-            os.unlink(path)
         finally:
             os.write(fscreate, b"")
             os.close(fscreate)
+        # Created: the removal's own failure exits 4 naming the path, apart from a denied create.
+        try:
+            os.unlink(path)
+        except OSError as e:
+            print("created %s, and its removal failed (errno %d) -- remove it by hand" % (path, e.errno),
+                  file=sys.stderr)
+            sys.exit(4)
     elif op == "dirwrite":
         if not os.path.isdir(args[0]):
             raise FileNotFoundError(errno.ENOENT, "no such directory", args[0])
@@ -1051,8 +1067,15 @@ the project's filesystem needs that filesystem's associate permission as well."
     _result INCONCLUSIVE "not exercised: the root half did not pass --fips-mode, so a denial could be the create's"
     _why="" _type=""
   elif command -v python3 >/dev/null 2>&1; then
-    check WLK-001 SELinux "create a named FIFO labelled ai_tools_t in the project (unlinked if made)" \
-      _py ownfifo "${PWD}"
+    _header WLK-001 SELinux "create a named FIFO labelled ai_tools_t in the project (unlinked if made)"
+    _attempt _py ownfifo "${PWD}"
+    case "${_rc}:${_reason}" in
+      0:*)      _result FAIL "a FIFO labelled ai_tools_t was created and removed -- investigate" ;;
+      4:*)      _result FAIL "a FIFO labelled ai_tools_t was created and not removed -- ${_reason#exit 4: }" ;;
+      *:denied) _result PASS "denied as expected, after the directory's own create passed" ;;
+      *)        _result INCONCLUSIVE "not exercised: ${_reason}" ;;
+    esac
+    _why="" _type=""
   else
     skip_check WLK-001 SELinux "create a named FIFO labelled ai_tools_t" "python3 not available to attempt it"
   fi
@@ -1246,6 +1269,8 @@ case "${1:-}" in
     shift || true
     FORCE=0
     ENFORCING_CONFIRMED=0
+    # Set from `--fips-mode` alone; an inherited value would stand in for a reading the root half did not make.
+    FIPS_MODE=""
     while [[ "${1:-}" == --* ]]; do
       case "$1" in
         --force) FORCE=1; shift ;;
