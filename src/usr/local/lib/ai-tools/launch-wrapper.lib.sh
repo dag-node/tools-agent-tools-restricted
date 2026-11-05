@@ -403,9 +403,9 @@ ai_tools_launch_wrapper__print_and_exit() {
 # picks in ~/.config/ai-tools -- `~/.config/ai-tools/project-registry`, or `~/.config/ai-tools/allowed-projects` until
 # it is migrated -- read through the shared grammar; an excluded-path (`!`) or disabled-project (`%`) line overrides
 # an allow, exactly as in ai-tools-chown, so a line means the same thing in the launch gate as it does in the ownership
-# hand-back. A CWD at an owner-only mode is refused next, listed or not. A CWD that is not approved draws the setup
-# menu (create a sandbox clone, claim here, cancel) on a terminal, and is refused without one. AI_TOOLS_ALLOWLIST is not
-# read here: the launch gate is the operator's own file.
+# hand-back. An approved CWD at an owner-only mode is refused next. A CWD that is not approved draws the setup menu
+# (create a sandbox clone, claim here, cancel) on a terminal, and is refused without one; at an owner-only mode the menu
+# leaves out the claim. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind covering
     IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
@@ -489,14 +489,15 @@ ai_tools_launch_wrapper__gate_project() {
         fi
     done
 
-    # A directory whose own mode has no group or other bit is refused whether or not the registry lists it, ahead of the
-    # setup menu and the claim guard: the mode is the operator's, a claim leaves an owner-only mode as it is, and the
-    # sandbox account cannot enter the directory, so neither screen offers a claim that would be refused. A mode stat
-    # does not return leaves the directory to the screens.
-    local cwd_mode
+    # A directory whose own mode has no group or other bit does not start a session, and the mode is the operator's.
+    # A claim leaves an owner-only mode as it is and refuses such a root (MSG-H6J3), so an approved one is refused here,
+    # ahead of the claim guard and its finish-setup screen, and an unapproved one reaches the setup menu without
+    # the claim: `projects clone` does not change the source, so the clone stays on offer. A mode stat does not return
+    # leaves the directory to the screens as they are.
+    local cwd_mode owner_only=false
     cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
     if [[ "${cwd_mode}" =~ ^[0-7]{1,4}$ ]] && (( (8#${cwd_mode} & 077) == 0 )); then
-        ai_tools_launch_wrapper__die MSG-H2E2 "refusing to launch -- ${cwd} is mode ${cwd_mode} (owner-only), and the sandbox account cannot enter it"
+        owner_only=true
     fi
 
     local approved=false
@@ -508,6 +509,9 @@ ai_tools_launch_wrapper__gate_project() {
             fi
         done
     fi
+    if [[ "${approved}" == true && "${owner_only}" == true ]]; then
+        ai_tools_launch_wrapper__die MSG-H2E2 "refusing to launch -- ${cwd} is mode ${cwd_mode} (owner-only); no session starts in an owner-only directory"
+    fi
     if [[ "${approved}" != true ]]; then
         # The block says what the screen is about; the MENU states the options, once (each with the consequence
         # that distinguishes it -- option 1 does not start a session here).
@@ -516,12 +520,15 @@ ai_tools_launch_wrapper__gate_project() {
         # No terminal: take Cancel and refuse to launch, without asking. The menu itself has no default (it re-asks,
         # then gives up), so the safe outcome of an unattended or piped run is decided HERE, by the have_tty branch,
         # rather than by a default index.
+        # The owner-only menu numbers Cancel 2, and is read back onto the full menu's numbering.
+        local -a options=("Create sandbox"$'\t'"work in an isolated copy; the session runs there, not here")
+        [[ "${owner_only}" == true ]] \
+            || options+=("Claim here"$'\t'"work in this directory; its group becomes ${SANDBOX_GROUP}")
+        options+=("Cancel"$'\t'"change nothing")
         sel=3
         if ai_tools_launch_wrapper__has_tty; then
-            sel="$(ai_tools_msg__pick none \
-                "Create sandbox"$'\t'"work in an isolated copy; the session runs there, not here" \
-                "Claim here"$'\t'"work in this directory; its group becomes ${SANDBOX_GROUP}" \
-                "Cancel"$'\t'"change nothing")" || sel=3
+            sel="$(ai_tools_msg__pick none "${options[@]}")" || sel=3
+            [[ "${owner_only}" == true && "${sel}" == 2 ]] && sel=3
         fi
         case "${sel}" in
             1)
@@ -552,10 +559,14 @@ ai_tools_launch_wrapper__gate_project() {
                 # emitter would break a command across lines (messaging.rule.md).
                 _ai_tools_launch_wrapper__error MSG-N2Z7 "no session started -- ${cwd} is not set up for the agent."
                 printf '\n' >&2
-                printf '  %-30s %s\n' \
-                    "${CLI_CMD} projects clone ." "isolated copy under the sandbox area" \
-                    "${CLI_CMD} projects claim ."  "claim this directory in place" >&2
-                printf '\nRun one of these, then start your agent again.\n' >&2
+                printf '  %-30s %s\n' "${CLI_CMD} projects clone ." "isolated copy under the sandbox area" >&2
+                [[ "${owner_only}" == true ]] \
+                    || printf '  %-30s %s\n' "${CLI_CMD} projects claim ." "claim this directory in place" >&2
+                if [[ "${owner_only}" == true ]]; then
+                    printf '\nRun it, then start your agent in the clone it names.\n' >&2
+                else
+                    printf '\nRun one of these, then start your agent again.\n' >&2
+                fi
                 ai_tools_launch_wrapper__pause_if_tty
                 exit 1
                 ;;
@@ -589,7 +600,7 @@ _ai_tools_launch_wrapper__is_project_labelled() {
 #   safe.dir   -- cwd absent from the sandbox account's git safe.directory. git refuses to operate ("dubious
 #                 ownership"). Non-fatal; only git, no ownership/label change.
 # A cwd whose own mode has no group or other bit does not reach this guard: ai_tools_launch_wrapper__gate_project
-# refuses it first.
+# refuses it when approved, and otherwise its setup menu offers the clone alone.
 ai_tools_launch_wrapper__guard_claim() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" cwd="${AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR}"
     local own_gap=false label_gap=false safe_gap=false cwd_gid cwd_mode claim_default claim_ok

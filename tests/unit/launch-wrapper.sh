@@ -539,20 +539,37 @@ allowlist "@ ${approved}" "! ${excluded}" "% ${disabled_dir}"
 FIXTURE_PROJECT_DIR="${approved}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__guard_claim
 refused "an approved directory the sandbox group does not own is refused without a terminal" MSG-W4X4
 says "and the screen names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
-# The CWD gate refuses a directory at an owner-only mode, listed or not, ahead of both screens: the claim leaves that
-# mode as it is, so neither the setup menu's claim nor the finish-setup screen's is offered. The 0755 runs of the
-# MSG-N2Z7 and MSG-W4X4 cases are the controls.
-for owner_only_dir in "${approved}" "${unapproved}"; do
-    chmod 0700 "${owner_only_dir}"
-    run "${LIB}" "${PROJECTS_USER}" "${owner_only_dir}" ai_tools_launch_wrapper__gate_project
-    refused "a directory at mode 700 is refused as owner-only by the CWD gate ($(basename "${owner_only_dir}"))" MSG-H2E2
-    if grep -qxE 'MSG-(N2Z7|W4X4)' <<<"${OUT}" || grep -qF "$(cli_cmd_text ai-tools.projects.claim)" <<<"${OUT}"; then
-        fail "the owner-only refusal of $(basename "${owner_only_dir}") still reached a setup screen: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"
-    else
-        pass "and the refusal of $(basename "${owner_only_dir}") does not offer the claim"
-    fi
-    chmod 0755 "${owner_only_dir}"
-done
+# A directory at an owner-only mode does not start a session. Listed, the CWD gate refuses it ahead of the claim guard
+# and its finish-setup screen; unlisted, it reaches the setup menu without the claim, since a claim refuses such a root
+# and the clone leaves the source as it is. The menu is driven without a terminal, so it takes Cancel, whose command
+# list names what the menu offered. The 0750 unlisted run is the control that lists both commands.
+chmod 0700 "${approved}"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
+refused "a listed directory at mode 700 is refused as owner-only by the CWD gate" MSG-H2E2
+says "and the refusal states the mode and what the wrapper does" \
+    "refusing to launch -- ${approved} is mode 700 (owner-only); no session starts in an owner-only directory"
+if grep -qxE 'MSG-(N2Z7|W4X4)' <<<"${OUT}" || grep -qF "$(cli_cmd_text ai-tools.projects.claim)" <<<"${OUT}"; then
+    fail "the owner-only refusal of the listed directory still reached a setup screen: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"
+else
+    pass "and the refusal of the listed directory does not offer the claim"
+fi
+chmod 0755 "${approved}"
+chmod 0700 "${unapproved}"
+run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
+refused "an unlisted directory at mode 700 reaches the setup menu and, without a terminal, takes Cancel" MSG-N2Z7
+silent "and the owner-only refusal does not fire for it" 'MSG-H2E2'
+says "and the cancel path names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
+if grep -qF "$(cli_cmd_text ai-tools.projects.claim)" <<<"${OUT}"; then
+    fail "the owner-only setup menu still names the claim: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"
+else
+    pass "and the cancel path of the owner-only menu does not name the claim"
+fi
+chmod 0750 "${unapproved}"
+run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
+refused "control: an unlisted directory at mode 750 takes Cancel without a terminal" MSG-N2Z7
+says "control: and the cancel path names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
+says "control: and the cancel path names the claim" "$(cli_cmd_text ai-tools.projects.claim)"
+chmod 0755 "${unapproved}"
 
 # ── (5) The exec refuses when the gates did not run ───────────────────────────
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__launch_session --version

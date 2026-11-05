@@ -93,9 +93,11 @@ what the security model rests on, and every one of them refuses toward *less* ac
    under that file, and a match the library does not make -- the matcher returning a status other than its 0 and 1 --
    refuses it too (`MSG-T6U6`). The read and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3),
    and `ai-tools-chown` makes the same ones, so the launch gate and the ownership handback agree on what is in-project.
-   A CWD whose own mode has no group or other bit is refused next, listed or not (`MSG-H2E2`), ahead of the setup menu
-   and the claim guard, since a claim leaves an owner-only mode as it is ([cli](cli.rule.md)) and neither screen then
-   offers one; a mode the operator cannot read leaves the CWD to the screens.
+   A CWD whose own mode has no group or other bit does not start a session, since a claim leaves an owner-only mode
+   as it is and refuses such a root ([cli](cli.rule.md)): one inside a registry entry is refused next (`MSG-H2E2`),
+   ahead of the claim guard and its finish-setup screen, and one no entry lists reaches the setup menu without
+   the claim, offering the clone, which leaves the source as it is, and Cancel. A mode the operator cannot read leaves
+   the CWD to the screens as they are.
 8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
 The agent's launch hook then appends its arguments, and the launch ends
