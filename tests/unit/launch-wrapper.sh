@@ -596,6 +596,26 @@ else
     pass "control: and the 750 screen does not state an owner-only mode"
 fi
 chmod 0755 "${unapproved}"
+# A CWD whose name holds a control character is refused ahead of every message that names it -- listed, and unlisted
+# at an owner-only mode, whose screens print the CWD -- and the output does not carry the raw byte. The plain-named
+# listed directory is the control.
+esc_name=$'esc\033[31mdir'
+esc_listed="${approved}/${esc_name}"; esc_unlisted="${TESTDIR}/${esc_name}"
+mkdir -m 0755 "${esc_listed}"; mkdir -m 0700 "${esc_unlisted}"
+chown "${PROJECTS_USER}" "${esc_listed}" "${esc_unlisted}"
+for esc_dir in "${esc_listed}" "${esc_unlisted}"; do
+    run "${LIB}" "${PROJECTS_USER}" "${esc_dir}" ai_tools_launch_wrapper__gate_project
+    refused "a CWD whose name holds an escape byte is refused before any message names it" MSG-P5X5
+    if grep -q $'\033' <<<"${OUT}"; then
+        fail "and the refusal printed the raw escape byte: $(head -c 300 <<<"${OUT}" | od -c | head -3 | tr '\n' '|')"
+    else
+        pass "and the refusal prints the path without the raw escape byte"
+    fi
+done
+rm -rf "${esc_listed}" "${esc_unlisted}"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
+passed "control: the plain-named listed directory passes the CWD gate"
+silent "control: and the control-character refusal does not fire for it" 'MSG-P5X5'
 
 # ── (5) The exec refuses when the gates did not run ───────────────────────────
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__launch_session --version

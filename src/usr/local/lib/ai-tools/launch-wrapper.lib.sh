@@ -102,6 +102,13 @@ _ai_tools_launch_wrapper__format_shell_word() {
     printf '%q' "$1"
 }
 
+# _ai_tools_launch_wrapper__has_control_character <text> -- 0 when <text> holds a byte the C locale classes as a control
+# character, the predicate `projects claim` refuses a path by (refuse_control_character_path in ai-tools.sh).
+_ai_tools_launch_wrapper__has_control_character() {
+    local LC_ALL=C
+    [[ "$1" =~ [[:cntrl:]] ]]
+}
+
 # ai_tools_launch_wrapper__die [<code>] <line>... -- _ai_tools_launch_wrapper__error, pause on a tty, and exit 1.
 ai_tools_launch_wrapper__die() {
     _ai_tools_launch_wrapper__error "$@"
@@ -403,9 +410,12 @@ ai_tools_launch_wrapper__print_and_exit() {
 # picks in ~/.config/ai-tools -- `~/.config/ai-tools/project-registry`, or `~/.config/ai-tools/allowed-projects` until
 # it is migrated -- read through the shared grammar; an excluded-path (`!`) or disabled-project (`%`) line overrides
 # an allow, exactly as in ai-tools-chown, so a line means the same thing in the launch gate as it does in the ownership
-# hand-back. An approved CWD at an owner-only mode is refused next. A CWD that is not approved draws the setup menu
-# (create a sandbox clone, claim here, cancel) on a terminal, and is refused without one; at an owner-only mode the menu
-# leaves out the claim. AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
+# hand-back. A canonical CWD holding a control character is refused first, ahead of every message that names it:
+# a session can create such a name inside a project, and the refusals and screens print the CWD to the operator's
+# terminal. `projects claim` refuses the same paths (MSG-V8Z5), so no session could start there. An approved CWD
+# at an owner-only mode is refused next. A CWD that is not approved draws the setup menu (create a sandbox clone, claim
+# here, cancel) on a terminal, and is refused without one; at an owner-only mode the menu leaves out the claim.
+# AI_TOOLS_ALLOWLIST is not read here: the launch gate is the operator's own file.
 ai_tools_launch_wrapper__gate_project() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" registry_state allowlist cwd dir pat sel index kind covering
     IFS=$'\t' read -r registry_state allowlist < <(ai_tools_conf__resolve_registry "${HOME}/.config/ai-tools")
@@ -416,6 +426,10 @@ ai_tools_launch_wrapper__gate_project() {
     fi
     cwd="$(realpath -e "${PWD}" 2>/dev/null)" \
         || ai_tools_launch_wrapper__die MSG-S8D9 "cannot resolve working directory"
+    if _ai_tools_launch_wrapper__has_control_character "${cwd}"; then
+        ai_tools_launch_wrapper__die MSG-P5X5 "refusing to launch -- the working directory's path holds a control character: $(_ai_tools_launch_wrapper__format_shell_word "${cwd}")" \
+            "${name}: no session starts in such a directory and no claim registers one; rename it, then start again"
+    fi
 
     ai_tools_safe_paths__assert_safe_target "${cwd}" "launch" || exit 1
 
