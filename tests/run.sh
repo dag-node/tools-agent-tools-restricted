@@ -31,10 +31,9 @@
 #   # run.sh: serial
 #
 # in its header, because it touches host state another file reads -- a fixed path in the live toolchain or launcher
-# directory, the live daemon, the cgroup root, the installed layout -- and after them the one file carrying
-# `# run.sh: serial last`, integration/selinux.sh, whose clone label cases skip while any process of the sandbox account
-# is live, as the pool's files leave one while they run. A second `serial last` file is a usage error before any file
-# runs. At the end the run prints the transcript of each failed file in category and name order.
+# directory, the live daemon, the cgroup root, the installed layout, the policy's file-context rules -- and after them
+# the file carrying `# run.sh: serial last`, where one does. A second `serial last` file is a usage error before any
+# file runs. At the end the run prints the transcript of each failed file in category and name order.
 #
 # Every run then closes with the NOTE rows, the SKIP rows, the no-coverage notice and the failure summary,
 # in that order, the rows grouped by file, so the failures sit beside the overall line. AI_TOOLS_TEST_TRANSCRIPTS names

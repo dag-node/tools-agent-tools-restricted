@@ -8,16 +8,17 @@
 # asserts: the system is Enforcing and neither domain is individually permissive; the module-presence probe ai-tools-run
 # reads resolves the way the shim expects; a sandbox clone takes ai_tools_project_t; each agent's declared entrypoint
 # rule still covers what its package installed; no link in the exec chain carries a type the confined domain may write;
-# one inode per agent package carries the domain entry type; and every enrolled operator's config subtree carries
-# ai_tools_conf_t, the type the root helpers read that account's allowlist through.
+# one inode per agent package carries the domain entry type; every enrolled operator's config subtree carries
+# ai_tools_conf_t, the type the root helpers read that account's allowlist through; and the descriptor-pinned walk
+# labels a fixture tree as its rules give it, while a process of the sandbox account runs.
 #
 # The layer is OPTIONAL -- the policy is its own subpackage, and a host may run DAC-only -- so with the module absent
 # the whole file SKIPS instead of demanding SELinux on a host that does not ship it. Run as root.
 #
-# run.sh: serial last
+# run.sh: serial
 #
-# Serial under `run.sh -j`, after every other file: its clone label cases skip while any process of the sandbox account
-# is live, which every file running a command as that account leaves while it runs.
+# Serial under `run.sh -j`: the walk rows add and delete `semanage fcontext` rules, and each change rebuilds
+# the policy that every other file's label reads see.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -537,6 +538,217 @@ else
             fail "${boolean_name}: the reader says '${live_value:-unread}', getsebool says '${getsebool_value:-nothing}'"
         fi
     done < <(ai_tools_confinement__list_known_booleans)
+fi
+
+# ── The descriptor-pinned walk ───────────────────────────────────────────────────────────────
+# ai-tools-relabel-tree is the recursive relabel of every tree the sandbox account can write (cli.rule.md,
+# ref-section-e6c6). tests/unit/relabel-tree.sh drives it over an injected label store; these rows drive it over
+# the loaded policy: (W1) each entry takes the type its own rule gives, a symlink as itself, and what a link points
+# at outside the tree keeps its type; (W2, W3) the host facts the walker's invariant rests on, the kernel's hardlink
+# restriction and the policy's rename and link set; (W4) a walk exits 0 while a process of the sandbox account runs;
+# (W5) a revert leaves a hardlinked file at its type and exits 4; (W6) a name carrying an invalid UTF-8 byte takes its
+# rule's type; (W7) a path a `<<none>>` rule covers keeps the label it had.
+#
+# W1, W4, W6 and W7 share one tmpfs fixture under three per-run `semanage fcontext` rules, W5 a fixture of its own under
+# two, and teardown deletes each rule. Both sit under /tmp, whose base rule is `<<none>>`, so a type an entry carries
+# after a walk is one a per-run rule gave it.
+section "SELinux: the descriptor-pinned walk"
+readonly WALKER=/usr/local/libexec/ai-tools/ai-tools-relabel-tree
+readonly RELABEL_HELPER=/usr/local/libexec/ai-tools/ai-tools-relabel
+
+# type_of <path>: print the type field of <path>'s own context (stat does not follow a symlink), empty when unread.
+type_of() {
+    local context type
+    context="$(stat -c '%C' -- "$1" 2>/dev/null || true)"
+    IFS=: read -r _ _ type _ <<<"${context}"
+    printf '%s' "${type}"
+}
+# fcontext_literal <path>: <path> with each regex metacharacter escaped, the encoding ai_tools_relabel__label_project
+# writes a project's rule in, so ai-tools-relabel --remove deletes the rule W5 adds.
+fcontext_literal() { printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g'; }
+# expect_types <row> <path:type>...: one pass or fail per pair, naming the path and the type it carries.
+expect_types() {
+    local row="$1" pair path want got
+    shift
+    for pair in "$@"; do
+        path="${pair%:*}"; want="${pair##*:}"
+        got="$(type_of "${path}")"
+        if [[ "${got}" == "${want}" ]]; then
+            pass "${row}: $(printf '%q' "${path##*/}") carries ${want}"
+        else
+            fail "${row}: $(printf '%q' "${path}") carries '${got:-unread}', not ${want}"
+        fi
+    done
+}
+
+# (W2) The kernel lets an account link only a file it owns or can read and write, so a hardlink the sandbox account
+# makes into a tree reaches an inode its own access already covers.
+protected_hardlinks="$(cat /proc/sys/fs/protected_hardlinks 2>/dev/null || true)"
+if [[ "${protected_hardlinks}" == 1 ]]; then
+    pass "W2: fs.protected_hardlinks is 1"
+else
+    fail "W2: fs.protected_hardlinks reads '${protected_hardlinks:-unread}', not 1 -- the sandbox account can link a file it cannot write into a tree a walk labels"
+fi
+
+# (W3) The walker reaches only an inode the account could rename or link into the tree, so the policy's rename and link
+# grants to ai_tools_t bound what a walk can write. sesearch reads the loaded policy, the optional groups included;
+# a grant on an attribute lists the attribute and fails the row, since it may cover a type outside the set.
+if ! command -v sesearch >/dev/null 2>&1; then
+    skip "W3: the policy's rename and link set" "sesearch (setools-console) not installed"
+else
+    move_rules="$(sesearch -A -s ai_tools_t -c file,dir,lnk_file,fifo_file,sock_file -p rename,link 2>/dev/null || true)"
+    move_outside="$(awk '$1 == "allow" { split($3, target, ":"); print target[1] }' <<<"${move_rules}" | LC_ALL=C sort -u \
+        | grep -vxE 'ai_tools_(project|project_build|home|tmp)_t' || true)"
+    if ! grep -q '^allow ai_tools_t ai_tools_project_t:' <<<"${move_rules}"; then
+        fail "W3: sesearch did not list the ai_tools_project_t grant, so its listing was not read: $(head -c 200 <<<"${move_rules}" | tr '\n' '|')"
+    elif [[ -n "${move_outside}" ]]; then
+        fail "W3: ai_tools_t holds rename or link on a type outside the walker's set: ${move_outside//$'\n'/ }"
+    else
+        pass "W3: ai_tools_t holds rename and link on ai_tools_project_t, ai_tools_project_build_t, ai_tools_home_t and ai_tools_tmp_t alone"
+    fi
+fi
+
+walk_ready=true
+for walk_tool in semanage matchpathcon chcon mount umount; do
+    if ! command -v "${walk_tool}" >/dev/null 2>&1; then
+        skip "the descriptor-pinned walk" "${walk_tool} not installed"; walk_ready=false; break
+    fi
+done
+if ${walk_ready} && [[ ! -x "${WALKER}" || ! -x "${RELABEL_HELPER}" ]]; then
+    skip "the descriptor-pinned walk" "${WALKER} or ${RELABEL_HELPER} is not installed"; walk_ready=false
+fi
+
+if ${walk_ready}; then
+    # The mount point is named, not created by mk_fixture_dir: the path sweep runs ahead of the teardown commands,
+    # and an rm over a mounted tmpfs fails on the mount point, so the unmount and the rmdir are teardown commands,
+    # registered in the order they run.
+    walk_root="/tmp/$(ai_test_name walk)"
+    on_teardown umount "${walk_root}"
+    on_teardown rmdir "${walk_root}"
+    walk_outside=""; mk_fixture_dir walk_outside /tmp walk-outside
+    mkdir -m 0755 "${walk_root}"
+    mount -t tmpfs -o size=4m,mode=0755 tmpfs "${walk_root}"
+    walk_literal="$(fcontext_literal "${walk_root}")"
+    on_teardown semanage fcontext -d "${walk_literal}(/.*)?"
+    on_teardown semanage fcontext -d "${walk_literal}/sub(/.*)?"
+    on_teardown semanage fcontext -d "${walk_literal}/keep(/.*)?"
+    semanage fcontext -a -t ai_tools_project_t "${walk_literal}(/.*)?"
+    semanage fcontext -a -t ai_tools_project_build_t "${walk_literal}/sub(/.*)?"
+    semanage fcontext -a -t '<<none>>' "${walk_literal}/keep(/.*)?"
+
+    walk_bad_name="${walk_root}/bad-"$'\xff'
+    mkdir "${walk_root}/dir" "${walk_root}/sub" "${walk_root}/keep" "${walk_outside}/markerdir"
+    : > "${walk_root}/file"; : > "${walk_root}/sub/file"; : > "${walk_root}/keep/file"; : > "${walk_bad_name}"
+    : > "${walk_outside}/target"; : > "${walk_outside}/markerdir/marker"
+    ln -s "${walk_outside}/target" "${walk_root}/link-file"
+    ln -s "${walk_outside}/markerdir" "${walk_root}/sub/link-dir"
+    chcon -R -h -t user_tmp_t "${walk_root}"
+    chcon -t ai_tools_tmp_t "${walk_outside}/markerdir/marker"
+    walk_target_type="$(type_of "${walk_outside}/target")"
+
+    # The setup: a tmpfs root, every rule in force, every entry on a type no rule gives, the marker on a third type.
+    walk_setup=""
+    [[ "$(stat -f -c '%T' "${walk_root}" 2>/dev/null)" == tmpfs ]] || walk_setup+=" the root is not a tmpfs;"
+    [[ "$(matchpathcon -n "${walk_root}/file" 2>/dev/null)" == *:ai_tools_project_t:* ]] \
+        || walk_setup+=" the tree rule is not in force;"
+    [[ "$(matchpathcon -n "${walk_root}/sub/file" 2>/dev/null)" == *:ai_tools_project_build_t:* ]] \
+        || walk_setup+=" the subdirectory rule is not in force;"
+    [[ "$(matchpathcon -n "${walk_root}/keep/file" 2>/dev/null)" == '<<none>>' ]] \
+        || walk_setup+=" the <<none>> rule is not in force;"
+    for walk_path in "${walk_root}/file" "${walk_root}/sub/file" "${walk_root}/link-file" "${walk_bad_name}"; do
+        [[ "$(type_of "${walk_path}")" == user_tmp_t ]] || walk_setup+=" $(printf '%q' "${walk_path##*/}") is not user_tmp_t;"
+    done
+    [[ "$(type_of "${walk_outside}/markerdir/marker")" == ai_tools_tmp_t ]] || walk_setup+=" the marker is not ai_tools_tmp_t;"
+    if [[ -n "${walk_setup}" ]]; then
+        fail "the walk fixture did not take its setup:${walk_setup}"
+        walk_ready=false
+    else
+        pass "the walk fixture: a tmpfs root under three rules, every entry user_tmp_t, the marker ai_tools_tmp_t"
+    fi
+fi
+
+if ${walk_ready}; then
+    walk_rc=0; walk_errors="$("${WALKER}" -- "${walk_root}" 2>&1 >/dev/null)" || walk_rc=$?
+    if [[ "${walk_rc}" -eq 0 ]]; then
+        pass "W1: the walk over the fixture exits 0"
+    else
+        fail "W1: the walk over the fixture exited ${walk_rc}: $(head -c 300 <<<"${walk_errors}" | tr '\n' '|')"
+    fi
+    # A wrong logical path or a wrong mode in the lookup shows on the subdirectory's entries, whose rule differs.
+    expect_types W1 "${walk_root}:ai_tools_project_t" "${walk_root}/dir:ai_tools_project_t" \
+        "${walk_root}/file:ai_tools_project_t" "${walk_root}/link-file:ai_tools_project_t" \
+        "${walk_root}/sub:ai_tools_project_build_t" "${walk_root}/sub/file:ai_tools_project_build_t" \
+        "${walk_root}/sub/link-dir:ai_tools_project_build_t"
+    expect_types "W1 (outside the tree)" "${walk_outside}/target:${walk_target_type}" \
+        "${walk_outside}/markerdir/marker:ai_tools_tmp_t"
+    expect_types W6 "${walk_bad_name}:ai_tools_project_t"
+    expect_types W7 "${walk_root}/keep/file:user_tmp_t"
+
+    # (W4) The overlap is proved by the order of the FIFOs: the sandbox process writes `started` once it runs and reads
+    # `release` before it exits, and the walk runs between the two. Each FIFO open is bounded, so a run that does not
+    # start ends the row.
+    overlap_dir=""; mk_fixture_dir overlap_dir /tmp walk-overlap
+    chmod 0755 "${overlap_dir}"
+    mkfifo -m 0666 "${overlap_dir}/started" "${overlap_dir}/release"
+    # shellcheck disable=SC2016  # $1 and $2 are the inner bash's arguments
+    as_sandbox bash -c 'printf started > "$1"; read -r _ < "$2"' _ "${overlap_dir}/started" "${overlap_dir}/release" &
+    overlap_pid=$!
+    overlap_word="$(timeout 30 cat "${overlap_dir}/started" 2>/dev/null || true)"
+    if [[ "${overlap_word}" != started ]]; then
+        fail "W4: the process as the sandbox account did not report it started"
+        kill "${overlap_pid}" 2>/dev/null || true
+        wait "${overlap_pid}" 2>/dev/null || true
+    else
+        overlap_state="$(bash -c 'source /usr/local/lib/ai-tools/sessions.lib.sh && ai_tools_sessions__read_live_session_state' 2>/dev/null || true)"
+        overlap_rc=0; overlap_errors="$("${WALKER}" -- "${walk_root}" 2>&1 >/dev/null)" || overlap_rc=$?
+        # shellcheck disable=SC2016  # $1 is the inner bash's argument
+        timeout 30 bash -c 'printf release > "$1"' _ "${overlap_dir}/release" 2>/dev/null || true
+        overlap_sandbox_rc=0; wait "${overlap_pid}" || overlap_sandbox_rc=$?
+        if [[ "${overlap_sandbox_rc}" -ne 0 ]]; then
+            fail "W4: the process as the sandbox account exited ${overlap_sandbox_rc}, so it may not have run through the walk"
+        elif [[ "${overlap_rc}" -eq 0 ]]; then
+            pass "W4: the walk exits 0 while a process of the sandbox account runs (the live-session reader read '${overlap_state:-unread}')"
+        else
+            fail "W4: the walk exited ${overlap_rc} while a process of the sandbox account ran: $(head -c 300 <<<"${overlap_errors}" | tr '\n' '|')"
+        fi
+    fi
+
+    # (W5) A revert: the tree's rule is dropped and the walk writes the parent's type, which a second per-run rule gives
+    # in place of /tmp's <<none>>. The hardlinked file's other name is outside the tree, so the walk leaves the file
+    # at its type and the helper exits 4 naming it.
+    revert_parent=""; mk_fixture_dir revert_parent /tmp walk-revert
+    revert_tree="${revert_parent}/tree"
+    revert_parent_literal="$(fcontext_literal "${revert_parent}")"
+    revert_tree_literal="$(fcontext_literal "${revert_tree}")"
+    on_teardown semanage fcontext -d "${revert_tree_literal}(/.*)?"
+    on_teardown semanage fcontext -d "${revert_parent_literal}(/.*)?"
+    semanage fcontext -a -t user_tmp_t "${revert_parent_literal}(/.*)?"
+    semanage fcontext -a -t ai_tools_project_t "${revert_tree_literal}(/.*)?"
+    mkdir -p "${revert_tree}/sub"
+    : > "${revert_tree}/file"; : > "${revert_tree}/sub/file"; : > "${revert_tree}/linked"
+    ln "${revert_tree}/linked" "${revert_parent}/other-name"
+    chcon -R -t ai_tools_project_t "${revert_tree}"
+    if [[ "$(stat -c '%h' "${revert_tree}/linked")" != 2 \
+            || "$(type_of "${revert_tree}/file")" != ai_tools_project_t \
+            || "$(type_of "${revert_tree}/linked")" != ai_tools_project_t \
+            || "$(matchpathcon -n "${revert_tree}/file" 2>/dev/null)" != *:ai_tools_project_t:* ]]; then
+        fail "W5: the revert fixture did not take its setup (two links on the linked file, the tree ai_tools_project_t under its rule)"
+    else
+        pass "W5: the revert fixture: a tree ai_tools_project_t under its rule, one file with a second name outside it"
+        revert_rc=0; revert_errors="$("${RELABEL_HELPER}" --remove "${revert_tree}" 2>&1 >/dev/null)" || revert_rc=$?
+        if [[ "${revert_rc}" -eq 4 ]]; then
+            pass "W5: ai-tools-relabel --remove exits 4 over a tree with a hardlinked file"
+        else
+            fail "W5: ai-tools-relabel --remove exited ${revert_rc}, not 4: $(head -c 300 <<<"${revert_errors}" | tr '\n' '|')"
+        fi
+        if grep -qF "${revert_tree}/linked" <<<"${revert_errors}"; then
+            pass "W5: the revert names the hardlinked file"
+        else
+            fail "W5: the revert does not name ${revert_tree}/linked: $(head -c 300 <<<"${revert_errors}" | tr '\n' '|')"
+        fi
+        expect_types W5 "${revert_tree}:user_tmp_t" "${revert_tree}/file:user_tmp_t" \
+            "${revert_tree}/sub/file:user_tmp_t" "${revert_tree}/linked:ai_tools_project_t"
+    fi
 fi
 
 finish

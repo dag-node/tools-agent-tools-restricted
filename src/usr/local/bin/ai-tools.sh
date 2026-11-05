@@ -6380,34 +6380,24 @@ status_entrypoint_label() {
         # One reason is read rather than only printed: `incomplete-package` (written by ai-tools-relabel-agent) says
         # the executable the manifest declares is not installed, which no relabel can supply -- so naming the relabel
         # as the retry would send the operator around the loop this report exists to end. The package is what has to be
-        # reinstalled, and the provisioning command is what does it. `live-session` on a failure is a config directory
-        # the walk left at a type the agent cannot write, which the next run with no session labels.
+        # reinstalled, and the provisioning command is what does it. Every other reason, one an earlier release wrote
+        # among them, takes the relabel retry.
         failed)  printf '  %-28s %sNOT LABELLED%s %s(%s%s)%s\n' "" "${C_RED}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${reason:+, ${reason}}" "${C_RST}"
                  if [[ "${reason}" == incomplete-package ]]; then
                      say "      this agent's package does not hold the executable its manifest declares, so there is"
                      say "      nothing to label and no session of it starts; reinstall the package:"
                      say "      ${C_BOLD}atr admin system bootstrap${C_RST} ${C_DIM}(its output names an install that did not complete)${C_RST}"
-                 elif [[ "${reason}" == live-session ]]; then
-                     say "      its config directory was not labelled while a process of the sandbox account was"
-                     say "      live, or its sessions could not be read, and carries a type the agent cannot write;"
-                     say "      once none is live: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  else
                      say "      the last reconciliation could not apply this agent's labels; the label its"
                      say "      entrypoint carries now is read by: ${C_BOLD}atr admin status${C_RST}"
                      say "      retry: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
                  fi
                  return 1 ;;
-        # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet -- or the config
-        # directory's walk left while a process of the sandbox account was live, over a directory an earlier run
-        # labelled. None is a fault, so none is coloured or counted; the last names the run that completes it.
+        # Nothing to label: a DAC-only host, or an agent the toolchain has not provisioned yet. Neither is a fault,
+        # so neither is coloured or counted.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
-                     "${reason:-nothing to label}" "${C_RST}"
-                 if [[ "${reason}" == live-session ]]; then
-                     say "      ${C_DIM}the config directory was not relabelled while a process of the sandbox account was${C_RST}"
-                     say "      ${C_DIM}live, or its sessions could not be read; once none is live:${C_RST}"
-                     say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
-                 fi ;;
+                     "${reason:-nothing to label}" "${C_RST}" ;;
         # No record at all: this host has not run a reconciliation since the record was introduced, or the state
         # directory is unreadable from this account. It says only that, and never counts against the exit status --
         # the same rule the unqueryable units follow.
