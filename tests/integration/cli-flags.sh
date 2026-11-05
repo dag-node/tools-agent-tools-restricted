@@ -967,18 +967,28 @@ drive_rows() {
     seed "@ ${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "control: with SELinux on, unclaim reverts the label and exits 0" rc_is 0
     expect "the label reversal reaches the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${R}/pe$"
-    # 5: no label to apply on this host, so the unclaim is complete; 6: the revert left hardlinked files, which the
-    # helper lists, so the unclaim ends non-zero after the hand-back and the registry reversal.
+    # 5: no label to apply on this host, so the unclaim is complete; 4: the revert left hardlinked paths,
+    # which the helper lists; 6: the tree walker could not run, so no path was reverted and the helper's re-run is
+    # printed. Each of 4 and 6 ends the unclaim non-zero after the hand-back and the registry reversal.
     seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
     drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "an unclaim whose relabel helper exits 5 exits 0"          rc_is 0
     expect "that unclaim names the label not applicable on this host" out_has_text "SELinux label: not applicable on this host"
     expect "that unclaim hands the tree back"                         cli_called ai-tools-unclaim "^${R}/pe${T}"
     expect "that unclaim drops the entry"                             st_is "${R}/pe" absent
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "an unclaim whose revert left hardlinked paths exits non-zero" rc_not0
+    expect "that unclaim says the label was not reverted on every path" out_has_text "was not reverted on every path"
+    expect "that unclaim does not print a revert to run"              out_lacks_text "ai-tools-relabel --remove"
+    expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
+    expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
     seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
     drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
-    expect "an unclaim whose revert left hardlinked files exits non-zero" rc_not0
-    expect "that unclaim says the label was not reverted on every file" out_has_text "was not reverted on every file"
+    expect "an unclaim whose tree walker could not run exits non-zero" rc_not0
+    expect "that unclaim says the walker could not run"               out_has_text "the tree walker could not run"
+    expect "that unclaim prints the helper's re-run"                  out_has_text "ai-tools-relabel --remove ${R}/pe"
+    expect "that unclaim does not read as a partial revert"           out_lacks_text "was not reverted on every path"
     expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
     expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
     RUN_EXTRA_ENV=()
@@ -1074,19 +1084,28 @@ drive_rows() {
     expect "that refusal reaches no helper"                           cli_log_empty
     # The label reversal's statuses, with SELinux reported enforcing as in the unclaim rows.
     RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
-    # 5: no label to apply on this host, so the removal completes; 6: the revert left hardlinked files, a failed
-    # cleanup step the removal reports while it deletes the tree.
-    mkdir -p "${R}/rm5" "${R}/rm6"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm5" "${R}/rm6"
+    # 5: no label to apply on this host, so the removal completes; 4: the revert left hardlinked paths, and 6: the tree
+    # walker could not run, each a cleanup step the removal counts while it deletes the tree.
+    mkdir -p "${R}/rm5" "${R}/rm4" "${R}/rm6"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm5" "${R}/rm4" "${R}/rm6"
     seed "@ ${R}/rm5"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm5"
     expect "a removal whose relabel helper exits 5 exits 0"           rc_is 0
     expect "that removal names the label not applicable on this host" out_has_text "SELinux label: not applicable on this host"
     expect "that removal deletes the tree"                            test ! -e "${R}/rm5"
     expect "that removal drops the entry"                             st_is "${R}/rm5" absent
+    seed "@ ${R}/rm4"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4"
+    expect "a removal whose revert left hardlinked paths exits non-zero" rc_not0
+    expect "that removal names the paths' other names"                out_has_text "a hardlinked path's other names outside it keep its current type"
+    expect "that removal still deletes the tree"                      test ! -e "${R}/rm4"
+    expect "that removal drops the entry"                             st_is "${R}/rm4" absent
     seed "@ ${R}/rm6"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm6"
-    expect "a removal whose revert left hardlinked files exits non-zero" rc_not0
-    expect "that removal names the files' other names"                out_has_text "a hardlinked path's other names outside it keep its current type"
+    expect "a removal whose tree walker could not run exits non-zero" rc_not0
+    expect "that removal says the walker could not run"               out_has_text "the tree walker could not run"
+    expect "that removal prints the helper's re-run"                  out_has_text "ai-tools-relabel --remove ${R}/rm6"
+    expect "that removal does not name hardlinked paths"              out_lacks_text "hardlinked path's other names"
     expect "that removal still deletes the tree"                      test ! -e "${R}/rm6"
     expect "that removal drops the entry"                             st_is "${R}/rm6" absent
     RUN_EXTRA_ENV=()

@@ -2147,9 +2147,10 @@ run_lockdown() {
 # The helper found no label to apply on this host -- SELinux disabled, or no ai_tools policy installed -- and said why
 # on stderr.
 readonly RELABEL_NOT_APPLICABLE_STATUS=5
-# The revert completed except on the hardlinked paths the helper listed on stderr, which keep their current type,
-# or the tree walker it runs could not start.
-readonly RELABEL_PARTIAL_REVERT_STATUS=6
+# The revert completed except on the hardlinked paths the helper listed on stderr, which keep their current type.
+readonly RELABEL_PARTIAL_REVERT_STATUS=4
+# The tree walker the helper runs could not start, so no path was reverted; the helper's line says why.
+readonly RELABEL_WALKER_UNAVAILABLE_STATUS=6
 run_relabel() {
     local d="$1"; shift
     # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"), which lands
@@ -4353,10 +4354,11 @@ resolve_verb_target() {
 # Best-effort except for the allowlist line: every other step warns and the pass goes on, while a drop that did not
 # apply refuses (unreg_allow) and a disable that did not apply returns 1 without the ✓, since either leaves a session
 # able to start here. A label reversal that did not apply, or that left hardlinked paths at their type, returns 1
-# without the ✓ as well, after the registry reversal (cli.rule.md, ref-section-m5n5).
+# without the ✓ as well, after the hand-back and the registry reversal, which run either way (cli.rule.md,
+# ref-section-m5n5): a reversal that did not apply prints the helper's re-run, which acts on a path no entry names.
 unclaim_one() {
     local d="$1" group="$2" hint="$3" retry="$4"; shift 4
-    local stopped=false handback_missing=false label_left=false
+    local stopped=false handback_missing=false label_left=""
 
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
@@ -4370,12 +4372,17 @@ unclaim_one() {
         elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
             # The helper ran past sudo and names what it left, with the command that lists it, so the steps after it are
             # attempted without asking.
-            label_left=true
-            warn "the SELinux label was not reverted on every file -- the helper's lines above name what it left"
+            label_left=partial
+            warn "the SELinux label was reverted except on the hardlinked paths the helper's lines above list -- they keep their current type"
+        elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
+            # Past sudo as well, and no path was walked: the re-run reverts the tree once the helper's cause is cleared.
+            label_left=reverting
+            warn "the SELinux label was not reverted: the tree walker could not run (the helper's line above says why) -- once that is resolved, run:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
         else
-            label_left=true
+            label_left=reverting
             warn "could not revert the SELinux label -- run it by hand:"
-            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
             note_root_failure || stopped=true
         fi
     fi
@@ -4449,7 +4456,15 @@ unclaim_one() {
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
-    if ${label_left}; then
+    if [[ "${label_left}" == partial ]]; then
+        headline_warn "WARNING: the SELinux label was not reverted on every path" \
+            "${d} is ${entry_word}, so no session can launch there. The hardlinked paths the helper listed keep their current type: through another name each may belong to another tree, so the walk does not write them. The find command above lists them."
+        ai_tools_log__structured warning \
+            "unclaimed ${d} (registries dropped; SELinux label NOT reverted on hardlinked paths)" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
+        return 1
+    fi
+    if [[ -n "${label_left}" ]]; then
         headline_warn "WARNING: the SELinux label was not reverted" \
             "${d} is ${entry_word}, so no session can launch there. It still carries the type the agent reads and writes. The command above reverts it."
         ai_tools_log__structured warning \
@@ -4872,10 +4887,10 @@ get_covering_entry() {
 # the step ran and its helper returned success, which does not read the type the tree carries, since a rule
 # on an ancestor of the project keeps the project type through the step; `failed` says it did not complete,
 # and that the relabel command the failed step printed still applies, since `ai-tools-relabel --remove` does not read
-# the registry the removal has already changed; `partial` says the step left the files its helper listed;
-# `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type
-# comes from the policy's file contexts) does not name a label. Any other value is a caller error. The remedy is
-# the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
+# the registry the removal has already changed; `partial` says the step left the hardlinked paths its helper listed;
+# `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not
+# name a label. Any other value is a caller error. The remedy is the deletion run_as_owner ran, the path in bash's `%q`
+# encoding, named as the target's under `--for`.
 die_remove_incomplete() {
     local d="$1" kind="$2" own_entry="$3" label_outcome="$4" covering_entry="${5-}" entry_clause label_clause
     local covering_clause=""
@@ -4887,7 +4902,7 @@ die_remove_incomplete() {
     case "${label_outcome}" in
         completed) label_clause="; the SELinux label step completed" ;;
         failed)    label_clause="; the SELinux label step did not complete, and the relabel command printed above still applies" ;;
-        partial)   label_clause="; the SELinux label step left the files its helper listed above" ;;
+        partial)   label_clause="; the SELinux label step left the hardlinked paths its helper listed above" ;;
         skipped)   label_clause="" ;;
         *)         die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
     esac
@@ -5058,9 +5073,18 @@ cmd_project_remove() {
         if (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
             say "    SELinux label: not applicable on this host (the helper's line above says why)"
         elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
+            # The helper ran past sudo, so the step is counted and the question about the remaining root steps is not
+            # asked: it is about a step that did not apply.
             label_outcome=partial
-            warn "the SELinux label was not reverted on every file -- the helper's lines above name what it left; the deletion removes their names in this tree, and a hardlinked path's other names outside it keep its current type"
-            note_root_failure || cleanup_stopped=true
+            warn "the SELinux label was reverted except on the hardlinked paths the helper's lines above list; the deletion removes their names in this tree, and a hardlinked path's other names outside it keep its current type"
+            ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
+        elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
+            # Past sudo as well, and no path was walked. The deletion follows; the re-run drops the rules of a path
+            # that is gone and walks one the deletion left.
+            label_outcome=failed
+            warn "the SELinux label was not reverted: the tree walker could not run (the helper's line above says why) -- once that is resolved, run:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
+            ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
         elif (( relabel_status != 0 )); then
             label_outcome=failed
             warn "could not revert the SELinux label -- run it by hand:"

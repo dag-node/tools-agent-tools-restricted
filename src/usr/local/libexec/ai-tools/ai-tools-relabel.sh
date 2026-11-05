@@ -24,10 +24,10 @@
 #       ```
 #
 # Exits 0 on success, a label that left hardlinked paths at their type included; 5 where this host has no label to apply
-# (SELinux disabled, or no ai_tools policy installed), named on stderr; 6 when a revert left hardlinked paths at their
-# current type, each named, or the tree walker could not run; 3 on a protected target; and 1 on every other refusal
-# or failure, restorecon missing while SELinux is enabled among them. The CLI discards this helper's stdout, so every
-# outcome it reads is on stderr.
+# (SELinux disabled, or no ai_tools policy installed), named on stderr; 4 when a revert left hardlinked paths at their
+# current type, each named; 6 when the tree walker could not run, so no path was walked; 3 on a protected target; and 1
+# on every other refusal or failure, restorecon missing while SELinux is enabled among them. The CLI discards this
+# helper's stdout, so every outcome it reads is on stderr.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -195,7 +195,7 @@ if ${remove}; then
         # not write it, and a path left on a type the agent reads and writes is more access, so the exit is a failure.
         4) quoted_dir="$(printf '%q' "${dir}")"
            err MSG-D2T9 "reverted ${dir} to its default SELinux type except these hardlinked paths, which keep their current type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} -not -type d -links +1"
-           exit 6 ;;
+           exit 4 ;;
         6) die_walker_unavailable ;;
         *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}}" ;;
     esac
