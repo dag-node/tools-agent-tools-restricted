@@ -592,8 +592,7 @@ drive_rows() {
     expect "the same claim on the page exits 4"                       rc_is 4
     # The label step's statuses. A getenforce reporting SELinux enforcing makes the label a pending step on a claimed
     # tree with no other step pending; the stubbed relabel helper exits with each status the CLI reads. 0 applies it,
-    # 5 is a host with no label to apply and leaves the claim clean, and 1, 4 (the live-session gate) and 6 leave
-    # the step pending at exit 1.
+    # 5 is a host with no label to apply and leaves the claim clean, and 1 and 6 leave the step pending at exit 1.
     local claim_selinux_on="${R}/selinux-on-bin"
     mkdir -p "${claim_selinux_on}"
     printf '#!/bin/sh\necho Enforcing\n' > "${claim_selinux_on}/getenforce"
@@ -609,7 +608,7 @@ drive_rows() {
     expect "the relabel helper exiting 5 leaves the claim at 0"       rc_is 0
     expect "the claim names the label not applicable on this host"    out_has_text "SELinux label: not applicable on this host"
     local claim_status
-    for claim_status in 1 4 6; do
+    for claim_status in 1 6; do
         cli_stub_reset; cli_stub_fail_status ai-tools-relabel "${claim_status}"
         drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
         expect "the relabel helper exiting ${claim_status} leaves the label pending, exit 1" rc_is 1
@@ -954,10 +953,9 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "$(f full)" "${R}/pd"
     expect "unclaim --full asks the helper for the skipped trees"     cli_called ai-tools-unclaim "^${R}/pd${T}[^${T}]+${T}$(f full)$"
 
-    # A label reversal the live-session gate refused: the hand-back and the registry reversal still apply,
-    # and the unclaim ends non-zero without its ✓. The rows run with a getenforce that reports SELinux enforcing,
-    # so the CLI reaches the relabel step, and the stubbed helper exits with the gate's status; the same unclaim
-    # with the helper succeeding is the control.
+    # The label reversal's statuses. The rows run with a getenforce that reports SELinux enforcing, so the CLI reaches
+    # the relabel step, and the stubbed helper exits with each status the CLI reads; the same unclaim with the helper
+    # succeeding is the control.
     local selinux_on="${R}/selinux-on-bin"
     mkdir -p "${selinux_on}" "${R}/pe"
     printf '#!/bin/sh\necho Enforcing\n' > "${selinux_on}/getenforce"
@@ -967,11 +965,6 @@ drive_rows() {
     seed "@ ${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "control: with SELinux on, unclaim reverts the label and exits 0" rc_is 0
     expect "the label reversal reaches the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${R}/pe$"
-    seed "@ ${R}/pe"; cli_stub_fail_status ai-tools-relabel 4
-    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
-    expect "an unclaim whose label reversal the gate refused exits non-zero" rc_not0
-    expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
-    expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
     # 5: no label to apply on this host, so the unclaim is complete; 6: the revert left hardlinked files, which the
     # helper lists, so the unclaim ends non-zero after the hand-back and the registry reversal.
     seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
@@ -1043,9 +1036,9 @@ drive_rows() {
 
     # ── E. Remove ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.remove.inplace"
-    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp/nested"
-    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp"
-    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rm4" "@ ${R}/rmp" "@ ${R}/rmp/nested"
+    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp"
+    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rmp" "@ ${R}/rmp/nested"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -1077,15 +1070,8 @@ drive_rows() {
     expect "remove refuses an entry containing another claimed project" rc_not0
     expect "the containing tree stands"                               test -d "${R}/rmp/nested"
     expect "that refusal reaches no helper"                           cli_log_empty
-    # The live-session gate's refusal of the label reversal stops the removal before either registry changes, since
-    # the helper cannot revert a path the removal deleted. SELinux reported enforcing, as in the unclaim rows.
+    # The label reversal's statuses, with SELinux reported enforcing as in the unclaim rows.
     RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
-    cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
-    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4"
-    expect "a removal whose label reversal the gate refused exits non-zero" rc_not0
-    expect "that removal leaves the tree"                             test -d "${R}/rm4"
-    expect "that removal leaves the entry"                            st_is "${R}/rm4" enabled
-    expect "that removal leaves safe.directory alone"                 not_called ai-tools-safedir
     # 5: no label to apply on this host, so the removal completes; 6: the revert left hardlinked files, a failed
     # cleanup step the removal reports while it deletes the tree.
     mkdir -p "${R}/rm5" "${R}/rm6"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm5" "${R}/rm6"

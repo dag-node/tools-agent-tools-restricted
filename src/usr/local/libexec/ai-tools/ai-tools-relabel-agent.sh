@@ -19,11 +19,11 @@
 # .claude/rules/updater.rule.md.
 #
 # Exits 1 for an entrypoint that does not match its pin, a path that did not take its type, a rule that could not be
-# applied, a launcher the declared rule does not cover, and a config directory a live session left at a type the agent
-# cannot write, each a session that breaks, and for every refusal ahead of the work (a caller that is not root,
-# a library that did not load, a usage error). Exits 0 where SELinux confinement is inactive, an entrypoint could not be
-# verified, a live session left a config directory at the type it already carries, and under `--remove`
-# where the live-session gate left the config directory's labels as they were (MSG-G9X3).
+# applied, and a launcher the declared rule does not cover, each a session that breaks, and for every refusal ahead
+# of the work (a caller that is not root, a library that did not load, a usage error). Exits 0 where SELinux
+# confinement is inactive, an entrypoint could not be verified, a config directory's walk left hardlinked files at their
+# type, and under `--remove` wherever the rules were dropped, a config directory's walk that did not complete included,
+# so a package erase completes.
 #
 # It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext and config_dir in its
 # manifest under /usr/local/lib/ai-tools/agents.d), and this helper registers them as local file-context rules.
@@ -116,10 +116,6 @@ report_unlabel_outcome() {
         0) say "dropped the file-context rules for ${agent}"
            ai_tools_log__info "dropped the file-context rules for ${agent}" ;;
         2) say "SELinux confinement inactive -- no file-context to drop" ;;
-        # The rules are dropped; the config directory keeps its type until a walk runs with no session live, since
-        # a walk while one runs could be redirected outside the directory.
-        3) warn MSG-G9X3 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${remove_config_dir}"
-           ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory was not relabelled while a session was live" ;;
         # The rules are dropped and the config directory's walk did not complete: the walker's lines name what it left.
         4) warn MSG-R5M2 "dropped the file-context rules for ${agent}; the walk over its config directory left these entries: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no reason}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory's walk did not complete" ;;
@@ -362,13 +358,13 @@ if (( status == 2 )); then
 fi
 
 # render_label_report <report> : render the lib's status lines. The lib reports per path and per agent; this decides
-#   what an operator reads, and sets the per-verdict counts and the per-agent arrays (agent_outcome, agent_reason,
-#   agent_live_type) the outcome filing and the closing checks read. The wanted type travels with a "bad" line, since
+#   what an operator reads, and sets the per-verdict counts and the per-agent arrays (agent_outcome, agent_reason)
+#   the outcome filing and the closing checks read. The wanted type travels with a "bad" line, since
 #   an agent declares two paths that carry different types.
 render_label_report() {
     local verdict subject detail wanted
     labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0
-    declare -gA agent_outcome=() agent_reason=() agent_live_type=()
+    declare -gA agent_outcome=() agent_reason=()
     [[ -n "$1" ]] || return 0
     while read -r verdict subject detail wanted; do
         case "${verdict}" in
@@ -405,11 +401,6 @@ render_label_report() {
                    ai_tools_log__warn "${subject}: ${detail} hardlinked file(s) in its config directory not relabelled" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
-            # The library left a recursive relabel for a run with no process of the sandbox account live; the entrypoint
-            # half still ran. The type is kept for the agent's closing line, which says whether the agent can write it.
-            live)  agent_live_type["${subject}"]="${detail}"
-                   say "${subject}: ${wanted} (${detail}) -- not relabelled: a process of the sandbox account is live, or its sessions could not be read"
-                   ai_tools_log__info "${subject}: ${wanted} (${detail}) not relabelled, a process of the sandbox account is live or its sessions could not be read" ;;
             skip)  agent_reason["${subject}"]="rule-not-registered"
                    warn MSG-X7F9 "labelling skipped for ${subject} -- ${detail} ${wanted}"
                    ai_tools_log__warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
@@ -421,39 +412,19 @@ render_label_report() {
     done <<< "$1"
 }
 
-# record_label_outcomes : file each agent's closing verdict through record_label_outcome, counting the agents
-#   whose config directory a live session left at its own type (live_session_count) apart from those it left at another
-#   (live_mislabelled_count, with each agent and the type it carries in live_mislabelled_types).
+# record_label_outcomes : file each agent's closing verdict through record_label_outcome.
 record_label_outcomes() {
     local label_agent
-    live_session_count=0 live_mislabelled_count=0 live_mislabelled_types=""
     for label_agent in "${!agent_outcome[@]}"; do
         case "${agent_outcome[${label_agent}]}" in
             ok)     record_label_outcome "${label_agent}" ok ;;
             # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the toolchain, and not
             # a fault -- so it is filed the same way an inactive SELinux layer is.
             none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
-            live-session) live_session_count=$(( live_session_count + 1 ))
-                    record_label_outcome "${label_agent}" skipped live-session ;;
-            # The walk was left over a directory at another type, which ai_tools_t cannot write: a fault atr status
-            # counts, completed by the run the live-session token names; report_live_sessions fails the run over it.
-            live-session-mislabelled) live_mislabelled_count=$(( live_mislabelled_count + 1 ))
-                    live_mislabelled_types+="${live_mislabelled_types:+, }${label_agent}: ${agent_live_type[${label_agent}]:-unreadable}"
-                    record_label_outcome "${label_agent}" failed live-session ;;
             failed) record_label_outcome "${label_agent}" failed \
                         "${agent_reason[${label_agent}]:-did-not-take-its-type}" ;;
         esac
     done
-}
-
-# report_live_sessions : name the config-directory walks a live session left. One at the type the agent writes is
-#   a warning; one at another type fails the run, as a mislabelled path does, since no session of that agent can write
-#   its state. What each files for atr status, and what the oneshot unit then reports, is updater.rule.md's.
-report_live_sessions() {
-    (( live_session_count == 0 )) \
-        || warn MSG-E4E8 "the config directory of ${live_session_count} agent(s) was not relabelled: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"
-    (( live_mislabelled_count == 0 )) \
-        || die MSG-G6D2 "the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai-tools-relabel.service"
 }
 
 render_label_report "${report}"
@@ -480,15 +451,8 @@ record_label_outcomes
 (( status == 0 )) \
     || die MSG-N9B9 "an agent's file-context rule could not be applied (see above)"
 
-report_live_sessions
-
 if (( labelled > 0 )); then
-    # `all` holds only where no config directory walk was left to a live session; the warning above names the walks.
-    if (( live_session_count == 0 )); then
-        say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
-    else
-        say "${labelled} path(s) labelled; the config directory walk(s) named above were left -- exit any running session and relaunch"
-    fi
+    say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
     ai_tools_log__info "relabelled ${labelled} agent path(s)"
 elif [[ -z "${report}" ]]; then
     say "no enabled agent declares a file-context rule -- nothing to label"

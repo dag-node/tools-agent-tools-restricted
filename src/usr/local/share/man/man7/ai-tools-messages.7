@@ -342,10 +342,6 @@ a $(format_blocking_line_kind) line covers this path, so projects $2 cannot act 
 ERROR.
 unknown command: ${path} \-\- run '${help_command}'
 .TP
-.B MSG-S3B9
-ERROR.
-project remove stopped before any change \-\- the helper left the SELinux label of ${d} while an agent session, the toolchain update, or a step run as the sandbox account may be live
-.TP
 .B MSG-S3F4
 WARNING.
 the git safe.directory list ${GITCONFIG} could not be read \-\- the claim did not apply any step
@@ -1652,10 +1648,6 @@ could not verify the entrypoint for ${agent} against release ${version} (see abo
 ERROR.
 an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: atr admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out
 .TP
-.B MSG-E4E8
-WARNING.
-the config directory of ${live_session_count} agent(s) was not relabelled: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai\-tools\-relabel.service
-.TP
 .B MSG-E4U5
 WARNING.
 relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
@@ -1664,17 +1656,9 @@ relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
 WARNING.
 could not record ${1}'s labelling outcome for atr status
 .TP
-.B MSG-G6D2
-ERROR.
-the config directory of ${live_mislabelled_count} agent(s) carries a type the agent cannot write (${live_mislabelled_types}), so no session of those agents can write its state; it was not relabelled because an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo systemctl start ai\-tools\-relabel.service
-.TP
 .B MSG-G7C7
 WARNING.
 wrong type on ${subject}: it is '${detail}', NOT ${wanted}
-.TP
-.B MSG-G9X3
-WARNING.
-dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${remove_config_dir}
 .TP
 .B MSG-H9M5
 WARNING.
@@ -2164,10 +2148,6 @@ could not derive the shipped module set (policy/shipped\-modules.sh)
 WARNING.
 labelling did not complete for ${subject} \-\- see its lines above
 .TP
-.B MSG-E9S6
-WARNING.
-left the label on $1 as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run this command
-.TP
 .B MSG-F2V5
 WARNING.
 compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: recompiling it from source
@@ -2259,10 +2239,6 @@ left the label on ${1}'s config directory as it was \-\- the closing warning nam
 .B MSG-S9J3
 WARNING.
 labelling skipped for ${subject} \-\- ${detail} ${wanted}
-.TP
-.B MSG-T7X3
-WARNING.
-the config directory of ${subject} carries ${live_types[${subject}]:\-an unreadable type}, a type the agent cannot write, so no session of ${subject} can write its state until the walk the closing warning names runs
 .TP
 .B MSG-U3S8
 ERROR.

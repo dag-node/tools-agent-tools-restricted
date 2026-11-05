@@ -580,13 +580,6 @@ readonly ANCESTOR_CONFIG_LIB="/usr/local/lib/ai-tools/ancestor-config.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/ancestor-config.lib.sh
 source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
 
-# Live sessions of the sandbox account (sessions.lib.sh): ai-tools-relabel refuses its walk while one runs,
-# and the claim reads the same state unprivileged from the world-readable cgroup files so its Review block names
-# the refusal before the first sudo. Best-effort: the helper's refusal is the decision, so a missing lib costs
-# the notice alone.
-readonly SESSIONS_LIB="/usr/local/lib/ai-tools/sessions.lib.sh"
-# shellcheck source=SCRIPTDIR/../lib/ai-tools/sessions.lib.sh
-source "${SESSIONS_LIB}" 2>/dev/null || true
 
 # Service-health registry (services.lib.sh): the single source `atr status`, the launch wrapper's pre-launch health
 # warning and `atr admin status` share, so no two of them disagree on which units matter, what one is doing,
@@ -2092,8 +2085,9 @@ clone_access_ready() {
 # maps (the module not loaded); 0 as well where SELinux is disabled or restorecon is absent, with no walk; 1 otherwise.
 #
 # sandbox_finalize runs it while the clone root is still 0700 and the operator's, ahead of normalize_clone, so no
-# directory inside the clone is the sandbox account's to rename mid-walk and the walk does not take the live-session
-# gate (cli.rule.md, ref-section-e6c6). A resume over a clone already opened does not run a relabel: the first finalize
+# directory inside the clone is the sandbox account's to rename mid-walk. It keeps `restorecon -FR`, run
+# as the operator: the tree walker is root-only, and no component of the 0700 clone is one the account can rename
+# (cli.rule.md, ref-section-e6c6). A resume over a clone already opened does not run a relabel: the first finalize
 # labelled it, before it opened.
 #
 # Where SELinux runs and no ai_tools policy is on the host, ai_tools_project_t does not exist to read the clone
@@ -2149,9 +2143,7 @@ run_lockdown() {
 }
 
 # run_relabel <dir> [--remove]  -- apply (or revert) the SELinux project label on <dir> via the root helper (sudo,
-# password); returns its status, RELABEL_LIVE_SESSION_STATUS where the live-session gate left the tree as it was.
-# The helper parses the path and the optional flag in any order.
-readonly RELABEL_LIVE_SESSION_STATUS=4
+# password); returns its status. The helper parses the path and the optional flag in any order.
 # The helper found no label to apply on this host -- SELinux disabled, or no ai_tools policy installed -- and said why
 # on stderr.
 readonly RELABEL_NOT_APPLICABLE_STATUS=5
@@ -3549,19 +3541,6 @@ cmd_project_claim() {
         say "      ${C_DIM}which one above it is not${C_RST}"
     }
 
-    # The reading ai-tools-relabel refuses its walk on, made here as the operator so the Review block names a live
-    # session ahead of the verb's first sudo; it does not ask anything, and the helper's refusal is what decides. It
-    # shows for a drift relabel too, which the operator may then decline, and on `live` alone: why `unreadable` is left
-    # to the helper's refusal is cli.rule.md's (ref-section-e6c6).
-    note_live_session() {
-        ${need_label} || (( ${#label_drift[@]} )) || return 0
-        declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
-        [[ "$(ai_tools_sessions__read_live_session_state)" == live ]] || return 0
-        headline_warn "NOTICE: a process of the sandbox account is running" \
-            "An agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live. The SELinux label step walks the tree as root, and the helper refuses that step while one is live, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
-        say "      ${C_BOLD}atr stop${C_RST}"
-    }
-
     skip_listed_note() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
@@ -3800,7 +3779,6 @@ cmd_project_claim() {
     skip_listed_note
     sealed_setgid_note
     ancestor_config_note
-    note_live_session
 
     # The files listed here are the step's whole reason; the walk it runs covers the tree. An owner's chmod g+x
     # over entries written rwx does not show here, so the step does not reset a deliberate one on every re-claim.
@@ -4374,9 +4352,8 @@ resolve_verb_target() {
 # `projects enable`, `projects handback` and ai-tools-unclaim each refusing a path the registry no longer names.
 # Best-effort except for the allowlist line: every other step warns and the pass goes on, while a drop that did not
 # apply refuses (unreg_allow) and a disable that did not apply returns 1 without the ✓, since either leaves a session
-# able to start here. A label reversal that did not apply,
-# or that the live-session gate refused, returns 1 without the ✓ as well, after the registry reversal (cli.rule.md,
-# ref-section-m5n5).
+# able to start here. A label reversal that did not apply, or that left hardlinked files on the project type, returns 1
+# without the ✓ as well, after the registry reversal (cli.rule.md, ref-section-m5n5).
 unclaim_one() {
     local d="$1" group="$2" hint="$3" retry="$4"; shift 4
     local stopped=false handback_missing=false label_left=false
@@ -4399,8 +4376,7 @@ unclaim_one() {
             label_left=true
             warn "could not revert the SELinux label -- run it by hand:"
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
-            # The gate's refusal came after sudo authenticated, so the steps after it are attempted without asking.
-            (( relabel_status == RELABEL_LIVE_SESSION_STATUS )) || note_root_failure || stopped=true
+            note_root_failure || stopped=true
         fi
     fi
 
@@ -5069,23 +5045,17 @@ cmd_project_remove() {
     # ── Apply: registries first, deletion last. ──
     headline "Removing the project" "${d}"
     # A failed cleanup step asks once (note_root_failure) and does not stop the removal: the registries drop regardless,
-    # and `ai-tools projects` reports what is left behind. The live-session gate's refusal stops it instead,
-    # before either registry changes: a label reversal left for later cannot be applied to a path this run deletes
-    # (cli.rule.md, ref-section-k3v7). The label step stays ahead of the registry step, since ai-tools-relabel resolves
-    # membership from the entry, so a de-list that does not apply (MSG-K8S2) leaves a registered project whose label is
-    # reverted, which the listing reports and `projects claim` restores. The registry step precedes
-    # the safe.directory step, so that refusal leaves the trust entry in place.
+    # and `ai-tools projects` reports what is left behind (cli.rule.md, ref-section-k3v7). The label step stays ahead
+    # of the registry step, since ai-tools-relabel resolves membership from the entry, so a de-list that does not apply
+    # (MSG-K8S2) leaves a registered project whose label is reverted, which the listing reports and `projects claim`
+    # restores. The registry step precedes the safe.directory step, so that refusal leaves the trust entry in place.
     local cleanup_stopped=false label_outcome=skipped
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         local relabel_status=0
         run_relabel "${d}" --remove || relabel_status=$?
-        if (( relabel_status == RELABEL_LIVE_SESSION_STATUS )); then
-            say  "    let each session end (/exit inside it) and the toolchain update finish, or end them all"
-            say  "    with ${C_BOLD}atr stop${C_RST}, then re-run the removal; the project is left as it was"
-            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session, the toolchain update, or a step run as the sandbox account may be live"
-        elif (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+        if (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
             say "    SELinux label: not applicable on this host (the helper's line above says why)"
         elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
             label_outcome=partial
