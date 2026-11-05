@@ -106,23 +106,38 @@ ai_tools_relabel__lock
     || { warn MSG-E4U5 "relabels are not serialized on this host -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"
          ai_tools_log__warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"; }
 
+# report_unlabel_outcome <agent> <status> : render ai_tools_relabel__unlabel_agent_paths's <status> for <agent>.
+#   Returns 0 for every status but the one where the agent does not declare a usable rule, which dies: the caller is
+#   a package erase, which completes whatever the config directory's walk left.
+report_unlabel_outcome() {
+    local agent="$1" rc="$2" remove_config_dir
+    remove_config_dir="${CP_HOME:-/opt/ai-tools}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
+    case "${rc}" in
+        0) say "dropped the file-context rules for ${agent}"
+           ai_tools_log__info "dropped the file-context rules for ${agent}" ;;
+        2) say "SELinux confinement inactive -- no file-context to drop" ;;
+        # The rules are dropped; the config directory keeps its type until a walk runs with no session live, since
+        # a walk while one runs could be redirected outside the directory.
+        3) warn MSG-G9X3 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${remove_config_dir}"
+           ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory was not relabelled while a session was live" ;;
+        # The rules are dropped and the config directory's walk did not complete: the walker's lines name what it left.
+        4) warn MSG-R5M2 "dropped the file-context rules for ${agent}; the walk over its config directory left these entries: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no reason}"
+           ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory's walk did not complete" ;;
+        # The rules are dropped and the walk could not start.
+        6) warn MSG-M5X4 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree or python3-libselinux is not installed -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; install python3-libselinux, then run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${remove_config_dir}"
+           ai_tools_log__warn "dropped the file-context rules for ${agent}; the tree walker could not run" ;;
+        *) die MSG-S6C5 "no usable path rules declared by ${agent} -- nothing dropped" ;;
+    esac
+    return 0
+}
+
 # `--remove <agent>`: erase-time counterpart, invoked by the agent package's own %preun while its manifest is still
 # on disk. Dropping the rules matters because the types they name belong to the base policy, which the host may erase
 # next.
 if [[ "${1:-}" == --remove ]]; then
     agent="${2:?usage: ai-tools-relabel-agent --remove <agent-name>}"
     rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
-    case "${rc}" in
-        0) say "dropped the file-context rules for ${agent}"
-           ai_tools_log__info "dropped the file-context rules for ${agent}" ;;
-        2) say "SELinux confinement inactive -- no file-context to drop" ;;
-        # The rules are dropped; the config directory keeps its type until a walk runs with no session live, since
-        # a walk while one runs could be redirected outside the directory. A package erase completes either way.
-        3) remove_config_dir="${CP_HOME:-/opt/ai-tools}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
-           warn MSG-G9X3 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${remove_config_dir}"
-           ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory was not relabelled while a session was live" ;;
-        *) die MSG-S6C5 "no usable path rules declared by ${agent} -- nothing dropped" ;;
-    esac
+    report_unlabel_outcome "${agent}" "${rc}"
     exit 0
 fi
 [[ "$#" -eq 0 ]] || die MSG-T2W3 "usage: ai-tools-relabel-agent [--remove <agent-name>]"
@@ -380,6 +395,9 @@ render_label_report() {
        ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
        the package is missing the executable a session is meant to exec"
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
+            # The config directory's walk completed and left hardlinked files at their type; the walker listed them.
+            partial) say "${subject}: ${detail} hardlinked file(s) in its config directory kept their type"
+                   ai_tools_log__warn "${subject}: ${detail} hardlinked file(s) in its config directory not relabelled" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
             # The library left a recursive relabel for a run with no process of the sandbox account live; the entrypoint

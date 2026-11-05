@@ -590,6 +590,33 @@ drive_rows() {
     expect "the page went to stderr"                                  err_has "Claim project"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/ph"
     expect "the same claim on the page exits 4"                       rc_is 4
+    # The label step's statuses. A getenforce reporting SELinux enforcing makes the label a pending step on a claimed
+    # tree with no other step pending; the stubbed relabel helper exits with each status the CLI reads. 0 applies it,
+    # 5 is a host with no label to apply and leaves the claim clean, and 1, 4 (the live-session gate) and 6 leave
+    # the step pending at exit 1.
+    local claim_selinux_on="${R}/selinux-on-bin"
+    mkdir -p "${claim_selinux_on}"
+    printf '#!/bin/sh\necho Enforcing\n' > "${claim_selinux_on}/getenforce"
+    chmod 0755 "${claim_selinux_on}" "${claim_selinux_on}/getenforce"
+    claimed_fixture "${R}/pl"; rm -f "${R}/pl/moved-in.txt"
+    RUN_EXTRA_ENV=(PATH="${claim_selinux_on}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ ${R}/pl"; seed_gc "${R}/pl"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+    expect "control: the label step reaches the relabel helper"       cli_called ai-tools-relabel "${R}/pl$"
+    expect "control: the relabel helper exiting 0 leaves the claim at 0" rc_is 0
+    cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
+    drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+    expect "the relabel helper exiting 5 leaves the claim at 0"       rc_is 0
+    expect "the claim names the label not applicable on this host"    out_has_text "SELinux label: not applicable on this host"
+    local claim_status
+    for claim_status in 1 4 6; do
+        cli_stub_reset; cli_stub_fail_status ai-tools-relabel "${claim_status}"
+        drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "the relabel helper exiting ${claim_status} leaves the label pending, exit 1" rc_is 1
+        expect "the relabel helper exiting ${claim_status} is not read as not applicable" \
+            out_lacks_text "not applicable on this host"
+    done
+    RUN_EXTRA_ENV=()
     # A secret-named path in a drift list is marked, read with the operator's patterns -- here a fixture set
     # through the classifier's own file override -- and a plain path beside it is not.
     printf '*.pem\n' > "${R}/secret-patterns"; chmod 0644 "${R}/secret-patterns"
@@ -945,6 +972,20 @@ drive_rows() {
     expect "an unclaim whose label reversal the gate refused exits non-zero" rc_not0
     expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
     expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
+    # 5: no label to apply on this host, so the unclaim is complete; 6: the revert left hardlinked files, which the
+    # helper lists, so the unclaim ends non-zero after the hand-back and the registry reversal.
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "an unclaim whose relabel helper exits 5 exits 0"          rc_is 0
+    expect "that unclaim names the label not applicable on this host" out_has_text "SELinux label: not applicable on this host"
+    expect "that unclaim hands the tree back"                         cli_called ai-tools-unclaim "^${R}/pe${T}"
+    expect "that unclaim drops the entry"                             st_is "${R}/pe" absent
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "an unclaim whose revert left hardlinked files exits non-zero" rc_not0
+    expect "that unclaim says the label was not reverted on every file" out_has_text "was not reverted on every file"
+    expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
+    expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
     RUN_EXTRA_ENV=()
 
     # A hand-back that did not run leaves the entry disabled rather than dropped, so the unclaim that completes
@@ -1045,6 +1086,21 @@ drive_rows() {
     expect "that removal leaves the tree"                             test -d "${R}/rm4"
     expect "that removal leaves the entry"                            st_is "${R}/rm4" enabled
     expect "that removal leaves safe.directory alone"                 not_called ai-tools-safedir
+    # 5: no label to apply on this host, so the removal completes; 6: the revert left hardlinked files, a failed
+    # cleanup step the removal reports while it deletes the tree.
+    mkdir -p "${R}/rm5" "${R}/rm6"; chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm5" "${R}/rm6"
+    seed "@ ${R}/rm5"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm5"
+    expect "a removal whose relabel helper exits 5 exits 0"           rc_is 0
+    expect "that removal names the label not applicable on this host" out_has_text "SELinux label: not applicable on this host"
+    expect "that removal deletes the tree"                            test ! -e "${R}/rm5"
+    expect "that removal drops the entry"                             st_is "${R}/rm5" absent
+    seed "@ ${R}/rm6"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm6"
+    expect "a removal whose revert left hardlinked files exits non-zero" rc_not0
+    expect "that removal names the files' other names"                out_has_text "a hardlinked file's other names outside it keep ai_tools_project_t"
+    expect "that removal still deletes the tree"                      test ! -e "${R}/rm6"
+    expect "that removal drops the entry"                             st_is "${R}/rm6" absent
     RUN_EXTRA_ENV=()
 
     # ── F. Enable and disable ─────────────────────────────────────────────────────────

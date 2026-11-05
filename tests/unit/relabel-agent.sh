@@ -9,7 +9,9 @@
 #
 # The case that carries the file is a config directory the live-session gate left: at the type the agent writes, the run
 # warns and exits 0; at another type, which no session of the agent can write, it files the failure and exits 1,
-# so ai-tools-relabel.service reads failed.
+# so ai-tools-relabel.service reads failed. A config directory whose walk left hardlinked files is said and filed
+# as the agent's verdict, and the `--remove` form's rendering of each status the library returns is driven through
+# report_unlabel_outcome: a package erase completes over a walk that was left or could not start.
 #
 # The deployed helper is preferred where this account can read it and it defines the functions, the checkout's
 # otherwise; a non-root run reads the checkout, since the deployed helper is 750 root:root.
@@ -29,7 +31,7 @@ note "the closing functions" "read from ${HELPER}"
 mktestdir
 
 # The functions a case runs, in the order the helper defines them; every one must come out of the helper non-empty.
-functions=(say warn die render_label_report record_label_outcomes report_live_sessions)
+functions=(say warn die report_unlabel_outcome render_label_report record_label_outcomes report_live_sessions)
 extracted="${TESTDIR}/closing.sh"
 : > "${extracted}"
 missing=()
@@ -110,5 +112,53 @@ else
     fail "the refusal does not name beta alone: ${OUT//$'\n'/ | }"
 fi
 if [[ "${RC}" -eq 1 ]]; then pass "the run with both classes exits 1"; else fail "the run with both classes exits ${RC}"; fi
+
+# ── A config directory whose walk left hardlinked files ──────────────────────────────────────
+section "a walk that left hardlinked files is said, and the agent is filed by its verdict"
+close_run $'ok /opt/ai-tools/.acme
+partial acme 2
+agent acme ok'
+has_line "the left files are said with their count" "ai-tools-relabel-agent: acme: 2 hardlinked file(s) in its config directory kept their type"
+has_line "the agent is filed as its verdict reads" "record acme ok "
+if [[ "${RC}" -eq 0 ]]; then pass "the run exits 0"; else fail "the run exits ${RC} over a walk that left hardlinked files"; fi
+
+# ── `--remove`: each status ai_tools_relabel__unlabel_agent_paths returns ────────────────────
+section "--remove renders each status of the agent unlabel, and an erase completes over a walk left"
+unlabel_probe="${TESTDIR}/unlabel-probe.sh"
+cat > "${unlabel_probe}" <<'PROBE'
+set -euo pipefail
+source "$1"
+ai_tools_log__info() { :; }; ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
+ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf '.acme\n'; }
+CP_HOME=/opt/ai-tools
+AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="$3"
+report_unlabel_outcome acme "$2"
+PROBE
+# unlabel_run <status> [diagnostics] : sets OUT (both streams) and RC.
+unlabel_run() {
+    RC=0; OUT="$(bash "${unlabel_probe}" "${extracted}" "$1" "${2:-}" 2>&1)" || RC=$?
+}
+unlabel_run 0
+has_line "control: status 0 reports the rules dropped" "ai-tools-relabel-agent: dropped the file-context rules for acme"
+if [[ "${RC}" -eq 0 ]]; then pass "control: status 0 exits 0"; else fail "control: status 0 exits ${RC}"; fi
+unlabel_run 4 "skipped hardlinked file /opt/ai-tools/.acme/x (link count 2)"
+assert_msg MSG-R5M2 "${OUT}" "status 4 warns that the config directory's walk left entries"
+if command grep -qF 'skipped hardlinked file /opt/ai-tools/.acme/x (link count 2)' <<< "${OUT}"; then
+    pass "status 4 carries the walker's diagnostics"
+else
+    fail "status 4 does not carry the walker's diagnostics: ${OUT//$'\n'/ | }"
+fi
+if [[ "${RC}" -eq 0 ]]; then pass "status 4 exits 0, so the erase completes"; else fail "status 4 exits ${RC}"; fi
+unlabel_run 6 "python3-libselinux is not installed"
+assert_msg MSG-M5X4 "${OUT}" "status 6 warns that the walk could not start"
+if command grep -qF 'python3-libselinux' <<< "${OUT}" && command grep -qF 'ai-tools-relabel-tree -- /opt/ai-tools/.acme' <<< "${OUT}"; then
+    pass "status 6 names python3-libselinux and the walk to run over the config directory"
+else
+    fail "status 6 does not name python3-libselinux and the walk: ${OUT//$'\n'/ | }"
+fi
+if [[ "${RC}" -eq 0 ]]; then pass "status 6 exits 0, so the erase completes"; else fail "status 6 exits ${RC}"; fi
+unlabel_run 1
+assert_msg MSG-S6C5 "${OUT}" "status 1 refuses: no usable rule"
+if [[ "${RC}" -eq 1 ]]; then pass "status 1 exits 1"; else fail "status 1 exits ${RC}"; fi
 
 finish

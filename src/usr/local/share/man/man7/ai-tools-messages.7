@@ -1680,6 +1680,10 @@ a stale declaration stops this relabel: ${stale} agent(s) install their entrypoi
 ERROR.
 must run as root (via sudo)
 .TP
+.B MSG-M5X4
+WARNING.
+dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree or python3\-libselinux is not installed \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; install python3\-libselinux, then run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${remove_config_dir}
+.TP
 .B MSG-M6C3
 WARNING.
 could not write the observed pin for ${agent} at ${version}
@@ -1691,6 +1695,10 @@ incomplete package for ${subject}: its launcher resolves to
 .B MSG-N9B9
 ERROR.
 an agent's file\-context rule could not be applied (see above)
+.TP
+.B MSG-R5M2
+WARNING.
+dropped the file\-context rules for ${agent}; the walk over its config directory left these entries: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-the walker printed no reason}
 .TP
 .B MSG-S6C5
 ERROR.
@@ -2116,6 +2124,10 @@ could not read the module store \-\- ${listing//$'\en'/; }; $1; re\-run once sem
 WARNING.
 sandbox clone NOT labelled ai_tools_project_t: ${clone}
 .TP
+.B MSG-A5V5
+WARNING.
+the walk over the config directory of ${subject} left ${detail} hardlinked file(s) at their type; list them with: sudo find ${partial_dir} \-xdev \-type f \-links +1
+.TP
 .B MSG-D3G7
 WARNING.
 could not load layout module ${module}; build output is typed at relabel time only
@@ -2139,6 +2151,10 @@ compiled module ${pp} was built for policy module version ${reading%% *}, and th
 .B MSG-F9G3
 WARNING.
 integration ${integration} declares layout module ${module}, which has no source under ${POLICY_DIR}
+.TP
+.B MSG-G6X4
+WARNING.
+left the labels on $1 as they were: the tree walker /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; install python3\-libselinux and ai\-tools\-base, then re\-run this command
 .TP
 .B MSG-G9M3
 WARNING.

@@ -2152,6 +2152,12 @@ run_lockdown() {
 # password); returns its status, RELABEL_LIVE_SESSION_STATUS where the live-session gate left the tree as it was.
 # The helper parses the path and the optional flag in any order.
 readonly RELABEL_LIVE_SESSION_STATUS=4
+# The helper found no label to apply on this host -- SELinux disabled, or no ai_tools policy installed -- and said why
+# on stderr.
+readonly RELABEL_NOT_APPLICABLE_STATUS=5
+# The revert completed except on the hardlinked files the helper listed on stderr, which keep ai_tools_project_t, or the
+# tree walker it runs could not start.
+readonly RELABEL_PARTIAL_REVERT_STATUS=6
 run_relabel() {
     local d="$1"; shift
     # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"), which lands
@@ -2397,8 +2403,12 @@ claim_relabel() {
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
         return 0
     fi
-    if run_relabel "${d}"; then
+    local relabel_status=0
+    run_relabel "${d}" || relabel_status=$?
+    if (( relabel_status == 0 )); then
         say "    SELinux label: ai_tools_project_t applied"
+    elif (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+        say "    SELinux label: not applicable on this host (the helper's line above says why)"
     else
         warn "could not apply the SELinux label -- run it by hand:"
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
@@ -4376,14 +4386,21 @@ unclaim_one() {
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         local relabel_status=0
         run_relabel "${d}" --remove || relabel_status=$?
-        if (( relabel_status != 0 )); then
+        if (( relabel_status == 0 )); then
+            say "    SELinux label: reverted"
+        elif (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+            say "    SELinux label: not applicable on this host (the helper's line above says why)"
+        elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
+            # The helper ran past sudo and names what it left, with the command that lists it, so the steps after it are
+            # attempted without asking.
+            label_left=true
+            warn "the SELinux label was not reverted on every file -- the helper's lines above name what it left"
+        else
             label_left=true
             warn "could not revert the SELinux label -- run it by hand:"
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
             # The gate's refusal came after sudo authenticated, so the steps after it are attempted without asking.
             (( relabel_status == RELABEL_LIVE_SESSION_STATUS )) || note_root_failure || stopped=true
-        else
-            say "    SELinux label: reverted"
         fi
     fi
 
@@ -4879,7 +4896,8 @@ get_covering_entry() {
 # the step ran and its helper returned success, which does not read the type the tree carries, since a rule
 # on an ancestor of the project keeps the project type through the step; `failed` says it did not complete,
 # and that the relabel command the failed step printed still applies, since `ai-tools-relabel --remove` does not read
-# the registry the removal has already changed; `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type
+# the registry the removal has already changed; `partial` says the step left the files its helper listed;
+# `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type
 # comes from the policy's file contexts) does not name a label. Any other value is a caller error. The remedy is
 # the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
 die_remove_incomplete() {
@@ -4893,6 +4911,7 @@ die_remove_incomplete() {
     case "${label_outcome}" in
         completed) label_clause="; the SELinux label step completed" ;;
         failed)    label_clause="; the SELinux label step did not complete, and the relabel command printed above still applies" ;;
+        partial)   label_clause="; the SELinux label step left the files its helper listed above" ;;
         skipped)   label_clause="" ;;
         *)         die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
     esac
@@ -5066,6 +5085,12 @@ cmd_project_remove() {
             say  "    let each session end (/exit inside it) and the toolchain update finish, or end them all"
             say  "    with ${C_BOLD}atr stop${C_RST}, then re-run the removal; the project is left as it was"
             die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session, the toolchain update, or a step run as the sandbox account may be live"
+        elif (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+            say "    SELinux label: not applicable on this host (the helper's line above says why)"
+        elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
+            label_outcome=partial
+            warn "the SELinux label was not reverted on every file -- the helper's lines above name what it left; the deletion removes their names in this tree, and a hardlinked file's other names outside it keep ai_tools_project_t"
+            note_root_failure || cleanup_stopped=true
         elif (( relabel_status != 0 )); then
             label_outcome=failed
             warn "could not revert the SELinux label -- run it by hand:"

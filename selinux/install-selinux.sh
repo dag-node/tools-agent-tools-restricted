@@ -655,6 +655,8 @@ _labels_drop() {
         case "${rc}" in
             0) ;;
             3) _record_left_agent_config "${agent}" ;;
+            4) _note_walk_left "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ;;
+            6) _warn_walker_unavailable "${agent}'s config directory" ;;
             *) log "  ${agent}: no file-context rules to drop" ;;
         esac
     done
@@ -745,7 +747,7 @@ source "${OPERATOR_LIB}" 2>/dev/null \
 # the report in the installer's voice. It is agent-agnostic: the paths come from the manifests
 # under /usr/local/lib/ai-tools/agents.d.
 verify_agent_labels() {
-    local report="" status=0 verdict subject detail wanted bad=0 labelled=0
+    local report="" status=0 verdict subject detail wanted bad=0 labelled=0 partial_dir
     local -A live_types=()
     report="$(ai_tools_relabel__label_agent_paths)" || status=$?
     if [[ "${status}" -eq 2 ]]; then
@@ -793,6 +795,10 @@ verify_agent_labels() {
                       warn "    -- and no installed file matches the entrypoint its manifest declares"
                       warn "    Reinstall it: atr admin system bootstrap" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
+                # The config directory's walk completed and left hardlinked files at their type. Not `bad`: every other
+                # entry took the type, and the files are listed for review.
+                partial) partial_dir="${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${subject}" config_dir 2>/dev/null || true)"
+                      warn MSG-A5V5 "the walk over the config directory of ${subject} left ${detail} hardlinked file(s) at their type; list them with: sudo find ${partial_dir} -xdev -type f -links +1" ;;
                 # The config directory's walk was left because a process of the sandbox account is live. Not `bad`:
                 # the rule is registered, and the closing warning names the walk that completes it. The type
                 # the directory carries is kept for the agent's closing line.
@@ -805,6 +811,7 @@ verify_agent_labels() {
                 # in place, and the closing left-trees warning names the restorecon that labels the directory.
                 agent)
                     if [[ "${detail}" == failed ]]; then
+                        bad=1
                         warn MSG-E6C4 "labelling did not complete for ${subject} -- see its lines above"
                     elif [[ "${detail}" == live-session-mislabelled ]]; then
                         warn MSG-T7X3 "the config directory of ${subject} carries ${live_types[${subject}]:-an unreadable type}, a type the agent cannot write, so no session of ${subject} can write its state until the walk the closing warning names runs"
@@ -883,19 +890,41 @@ _restore_home_state_labels() {
 # writes only a file whose context differs), so a clean tree costs a walk and no writes; a file that drifted
 # in with a foreign context -- a customizable type a plain restorecon would preserve -- is forced back
 # to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep. A status of 3 is the library's
-# live-session gate (relabel.lib.sh): the project was left as it was.
-_label_project()   { local rc=0; ai_tools_relabel__label_project "$1" || rc=$?
-                 case "${rc}" in
-                     0) ok "labelled project ai_tools_project_t: $1" ;;
-                     3) _warn_live_session "$1" ;;
-                     *) warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?" ;;
-                 esac; }
-_unlabel_project() { local rc=0; ai_tools_relabel__unlabel_project "$1" || rc=$?
-                 case "${rc}" in
-                     0) ;;
-                     3) _warn_live_session "$1" ;;
-                     *) warn MSG-W8J4 "could not unlabel $1" ;;
-                 esac; }
+# live-session gate (relabel.lib.sh): the project was left as it was; 4 is a walk that completed and left hardlinked
+# files at their type, and 6 a walk that could not start.
+_label_project() {
+    local rc=0
+    ai_tools_relabel__label_project "$1" || rc=$?
+    case "${rc}" in
+        0) ok "labelled project ai_tools_project_t: $1" ;;
+        3) _warn_live_session "$1" ;;
+        4) ok "labelled project ai_tools_project_t: $1"
+           _note_walk_left "$1" ;;
+        6) _warn_walker_unavailable "$1" ;;
+        *) warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?" ;;
+    esac
+}
+_unlabel_project() {
+    local rc=0
+    ai_tools_relabel__unlabel_project "$1" || rc=$?
+    case "${rc}" in
+        0) ;;
+        3) _warn_live_session "$1" ;;
+        4) _note_walk_left "$1" ;;
+        6) _warn_walker_unavailable "$1" ;;
+        *) warn MSG-W8J4 "could not unlabel $1" ;;
+    esac
+}
+# _note_walk_left <dir>: the walk over <dir> completed and left the hardlinked files the tree walker lists in
+# AI_TOOLS_RELABEL__TREE_DIAGNOSTICS at the type they carry, since through another name a file may be another tree's.
+_note_walk_left() {
+    log "  the walk over $1 left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}"
+}
+# _warn_walker_unavailable <dir>: the walk over <dir> did not start, because the tree walker or the selinux module it
+# imports is not installed.
+_warn_walker_unavailable() {
+    warn MSG-G6X4 "left the labels on $1 as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; install python3-libselinux and ai-tools-base, then re-run this command"
+}
 _warn_live_session() {
     warn MSG-E9S6 "left the label on $1 as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run this command"
 }
