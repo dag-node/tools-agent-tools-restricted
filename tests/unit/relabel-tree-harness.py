@@ -199,7 +199,9 @@ def main():
     for label, path in (('a file', file_root), ('a symlink', link_root)):
         xattr, reports = FakeXattr(), Reports()
         rc = walker.walk(path, FakeLookup(), xattr, walker.OS_OPENER, reports)
-        check('a root that is %s exits 2 and writes nothing (rc=%d)' % (label, rc), rc == 2 and xattr.writes == [])
+        check('a root that is %s exits 1 and writes nothing (rc=%d, %r)' % (label, rc, reports.errors()),
+              rc == 1 and xattr.writes == []
+              and reports.errors() == ['failed to open the root %s: not a directory' % path])
     rc = run_main(walker, ['--dry-run', '--expected-context', WANTED, '--', 'relative/dir'])[0]
     check('a relative root exits 2 (rc=%d)' % rc, rc == 2)
 

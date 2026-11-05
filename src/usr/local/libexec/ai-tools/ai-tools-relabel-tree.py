@@ -8,7 +8,8 @@
 #
 # <dir> is one absolute path, taken as given: the caller has canonicalized it. The walker opens it O_PATH|O_NOFOLLOW
 # and exits 1 unless `/proc/self/fd/<fd>` reads back as the same path, so a symlink swapped into an ancestor the account
-# can write (a project nested under another) is not followed. A root that is not a directory exits 2.
+# can write (a project nested under another) is not followed. A root that is not a directory exits 1 as well: the caller
+# read it as a directory when it canonicalized it, so a file or a symlink there was placed after that read.
 #
 # Every entry under it is opened O_PATH|O_NOFOLLOW relative to its parent's listing descriptor and typed with fstat,
 # and its label is read, written and read back through `/proc/self/fd/<fd>`, so a rename or a planted symlink after
@@ -264,8 +265,8 @@ def walk(root, lookup, xattr, opener, report, dry_run=False):
             report('error', 'failed to open the root %s: %s' % (quote(root), _error_text(error)))
             return 1
         if not stat.S_ISDIR(root_st.st_mode):
-            report('error', 'the root %s is not a directory' % quote(root))
-            return 2
+            report('error', 'failed to open the root %s: not a directory' % quote(root))
+            return 1
         if resolved != root:
             report('error', 'failed to open the root %s: it resolves to %s' % (quote(root), quote(resolved)))
             return 1
