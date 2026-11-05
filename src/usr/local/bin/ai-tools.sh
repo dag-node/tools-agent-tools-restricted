@@ -4880,23 +4880,35 @@ get_covering_entry() {
 readonly REMOVE_HARDLINKS_LISTED=20
 
 # read_hardlink_inventory <dir>  -- print `<inode> <mount>` once per hardlinked non-directory under <dir>, read as
-# the acting owner through run_as_owner, sorted; returns find's status, non-zero where part of the tree was not read.
-# find does not follow a symlink and stat reads the entry itself, and git is not run: the tree's names are the agent's
-# to choose, and its .git/config the agent's to write (cli.rule.md, ref-section-k3v7). A removal reads it ahead
-# of the deletion, since once the tree is gone the inode and the mount are what find the file's other names.
+# the acting owner through run_as_owner, sorted, and `other-device` once where an entry sits on another device than
+# <dir>, a mount inside the tree, whose mount point this read does not name; returns non-zero where part of the tree was
+# not read. The inode and the device are find's own `-printf` reading of each entry, made inside the directory find
+# opened, so a directory the agent swaps for a symlink during the read does not substitute another file; the mount is
+# read once, from <dir>. find does not follow a symlink, and git is not run: the tree's names are the agent's to choose,
+# and its .git/config the agent's to write (cli.rule.md, ref-section-k3v7). A removal reads it ahead of the deletion,
+# since once the tree is gone the inode and the mount are what find the file's other names.
 read_hardlink_inventory() {
-    local listing status=0
-    listing="$(run_as_owner find "$1" ! -type d -links +1 -exec stat -c '%i %m' -- {} + 2>/dev/null)" || status=$?
-    [[ -z "${listing}" ]] || LC_ALL=C sort -u <<< "${listing}"
+    local root_identity root_device root_mount listing line status=0
+    root_identity="$(run_as_owner stat -c '%d %m' -- "$1" 2>/dev/null)" || return 1
+    root_device="${root_identity%% *}" root_mount="${root_identity#* }"
+    listing="$(run_as_owner find "$1" ! -type d -links +1 -printf '%D %i\n' 2>/dev/null)" || status=$?
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        if [[ "${line%% *}" == "${root_device}" ]]; then
+            printf '%s %s\n' "${line#* }" "${root_mount}"
+        else
+            printf 'other-device\n'
+        fi
+    done <<< "${listing}" | LC_ALL=C sort -u
     return "${status}"
 }
 
 # report_hardlink_inventory <find-status> <listing>  -- after a removal's deletion, print one `sudo find <mount> -xdev
-# -inum <inode>` for each of the first REMOVE_HARDLINKS_LISTED files of read_hardlink_inventory's <listing>, under one
-# warning stating how many files the tree held and that the type of their other names is the operator's to decide.
-# A <find-status> other than 0, or a line that does not read as an inode and an absolute mount, adds that the read was
-# incomplete, and a read that was incomplete and listed no file is its own warning. Prints nothing where the listing is
-# empty and the read complete.
+# -inum <inode> -ls` for each of the first REMOVE_HARDLINKS_LISTED files of read_hardlink_inventory's <listing>,
+# under one warning stating how many files the tree held and that the type of their other names is the operator's
+# to decide. A <find-status> other than 0, or a line that does not read as an inode and an absolute mount, adds
+# that the read was incomplete, and a read that was incomplete and listed no file is its own warning. Prints nothing
+# where the listing is empty and the read complete.
 report_hardlink_inventory() {
     local find_status="$1" listing="$2" line inode mount total=0 incomplete=false
     local -a commands=()
@@ -4907,7 +4919,7 @@ report_hardlink_inventory() {
         if [[ ! "${inode}" =~ ^[0-9]+$ || "${mount}" != /* ]]; then incomplete=true; continue; fi
         total=$(( total + 1 ))
         if (( total <= REMOVE_HARDLINKS_LISTED )); then
-            commands+=("      sudo find $(_quote_path "${mount}") -xdev -inum ${inode}")
+            commands+=("      sudo find $(_quote_path "${mount}") -xdev -inum ${inode} -ls")
         fi
     done <<< "${listing}"
     if (( total == 0 )); then
@@ -5145,9 +5157,11 @@ cmd_project_remove() {
             say "    SELinux label: reverted"
         fi
     fi
-    # A revert that left hardlinked paths, or did not walk, leaves each one's names outside the tree at their type.
-    # Their inode and mount are read while the tree stands, since after the deletion they are what finds those names.
-    if [[ "${label_revert_outcome}" == partial || "${label_revert_outcome}" == unwalked ]]; then
+    # A revert that did not complete -- it left hardlinked paths, did not walk, or failed -- leaves each hardlinked
+    # file's names outside the tree at their type. Their inode and mount are read while the tree stands, since
+    # after the deletion they are what finds those names.
+    if [[ "${label_revert_outcome}" == partial || "${label_revert_outcome}" == unwalked \
+            || "${label_revert_outcome}" == failed ]]; then
         inventory_read=true
         inventory="$(read_hardlink_inventory "${d}")" || inventory_status=$?
     fi
