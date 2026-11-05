@@ -900,6 +900,15 @@ else
     else
         fail "the presence read does not precede the lock (presence line '${presence_line}', lock line '${lock_line}')"
     fi
+    # A separate presence read after the directory check would record a tree moved away between the two as absent,
+    # and its later 3 as success: the check reads the value the presence read recorded.
+    directory_check="$(grep -n '^\[\[ -d "\${dir}" \]\] ||' "${relabel_helper}" | head -n 1)"
+    if [[ -n "${presence_line}" && "${directory_check%%:*}" =~ ^[0-9]+$ ]] && (( presence_line < ${directory_check%%:*} )) \
+            && [[ "${directory_check}" == *'! ${root_present_at_start}'* ]]; then
+        pass "--remove reads presence once, ahead of the directory check, which reads that value"
+    else
+        fail "the directory check does not follow and read the presence read (presence line '${presence_line}', check '${directory_check}')"
+    fi
     revert_body="$(extract_function "${relabel_helper}" report_revert_status)"
     # revert_run <status> <present-at-start> : report_revert_status <status> over /home/op/proj; prints both streams
     #   and the exit status last, as `exit=<n>`.

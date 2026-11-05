@@ -134,11 +134,12 @@ else
     dir="$(realpath -e -- "${target}" 2>/dev/null)" || dir=""
 fi
 [[ -n "${dir}" ]] || die MSG-N3A5 "path not found: ${target}"
-[[ -d "${dir}" ]] || { ${remove} && [[ ! -e "${dir}" && ! -L "${dir}" ]]; } || die MSG-S3E7 "not a directory: ${dir}"
-# Read once, here: where the library does not find a tree to walk (its status 3), the tree was already gone if no name
-# stood at <dir> now, and was moved or deleted during the revert if one did (report_revert_status).
+# Read once, ahead of the directory check, which reads this value: where the library does not find a tree to walk (its
+# status 3), the tree was already gone if no name stood at <dir> here, and was moved or deleted during the revert if one
+# did (report_revert_status). A name moved away between this read and the directory check fails that check.
 root_present_at_start=false
 [[ ! -e "${dir}" && ! -L "${dir}" ]] || root_present_at_start=true
+[[ -d "${dir}" ]] || { ${remove} && ! ${root_present_at_start}; } || die MSG-S3E7 "not a directory: ${dir}"
 # Refuse to (un)label a protected system directory.
 ai_tools_safe_paths__assert_safe_target "${dir}" "relabel" || exit 3
 
