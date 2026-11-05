@@ -654,7 +654,7 @@ _labels_drop() {
         rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
         case "${rc}" in
             0) ;;
-            4) _note_walk_left "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ;;
+            4) _report_skipped_walk_entries "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ;;
             6) _warn_walker_unavailable "${agent}'s config directory" ;;
             # The rules are dropped and the walk over the config directory could not label an entry.
             5) warn MSG-B8Q9 "dropped the file-context rules for ${agent}; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
@@ -748,7 +748,7 @@ source "${OPERATOR_LIB}" 2>/dev/null \
 # the report in the installer's voice. It is agent-agnostic: the paths come from the manifests
 # under /usr/local/lib/ai-tools/agents.d.
 verify_agent_labels() {
-    local report="" status=0 verdict subject detail wanted bad=0 labelled=0 partial_dir
+    local report="" status=0 verdict subject detail wanted bad=0 labelled=0 agent_config_dir
     report="$(ai_tools_relabel__label_agent_paths)" || status=$?
     if [[ "${status}" -eq 2 ]]; then
         warn MSG-Y9V3 "SELinux or the ai_tools module is not active -- no agent paths to label"
@@ -797,8 +797,8 @@ verify_agent_labels() {
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
                 # The config directory's walk completed and left hardlinked paths at their type. Not `bad`: every other
                 # entry took the type, and the paths are listed for review.
-                partial) partial_dir="${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${subject}" config_dir 2>/dev/null || true)"
-                      warn MSG-A5V5 "the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${partial_dir} -not -type d -links +1" ;;
+                partial) agent_config_dir="${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${subject}" config_dir 2>/dev/null || true)"
+                      warn MSG-A5V5 "the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${agent_config_dir} -not -type d -links +1" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
                 # so `failed` prints, naming the agent those lines omit.
@@ -888,7 +888,7 @@ _label_project() {
     case "${rc}" in
         0) ok "labelled project ai_tools_project_t: $1" ;;
         4) ok "labelled project ai_tools_project_t: $1"
-           _note_walk_left "$1" ;;
+           _report_skipped_walk_entries "$1" ;;
         6) _warn_walker_unavailable "$1" ;;
         *) warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?" ;;
     esac
@@ -898,14 +898,14 @@ _unlabel_project() {
     ai_tools_relabel__unlabel_project "$1" || rc=$?
     case "${rc}" in
         0) ;;
-        4) _note_walk_left "$1" ;;
+        4) _report_skipped_walk_entries "$1" ;;
         6) _warn_walker_unavailable "$1" ;;
         *) warn MSG-W8J4 "could not unlabel $1" ;;
     esac
 }
-# _note_walk_left <dir>: the walk over <dir> completed and left the hardlinked paths the tree walker lists
+# _report_skipped_walk_entries <dir>: the walk over <dir> completed and left the hardlinked paths the tree walker lists
 # in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS at the type they carry, since through another name a path may be another tree's.
-_note_walk_left() {
+_report_skipped_walk_entries() {
     log "  the walk over $1 left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}"
 }
 # _warn_walker_unavailable <dir>: the walk over <dir> did not start, because the tree walker or the selinux module it

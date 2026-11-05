@@ -1613,7 +1613,7 @@ failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ \
 .TP
 .B MSG-R5F8
 NOTICE.
-labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked path(s) kept their current type; they are listed above
+labelled ${dir} ai_tools_project_t; ${skipped_hardlink_count} hardlinked path(s) kept their current type; they are listed above
 .TP
 .B MSG-S3E7
 ERROR.
@@ -1682,7 +1682,7 @@ must run as root (via sudo)
 .TP
 .B MSG-M5X4
 WARNING.
-dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; reinstall ai\-tools\-base, or install libselinux where the line names libselinux.so.1, then run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${remove_config_dir}
+dropped the file\-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; reinstall ai\-tools\-base, or install libselinux where the line names libselinux.so.1, then run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${agent_config_dir}
 .TP
 .B MSG-M6C3
 WARNING.
@@ -1722,7 +1722,7 @@ the ${agent} entrypoint changed under an unchanged version ${version} \-\- leavi
 .TP
 .B MSG-V4H3
 WARNING.
-dropped the file\-context rules for ${agent}; the walk over its config directory could not label every entry \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${remove_config_dir}
+dropped the file\-context rules for ${agent}; the walk over its config directory could not label every entry \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${agent_config_dir}
 .TP
 .B MSG-W6V4
 ERROR.
@@ -2130,7 +2130,7 @@ sandbox clone NOT labelled ai_tools_project_t: ${clone}
 .TP
 .B MSG-A5V5
 WARNING.
-the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${partial_dir} \-not \-type d \-links +1
+the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${agent_config_dir} \-not \-type d \-links +1
 .TP
 .B MSG-B8Q9
 WARNING.

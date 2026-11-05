@@ -3,8 +3,8 @@
 # tests/unit/relabel-tree.sh
 # Unit test for the descriptor-pinned tree relabel, src/usr/local/libexec/ai-tools/ai-tools-relabel-tree.py, read
 # from the checkout so a source change is what runs. The first section runs relabel-tree-harness.py beside this file
-# under `python3 -I`; it imports the walker by path and drives walk() and main() with a fake lookup and a fake xattr
-# store: the lookup's inputs, the write and its read-back, <<none>>, hardlinks, symlinks, the root checks
+# under `python3 -I`; it imports the walker by path and drives relabel_tree() and main() with a fake lookup and a fake
+# xattr store: the lookup's inputs, the write and its read-back, <<none>>, hardlinks, symlinks, the root checks
 # and the command line. The second runs the real lookup, libselinux.so.1 through ctypes, over a path whose name carries
 # an invalid UTF-8 byte: it must answer as it does for the same path with a valid name. The third runs the real
 # `--dry-run --expected-context <ctx>` over a fixture tree and reads each entry's current context with getfattr to build
@@ -33,7 +33,7 @@ fi
 mktestdir
 TESTDIR="$(realpath -e "${TESTDIR}")"
 
-# ── walk() and main() against fakes ──
+# ── relabel_tree() and main() against fakes ──
 mkdir "${TESTDIR}/harness"
 rc=0
 out="$(python3 -I "${HARNESS}" "${WALKER}" "${TESTDIR}/harness" 2>&1)" || rc=$?
@@ -56,7 +56,7 @@ import importlib.util, stat, sys
 spec = importlib.util.spec_from_file_location('relabel_tree', sys.argv[1])
 walker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(walker)
-lookup = walker._selinux_lookup()
+lookup = walker._open_file_context_lookup()
 if isinstance(lookup, int):
     print('load %d' % lookup)
     sys.exit(0)

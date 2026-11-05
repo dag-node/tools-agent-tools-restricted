@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/relabel-tree-harness.py
-# Drives walk() and main() of the checkout's ai-tools-relabel-tree.py, imported by path, with a fake label lookup
-# and a fake xattr store keyed by inode, over a fixture tree built under the directory it is given. Run by
-# tests/unit/relabel-tree.sh as `python3 -I relabel-tree-harness.py <walker.py> <dir>`; prints one `PASS<TAB>text`
+# Drives relabel_tree() and main() of the checkout's ai-tools-relabel-tree.py, imported by path, with a fake label
+# lookup and a fake xattr store keyed by inode, over a fixture tree built under the directory it is given. Run
+# by tests/unit/relabel-tree.sh as `python3 -I relabel-tree-harness.py <walker.py> <dir>`; prints one `PASS<TAB>text`
 # or `FAIL<TAB>text` line per check, which the shell file records through the harness.
 
 import errno
@@ -133,7 +133,7 @@ def main():
     xattr, lookup, reports = FakeXattr(), FakeLookup(none_paths={root + '/none.txt'}), Reports()
     xattr.preset(root + '/a.txt', WANTED.encode())
     xattr.preset(root + '/sub/b.txt', OLD)
-    rc = walker.walk(root, lookup, xattr, walker.OS_OPENER, reports)
+    rc = walker.relabel_tree(root, lookup, xattr, walker.OS_FILE_OPERATIONS, reports)
 
     calls = dict(lookup.calls)
     check('the lookup receives each logical path with its S_IFMT mode: %r' % sorted(lookup.calls),
@@ -175,7 +175,7 @@ def main():
     # ── Control for exit 4: the same shape without hardlinks exits 0 ──
     plain = build_tree('plain', hardlinks=False)
     reports = Reports()
-    rc = walker.walk(plain, FakeLookup(), FakeXattr(), walker.OS_OPENER, reports)
+    rc = walker.relabel_tree(plain, FakeLookup(), FakeXattr(), walker.OS_FILE_OPERATIONS, reports)
     check('control: a tree without hardlinked files exits 0 and reports nothing (rc=%d, %r)' % (rc, reports.errors()),
           rc == 0 and reports.errors() == [])
 
@@ -191,7 +191,7 @@ def main():
     check('setup: one inode holds 26 names in the tree, one carrying the summary text after a newline',
           os.lstat(os.path.join(many, 'origin')).st_nlink == 26)
     reports = Reports()
-    rc = walker.walk(many, FakeLookup(), FakeXattr(), walker.OS_OPENER, reports)
+    rc = walker.relabel_tree(many, FakeLookup(), FakeXattr(), walker.OS_FILE_OPERATIONS, reports)
     listed = [line for line in reports.errors() if line.startswith('skipped hardlinked path ')]
     check('the walk lists 20 hardlinked paths and counts the 6 more (rc=%d, %d listed, %r)'
           % (rc, len(listed), reports.errors()[-2:]),
@@ -205,7 +205,7 @@ def main():
     # ── A read-back differing from the write ends the walk at once ──
     mismatch = build_tree('mismatch', hardlinks=False)
     xattr, reports = FakeXattr(corrupt=True), Reports()
-    rc = walker.walk(mismatch, FakeLookup(), xattr, walker.OS_OPENER, reports)
+    rc = walker.relabel_tree(mismatch, FakeLookup(), xattr, walker.OS_FILE_OPERATIONS, reports)
     check('a read-back mismatch exits 1 after one write, naming the entry (rc=%d, %r)' % (rc, reports.errors()),
           rc == 1 and len(xattr.writes) == 1
           and reports.errors() and reports.errors()[0].startswith(
@@ -222,7 +222,7 @@ def main():
             raise OSError(errno.EACCES, os.strerror(errno.EACCES))
         original_set(link, value)
     xattr.set = set_refusing_a
-    rc = walker.walk(failing, FakeLookup(), xattr, walker.OS_OPENER, reports)
+    rc = walker.relabel_tree(failing, FakeLookup(), xattr, walker.OS_FILE_OPERATIONS, reports)
     check('a refused write is counted and named, the walk goes on, and it exits 1 (rc=%d, %r)'
           % (rc, reports.errors()),
           rc == 1 and xattr.written(failing + '/sub/b.txt')
@@ -259,7 +259,7 @@ def main():
             self.values[key] = value
 
     xattr, lookup = SwappingXattr(), FakeLookup()
-    rc = walker.walk(swap, lookup, xattr, walker.OS_OPENER, Reports())
+    rc = walker.relabel_tree(swap, lookup, xattr, walker.OS_FILE_OPERATIONS, Reports())
     written = {key for key, _value in xattr.writes}
     check('setup: the file and the directory were renamed aside and replaced by symlinks during the walk',
           len(swapped) == 2 and os.path.islink(swap + '/a.txt') and os.path.islink(swap + '/sub')
@@ -282,17 +282,17 @@ def main():
           and os.path.isdir(link_root))
     for label, path in (('a file', file_root), ('a symlink', link_root)):
         xattr, reports = FakeXattr(), Reports()
-        rc = walker.walk(path, FakeLookup(), xattr, walker.OS_OPENER, reports)
+        rc = walker.relabel_tree(path, FakeLookup(), xattr, walker.OS_FILE_OPERATIONS, reports)
         check('a root that is %s exits 1 and writes nothing (rc=%d, %r)' % (label, rc, reports.errors()),
               rc == 1 and xattr.writes == []
               and reports.errors() == ['failed to open the root %s: not a directory' % path])
     rc = run_main(walker, ['--dry-run', '--expected-context', WANTED, '--', 'relative/dir'])[0]
     check('a relative root exits 2 (rc=%d)' % rc, rc == 2)
 
-    opener = types.SimpleNamespace(**vars(walker.OS_OPENER))
+    opener = types.SimpleNamespace(**vars(walker.OS_FILE_OPERATIONS))
     opener.readlink = lambda _link: plain + '-elsewhere'
     xattr, reports = FakeXattr(), Reports()
-    rc = walker.walk(plain, FakeLookup(), xattr, opener, reports)
+    rc = walker.relabel_tree(plain, FakeLookup(), xattr, opener, reports)
     check('a root whose /proc/self/fd readlink differs exits 1 and writes nothing (rc=%d, %r)'
           % (rc, reports.errors()),
           rc == 1 and xattr.writes == [] and reports.errors()
@@ -331,7 +331,7 @@ def main():
             raise TypeError("in method 'selabel_lookup', argument 3 of type 'char const *'")
         return WANTED
     xattr, reports = FakeXattr(), Reports()
-    rc = walker.walk(raising, lookup_raising, xattr, walker.OS_OPENER, reports)
+    rc = walker.relabel_tree(raising, lookup_raising, xattr, walker.OS_FILE_OPERATIONS, reports)
     check('a lookup raising TypeError for one entry is counted, the walk goes on, and it exits 1 (rc=%d, %r)'
           % (rc, reports.errors()),
           rc == 1 and xattr.written(raising + '/sub/b.txt') == [WANTED.encode()]
@@ -347,7 +347,7 @@ def main():
     xattr, reports = FakeXattr(), Reports()
     xattr.preset(dry + '/a.txt', WANTED.encode())
     xattr.preset(dry + '/sub/b.txt', OLD)
-    rc = walker.walk(dry, FakeLookup(), xattr, walker.OS_OPENER, reports, dry_run=True)
+    rc = walker.relabel_tree(dry, FakeLookup(), xattr, walker.OS_FILE_OPERATIONS, reports, dry_run=True)
     changes = reports.changes()
     check('--dry-run writes nothing and exits 0 (rc=%d)' % rc, rc == 0 and xattr.writes == [])
     check('--dry-run prints <path> <from> <to> with the current context read: %r' % changes,

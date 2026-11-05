@@ -179,7 +179,7 @@ fi
 # ── _label_project / _unlabel_project: the statuses beside the gate's ─────────────────────────
 section "install-selinux.sh: the project walks read a partial walk and a walker that could not run (unit)"
 project_text=""
-for name in warn _label_project _unlabel_project _note_walk_left _warn_walker_unavailable; do
+for name in warn _label_project _unlabel_project _report_skipped_walk_entries _warn_walker_unavailable; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -233,7 +233,7 @@ fi
 # The agent unlabel loop in _labels_drop reads the same two statuses; it walks the host's manifest directory, so its
 # text is read for the arms.
 drop_text="$(extract_function "${INSTALLER}" _labels_drop)"
-if grep -qE '^ +4\) _note_walk_left ' <<<"${drop_text}" && grep -qE '^ +6\) _warn_walker_unavailable ' <<<"${drop_text}"; then
+if grep -qE '^ +4\) _report_skipped_walk_entries ' <<<"${drop_text}" && grep -qE '^ +6\) _warn_walker_unavailable ' <<<"${drop_text}"; then
     pass "the agent unlabel loop reads status 4 and status 6"
 else
     fail "the agent unlabel loop does not read status 4 and status 6"

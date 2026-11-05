@@ -106,12 +106,13 @@ ai_tools_relabel__lock
     || { warn MSG-E4U5 "relabels are not serialized on this host -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"
          ai_tools_log__warn "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"; }
 
-# report_unlabel_outcome <agent> <status> : render ai_tools_relabel__unlabel_agent_paths's <status> for <agent>.
+# report_agent_unlabel_outcome <agent> <status> : render ai_tools_relabel__unlabel_agent_paths's <status> for <agent>.
 #   Returns 0 for every status but the one where the agent does not declare a usable rule, which dies: the caller is
 #   a package erase, which completes whatever the config directory's walk left.
-report_unlabel_outcome() {
-    local agent="$1" rc="$2" remove_config_dir
-    remove_config_dir="${CP_HOME:-/opt/ai-tools}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
+report_agent_unlabel_outcome() {
+    local agent="$1" rc="$2" agent_config_dir
+    agent_config_dir="${CP_HOME:-/opt/ai-tools}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir \
+        2>/dev/null || true)"
     case "${rc}" in
         0) say "dropped the file-context rules for ${agent}"
            ai_tools_log__info "dropped the file-context rules for ${agent}" ;;
@@ -120,10 +121,10 @@ report_unlabel_outcome() {
         4) warn MSG-R5M2 "dropped the file-context rules for ${agent}; the walk over its config directory left these entries: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no reason}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory's walk did not complete" ;;
         # The rules are dropped and the walk could not start.
-        6) warn MSG-M5X4 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${remove_config_dir}"
+        6) warn MSG-M5X4 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${agent_config_dir}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; the tree walker could not run" ;;
         # The rules are dropped and the walk over the config directory could not label an entry.
-        5) warn MSG-V4H3 "dropped the file-context rules for ${agent}; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${remove_config_dir}"
+        5) warn MSG-V4H3 "dropped the file-context rules for ${agent}; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${agent_config_dir}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory's walk failed" ;;
         *) die MSG-S6C5 "no usable path rules declared by ${agent} -- nothing dropped" ;;
     esac
@@ -136,7 +137,7 @@ report_unlabel_outcome() {
 if [[ "${1:-}" == --remove ]]; then
     agent="${2:?usage: ai-tools-relabel-agent --remove <agent-name>}"
     rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
-    report_unlabel_outcome "${agent}" "${rc}"
+    report_agent_unlabel_outcome "${agent}" "${rc}"
     exit 0
 fi
 [[ "$#" -eq 0 ]] || die MSG-T2W3 "usage: ai-tools-relabel-agent [--remove <agent-name>]"
@@ -356,13 +357,13 @@ if (( status == 2 )); then
 fi
 
 # render_label_report <report> : render the lib's status lines. The lib reports per path and per agent; this decides
-#   what an operator reads, and sets the per-verdict counts and the per-agent arrays (agent_outcome, agent_reason)
-#   the outcome filing and the closing checks read. The wanted type travels with a "bad" line, since
+#   what an operator reads, and sets the per-verdict counts and the per-agent arrays (agent_label_outcome,
+#   agent_label_reason) the outcome filing and the closing checks read. The wanted type travels with a "bad" line, since
 #   an agent declares two paths that carry different types.
 render_label_report() {
     local verdict subject detail wanted
     labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0
-    declare -gA agent_outcome=() agent_reason=()
+    declare -gA agent_label_outcome=() agent_label_reason=()
     [[ -n "$1" ]] || return 0
     while read -r verdict subject detail wanted; do
         case "${verdict}" in
@@ -373,7 +374,7 @@ render_label_report() {
                    warn MSG-G7C7 "wrong type on ${subject}: it is '${detail}', NOT ${wanted}"
                    ai_tools_log__warn "${subject} did not take ${wanted} (now '${detail}')" ;;
             stale) stale=$(( stale + 1 ))
-                   agent_reason["${subject}"]="stale-declaration"
+                   agent_label_reason["${subject}"]="stale-declaration"
                    warn MSG-Z5B4 "stale declaration for ${subject}: its launcher resolves to
        ${detail}, and the file-context rule its manifest declares labels a different installed file -- so the file
        a session execs is left unlabelled"
@@ -381,7 +382,7 @@ render_label_report() {
             # The launcher resolves to a copy of the declared entrypoint: the manifest and the package agree, and a link
             # in the chain was replaced by its target, so the repair is the toolchain run that restores the links.
             copied) copied=$(( copied + 1 ))
-                   agent_reason["${subject}"]="copied-link"
+                   agent_label_reason["${subject}"]="copied-link"
                    warn MSG-S6V5 "copied link for ${subject}: its launcher resolves to
        ${detail}, a regular file identical to the entrypoint its manifest declares -- a copy of the toolchain replaced
        a symlink with its target, so the file a session execs is left unlabelled"
@@ -389,7 +390,7 @@ render_label_report() {
             # The same divergence with the other cause, and the other remedy: the declared rule covers no installed
             # file, so what the package is missing is the entrypoint itself rather than a manifest that has moved on.
             incomplete) incomplete=$(( incomplete + 1 ))
-                   agent_reason["${subject}"]="incomplete-package"
+                   agent_label_reason["${subject}"]="incomplete-package"
                    warn MSG-M7B2 "incomplete package for ${subject}: its launcher resolves to
        ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
        the package is missing the executable a session is meant to exec"
@@ -399,13 +400,13 @@ render_label_report() {
                    ai_tools_log__warn "${subject}: ${detail} hardlinked path(s) in its config directory not relabelled" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
-            skip)  agent_reason["${subject}"]="rule-not-registered"
+            skip)  agent_label_reason["${subject}"]="rule-not-registered"
                    warn MSG-X7F9 "labelling skipped for ${subject} -- ${detail} ${wanted}"
                    ai_tools_log__warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
             # Closes an agent's lines with its whole outcome. Recorded here, where the per-agent reason lines have
             # already been seen, so a failure is filed with the cause that decides the remedy rather than with a bare
             # "failed".
-            agent) agent_outcome["${subject}"]="${detail}" ;;
+            agent) agent_label_outcome["${subject}"]="${detail}" ;;
         esac
     done <<< "$1"
 }
@@ -413,14 +414,14 @@ render_label_report() {
 # record_label_outcomes : file each agent's closing verdict through record_label_outcome.
 record_label_outcomes() {
     local label_agent
-    for label_agent in "${!agent_outcome[@]}"; do
-        case "${agent_outcome[${label_agent}]}" in
+    for label_agent in "${!agent_label_outcome[@]}"; do
+        case "${agent_label_outcome[${label_agent}]}" in
             ok)     record_label_outcome "${label_agent}" ok ;;
             # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the toolchain, and not
             # a fault -- so it is filed the same way an inactive SELinux layer is.
             none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
             failed) record_label_outcome "${label_agent}" failed \
-                        "${agent_reason[${label_agent}]:-did-not-take-its-type}" ;;
+                        "${agent_label_reason[${label_agent}]:-did-not-take-its-type}" ;;
         esac
     done
 }

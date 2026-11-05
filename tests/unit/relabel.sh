@@ -943,14 +943,14 @@ fi
 # refuses before running anything. Each case prints the wrapper's status, the skipped count and the diagnostics, one
 # per line, the last absent where the diagnostics are empty.
 section "relabel: the real tree-walk wrapper reads each walker status and the summary line (unit)"
-if grep -q '^readonly _AI_TOOLS_RELABEL__TREE_HELPER=' "${LIB}"; then
+if grep -q '^readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=' "${LIB}"; then
     # walker_copy <walker-path> : print the path of a library copy whose walker is <walker-path>.
     walker_copy() {
         local dir lib
         dir="$(mktemp -d "${TESTDIR}/lib-copy.XXXXXX")"
         for lib in "${LIB%/*}"/*.lib.sh; do ln -s "${lib}" "${dir}/${lib##*/}"; done
         rm -f "${dir}/relabel.lib.sh"
-        sed "s|^readonly _AI_TOOLS_RELABEL__TREE_HELPER=.*|readonly _AI_TOOLS_RELABEL__TREE_HELPER=$1|" "${LIB}" \
+        sed "s|^readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=.*|readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=$1|" "${LIB}" \
             > "${dir}/relabel.lib.sh"
         printf '%s\n' "${dir}/relabel.lib.sh"
     }

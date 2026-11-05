@@ -3,14 +3,14 @@
 # tests/unit/relabel-agent.sh
 # Unit test for how ai-tools-relabel-agent closes a run over the labelling library's status lines: what it files
 # per agent for ai-tools status, which code it prints, and its exit status. The helper runs as root and labels the host,
-# so its closing functions (render_label_report, record_label_outcomes, report_unlabel_outcome) and its emitters are
-# read out of it as text (extract_function) and driven in a fresh bash per case, with record_label_outcome stubbed
+# so its closing functions (render_label_report, record_label_outcomes, report_agent_unlabel_outcome) and its emitters
+# are read out of it as text (extract_function) and driven in a fresh bash per case, with record_label_outcome stubbed
 # to print what would be filed.
 #
 # The case that carries the file is a config directory that did not take its type: the run files the agent failed
 # and exits 1 under the mislabel code, so ai-tools-relabel.service reads failed, beside a run where every path took its
 # type as the control. A config directory whose walk left hardlinked files is said and filed as the agent's verdict,
-# and the `--remove` form's rendering of each status the library returns is driven through report_unlabel_outcome:
+# and the `--remove` form's rendering of each status the library returns is driven through report_agent_unlabel_outcome:
 # a package erase completes over a walk that left entries, could not label one, or could not start.
 #
 # The deployed helper is preferred where this account can read it and it defines the functions, the checkout's
@@ -23,8 +23,9 @@ section "relabel-agent: closing a run over the library's status lines (unit)"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HELPER="/usr/local/libexec/ai-tools/ai-tools-relabel-agent"
-# The deployed helper is current when it defines report_unlabel_outcome, the last of the closing functions to arrive.
-if [[ ! -r "${HELPER}" ]] || ! command grep -q '^report_unlabel_outcome() {' "${HELPER}"; then
+# The deployed helper is current when it defines report_agent_unlabel_outcome, the last of the closing functions
+# to arrive.
+if [[ ! -r "${HELPER}" ]] || ! command grep -q '^report_agent_unlabel_outcome() {' "${HELPER}"; then
     HELPER="${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-relabel-agent.sh"
 fi
 note "the closing functions" "read from ${HELPER}"
@@ -32,7 +33,7 @@ note "the closing functions" "read from ${HELPER}"
 mktestdir
 
 # The functions a case runs, in the order the helper defines them; every one must come out of the helper non-empty.
-functions=(say warn die report_unlabel_outcome render_label_report record_label_outcomes)
+functions=(say warn die report_agent_unlabel_outcome render_label_report record_label_outcomes)
 extracted="${TESTDIR}/closing.sh"
 : > "${extracted}"
 missing=()
@@ -104,7 +105,7 @@ ai_tools_log__info() { :; }; ai_tools_log__warn() { :; }; ai_tools_log__error() 
 ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf '.acme\n'; }
 CP_HOME=/opt/ai-tools
 AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="$3"
-report_unlabel_outcome acme "$2"
+report_agent_unlabel_outcome acme "$2"
 PROBE
 # unlabel_run <status> [diagnostics] : sets OUT (both streams) and RC.
 unlabel_run() {

@@ -157,7 +157,7 @@ ai_tools_relabel__is_available() {
 }
 
 # The descriptor-pinned tree relabel every walk in this library runs. Root-only, as the walk is.
-readonly _AI_TOOLS_RELABEL__TREE_HELPER=/usr/local/libexec/ai-tools/ai-tools-relabel-tree
+readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=/usr/local/libexec/ai-tools/ai-tools-relabel-tree
 # What the last walk printed on stderr but its summary line -- the hardlinked paths it listed, or why it failed -- its
 # lines joined with "; ", since the walker escapes a `;` inside a path; the walker bounds what it prints. Set
 # by _ai_tools_relabel__relabel_tree for the caller that just called it.
@@ -175,11 +175,11 @@ _ai_tools_relabel__relabel_tree() {
     local dir="$1" rc=0 walker_diagnostics line kept=""
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
     _AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT=0
-    if [[ ! -x "${_AI_TOOLS_RELABEL__TREE_HELPER}" ]]; then
-        AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${_AI_TOOLS_RELABEL__TREE_HELPER} is not installed or not executable"
+    if [[ ! -x "${_AI_TOOLS_RELABEL__TREE_WALKER_PATH}" ]]; then
+        AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${_AI_TOOLS_RELABEL__TREE_WALKER_PATH} is not installed or not executable"
         return 6
     fi
-    walker_diagnostics="$("${_AI_TOOLS_RELABEL__TREE_HELPER}" -- "${dir}" 2>&1 >/dev/null)" || rc=$?
+    walker_diagnostics="$("${_AI_TOOLS_RELABEL__TREE_WALKER_PATH}" -- "${dir}" 2>&1 >/dev/null)" || rc=$?
     # The summary line begins a line, which an escaped path cannot, so a name carrying its text is not read as it.
     while IFS= read -r line; do
         line="${line//$'\r'/}"
@@ -331,14 +331,14 @@ ai_tools_relabel__list_local_rules_naming_policy_types() {
 # The fcontext rule is asserted whether or not the type already matches: it is what makes the type survive a future
 # restorecon, and re-asserting it is how a type change from a policy bump reaches an existing project.
 ai_tools_relabel__label_project() {
-    local dir="$1" build_pattern literal walk=0
+    local dir="$1" build_pattern project_fcontext_literal walk_status=0
     ai_tools_relabel__is_available || return 2
     if ! _ai_tools_relabel__is_under_sandbox_root "${dir}"; then
-        literal="$(ai_tools_relabel__get_fcontext_literal "${dir}")"
+        project_fcontext_literal="$(ai_tools_relabel__get_fcontext_literal "${dir}")"
         # `-a` on an existing entry reports it on stdout as well as failing, so both streams are dropped: the fallback
         # to `-m` is the handling, and the message reads as an error.
-        semanage fcontext -a -t "${AI_TOOLS_RELABEL__PROJECT_TYPE}" "${literal}(/.*)?" >/dev/null 2>&1 \
-            || semanage fcontext -m -t "${AI_TOOLS_RELABEL__PROJECT_TYPE}" "${literal}(/.*)?" >/dev/null 2>&1 \
+        semanage fcontext -a -t "${AI_TOOLS_RELABEL__PROJECT_TYPE}" "${project_fcontext_literal}(/.*)?" >/dev/null 2>&1 \
+            || semanage fcontext -m -t "${AI_TOOLS_RELABEL__PROJECT_TYPE}" "${project_fcontext_literal}(/.*)?" >/dev/null 2>&1 \
             || return 1
         # The build rule goes in AFTER the project rule (see ai_tools_relabel__read_project_build_pattern).
         if build_pattern="$(ai_tools_relabel__read_project_build_pattern "${dir}")"; then
@@ -347,8 +347,8 @@ ai_tools_relabel__label_project() {
                 || return 1
         fi
     fi
-    _ai_tools_relabel__relabel_tree "${dir}" || walk=$?
-    case "${walk}" in
+    _ai_tools_relabel__relabel_tree "${dir}" || walk_status=$?
+    case "${walk_status}" in
         0|4) ;;
         6)   return 6 ;;
         *)   return 1 ;;
@@ -359,7 +359,7 @@ ai_tools_relabel__label_project() {
     # the tree on its default type). Left unchecked that is a silent mislabel the confined agent cannot use; treat it as
     # a hard failure the caller reports rather than a false success.
     ai_tools_relabel__is_project_labelled "${dir}" || return 1
-    return "${walk}"
+    return "${walk_status}"
 }
 
 # ai_tools_relabel__unlabel_project <dir>: drop the per-project fcontext rules for <dir> -- its own rule and every local
@@ -371,20 +371,20 @@ ai_tools_relabel__label_project() {
 # hardlinked paths at their current type, and 0 otherwise -- a <dir> with no name there among them, whose rules are
 # dropped with no walk. The rules are deleted under the escaped encoding ai_tools_relabel__label_project writes.
 ai_tools_relabel__unlabel_project() {
-    local dir="$1" pattern literal walk=0
+    local dir="$1" pattern project_fcontext_literal walk_status=0
     ai_tools_relabel__is_available || return 2
     if ! _ai_tools_relabel__is_under_sandbox_root "${dir}"; then
-        literal="$(ai_tools_relabel__get_fcontext_literal "${dir}")"
+        project_fcontext_literal="$(ai_tools_relabel__get_fcontext_literal "${dir}")"
         while IFS= read -r pattern; do
             [[ -n "${pattern}" ]] || continue
             semanage fcontext -d -- "${pattern}" >/dev/null 2>&1 || true
-        done < <(_ai_tools_relabel__list_local_rules_under "${literal}")
-        semanage fcontext -d "${literal}(/.*)?" 2>/dev/null || true
+        done < <(_ai_tools_relabel__list_local_rules_under "${project_fcontext_literal}")
+        semanage fcontext -d "${project_fcontext_literal}(/.*)?" 2>/dev/null || true
     fi
     [[ -e "${dir}" || -L "${dir}" ]] || return 0
-    _ai_tools_relabel__relabel_tree "${dir}" || walk=$?
-    case "${walk}" in
-        0|4|6) return "${walk}" ;;
+    _ai_tools_relabel__relabel_tree "${dir}" || walk_status=$?
+    case "${walk_status}" in
+        0|4|6) return "${walk_status}" ;;
         *)     return 1 ;;
     esac
 }
@@ -569,13 +569,13 @@ _ai_tools_relabel__read_live_type() {
 #   the path did not take the type.
 _ai_tools_relabel__verify_label() {
     restorecon -F "$1" 2>/dev/null || true
-    _ai_tools_relabel__report_live_label "$1" "$2"
+    _ai_tools_relabel__report_current_label "$1" "$2"
 }
 
-# _ai_tools_relabel__report_live_label <path> <wanted-type> : read the type <path> carries now, without a write, and
-#   report it as one status line (see ai_tools_relabel__label_agent_paths). Returns non-zero when it is not
+# _ai_tools_relabel__report_current_label <path> <wanted-type> : read the type <path> carries now, without a write,
+#   and report it as one status line (see ai_tools_relabel__label_agent_paths). Returns non-zero when it is not
 #   <wanted-type>.
-_ai_tools_relabel__report_live_label() {
+_ai_tools_relabel__report_current_label() {
     local path="$1" wanted="$2" context
     context="$(_ai_tools_relabel__read_live_type "${path}")"
     if [[ "${context}" == "${wanted}" ]]; then
@@ -650,7 +650,7 @@ _ai_tools_relabel__label_agent_entrypoint() {
 #   on another type, and 3 when the directory is not there, the status the caller files it under. A walk that left
 #   hardlinked paths prints `partial <agent> <n>` and goes on to the check.
 _ai_tools_relabel__label_agent_config_dir() {
-    local agent="$1" config_dir path pattern walk=0
+    local agent="$1" config_dir path pattern walk_status=0
     config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
     if [[ -z "${config_dir}" ]]; then
         printf 'skip %s declares no config_dir\n' "${agent}"
@@ -672,8 +672,8 @@ _ai_tools_relabel__label_agent_config_dir() {
         printf 'none %s its config directory\n' "${agent}"
         return 3
     fi
-    _ai_tools_relabel__relabel_tree "${path}" || walk=$?
-    case "${walk}" in
+    _ai_tools_relabel__relabel_tree "${path}" || walk_status=$?
+    case "${walk_status}" in
         0) ;;
         4) printf 'partial %s %s\n' "${agent}" "$(ai_tools_relabel__get_skipped_hardlink_count)" ;;
         6) printf 'skip %s could not walk its config directory -- %s\n' "${agent}" "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"
@@ -681,7 +681,7 @@ _ai_tools_relabel__label_agent_config_dir() {
         *) printf 'bad %s unknown %s\n' "${path}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"
            return 1 ;;
     esac
-    _ai_tools_relabel__report_live_label "${path}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"
+    _ai_tools_relabel__report_current_label "${path}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"
 }
 
 # ai_tools_relabel__label_agent_paths: apply every ENABLED agent's declared file-context rules -- its entrypoint and its
@@ -743,7 +743,7 @@ ai_tools_relabel__label_agent_paths() {
 #   lines are in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS, and each status after the drop is its own, so a reader does not
 #   tell them apart by whether the walker printed.
 ai_tools_relabel__unlabel_agent_paths() {
-    local agent="$1" pattern config_dir path dropped=1 walk=0
+    local agent="$1" pattern config_dir path dropped=1 walk_status=0
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
     _ai_tools_relabel__is_entrypoint_policy_active || return 2
     declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || return 2
@@ -766,10 +766,10 @@ ai_tools_relabel__unlabel_agent_paths() {
         # the remaining policy maps it to rather than left on a type this host may stop defining.
         path="${CP_HOME}/${config_dir}"
         if [[ -d "${path}" ]]; then
-            _ai_tools_relabel__relabel_tree "${path}" || walk=$?
-            case "${walk}" in
+            _ai_tools_relabel__relabel_tree "${path}" || walk_status=$?
+            case "${walk_status}" in
                 0)   ;;
-                4|6) return "${walk}" ;;
+                4|6) return "${walk_status}" ;;
                 *)   return 5 ;;
             esac
         fi

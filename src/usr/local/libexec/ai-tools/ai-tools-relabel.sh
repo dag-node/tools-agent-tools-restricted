@@ -64,16 +64,16 @@ fi
 # tests/lib/harness.sh's assert_msg reads, and carried into the log line. Matched inline: this helper does not load
 # the library. Every outcome goes to stderr. err and notice print and log one line, the caller choosing the exit status
 # after them; die exits 1.
-_emit() {
+emit_message() {
     local severity="$1" result="$2" code=""; shift 2
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
     ai_tools_log__coded "${severity}" "${code}" "$*" "AI_TOOLS_RESULT=${result}"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
     printf 'ai-tools-relabel: %s: %s\n' "${severity}" "$*" >&2
 }
-err()    { _emit error failed "$@"; }
-notice() { _emit notice ok "$@"; }
-die()    { _emit error failed "$@"; exit 1; }
+err()    { emit_message error failed "$@"; }
+notice() { emit_message notice ok "$@"; }
+die()    { emit_message error failed "$@"; exit 1; }
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even when the allowlist includes
 # it. See safe-paths.rule.md.
@@ -152,14 +152,14 @@ ai_tools_relabel__lock
          ai_tools_log__structured warning \
              "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"; }
 
-# not_applicable <reason> : this host has no label to apply, which is not a fault; exits 5.
-not_applicable() {
+# exit_not_applicable <reason> : this host has no label to apply, which is not a fault; exits 5.
+exit_not_applicable() {
     notice MSG-J5P7 "no SELinux label to apply on ${dir}: $1"
     exit 5
 }
 # SELinux disabled, read the way ai_tools_relabel__is_available reads it, and restorecon missing are two answers that
 # function folds into one status; here the first is a host without a label to apply, and the second a broken toolchain.
-[[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || not_applicable "SELinux is disabled on this host"
+[[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || exit_not_applicable "SELinux is disabled on this host"
 command -v restorecon >/dev/null 2>&1 \
     || die MSG-U9R2 "restorecon is not installed while SELinux is enabled -- install policycoreutils"
 # A host whose ai_tools policy is neither live nor on disk is DAC-only by its own configuration, read through the one
@@ -176,12 +176,12 @@ if declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null 2>&1 \
     policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
     if [[ "$(ai_tools_confinement__evaluate_dac_only_state "$(getenforce 2>/dev/null || true)" \
                  "${module_present}" "${policy_shipped}" || true)" == module-absent ]]; then
-        not_applicable "no ai_tools policy is installed on this host (install ai-tools-selinux)"
+        exit_not_applicable "no ai_tools policy is installed on this host (install ai-tools-selinux)"
     fi
 fi
 
-# die_walker_unavailable : the library's status 6 from a walk that could not start; exits 6.
-die_walker_unavailable() {
+# exit_walker_unavailable : the library's status 6 from a walk that could not start; exits 6.
+exit_walker_unavailable() {
     err MSG-W9Y5 "the SELinux label on ${dir} was left as it was: the tree walker could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then re-run"
     exit 6
 }
@@ -196,7 +196,7 @@ if ${remove}; then
         4) quoted_dir="$(printf '%q' "${dir}")"
            err MSG-D2T9 "reverted ${dir} to its default SELinux type except these hardlinked paths, which keep their current type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} -not -type d -links +1"
            exit 4 ;;
-        6) die_walker_unavailable ;;
+        6) exit_walker_unavailable ;;
         *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}}" ;;
     esac
 else
@@ -207,12 +207,12 @@ else
         0) echo "ai-tools-relabel: labelled ${dir} ai_tools_project_t"
            ai_tools_log__structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
-        2) not_applicable "SELinux is not active on this host" ;;
+        2) exit_not_applicable "SELinux is not active on this host" ;;
         # Through another name a hardlinked path may be another tree's, so the walk does not write it.
         4) printf 'ai-tools-relabel: %s\n' "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" >&2
-           hardlinks_left="$(ai_tools_relabel__get_skipped_hardlink_count)"
-           notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked path(s) kept their current type; they are listed above" ;;
-        6) die_walker_unavailable ;;
+           skipped_hardlink_count="$(ai_tools_relabel__get_skipped_hardlink_count)"
+           notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${skipped_hardlink_count} hardlinked path(s) kept their current type; they are listed above" ;;
+        6) exit_walker_unavailable ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

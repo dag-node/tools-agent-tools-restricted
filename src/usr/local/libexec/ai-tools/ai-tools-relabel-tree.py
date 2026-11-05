@@ -43,9 +43,9 @@
 # libselinux. Every path printed is escaped to printable ASCII in bash `printf %q` form, since a name in the tree is
 # the account's.
 #
-# walk() takes its collaborators as parameters, so tests/unit/relabel-tree-harness.py imports this file by path
-# and drives it with fakes; main() binds the real ones. Installed 0750 root:root as ai-tools-relabel-tree.
-# Its domain rule is cli.rule.md.
+# relabel_tree() takes its collaborators as parameters, so tests/unit/relabel-tree-harness.py imports this file by path
+# and drives it with fakes; main() binds the real ones. Installed 0750 root:root as ai-tools-relabel-tree. Its domain
+# rule is cli.rule.md.
 
 import ctypes
 import errno
@@ -60,28 +60,28 @@ _HARDLINKS_LISTED = 20
 _LIBSELINUX = 'libselinux.so.1'
 _SELABEL_CTX_FILE = 0
 _XATTR = 'security.selinux'
-_FLAGS_PATH = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
-_FLAGS_LIST = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
-_NO_LABEL = (errno.ENODATA, errno.ENOTSUP)
+_PATH_OPEN_FLAGS = os.O_PATH | os.O_NOFOLLOW | os.O_CLOEXEC
+_LISTING_OPEN_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+_NO_LABEL_ERRNOS = (errno.ENODATA, errno.ENOTSUP)
 _USAGE = 'usage: %s [--dry-run [--expected-context <ctx>]] -- <dir>' % _PROGRAM
 # A context is printed and compared, never parsed; the allowlist covers user:role:type:range with an MLS range.
 _CONTEXT_PATTERN = re.compile(r'[A-Za-z0-9_.:,-]+\Z')
 # The bytes bash `printf %q` leaves unquoted.
-_SHELL_SAFE = frozenset(b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./-+:,@%=^')
+_SHELL_UNQUOTED_BYTES = frozenset(b'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_./-+:,@%=^')
 
-OS_OPENER = types.SimpleNamespace(open=os.open, listdir=os.listdir, fstat=os.fstat, readlink=os.readlink,
+OS_FILE_OPERATIONS = types.SimpleNamespace(open=os.open, listdir=os.listdir, fstat=os.fstat, readlink=os.readlink,
                                   close=os.close)
-OS_XATTR = types.SimpleNamespace(get=lambda link: os.getxattr(link, _XATTR),
+OS_EXTENDED_ATTRIBUTES = types.SimpleNamespace(get=lambda link: os.getxattr(link, _XATTR),
                                  set=lambda link, value: os.setxattr(link, _XATTR, value))
 
 
-def quote(text):
+def format_shell_quoted(text):
     """Returns text (str, surrogateescape for undecodable bytes) as printable ASCII in bash `printf %q` form."""
     raw = os.fsencode(text)
     if not raw:
         return "''"
     if all(0x20 < byte < 0x7f for byte in raw):
-        return ''.join(chr(byte) if byte in _SHELL_SAFE else '\\' + chr(byte) for byte in raw)
+        return ''.join(chr(byte) if byte in _SHELL_UNQUOTED_BYTES else '\\' + chr(byte) for byte in raw)
     escaped = []
     for byte in raw:
         if byte in (0x27, 0x5c):
@@ -93,28 +93,28 @@ def quote(text):
     return "$'" + ''.join(escaped) + "'"
 
 
-def _magic_link(fd):
+def _get_proc_fd_path(fd):
     return '/proc/self/fd/%d' % fd
 
 
-def _read_context(xattr, fd):
+def _read_file_context(xattr, fd):
     """Returns the entry's context as bytes without a trailing NUL, or None for no label; raises OSError otherwise."""
     try:
-        value = xattr.get(_magic_link(fd))
+        value = xattr.get(_get_proc_fd_path(fd))
     except OSError as error:
-        if error.errno in _NO_LABEL:
+        if error.errno in _NO_LABEL_ERRNOS:
             return None
         raise
     return value[:-1] if value.endswith(b'\0') else value
 
 
-def _error_text(error):
+def _format_error(error):
     if isinstance(error, OSError) and error.errno:
         return os.strerror(error.errno)
     return str(error) or type(error).__name__
 
 
-class _Walk:
+class _RelabelRun:
     """The state of one run: the first failure, the failure count, and the hardlinked paths left."""
 
     def __init__(self, lookup, xattr, opener, report, dry_run):
@@ -123,79 +123,81 @@ class _Walk:
         self.failures = 0
         self.hardlinks_left = 0
 
-    def fail(self, path, error):
+    def record_failure(self, path, error):
         self.failures += 1
         if self.first_failure is None:
-            self.first_failure = 'failed to restore the file context of %s: %s' % (quote(path), _error_text(error))
+            self.first_failure = 'failed to restore the file context of %s: %s' % (
+                format_shell_quoted(path), _format_error(error))
 
-    def label(self, path, fd, st):
+    def relabel_entry(self, path, fd, entry_stat):
         """Labels one entry; returns False when a read-back differs from the write, which ends the walk."""
         try:
-            context = self.lookup(path, stat.S_IFMT(st.st_mode))
+            context = self.lookup(path, stat.S_IFMT(entry_stat.st_mode))
         except OSError as error:
             if error.errno == errno.ENOENT:
                 return True
-            self.fail(path, error)
+            self.record_failure(path, error)
             return True
         except Exception as error:  # recorded as the entry's failure; the walk goes on
-            self.fail(path, error)
+            self.record_failure(path, error)
             return True
         wanted = context.encode('utf-8')
         try:
-            current = _read_context(self.xattr, fd)
+            current = _read_file_context(self.xattr, fd)
         except OSError as error:
-            self.fail(path, error)
+            self.record_failure(path, error)
             return True
         if current == wanted:
             return True
-        if not stat.S_ISDIR(st.st_mode) and st.st_nlink > 1:
+        if not stat.S_ISDIR(entry_stat.st_mode) and entry_stat.st_nlink > 1:
             self.hardlinks_left += 1
             if self.hardlinks_left <= _HARDLINKS_LISTED:
-                self.report('error', 'skipped hardlinked path %s (link count %d)' % (quote(path), st.st_nlink))
+                self.report('error', 'skipped hardlinked path %s (link count %d)'
+                            % (format_shell_quoted(path), entry_stat.st_nlink))
             return True
         if self.dry_run:
-            shown = '-' if current is None else quote(current.decode('utf-8', 'surrogateescape'))
-            self.report('change', '%s %s %s' % (quote(path), shown, quote(context)))
+            shown = '-' if current is None else format_shell_quoted(current.decode('utf-8', 'surrogateescape'))
+            self.report('change', '%s %s %s' % (format_shell_quoted(path), shown, format_shell_quoted(context)))
             return True
         try:
-            self.xattr.set(_magic_link(fd), wanted)
+            self.xattr.set(_get_proc_fd_path(fd), wanted)
         except OSError as error:
-            self.fail(path, error)
+            self.record_failure(path, error)
             return True
         try:
-            readback = _read_context(self.xattr, fd)
+            readback = _read_file_context(self.xattr, fd)
         except OSError as error:
-            readback = ('unreadable: %s' % _error_text(error)).encode()
+            readback = ('unreadable: %s' % _format_error(error)).encode()
         if readback != wanted:
-            shown = '-' if readback is None else quote(readback.decode('utf-8', 'surrogateescape'))
+            shown = '-' if readback is None else format_shell_quoted(readback.decode('utf-8', 'surrogateescape'))
             self.first_failure = 'failed to restore the file context of %s: read back %s after writing %s' % (
-                quote(path), shown, quote(context))
+                format_shell_quoted(path), shown, format_shell_quoted(context))
             self.failures += 1
             return False
         return True
 
-    def open_listing(self, path, path_fd, st):
+    def open_directory_listing(self, path, path_fd, entry_stat):
         """Returns a listing descriptor naming the same inode as path_fd, or None after recording the failure."""
         try:
-            listing_fd = self.opener.open('.', _FLAGS_LIST, dir_fd=path_fd)
+            listing_fd = self.opener.open('.', _LISTING_OPEN_FLAGS, dir_fd=path_fd)
         except OSError as error:
-            self.fail(path, error)
+            self.record_failure(path, error)
             return None
         try:
-            listed = self.opener.fstat(listing_fd)
+            listing_stat = self.opener.fstat(listing_fd)
         except OSError as error:
             self.opener.close(listing_fd)
-            self.fail(path, error)
+            self.record_failure(path, error)
             return None
-        if (listed.st_dev, listed.st_ino) != (st.st_dev, st.st_ino):
+        if (listing_stat.st_dev, listing_stat.st_ino) != (entry_stat.st_dev, entry_stat.st_ino):
             self.opener.close(listing_fd)
-            self.fail(path, OSError(errno.ESTALE, 'the directory was replaced between its two opens'))
+            self.record_failure(path, OSError(errno.ESTALE, 'the directory was replaced between its two opens'))
             return None
         return listing_fd
 
-    def descend(self, path, path_fd, st):
+    def relabel_descendants(self, path, path_fd, entry_stat):
         """Walks the directory at path_fd depth-first; returns False when the walk has ended."""
-        listing_fd = self.open_listing(path, path_fd, st)
+        listing_fd = self.open_directory_listing(path, path_fd, entry_stat)
         if listing_fd is None:
             return True
         # Each frame is a directory's (logical path, path fd, listing fd, names still to open).
@@ -203,46 +205,46 @@ class _Walk:
         try:
             names = self.opener.listdir(listing_fd)
         except OSError as error:
-            self.fail(path, error)
+            self.record_failure(path, error)
             self.opener.close(listing_fd)
             return True
         stack.append((path, path_fd, listing_fd, iter(sorted(names))))
         try:
             while stack:
-                parent_path, _parent_fd, parent_listing, pending = stack[-1]
-                name = next(pending, None)
+                parent_path, parent_path_fd, parent_listing, remaining_names = stack[-1]
+                name = next(remaining_names, None)
                 if name is None:
                     stack.pop()
                     self.opener.close(parent_listing)
-                    if _parent_fd != path_fd:
-                        self.opener.close(_parent_fd)
+                    if parent_path_fd != path_fd:
+                        self.opener.close(parent_path_fd)
                     continue
                 child_path = parent_path.rstrip('/') + '/' + name
                 try:
-                    child_fd = self.opener.open(name, _FLAGS_PATH, dir_fd=parent_listing)
+                    child_fd = self.opener.open(name, _PATH_OPEN_FLAGS, dir_fd=parent_listing)
                 except OSError as error:
-                    self.fail(child_path, error)
+                    self.record_failure(child_path, error)
                     continue
                 try:
-                    child_st = self.opener.fstat(child_fd)
+                    child_stat = self.opener.fstat(child_fd)
                 except OSError as error:
                     self.opener.close(child_fd)
-                    self.fail(child_path, error)
+                    self.record_failure(child_path, error)
                     continue
-                if not self.label(child_path, child_fd, child_st):
+                if not self.relabel_entry(child_path, child_fd, child_stat):
                     self.opener.close(child_fd)
                     return False
-                if not stat.S_ISDIR(child_st.st_mode):
+                if not stat.S_ISDIR(child_stat.st_mode):
                     self.opener.close(child_fd)
                     continue
-                child_listing = self.open_listing(child_path, child_fd, child_st)
+                child_listing = self.open_directory_listing(child_path, child_fd, child_stat)
                 if child_listing is None:
                     self.opener.close(child_fd)
                     continue
                 try:
                     child_names = self.opener.listdir(child_listing)
                 except OSError as error:
-                    self.fail(child_path, error)
+                    self.record_failure(child_path, error)
                     self.opener.close(child_listing)
                     self.opener.close(child_fd)
                     continue
@@ -255,7 +257,7 @@ class _Walk:
         return True
 
 
-def walk(root, lookup, xattr, opener, report, dry_run=False):
+def relabel_tree(root, lookup, xattr, opener, report, dry_run=False):
     """Relabels the tree at root and returns the exit status.
 
     lookup(path, ifmt) returns the context (str) for a logical path and an S_IFMT mode, raising OSError (ENOENT for
@@ -264,26 +266,27 @@ def walk(root, lookup, xattr, opener, report, dry_run=False):
     'change' (a dry-run line, stdout) or 'error' (a diagnostic, stderr).
     """
     try:
-        root_fd = opener.open(root, _FLAGS_PATH)
+        root_fd = opener.open(root, _PATH_OPEN_FLAGS)
     except OSError as error:
-        report('error', 'failed to open the root %s: %s' % (quote(root), _error_text(error)))
+        report('error', 'failed to open the root %s: %s' % (format_shell_quoted(root), _format_error(error)))
         return 1
     try:
         try:
-            root_st = opener.fstat(root_fd)
-            resolved = opener.readlink(_magic_link(root_fd))
+            root_stat = opener.fstat(root_fd)
+            resolved = opener.readlink(_get_proc_fd_path(root_fd))
         except OSError as error:
-            report('error', 'failed to open the root %s: %s' % (quote(root), _error_text(error)))
+            report('error', 'failed to open the root %s: %s' % (format_shell_quoted(root), _format_error(error)))
             return 1
-        if not stat.S_ISDIR(root_st.st_mode):
-            report('error', 'failed to open the root %s: not a directory' % quote(root))
+        if not stat.S_ISDIR(root_stat.st_mode):
+            report('error', 'failed to open the root %s: not a directory' % format_shell_quoted(root))
             return 1
         if resolved != root:
-            report('error', 'failed to open the root %s: it resolves to %s' % (quote(root), quote(resolved)))
+            report('error', 'failed to open the root %s: it resolves to %s'
+                   % (format_shell_quoted(root), format_shell_quoted(resolved)))
             return 1
-        run = _Walk(lookup, xattr, opener, report, dry_run)
-        if run.label(root, root_fd, root_st):
-            completed = run.descend(root, root_fd, root_st)
+        run = _RelabelRun(lookup, xattr, opener, report, dry_run)
+        if run.relabel_entry(root, root_fd, root_stat):
+            completed = run.relabel_descendants(root, root_fd, root_stat)
         else:
             completed = False
     finally:
@@ -324,7 +327,7 @@ def parse_arguments(argv):
             index += 1
             expected_context = argv[index]
         else:
-            return _usage('unknown argument %s' % quote(option))
+            return _usage('unknown argument %s' % format_shell_quoted(option))
         index += 1
     if index >= len(argv):
         return _usage('the directory follows --')
@@ -335,20 +338,20 @@ def parse_arguments(argv):
         if not dry_run:
             return _usage('--expected-context is accepted only with --dry-run')
         if not _CONTEXT_PATTERN.match(expected_context):
-            return _usage('the context %s is not a SELinux context' % quote(expected_context))
+            return _usage('the context %s is not a SELinux context' % format_shell_quoted(expected_context))
     root = operands[0]
     if not root.startswith('/'):
-        return _usage('the directory %s is not an absolute path' % quote(root))
+        return _usage('the directory %s is not an absolute path' % format_shell_quoted(root))
     return dry_run, expected_context, root
 
 
-def _report(kind, text):
+def _write_report(kind, text):
     stream = sys.stdout if kind == 'change' else sys.stderr
     stream.write(text + '\n')
     stream.flush()
 
 
-def _selinux_lookup():
+def _open_file_context_lookup():
     """Returns a lookup bound to one selabel handle, or an int exit status after the diagnostic.
 
     The lookup takes (path: str, ifmt: int) and returns the context as str; it raises OSError carrying
@@ -397,12 +400,12 @@ def main(argv=None):
     if expected_context is not None:
         def lookup(_path, _ifmt):
             return expected_context
-        return walk(root, lookup, OS_XATTR, OS_OPENER, _report, dry_run=dry_run)
-    lookup = _selinux_lookup()
+        return relabel_tree(root, lookup, OS_EXTENDED_ATTRIBUTES, OS_FILE_OPERATIONS, _write_report, dry_run=dry_run)
+    lookup = _open_file_context_lookup()
     if isinstance(lookup, int):
         return lookup
     try:
-        return walk(root, lookup, OS_XATTR, OS_OPENER, _report, dry_run=dry_run)
+        return relabel_tree(root, lookup, OS_EXTENDED_ATTRIBUTES, OS_FILE_OPERATIONS, _write_report, dry_run=dry_run)
     finally:
         lookup.close()
 
