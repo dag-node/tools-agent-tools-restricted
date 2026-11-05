@@ -111,7 +111,8 @@ _ai_tools_layout__populate_static_entries() {
     # ── ai-tools-base ── The root helpers: 0750 root:root, so a non-root account cannot list the directory or run
     # a helper; the CLI and the handback daemon reach each one at its fixed path as root.
     _ai_tools_layout__append_static_entry "${libexec}"                 directory root:root 0750 - "${base}" files
-    for helper in chown setgid setfacl unclaim lockdown relabel safedir reclaim allowlist audit stop admin handback; do
+    for helper in chown setgid setfacl unclaim lockdown relabel relabel-tree safedir reclaim allowlist audit stop admin \
+        handback; do
         _ai_tools_layout__append_static_entry "${libexec}/ai-tools-${helper}" file root:root 0750 - "${base}" files
     done
     # The sudo-PATH links: sudoers secure_path on stock EL excludes /usr/local/sbin, so `sudo <name>` resolves here.

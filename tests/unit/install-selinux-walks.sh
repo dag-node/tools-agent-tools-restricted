@@ -11,9 +11,11 @@
 # rewrites to a fixture root, so no host path is read. The script's text is then read for the two properties a function
 # cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel library, and every restorecon outside
 # the gate names a root-owned tree, held against a control line the reader must flag, and the remove action reads
-# the live-session state ahead of its first policy-store write. verify_agent_labels is driven over a stubbed library
-# line for a config directory whose walk was left, at the type the agent writes and at another. for_each_project is
-# driven through the checkout's conf.lib.sh over a registry holding each sign, and does not yield an excluded path.
+# the live-session state ahead of its first policy-store write. verify_agent_labels is driven over stubbed library lines
+# for an agent closed as failed, which fails the install, and a config directory walk that left hardlinked files;
+# _label_project and _unlabel_project over the library's partial-walk and walker-missing statuses, and _unlabel_project
+# over its absent-tree status. for_each_project is driven through the checkout's conf.lib.sh over a registry holding
+# each sign, and does not yield an excluded path.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -114,14 +116,11 @@ grep -qF 'sudo ./install.sh install' <<<"${warnings}" \
     && pass "unreadable: the warning names the install that deploys the library the reading needs" \
     || fail "unreadable: the warning does not name sudo ./install.sh install: ${warnings}"
 
-# ── verify_agent_labels: a config directory's walk left under a live session ───────────────────
-# The relabel library prints `live <agent> its config directory` when it left that walk. The renderer must name it
-# under its own code and list the directory with the trees the run left, and must not read it as an unrecognized result,
-# which would report an unconfirmed entrypoint. The library is stubbed to print that line and the closing per-agent
-# verdict, and the manifest reader to name the config directory.
-section "install-selinux.sh: a config directory walk the reading left is reported as left (unit)"
+# ── verify_agent_labels ───────────────────────────────────────────────────────────────────────
+# The renderer reads the relabel library's lines, stubbed here to print them, with the manifest reader stubbed to name
+# the config directory.
 agent_text=""
-for name in warn _record_left_agent_config _warn_left_trees verify_agent_labels; do
+for name in warn verify_agent_labels; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -129,54 +128,131 @@ for name in warn _record_left_agent_config _warn_left_trees verify_agent_labels;
     fi
     agent_text+="${body}"$'\n'
 done
-# agent_run <verdict> <type> : verify_agent_labels over a `live` line for acme's config directory at <type>
-#   and the agent line closing it with <verdict>; prints both streams of the run.
+
+# ── verify_agent_labels: a failed agent and a walk that left hardlinked files ─────────────────
+# An agent the library closes as `failed` fails the install, as a `bad` path does; a `partial` line, a config directory
+# whose walk left hardlinked files, is named under its own code and does not fail it.
+section "install-selinux.sh: a failed agent fails the install and a partial walk is named (unit)"
+# verdict_run <lines> : verify_agent_labels over the stubbed library <lines>; prints both streams of the run.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
-agent_run() {
+verdict_run() {
     bash -c '
         set -euo pipefail
         eval "$1"
         C_YEL="" C_RST="" C_GRN=""
         ok() { :; }; log() { :; }
         die() { printf "DIED %s\n" "$*" >&2; exit 1; }
-        stub_lines="live acme $4 its config directory"$'"'"'\n'"'"'"agent acme $3"
+        stub_lines="$3"
         ai_tools_relabel__label_agent_paths() { printf "%s\n" "${stub_lines}"; }
         ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf ".acme\n"; }
-        CP_HOME="$2"; _sandbox_session_state=live; _left_trees=()
+        CP_HOME="$2"; _sandbox_session_state=none; _left_trees=()
         SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
-        trap _warn_left_trees EXIT
         verify_agent_labels
-    ' _ "${agent_text}" "${TESTDIR}/home" "$1" "$2" 2>&1 || true
+    ' _ "${agent_text}" "${TESTDIR}/home" "$1" 2>&1 || true
 }
-for verdict in live-session-mislabelled live-session; do
-    type=usr_t; [[ "${verdict}" == live-session ]] && type=ai_tools_home_t
-    agent_warnings="$(agent_run "${verdict}" "${type}")"
-    assert_msg MSG-S7C2 "${agent_warnings}" "${verdict}: the config directory's walk is named as left"
-    if grep -qF "sudo restorecon -FR ${TESTDIR}/home/.acme" <<<"${agent_warnings}"; then
-        pass "${verdict}: the config directory is in the closing list of trees left"
-    else
-        fail "${verdict}: the closing warning does not name ${TESTDIR}/home/.acme: ${agent_warnings//$'\n'/ | }"
+verdict_out="$(verdict_run $'ok /x/.acme\nagent acme ok')"
+if grep -q '^DIED' <<<"${verdict_out}"; then
+    fail "control: an agent closed ok fails the install: ${verdict_out//$'\n'/ | }"
+else
+    pass "control: an agent closed ok does not fail the install"
+fi
+verdict_out="$(verdict_run $'skip acme could not register its config-directory file-context rule -- held\nagent acme failed')"
+assert_msg MSG-E6C4 "${verdict_out}" "an agent closed failed is named"
+if grep -q '^DIED' <<<"${verdict_out}"; then
+    pass "an agent closed failed fails the install"
+else
+    fail "an agent closed failed does not fail the install: ${verdict_out//$'\n'/ | }"
+fi
+verdict_out="$(verdict_run $'ok /x/.acme\npartial acme 2\nagent acme ok')"
+assert_msg MSG-A5V5 "${verdict_out}" "a config directory walk that left hardlinked files is named"
+if grep -qF "left 2 hardlinked path(s) at their current type" <<<"${verdict_out}" \
+        && grep -qF "find ${TESTDIR}/home/.acme -not -type d -links +1" <<<"${verdict_out}"; then
+    pass "the partial walk names its count and the find that lists the files"
+else
+    fail "the partial walk does not name its count and the find: ${verdict_out//$'\n'/ | }"
+fi
+if grep -q '^DIED\|^MSG-K2W4$' <<<"${verdict_out}"; then
+    fail "a partial walk fails the install or reads as an unrecognized result: ${verdict_out//$'\n'/ | }"
+else
+    pass "a partial walk is neither a failure nor an unrecognized result"
+fi
+
+# ── _label_project / _unlabel_project: the statuses beside the gate's ─────────────────────────
+section "install-selinux.sh: the project walks read a partial walk, a walker that could not run and an absent tree (unit)"
+project_text=""
+for name in warn _label_project _unlabel_project _report_skipped_walk_entries _warn_walker_unavailable; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install-selinux.sh does not define ${name}() in the form this file reads"
+        finish; exit
     fi
-    if grep -q '^MSG-K2W4$\|^DIED' <<<"${agent_warnings}"; then
-        fail "${verdict}: the left walk read as an unrecognized result or a failed install: ${agent_warnings//$'\n'/ | }"
+    project_text+="${body}"$'\n'
+done
+# project_run <function> <status> <diagnostics> : <function> over /p with the library returning <status> and setting
+#   the diagnostics; prints both streams, `ok` and `log` lines included.
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+project_run() {
+    bash -c '
+        set -euo pipefail
+        eval "$1"
+        C_YEL="" C_RST="" C_GRN=""
+        ok() { printf "OK %s\n" "$*"; }; log() { printf "LOG %s\n" "$*"; }
+        lib_status="$3" lib_diagnostics="$4"
+        ai_tools_relabel__label_project()   { AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${lib_diagnostics}"; return "${lib_status}"; }
+        ai_tools_relabel__unlabel_project() { AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${lib_diagnostics}"; return "${lib_status}"; }
+        "$2" /p
+    ' _ "${project_text}" "$1" "$2" "$3" 2>&1 || true
+}
+project_out="$(project_run _label_project 0 "")"
+if [[ "${project_out}" == "OK labelled project ai_tools_project_t: /p" ]]; then
+    pass "control: a label at status 0 reports the project labelled and nothing else"
+else
+    fail "control: a label at status 0 printed: ${project_out//$'\n'/ | }"
+fi
+for fn in _label_project _unlabel_project; do
+    project_out="$(project_run "${fn}" 4 "skipped hardlinked path /p/x (link count 2)")"
+    if grep -qF "LOG   the walk over /p left these entries at their type: skipped hardlinked path /p/x (link count 2)" \
+            <<<"${project_out}" && ! grep -q '^MSG-' <<<"${project_out}"; then
+        pass "${fn} at status 4 notes the walker's list without a warning"
     else
-        pass "${verdict}: the left walk is neither an unrecognized result nor a failure"
+        fail "${fn} at status 4 printed: ${project_out//$'\n'/ | }"
+    fi
+    project_out="$(project_run "${fn}" 6 "ai-tools-relabel-tree: libselinux.so.1 does not load")"
+    assert_msg MSG-G6X4 "${project_out}" "${fn} at status 6 warns that the walker could not run"
+    if grep -qF "libselinux.so.1 does not load" <<<"${project_out}"; then
+        pass "${fn} at status 6 carries the walker's reason"
+    else
+        fail "${fn} at status 6 does not carry the reason: ${project_out//$'\n'/ | }"
     fi
 done
-# The directory at a type the agent cannot write is named as such, with the type; at its own type, the control, it is
-# not.
-agent_warnings="$(agent_run live-session-mislabelled usr_t)"
-assert_msg MSG-T7X3 "${agent_warnings}" "live-session-mislabelled: the directory is named as one the agent cannot write"
-if grep -qF 'the config directory of acme carries usr_t' <<<"${agent_warnings}"; then
-    pass "live-session-mislabelled: the warning names the type the directory carries"
+# The library's 3 is a registered path with no tree at it: the rules are dropped and no tree is walked, which the sweep
+# reads as done; a status it does not know, the control, warns.
+project_out="$(project_run _unlabel_project 3 "")"
+if [[ -z "${project_out}" ]]; then
+    pass "an unlabel at status 3 reads as a path with no tree to walk, silently"
 else
-    fail "live-session-mislabelled: the warning does not name usr_t: ${agent_warnings//$'\n'/ | }"
+    fail "an unlabel at status 3 printed: ${project_out//$'\n'/ | }"
 fi
-agent_warnings="$(agent_run live-session ai_tools_home_t)"
-if grep -qx 'MSG-T7X3' <<<"${agent_warnings}"; then
-    fail "live-session: a directory at its own type is named as one the agent cannot write"
+project_out="$(project_run _unlabel_project 7 "")"
+assert_msg MSG-W8J4 "${project_out}" "control: an unlabel at a status it does not know warns"
+project_out="$(project_run _label_project 4 "x")"
+if grep -qF "OK labelled project ai_tools_project_t: /p" <<<"${project_out}"; then
+    pass "a label at status 4 reports the project labelled"
 else
-    pass "live-session: a directory at its own type is not named as one the agent cannot write (control)"
+    fail "a label at status 4 does not report the project labelled: ${project_out//$'\n'/ | }"
+fi
+# The agent unlabel loop in _labels_drop reads the same two statuses; it walks the host's manifest directory, so its
+# text is read for the arms.
+drop_text="$(extract_function "${INSTALLER}" _labels_drop)"
+if grep -qE '^ +4\) _report_skipped_walk_entries ' <<<"${drop_text}" && grep -qE '^ +6\) _warn_walker_unavailable ' <<<"${drop_text}"; then
+    pass "the agent unlabel loop reads status 4 and status 6"
+else
+    fail "the agent unlabel loop does not read status 4 and status 6"
+fi
+if grep -E '^ +5\) warn ' <<<"${drop_text}" | grep -qF 'MSG-B8Q9' && ! grep -q 'TREE_DIAGNOSTICS:-}" ]]' <<<"${drop_text}"; then
+    pass "the agent unlabel loop reads a failed config walk by its status, not by the walker's lines"
+else
+    fail "the agent unlabel loop does not read status 5, or still reads the walker's lines for it"
 fi
 
 # ── remove: the rules outside the registries, and an unload that reads the store back ────────

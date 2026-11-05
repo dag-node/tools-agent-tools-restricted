@@ -32,11 +32,6 @@ if ! source "${LIB}" || ! declare -F ai_tools_providers__is_entrypoint_fcontext_
     fail "could not source ${LIB}, or ai_tools_providers__is_entrypoint_fcontext_valid is not in scope once it is sourced"
     finish; exit
 fi
-# The live-session gate reads the host's cgroup tree, where a session may be running while the suite does. Every section
-# but the gate's own drives the walks as on a host with no session live; defined ahead of the gate's first use, the stub
-# also keeps the library from loading the real reader.
-ai_tools_sessions__read_live_session_state() { printf 'none\n'; }
-
 # The ROOT is the library's: every declared pattern is held to it, so a manifest chooses which file under the toolchain
 # is its entrypoint and never a tree of its own. Pinned by value and by being readonly -- a root a caller could move
 # would move what may be labelled into the confined domain's entrypoint type.
@@ -184,7 +179,7 @@ fi
 # names. The label writes the project rule FIRST and the build rule second, in that order, because among rules sharing
 # a stem the later one is the match. And the unlabel drops the build rule by LISTING the local rules under the project
 # rule, so a rule written under an earlier name set is removed with the claim rather than left on a subtree the confined
-# domain manages. semanage, restorecon and the availability probe are stubbed; no policy store is touched.
+# domain manages. semanage, the tree walk and the availability probe are stubbed; no policy store is touched.
 section "relabel: the build-output rule (unit)"
 if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
         && declare -F ai_tools_relabel__label_project >/dev/null 2>&1; then
@@ -212,7 +207,8 @@ if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
     ai_tools_providers__list_integrations_declaring() { printf 'dotnet\tbin obj\n'; }
     ai_tools_relabel__is_available() { return 0; }
     ai_tools_relabel__is_project_labelled()  { return 0; }
-    restorecon() { :; }
+    eval "build_real_relabel_tree() $(declare -f _ai_tools_relabel__relabel_tree | tail -n +2)"
+    _ai_tools_relabel__relabel_tree() { return 0; }
     CALLS=""
     semanage() { CALLS+="$*"$'\n'; return 0; }
     ai_tools_relabel__label_project /home/op/proj
@@ -252,7 +248,7 @@ if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
         esac
     }
     CALLS=""
-    ai_tools_relabel__unlabel_project /home/op/proj
+    ai_tools_relabel__unlabel_project /home/op/proj || true   # 3: no tree stands at the path; the row reads the calls
     if [[ "${CALLS}" == "fcontext -d -- /home/op/proj(/.*)?/(bin|target)(/.*)?"$'\n'"fcontext -d /home/op/proj(/.*)?"$'\n' ]]; then
         pass "an unlabel drops the build rule found by listing (an older name set included), then the project rule, and leaves a sibling project's rule alone"
     else
@@ -266,8 +262,7 @@ if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
     fi
 
     # A project path is a literal inside the rule's regex: `.` in app.v1 would also match appXv1, and `+`, `(`, `|`
-    # change which paths the rule covers. The label writes the escaped path; the unlabel removes the escaped rule
-    # and the raw one a host may still hold from before paths were escaped.
+    # change which paths the rule covers. The label writes the escaped path, and the unlabel removes the escaped rule.
     got="$(ai_tools_relabel__get_fcontext_literal '/home/op/a.b+c(d)|e[f]$^*?{g}\h')"
     if [[ "${got}" == '/home/op/a\.b\+c\(d\)\|e\[f\]\$\^\*\?\{g\}\\h' ]]; then
         pass "ai_tools_relabel__get_fcontext_literal escapes every regex metacharacter and leaves the rest"
@@ -282,130 +277,205 @@ if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
         fail "label calls for a path with metacharacters: ${CALLS//$'\n'/ | }"
     fi
     CALLS=""
-    ai_tools_relabel__unlabel_project '/home/op/app.v1'
-    if [[ "${CALLS}" == "fcontext -d /home/op/app\\.v1(/.*)?"$'\n'"fcontext -d /home/op/app.v1(/.*)?"$'\n' ]]; then
-        pass "an unlabel removes the escaped rule and the raw rule an earlier label wrote"
+    ai_tools_relabel__unlabel_project '/home/op/app.v1' || true
+    if [[ "${CALLS}" == "fcontext -d /home/op/app\\.v1(/.*)?"$'\n' ]]; then
+        pass "an unlabel removes the escaped rule alone"
     else
         fail "unlabel calls for a dotted path: ${CALLS//$'\n'/ | }"
     fi
     unset -f ai_tools_providers__list_integrations_declaring ai_tools_relabel__is_available \
-             ai_tools_relabel__is_project_labelled restorecon semanage
+             ai_tools_relabel__is_project_labelled semanage
+    eval "_ai_tools_relabel__relabel_tree() $(declare -f build_real_relabel_tree | tail -n +2)"
+    unset -f build_real_relabel_tree
     unset CALLS
 else
     skip "build-output rule" "ai_tools_relabel__read_project_build_pattern not defined by ${LIB}"
 fi
 
-# ── Retiring the raw rules an earlier label wrote ─────────────────────────────────────────────
-# A label written before paths were escaped is still in the store of an upgraded host, and its `.` keeps matching paths
-# beside the project -- `app.v1` reaches `appXv1` and, since `.` matches `/` in a file-context regex, `app/v1`. A label
-# retires those rules only where both the pattern (this project's raw encoding) and the type (the one this library
-# writes) say it wrote them, names any other rule for review, and relabels the paths the removed rule matched. Every
-# case here is driven in the direction that would widen or misreport: a rule this library did not write removed, a path
-# the raw rule never matched relabelled, a relabel of the neighbours when no raw rule was removed. semanage
-# and restorecon are stubbed; the fixture tree is real, since the neighbours are found on disk.
-section "relabel: a label retires the raw rules an earlier label wrote (unit)"
-if declare -F _ai_tools_relabel__retire_raw_project_rules >/dev/null 2>&1; then
-    mktestdir
-    proj="${TESTDIR}/app.v1"
-    mkdir -p "${proj}/src" "${TESTDIR}/appXv1" "${TESTDIR}/app/v1" "${TESTDIR}/appXXv1" "${TESTDIR}/app.v1x"
-    ai_tools_providers__list_integrations_declaring() { :; }
+# ── The walks run the descriptor-pinned tree walker ──────────────────────────────────────────
+# Every recursive relabel goes through _ai_tools_relabel__relabel_tree, which runs ai-tools-relabel-tree. The walk is
+# stubbed to each status it returns, recording its argument, and each function that runs it is driven over the status:
+# a walker that could not run (6) reaches the caller before the post-condition, a walk that left hardlinked files (4)
+# passes the post-condition and is returned, an entry the walk could not label (1) fails the function, an unlabel
+# of a name that is not a directory reaches the walker, and an unlabel of an absent directory drops its rules with no
+# walk.
+section "relabel: the walks run the tree walker and read each of its statuses (unit)"
+if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_tools_relabel__label_project >/dev/null 2>&1; then
+    if [[ ! -e /usr/local/libexec/ai-tools/ai-tools-relabel-tree ]]; then
+        status=0; _ai_tools_relabel__relabel_tree "${TESTDIR}" || status=$?
+        if [[ "${status}" -eq 6 && "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == *"/usr/local/libexec/ai-tools/ai-tools-relabel-tree"* ]]; then
+            pass "a walker that is not installed returns 6 and names its path"
+        else
+            fail "a walker that is not installed: status ${status}, '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
+        fi
+    else
+        note "an absent walker" "the walker is installed on this host, so its absence is not driven"
+    fi
+    eval "walk_real_relabel_tree() $(declare -f _ai_tools_relabel__relabel_tree | tail -n +2)"
+    WALKS=""; LABEL_CHECKS=0; stub_labelled=0
+    _ai_tools_relabel__relabel_tree() {
+        WALKS+="$1"$'\n'
+        AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${stub_walk_diagnostics}"
+        _AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT="${stub_skipped_count:-0}"
+        return "${stub_walk_status}"
+    }
     ai_tools_relabel__is_available() { return 0; }
-    ai_tools_relabel__is_project_labelled()  { return 0; }
-    RESTORED=""; restorecon() { RESTORED+="$*"$'\n'; return 0; }
-    # rules_listing <project-type>: the store an upgraded host holds -- the raw project rule (typed by the argument),
-    # its raw build rule, a rule under the raw prefix carrying a type this library does not write, the escaped project
-    # rule, and an unrelated rule.
-    rules_listing() {
-        printf '%-60s %-12s %s\n' "${proj}(/.*)?" 'all files' "system_u:object_r:$1:s0"
-        printf '%-60s %-12s %s\n' "${proj}(/.*)?/(bin|obj)(/.*)?" 'all files' 'system_u:object_r:ai_tools_project_build_t:s0'
-        printf '%-60s %-12s %s\n' "${proj}(/.*)?/www(/.*)?" 'all files' 'system_u:object_r:httpd_sys_content_t:s0'
-        printf '%-60s %-12s %s\n' "$(ai_tools_relabel__get_fcontext_literal "${proj}")(/.*)?" 'all files' 'system_u:object_r:ai_tools_project_t:s0'
-        printf '%-60s %-12s %s\n' '/srv/other(/.*)?' 'all files' 'system_u:object_r:ai_tools_project_t:s0'
+    ai_tools_relabel__is_project_labelled() { LABEL_CHECKS=$(( LABEL_CHECKS + 1 )); return "${stub_labelled}"; }
+    ai_tools_providers__list_integrations_declaring() { :; }
+    semanage() { return 0; }
+    # walk_is <function> <dir> <walk-status> <labelled-status> <expected> <expected-checks> <why>
+    walk_is() {
+        local fn="$1" dir="$2" expected="$5" expected_checks="$6" why="$7" status=0
+        stub_walk_status="$3"; stub_labelled="$4"; stub_walk_diagnostics="skipped hardlinked path ${dir}/x (link count 2)"
+        WALKS=""; LABEL_CHECKS=0
+        "${fn}" "${dir}" >/dev/null 2>&1 || status=$?
+        if [[ "${status}" -eq "${expected}" && "${WALKS}" == "${dir}"$'\n' && "${LABEL_CHECKS}" -eq "${expected_checks}" ]]; then
+            pass "${why}: status ${expected}"
+        else
+            fail "${why}: status ${status}, walks '${WALKS//$'\n'/|}', post-condition reads ${LABEL_CHECKS}"
+        fi
     }
-    RAW_TYPE=ai_tools_project_t
-    DELETED=""
-    semanage() {
-        case "$*" in
-            "fcontext -l -C -n") rules_listing "${RAW_TYPE}" ;;
-            "fcontext -d -- "*) local call="$*"; DELETED+="${call#fcontext -d -- }"$'\n' ;;
-        esac
-        return 0
-    }
-    ai_tools_relabel__label_project "${proj}" >/dev/null 2>"${TESTDIR}/err"; err="$(<"${TESTDIR}/err")"
-    if [[ "${DELETED}" == "${proj}(/.*)?"$'\n'"${proj}(/.*)?/(bin|obj)(/.*)?"$'\n' ]]; then
-        pass "a label removes the raw project and build rules, and no other rule"
+    walk_is ai_tools_relabel__label_project /home/op/proj 0 0 0 1 "control: a label whose walk labelled every entry"
+    walk_is ai_tools_relabel__label_project /home/op/proj 6 0 6 0 "a label whose walker could not run returns before the post-condition"
+    walk_is ai_tools_relabel__label_project /home/op/proj 4 0 4 1 "a label whose walk left hardlinked files passes the post-condition"
+    walk_is ai_tools_relabel__label_project /home/op/proj 4 1 1 1 "a label whose walk left hardlinked files and a root on another type fails"
+    walk_is ai_tools_relabel__label_project /home/op/proj 1 0 1 0 "a label whose walk could not label an entry fails"
+    # A root the walk left on another type carries why, in place of the walk's own lines, for the helper to print.
+    stub_walk_status=4; stub_labelled=1
+    ai_tools_relabel__label_project /home/op/proj >/dev/null 2>&1 || true
+    if [[ "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == *"/home/op/proj does not carry ai_tools_project_t"* ]]; then
+        pass "a root the walk left on another type sets the diagnostic that names it"
     else
-        fail "raw rules removed: ${DELETED//$'\n'/ | }"
+        fail "a root left on another type: diagnostic '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
     fi
-    if [[ "${err}" == *"left the unescaped rule ${proj}(/.*)?/www(/.*)? (httpd_sys_content_t)"* ]]; then
-        pass "a rule under the raw prefix with a type this library does not write is left and named for review"
+    # A label refused before the walk starts finds no diagnostic, an earlier walk's included.
+    AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="left by an earlier walk"
+    semanage() { return 1; }
+    ai_tools_relabel__label_project /home/op/proj >/dev/null 2>&1 || true
+    if [[ -z "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ]]; then
+        pass "a label refused at its rule clears an earlier walk's diagnostic"
     else
-        fail "the foreign-typed rule was not named for review: ${err//$'\n'/ | }"
+        fail "a label refused at its rule kept '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
     fi
-    if [[ "${RESTORED}" == "-R -- ${TESTDIR}/app/v1"$'\n'"-R -- ${TESTDIR}/appXv1"$'\n'"-FR ${proj}"$'\n' ]]; then
-        pass "the paths the raw rule matched beside the project (one through a dot read as /) are relabelled, before the project"
+    semanage() { return 0; }
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 0 0 0 0 "control: an unlabel of a directory walks it"
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 4 0 4 0 "an unlabel whose walk left hardlinked files"
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 6 0 6 0 "an unlabel whose walker could not run"
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 1 0 1 0 "an unlabel whose walk could not label an entry"
+    # A name at the root that is not a directory -- a tree renamed aside and a file or a link put in its place --
+    # reaches the walker, whose root check refuses it with 1, rather than reading as an absent tree.
+    : > "${TESTDIR}/file-root"
+    ln -s "${TESTDIR}/absent-target" "${TESTDIR}/dangling-root"
+    ln -s "${TESTDIR}" "${TESTDIR}/dir-link-root"
+    if [[ -f "${TESTDIR}/file-root" && -L "${TESTDIR}/dangling-root" && ! -e "${TESTDIR}/dangling-root" \
+            && -L "${TESTDIR}/dir-link-root" && -d "${TESTDIR}/dir-link-root" ]]; then
+        pass "setup: a regular file, a dangling symlink and a symlink to a directory stand at three roots"
     else
-        fail "restorecon calls: ${RESTORED//$'\n'/ | }"
+        fail "setup: the three non-directory roots were not created"
     fi
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}/file-root" 1 0 1 0 \
+        "an unlabel of a regular file at the root walks it and fails"
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}/dangling-root" 1 0 1 0 \
+        "an unlabel of a dangling symlink at the root walks it and fails"
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}/dir-link-root" 1 0 1 0 \
+        "an unlabel of a directory symlink at the root walks it and fails"
+    CALLS=""; WALKS=""; stub_walk_status=0
+    semanage() { CALLS+="$*"$'\n'; return 0; }
+    status=0; ai_tools_relabel__unlabel_project "${TESTDIR}/absent" || status=$?
+    if [[ "${status}" -eq 3 && -z "${WALKS}" \
+            && "${CALLS}" == *"fcontext -d $(ai_tools_relabel__get_fcontext_literal "${TESTDIR}/absent")(/.*)?"* ]]; then
+        pass "an unlabel of an absent directory drops its rules, does not walk, and returns 3"
+    else
+        fail "an unlabel of an absent directory: status ${status}, walks '${WALKS}', calls ${CALLS//$'\n'/ | }"
+    fi
+    # A tree that stands when the unlabel starts and is moved away while the rules are dropped reads as absent
+    # at the walk, and returns 3 for the caller to tell from a tree already gone.
+    mkdir "${TESTDIR}/vanishing"
+    semanage() { CALLS+="$*"$'\n'; [[ "$*" != "fcontext -d "* ]] || rm -rf -- "${TESTDIR}/vanishing"; return 0; }
+    CALLS=""; WALKS=""
+    status=0; ai_tools_relabel__unlabel_project "${TESTDIR}/vanishing" || status=$?
+    if [[ "${status}" -eq 3 && -z "${WALKS}" && ! -e "${TESTDIR}/vanishing" && "${CALLS}" == *"fcontext -d "* ]]; then
+        pass "an unlabel whose tree is removed while its rules are dropped returns 3 and does not walk"
+    else
+        fail "an unlabel whose tree is removed during the rule drop: status ${status}, walks '${WALKS}', calls ${CALLS//$'\n'/ | }"
+    fi
+    semanage() { CALLS+="$*"$'\n'; return 0; }
 
-    # The raw project rule carries a type this library does not write: it is left, named, and the neighbours stay alone.
-    RAW_TYPE=httpd_sys_content_t; DELETED=""; RESTORED=""
-    ai_tools_relabel__label_project "${proj}" >/dev/null 2>"${TESTDIR}/err"; err="$(<"${TESTDIR}/err")"
-    if [[ "${DELETED}" != *"${proj}(/.*)?"$'\n'* && "${err}" == *"left the unescaped rule ${proj}(/.*)? (httpd_sys_content_t)"* \
-          && "${RESTORED}" == "-FR ${proj}"$'\n' ]]; then
-        pass "a raw project rule of another type is left, named for review, and its neighbours are not relabelled"
+    # The config directory: a name under the control-plane home that exists on every installed host stands in for one,
+    # with the manifest reader, the validator and the rule writer stubbed.
+    if [[ -d "${CP_HOME:-/opt/ai-tools}/bin" ]] && declare -F _ai_tools_relabel__label_agent_config_dir >/dev/null 2>&1; then
+        # Each function the rows override is kept, and put back after them, so a later section reads the library's own.
+        walk_saved="$(declare -f ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
+                          _ai_tools_relabel__register_fcontext _ai_tools_relabel__read_live_type \
+                          _ai_tools_relabel__is_entrypoint_policy_active ai_tools_providers__list_enabled_agents \
+                          _ai_tools_relabel__label_agent_entrypoint 2>/dev/null || true)"
+        ai_tools_providers__read_agent_manifest_field() { case "$2" in config_dir) printf 'bin' ;; *) : ;; esac; }
+        ai_tools_control_plane__is_agent_config_dir_valid() { return 0; }
+        _ai_tools_relabel__register_fcontext() { return 0; }
+        _ai_tools_relabel__read_live_type() { printf '%s\n' "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"; }
+        config_path="${CP_HOME:-/opt/ai-tools}/bin"
+        # config_is <walk-status> <expected-status> <expected-lines> <why>
+        config_is() {
+            local status=0 line
+            stub_walk_status="$1"; stub_skipped_count=2
+            stub_walk_diagnostics="skipped hardlinked path ${config_path}/a (link count 2); skipped hardlinked path ${config_path}/b (link count 3)"
+            line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
+            if [[ "${status}" -eq "$2" && "${line}" == "$3" ]]; then
+                pass "$4: status $2"
+            else
+                fail "$4: status ${status}, lines '${line//$'\n'/ | }'"
+            fi
+        }
+        config_is 0 0 "ok ${config_path}" "control: a config directory whose walk labelled every entry"
+        config_is 4 0 "partial acme 2"$'\n'"ok ${config_path}" "a config directory whose walk left two hardlinked files"
+        config_is 6 1 "skip acme could not walk its config directory -- skipped hardlinked path ${config_path}/a (link count 2); skipped hardlinked path ${config_path}/b (link count 3)" \
+            "a config directory whose walker could not run"
+        config_is 1 1 "bad ${config_path} unknown ${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" "a config directory whose walk could not label an entry"
+        # The agent's closing verdict over a walker that could not run: the config half returns 1, so it is filed
+        # failed.
+        _ai_tools_relabel__is_entrypoint_policy_active() { return 0; }
+        ai_tools_providers__list_enabled_agents() { printf 'acme\t\t\n'; }
+        _ai_tools_relabel__label_agent_entrypoint() { printf 'ok /fixture-entrypoint\n'; return 0; }
+        stub_walk_status=6; status=0
+        line="$(ai_tools_relabel__label_agent_paths)" || status=$?
+        if [[ "${status}" -eq 1 && "${line}" == *"agent acme failed" ]]; then
+            pass "an agent whose config walk could not run is filed failed and fails the run"
+        else
+            fail "an agent whose config walk could not run: status ${status}, '${line//$'\n'/ | }'"
+        fi
+        # The erase: the rules are dropped, then the walk's status is returned, a walk that could not label an entry
+        # as 5, apart from the 1 of an agent that declares no usable rule.
+        for walk_pair in 4:4 6:6 1:5; do
+            stub_walk_status="${walk_pair%%:*}"; status=0
+            ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || status=$?
+            if [[ "${status}" -eq "${walk_pair##*:}" ]]; then
+                pass "an agent unlabel whose config walk returned ${walk_pair%%:*} returns ${walk_pair##*:}"
+            else
+                fail "an agent unlabel whose config walk returned ${walk_pair%%:*} returned ${status}"
+            fi
+        done
+        stub_walk_status=0; status=0
+        ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || status=$?
+        if [[ "${status}" -eq 0 ]]; then
+            pass "control: an agent unlabel whose config walk labelled every entry returns 0"
+        else
+            fail "control: an agent unlabel whose config walk labelled every entry returned ${status}"
+        fi
+        unset -f ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
+                 _ai_tools_relabel__register_fcontext _ai_tools_relabel__read_live_type \
+                 _ai_tools_relabel__is_entrypoint_policy_active ai_tools_providers__list_enabled_agents \
+                 _ai_tools_relabel__label_agent_entrypoint
+        eval "${walk_saved}"
+        unset walk_saved
     else
-        fail "foreign raw project rule: deleted ${DELETED//$'\n'/ | }; restored ${RESTORED//$'\n'/ | }; ${err//$'\n'/ | }"
+        skip "the config-directory walk" "no ${CP_HOME:-/opt/ai-tools}/bin to stand in for a config directory"
     fi
-
-    # A host labelled after paths were escaped does not hold a raw rule: the label does not remove a rule or relabel
-    # a neighbour.
-    semanage() {
-        case "$*" in
-            "fcontext -l -C -n") printf '%-60s %-12s %s\n' "$(ai_tools_relabel__get_fcontext_literal "${proj}")(/.*)?" 'all files' \
-                                     'system_u:object_r:ai_tools_project_t:s0' ;;
-            "fcontext -d -- "*) local call="$*"; DELETED+="${call#fcontext -d -- }"$'\n' ;;
-        esac
-        return 0
-    }
-    DELETED=""; RESTORED=""
-    ai_tools_relabel__label_project "${proj}" 2>/dev/null
-    if [[ -z "${DELETED}" && "${RESTORED}" == "-FR ${proj}"$'\n' ]]; then
-        pass "with no raw rule in the store a label removes nothing and relabels only the project (control)"
-    else
-        fail "clean store: deleted ${DELETED//$'\n'/ | }; restored ${RESTORED//$'\n'/ | }"
-    fi
-
-    # The unlabel relabels the neighbours only when it removed the raw rule.
-    semanage() { [[ "$*" == "fcontext -d ${proj}(/.*)?" ]]; }
-    RESTORED=""
-    ai_tools_relabel__unlabel_project "${proj}" 2>/dev/null
-    if [[ "${RESTORED}" == "-R -- ${TESTDIR}/app/v1"$'\n'"-R -- ${TESTDIR}/appXv1"$'\n'"-FR ${proj}"$'\n' ]]; then
-        pass "an unlabel that removed the raw rule relabels the paths it matched"
-    else
-        fail "unlabel with a raw rule: ${RESTORED//$'\n'/ | }"
-    fi
-    semanage() { [[ "$*" == "fcontext -d $(ai_tools_relabel__get_fcontext_literal "${proj}")(/.*)?" ]]; }
-    RESTORED=""
-    ai_tools_relabel__unlabel_project "${proj}" 2>/dev/null
-    if [[ "${RESTORED}" == "-FR ${proj}"$'\n' ]]; then
-        pass "an unlabel that found no raw rule leaves the neighbours alone"
-    else
-        fail "unlabel without a raw rule: ${RESTORED//$'\n'/ | }"
-    fi
-
-    # Only a `.` is enumerated; any other metacharacter is named instead of guessed at.
-    out="$(_ai_tools_relabel__find_raw_rule_matches "${TESTDIR}/c++.v1" 2>&1)"
-    if [[ "${out}" == *"holds a regex metacharacter other than"* && "${out}" != *"${TESTDIR}/"*$'\n'* ]]; then
-        pass "a path holding another metacharacter is named for a manual relabel and yields no path"
-    else
-        fail "metacharacter path: ${out//$'\n'/ | }"
-    fi
-    unset -f ai_tools_providers__list_integrations_declaring ai_tools_relabel__is_available ai_tools_relabel__is_project_labelled \
-             restorecon semanage rules_listing
-    unset RESTORED DELETED RAW_TYPE
+    eval "_ai_tools_relabel__relabel_tree() $(declare -f walk_real_relabel_tree | tail -n +2)"
+    unset -f walk_real_relabel_tree ai_tools_relabel__is_available ai_tools_relabel__is_project_labelled \
+             ai_tools_providers__list_integrations_declaring semanage
+    unset CALLS WALKS
 else
-    skip "raw rule retirement" "_ai_tools_relabel__retire_raw_project_rules not defined by ${LIB}"
+    skip "the tree walk" "_ai_tools_relabel__relabel_tree not defined by ${LIB}"
 fi
 
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────
@@ -447,14 +517,13 @@ else
     [[ -z "${got}" && ${rc} -eq 0 ]] && pass "a store that cannot be listed yields no rule and no failure" \
         || fail "unlistable store: rc ${rc}, output '${got}'"
 
-    # The config unlabel drops the rule under both encodings, as the project unlabel does: a host labelled before paths
-    # were escaped holds the raw rule beside the escaped one, and a rule left names a type the module unload removes.
+    # The config unlabel drops the rule under the escaped encoding the label writes.
     CALLS=""; semanage() { CALLS+="$*"$'\n'; return 0; }
     ai_tools_relabel__is_available() { return 0; }
     restorecon() { return 0; }
     ai_tools_relabel__unlabel_operator_conf '/home/some.user/.config/ai-tools'
-    if [[ "${CALLS}" == 'fcontext -d -f a -- /home/some\.user/\.config/ai-tools(/.*)?'$'\n''fcontext -d -f a -- /home/some.user/.config/ai-tools(/.*)?'$'\n' ]]; then
-        pass "the config unlabel drops the escaped rule and the raw one an earlier label wrote"
+    if [[ "${CALLS}" == 'fcontext -d -f a -- /home/some\.user/\.config/ai-tools(/.*)?'$'\n' ]]; then
+        pass "the config unlabel drops the escaped rule alone"
     else
         fail "config unlabel calls: ${CALLS//$'\n'/ | }"
     fi
@@ -655,143 +724,11 @@ if declare -F ai_tools_relabel__label_agent_paths >/dev/null 2>&1; then
     outcome_is ok     0 3 0 "the entrypoint is not installed but the config directory took its type"
     outcome_is ok     0 0 3 "the config directory is absent but the entrypoint took its type"
     outcome_is failed 1 1 3 "a real failure outranks a path that is not installed"
-    outcome_is live-session 0 0 4 "the config directory's walk was left while a session ran"
-    outcome_is live-session 0 3 4 "the entrypoint is not installed and the config directory's walk was left"
-    outcome_is failed 1 1 4 "a real failure outranks a walk left while a session ran"
-    outcome_is live-session-mislabelled 0 0 5 "the walk was left over a config directory at another type"
-    outcome_is failed 1 1 5 "a real failure outranks a walk left over a directory at another type"
 
     unset -f _ai_tools_relabel__is_entrypoint_policy_active ai_tools_providers__list_enabled_agents \
              _ai_tools_relabel__label_agent_entrypoint _ai_tools_relabel__label_agent_config_dir
 else
     skip "per-agent labelling outcome" "ai_tools_relabel__label_agent_paths not defined by ${LIB}"
-fi
-
-# ── The live-session gate ────────────────────────────────────────────────────────────────────
-# A recursive relabel of a tree the sandbox account can write walks only while no process of that account is live
-# (cli.rule.md, ref-section-e6c6). Each gated function is driven with the state reader stubbed to `live`
-# and to `unreadable` and must return 3 with no semanage or restorecon call, and with `none` must run as before.
-# The writers record into a file, so a call made from a command substitution is still seen. The per-path entrypoint
-# label is not a walk and keeps running.
-section "relabel: a recursive relabel walks only while no session is live (unit)"
-if declare -F _ai_tools_relabel__require_no_live_session >/dev/null 2>&1; then
-    GATE_CALLS="${TESTDIR}/gate-calls"
-    restorecon() { printf 'restorecon %s\n' "$*" >> "${GATE_CALLS}"; }
-    semanage()   { printf 'semanage %s\n'   "$*" >> "${GATE_CALLS}"; }
-    ai_tools_relabel__is_available()        { return 0; }
-    ai_tools_relabel__is_project_labelled() { return 0; }
-    ai_tools_providers__list_integrations_declaring() { :; }
-    ai_tools_sessions__read_live_session_state() { printf '%s\n' "${stub_session_state}"; }
-
-    # gated_is <state> <expected-status> <what> <command...> -- run the command under the stubbed state and assert its
-    # status, and that a refusal reached no writer.
-    gated_is() {
-        local state="$1" expected="$2" what="$3" status=0; shift 3
-        : > "${GATE_CALLS}"
-        stub_session_state="${state}"
-        "$@" >/dev/null 2>&1 || status=$?
-        if (( expected == 3 )); then
-            if [[ "${status}" -eq 3 && ! -s "${GATE_CALLS}" ]]; then
-                pass "${what} with the reader at ${state}: status 3, no semanage or restorecon call"
-            else
-                fail "${what} with the reader at ${state}: status ${status}, calls: $(tr '\n' '|' < "${GATE_CALLS}")"
-            fi
-        elif [[ "${status}" -eq "${expected}" && -s "${GATE_CALLS}" ]]; then
-            pass "${what} with the reader at ${state}: runs (status ${status})"
-        else
-            fail "${what} with the reader at ${state}: status ${status}, calls: $(tr '\n' '|' < "${GATE_CALLS}")"
-        fi
-    }
-
-    for state in live unreadable; do
-        gated_is "${state}" 3 "ai_tools_relabel__label_project"   ai_tools_relabel__label_project /home/op/proj
-        gated_is "${state}" 3 "ai_tools_relabel__unlabel_project" ai_tools_relabel__unlabel_project /home/op/proj
-    done
-    gated_is none 0 "ai_tools_relabel__label_project"   ai_tools_relabel__label_project /home/op/proj
-    gated_is none 0 "ai_tools_relabel__unlabel_project" ai_tools_relabel__unlabel_project /home/op/proj
-
-    # The config directory: a name under the control-plane home that exists on every installed host stands in for one,
-    # with the manifest reader, the validator, the rule writer and the verify stubbed. The per-agent outcome section
-    # stubbed and then unset the config half, so its definition is read back out of the library.
-    eval "$(extract_function "${LIB}" _ai_tools_relabel__label_agent_config_dir)"
-    ai_tools_providers__read_agent_manifest_field() {
-        case "$2" in config_dir) printf 'bin' ;; *) : ;; esac
-    }
-    ai_tools_control_plane__is_agent_config_dir_valid() { return 0; }
-    _ai_tools_relabel__register_fcontext() { return 0; }
-    # The real verify, kept under a second name before the stub replaces it, since redefining a function discards
-    # the original.
-    eval "gate_real_verify_label() $(declare -f _ai_tools_relabel__verify_label | tail -n +2)"
-    _ai_tools_relabel__verify_label() { restorecon -F "$1"; printf 'ok %s\n' "$1"; }
-    if [[ -d "${CP_HOME:-/opt/ai-tools}/bin" ]]; then
-        # The directory's own type decides the status the left walk returns, read through a stubbed type reader: 4
-        # where it already carries the config type, 5 where it carries another, which ai-tools-relabel-agent files
-        # as a fault.
-        eval "gate_real_read_live_type() $(declare -f _ai_tools_relabel__read_live_type | tail -n +2)"
-        for state in live unreadable; do
-            for stub_live_type in "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}" usr_t; do
-                _ai_tools_relabel__read_live_type() { printf '%s\n' "${stub_live_type}"; }
-                want_status=4; [[ "${stub_live_type}" == usr_t ]] && want_status=5
-                : > "${GATE_CALLS}"; stub_session_state="${state}"; status=0
-                line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
-                if [[ "${status}" -eq "${want_status}" && "${line}" == "live acme ${stub_live_type} its config directory" \
-                        && ! -s "${GATE_CALLS}" ]]; then
-                    pass "the config-directory walk with the reader at ${state} over ${stub_live_type}: status ${want_status}, a live line naming the type, no restorecon call"
-                else
-                    fail "the config-directory walk with the reader at ${state} over ${stub_live_type}: status ${status}, '${line}', calls: $(tr '\n' '|' < "${GATE_CALLS}")"
-                fi
-            done
-        done
-        eval "_ai_tools_relabel__read_live_type() $(declare -f gate_real_read_live_type | tail -n +2)"
-        : > "${GATE_CALLS}"; stub_session_state=none; status=0
-        line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
-        if [[ "${status}" -eq 0 ]] && grep -q -- '^restorecon -FR ' "${GATE_CALLS}"; then
-            pass "the config-directory walk with the reader at none: runs restorecon -FR"
-        else
-            fail "the config-directory walk with the reader at none: status ${status}, calls: $(tr '\n' '|' < "${GATE_CALLS}")"
-        fi
-
-        _ai_tools_relabel__is_entrypoint_policy_active() { return 0; }
-        for state in live unreadable; do
-            gated_is "${state}" 3 "the config half of ai_tools_relabel__unlabel_agent_paths" \
-                ai_tools_relabel__unlabel_agent_paths acme
-        done
-        gated_is none 0 "the config half of ai_tools_relabel__unlabel_agent_paths" \
-            ai_tools_relabel__unlabel_agent_paths acme
-        unset -f _ai_tools_relabel__is_entrypoint_policy_active
-    else
-        skip "the config-directory gate" "no ${CP_HOME:-/opt/ai-tools}/bin to stand in for a config directory"
-    fi
-    eval "_ai_tools_relabel__verify_label() $(declare -f gate_real_verify_label | tail -n +2)"
-
-    # The per-path entrypoint label is not a walk: it runs whatever the reader says.
-    : > "${GATE_CALLS}"; stub_session_state=live
-    _ai_tools_relabel__verify_label /opt/ai-tools/fixture-entrypoint ai_tools_exec_t >/dev/null || true
-    if grep -qx 'restorecon -F /opt/ai-tools/fixture-entrypoint' "${GATE_CALLS}"; then
-        pass "the per-path entrypoint label runs with the reader at live"
-    else
-        fail "the per-path entrypoint label did not run with the reader at live: $(tr '\n' '|' < "${GATE_CALLS}")"
-    fi
-
-    # A reader that does not load reads as a live session: a copy of the library with no sessions.lib.sh beside it.
-    mkdir -p "${TESTDIR}/no-sessions"
-    cp "${LIB}" "${TESTDIR}/no-sessions/relabel.lib.sh"
-    # shellcheck disable=SC2016  # $1 is the inner shell's positional
-    status=0; bash -c 'source "$1" 2>/dev/null; _ai_tools_relabel__require_no_live_session' _ \
-        "${TESTDIR}/no-sessions/relabel.lib.sh" || status=$?
-    if [[ "${status}" -eq 3 ]]; then
-        pass "a sessions.lib.sh that does not load reads as a live session (status 3)"
-    else
-        fail "a sessions.lib.sh that does not load returned ${status}, not 3"
-    fi
-
-    unset -f restorecon semanage ai_tools_relabel__is_available ai_tools_relabel__is_project_labelled \
-             ai_tools_providers__list_integrations_declaring \
-             ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
-             _ai_tools_relabel__register_fcontext gate_real_verify_label
-    ai_tools_sessions__read_live_session_state() { printf 'none\n'; }
-else
-    skip "the live-session gate" "_ai_tools_relabel__require_no_live_session not defined by ${LIB}"
 fi
 
 # ── The read-only live-label report ──────────────────────────────────────────────────────────
@@ -921,8 +858,8 @@ if [[ ! -x "${RELABEL_BIN}" ]]; then
 elif [[ "${EUID}" -ne 0 ]]; then
     skip "relabel allowlist gate" "needs root (the helper refuses a non-root caller first)"
 elif ! command -v getenforce >/dev/null 2>&1 || [[ "$(getenforce 2>/dev/null)" == Disabled ]]; then
-    # The helper reports "SELinux inactive" and exits 0 BEFORE the gate, so there is no state to assert here
-    # on a DAC-only host.
+    # The helper reports that this host has no label to apply and exits 5 BEFORE the gate, so there is no state
+    # to assert here on a DAC-only host.
     skip "relabel allowlist gate" "SELinux inactive -- the helper exits before the gate"
 else
     mktestdir
@@ -935,6 +872,147 @@ else
         fail "the helper did not refuse an unlisted path (rc=${rc}): ${out}"
     fi
     assert_msg MSG-P8J7 "${out}" "the unlisted-path refusal is the one reported"
+fi
+
+# ── The helper's `--remove` form ─────────────────────────────────────────────────────────────
+# A revert may name a tree a removal has deleted, so `--remove` resolves its path with `realpath -m` and a label keeps
+# `realpath -e`; the resolved path must be absolute and free of `.` and `..` components before the protected-paths
+# backstop reads it, and the library then drops the rules without a walk. The helper runs as root over the policy store,
+# so the arg resolution is read from its text: the checkout's where this file runs from one, the deployed copy
+# otherwise.
+section "relabel: the helper's --remove form resolves a path that may be gone (unit)"
+relabel_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
+[[ -r "${relabel_helper}" ]] || relabel_helper=/usr/local/libexec/ai-tools/ai-tools-relabel
+# shellcheck disable=SC2016  # the single-quoted patterns are the helper's text, matched literally
+if [[ ! -r "${relabel_helper}" ]]; then
+    skip "the --remove form" "no readable ai-tools-relabel"
+else
+    resolve_block="$(sed -n '/^if \${remove}; then$/,/^fi$/p' "${relabel_helper}" | head -n 12)"
+    if grep -qF 'realpath -m -- "${target}"' <<<"${resolve_block}" \
+            && grep -qF 'realpath -e -- "${target}"' <<<"${resolve_block}"; then
+        pass "--remove resolves with realpath -m and a label with realpath -e"
+    else
+        fail "the helper's path resolution does not split -m for --remove and -e for a label: ${resolve_block//$'\n'/ | }"
+    fi
+    if grep -qF '"${dir}" == /*' <<<"${resolve_block}" && grep -qF '*"/./"*' <<<"${resolve_block}" \
+            && grep -qF '*"/../"*' <<<"${resolve_block}"; then
+        pass "--remove holds the resolved path to an absolute path without . or .. components"
+    else
+        fail "the --remove form does not hold its path to an absolute one without . or ..: ${resolve_block//$'\n'/ | }"
+    fi
+    resolve_line="$(grep -n '^if \${remove}; then$' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
+    backstop_line="$(grep -n 'ai_tools_safe_paths__assert_safe_target "\${dir}"' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
+    if [[ -n "${resolve_line}" && -n "${backstop_line}" ]] && (( resolve_line < backstop_line )); then
+        pass "the protected-paths backstop reads the path after it is resolved"
+    else
+        fail "the backstop does not follow the resolution (resolve line '${resolve_line}', backstop line '${backstop_line}')"
+    fi
+
+    # The library returns 3 where no name stands at the path once the rules are dropped. The helper reads whether a name
+    # stood there at its own start, ahead of the lock wait and the library call, and report_revert_status reads 3
+    # as success only where none did. The function is driven out of the helper's text with its emitters stubbed.
+    presence_line="$(grep -n '^root_present_at_start=false$' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
+    lock_line="$(grep -n '^ai_tools_relabel__lock$' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
+    if [[ -n "${presence_line}" && -n "${lock_line}" ]] && (( presence_line < lock_line )); then
+        pass "--remove reads whether a name stands at the path ahead of the lock wait and the revert"
+    else
+        fail "the presence read does not precede the lock (presence line '${presence_line}', lock line '${lock_line}')"
+    fi
+    # A separate presence read after the directory check would record a tree moved away between the two as absent,
+    # and its later 3 as success: the check reads the value the presence read recorded.
+    directory_check="$(grep -n '^\[\[ -d "\${dir}" \]\] ||' "${relabel_helper}" | head -n 1)"
+    if [[ -n "${presence_line}" && "${directory_check%%:*}" =~ ^[0-9]+$ ]] && (( presence_line < ${directory_check%%:*} )) \
+            && [[ "${directory_check}" == *'! ${root_present_at_start}'* ]]; then
+        pass "--remove reads presence once, ahead of the directory check, which reads that value"
+    else
+        fail "the directory check does not follow and read the presence read (presence line '${presence_line}', check '${directory_check}')"
+    fi
+    revert_body="$(extract_function "${relabel_helper}" report_revert_status)"
+    # revert_run <status> <present-at-start> [diagnostics] : report_revert_status <status> over /home/op/proj, with
+    #   [diagnostics] as the walk's; prints both streams and the exit status last, as `exit=<n>`.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    revert_run() {
+        bash -c '
+            set -euo pipefail
+            eval "$1"
+            dir=/home/op/proj root_present_at_start="$3" AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${4:-}"
+            ai_tools_log__structured() { :; }
+            err()  { printf "%s\n" "$@"; }
+            die()  { printf "%s\n" "$@"; exit 1; }
+            exit_walker_unavailable() { exit 6; }
+            report_revert_status "$2"
+        ' _ "${revert_body}" "$1" "$2" "${3:-}" 2>&1 && printf 'exit=0\n' || printf 'exit=%s\n' "$?"
+    }
+    if [[ -z "${revert_body}" ]]; then
+        fail "ai-tools-relabel does not define report_revert_status() in the form this file reads"
+    else
+        # The label's twin: report_label_status over a failure with and without the library's diagnostic.
+        label_body="$(extract_function "${relabel_helper}" report_label_status)"
+        # shellcheck disable=SC2016  # the inner shell expands these, not this one
+        label_run() {
+            bash -c '
+                set -euo pipefail
+                eval "$1"
+                dir=/home/op/proj AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="$3"
+                ai_tools_log__structured() { :; }
+                die()  { printf "%s\n" "$@"; exit 1; }
+                report_label_status "$2"
+            ' _ "${label_body}" "$1" "$2" 2>&1 && printf 'exit=0\n' || printf 'exit=%s\n' "$?"
+        }
+        if [[ -z "${label_body}" ]]; then
+            fail "ai-tools-relabel does not define report_label_status() in the form this file reads"
+        else
+            label_out="$(label_run 1 "failed to restore the file context of /home/op/proj/a: Permission denied")"
+            if [[ "${label_out}" == *"MSG-F8F6"*"failed to label /home/op/proj -- failed to restore the file context of /home/op/proj/a: Permission denied"* \
+                    && "${label_out}" != *"policy module loaded"* && "${label_out}" == *$'\n'"exit=1" ]]; then
+                pass "a label whose walk failed names the path and its error, not the policy remedy"
+            else
+                fail "a label whose walk failed: ${label_out//$'\n'/ | }"
+            fi
+            label_out="$(label_run 1 "")"
+            if [[ "${label_out}" == *"MSG-M2D2"*"is the ai_tools policy module loaded?"* && "${label_out}" == *$'\n'"exit=1" ]]; then
+                pass "control: a label refused at its rule names the policy remedy"
+            else
+                fail "a label refused at its rule: ${label_out//$'\n'/ | }"
+            fi
+        fi
+        revert_out="$(revert_run 3 false)"
+        if [[ "${revert_out}" == *$'\n'"exit=0" && "${revert_out}" != *MSG-* ]]; then
+            pass "control: a revert of a path absent at the helper's start that finds no tree exits 0"
+        else
+            fail "a revert of a path absent at the start: ${revert_out//$'\n'/ | }"
+        fi
+        revert_out="$(revert_run 3 true)"
+        assert_msg MSG-M2A2 "${revert_out}" "a revert whose tree was moved away during it names the move"
+        if [[ "${revert_out}" == *$'\n'"exit=1" ]]; then
+            pass "a revert whose tree stood at the start and was gone at the walk exits 1"
+        else
+            fail "a revert whose tree was moved away during it: ${revert_out//$'\n'/ | }"
+        fi
+        revert_out="$(revert_run 0 true)"
+        if [[ "${revert_out}" == *"reverted /home/op/proj"*$'\n'"exit=0" ]]; then
+            pass "control: a revert that walked the tree exits 0"
+        else
+            fail "a revert that walked the tree: ${revert_out//$'\n'/ | }"
+        fi
+        # A walk that skipped more hardlinked paths than it names: the message carries the walker's bounded list with
+        # its count of the rest, and calls the find a listing of the tree as it is now, not of the walk's set.
+        revert_skipped="skipped hardlinked path /home/op/proj/1 (link count 2, inode 11)"
+        for (( revert_i = 2; revert_i <= 20; revert_i++ )); do
+            revert_skipped+="; skipped hardlinked path /home/op/proj/${revert_i} (link count 2, inode 1${revert_i})"
+        done
+        revert_skipped+="; 6 more hardlinked paths skipped, not listed"
+        revert_out="$(revert_run 4 true "${revert_skipped}")"
+        assert_msg MSG-D2T9 "${revert_out}" "a revert that left 26 hardlinked paths reports them"
+        if [[ "${revert_out}" == *"/home/op/proj/20 "*"6 more hardlinked paths skipped, not listed"* \
+                && "${revert_out}" != *"/home/op/proj/21"* \
+                && "${revert_out}" == *"list the hardlinked files the tree holds now with: find /home/op/proj "* \
+                && "${revert_out}" == *$'\n'"exit=4" ]]; then
+            pass "it names the first 20, counts the other 6, offers the find as a listing of the tree now, and exits 4"
+        else
+            fail "a revert that left 26 hardlinked paths: ${revert_out//$'\n'/ | }"
+        fi
+    fi
 fi
 
 # ── The operator config subtree predicate ────────────────────────────────────────────────────
@@ -990,6 +1068,89 @@ else
     else
         fail "pattern is '${pattern}', expected every dot escaped and a (/.*)? tail"
     fi
+fi
+
+
+# ── The real wrapper over each walker status ─────────────────────────────────────────────────
+# _ai_tools_relabel__relabel_tree runs the walker at a readonly path, so each case sources a copy of the library
+# whose walker path is substituted, in a shell of its own, beside the real library's siblings. With /bin/bash
+# as the walker the wrapper's `<walker> -- <dir>` runs <dir> as a script, so a fixture script stands for the walker's
+# exit status and stderr without an executable fixture; a missing and a non-executable walker path are the two it
+# refuses before running anything. Each case prints the wrapper's status, the skipped count and the diagnostics, one
+# per line, the last absent where the diagnostics are empty.
+section "relabel: the real tree-walk wrapper reads each walker status and the summary line (unit)"
+if grep -q '^readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=' "${LIB}"; then
+    # walker_copy <walker-path> : print the path of a library copy whose walker is <walker-path>.
+    walker_copy() {
+        local dir lib
+        dir="$(mktemp -d "${TESTDIR}/lib-copy.XXXXXX")"
+        for lib in "${LIB%/*}"/*.lib.sh; do ln -s "${lib}" "${dir}/${lib##*/}"; done
+        rm -f "${dir}/relabel.lib.sh"
+        sed "s|^readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=.*|readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=$1|" "${LIB}" \
+            > "${dir}/relabel.lib.sh"
+        printf '%s\n' "${dir}/relabel.lib.sh"
+    }
+    # wrapper_run <copy> <script> : the wrapper's three outputs over <script> as the walked directory.
+    # shellcheck disable=SC2016  # the inner shell expands these
+    wrapper_run() {
+        bash -c 'source "$1" 2>/dev/null; status=0; _ai_tools_relabel__relabel_tree "$2" || status=$?
+                 printf "%s\n%s\n%s\n" "${status}" "$(ai_tools_relabel__get_skipped_hardlink_count)" \
+                     "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"' _ "$1" "$2"
+    }
+    # wrapper_is <why> <script-body> <status> <count> <diagnostics-glob>
+    bash_copy="$(walker_copy /bin/bash)"
+    wrapper_is() {
+        local script out
+        script="$(mktemp "${TESTDIR}/walker.XXXXXX")"
+        printf '%s\n' "$2" > "${script}"
+        out="$(wrapper_run "${bash_copy}" "${script}")"
+        local status count diagnostics
+        { IFS= read -r status; IFS= read -r count; IFS= read -r diagnostics || true; } <<< "${out}"
+        # shellcheck disable=SC2053  # $5 is a glob the case states
+        if [[ "${status}" == "$3" && "${count}" == "$4" && "${diagnostics}" == $5 ]]; then
+            pass "$1: status $3, count $4"
+        else
+            fail "$1: status ${status}, count ${count}, diagnostics '${diagnostics}'"
+        fi
+    }
+    wrapper_is "control: a walk that labelled every entry" 'exit 0' 0 0 ''
+    wrapper_is "a walk that left 25 hardlinked paths, 20 listed" \
+        'for i in $(seq 20); do echo "skipped hardlinked path /p/$i (link count 2)" >&2; done
+         echo "5 more hardlinked paths skipped, not listed" >&2
+         echo "summary hardlinks-left=25 failures=0" >&2; exit 4' \
+        4 25 'skipped hardlinked path /p/1 (link count 2); *; 5 more hardlinked paths skipped, not listed'
+    wrapper_is "a name carrying the summary text, escaped onto one line, is not counted as it" \
+        "echo \"skipped hardlinked path \$'/p/a\\\\x0asummary hardlinks-left=99 failures=0' (link count 2)\" >&2
+         echo 'summary hardlinks-left=1 failures=0' >&2; exit 4" \
+        4 1 "skipped hardlinked path \$'/p/a\\\\x0asummary hardlinks-left=99 failures=0' (link count 2)"
+    wrapper_is "libselinux not loading is a walker that could not run" \
+        'echo "ai-tools-relabel-tree: libselinux.so.1 does not load: x" >&2; exit 3' 6 0 '*libselinux.so.1 does not load*'
+    wrapper_is "a silent exit 3 names libselinux" 'exit 3' 6 0 'libselinux.so.1 did not load'
+    wrapper_is "an entry the walk could not label" \
+        'echo "failed to restore the file context of /p/a: Permission denied" >&2; echo "1 entries not labelled" >&2
+         echo "summary hardlinks-left=0 failures=1" >&2; exit 1' \
+        1 0 'failed to restore the file context of /p/a: Permission denied; 1 entries not labelled'
+    wrapper_is "a walker exiting 1 with no diagnostic is named by its status" 'exit 1' 1 0 \
+        'the walker exited 1 without a diagnostic'
+    wrapper_is "a walker killed by a signal is named by its status" 'kill -KILL $$' 1 0 \
+        'the walker exited 137 without a diagnostic'
+    wrapper_is "a usage refusal is a failed walk" 'exit 2' 1 0 'the walker exited 2 without a diagnostic'
+    for absent_case in missing nonexec; do
+        if [[ "${absent_case}" == missing ]]; then
+            walker_path="${TESTDIR}/no-such-walker"
+        else
+            walker_path="${TESTDIR}/nonexec-walker"; : > "${walker_path}"; chmod 0644 "${walker_path}"
+        fi
+        out="$(wrapper_run "$(walker_copy "${walker_path}")" "${TESTDIR}")"
+        { IFS= read -r status; IFS= read -r _count; IFS= read -r diagnostics || true; } <<< "${out}"
+        if [[ "${status}" == 6 && "${diagnostics}" == "${walker_path} is not installed or not executable" ]]; then
+            pass "a ${absent_case} walker returns 6 and names its path"
+        else
+            fail "a ${absent_case} walker: status ${status}, '${diagnostics}'"
+        fi
+    done
+else
+    skip "the real wrapper" "${LIB} does not hold the walker path in the form this file substitutes"
 fi
 
 finish

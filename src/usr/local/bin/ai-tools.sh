@@ -580,13 +580,6 @@ readonly ANCESTOR_CONFIG_LIB="/usr/local/lib/ai-tools/ancestor-config.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/ancestor-config.lib.sh
 source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
 
-# Live sessions of the sandbox account (sessions.lib.sh): ai-tools-relabel refuses its walk while one runs,
-# and the claim reads the same state unprivileged from the world-readable cgroup files so its Review block names
-# the refusal before the first sudo. Best-effort: the helper's refusal is the decision, so a missing lib costs
-# the notice alone.
-readonly SESSIONS_LIB="/usr/local/lib/ai-tools/sessions.lib.sh"
-# shellcheck source=SCRIPTDIR/../lib/ai-tools/sessions.lib.sh
-source "${SESSIONS_LIB}" 2>/dev/null || true
 
 # Service-health registry (services.lib.sh): the single source `atr status`, the launch wrapper's pre-launch health
 # warning and `atr admin status` share, so no two of them disagree on which units matter, what one is doing,
@@ -1615,17 +1608,18 @@ narrow_acl_entry_scan() {
 # a claimed tree whose SELinux type differs from the one the claim's relabel would apply, and <types-map>
 # with `<type it carries> -> <type the policy gives it>` under each. The expected type is asked of the policy: a dry run
 # of the relabel the claim performs (`restorecon -n -F`, unprivileged, reading the world-readable file contexts).
-# The walk is the relabel's scope (`restorecon -FR`, ai_tools_relabel__label_project): every directory, `.git`
-# and skip-listed names included, crossing mount points. Every walked name without a line feed goes into one
-# non-recursive batch with `-i`, since a path removed after the walk is outside the run's scope; a name holding one goes
-# through ai_tools_project_permissions__check_label on its own, so no record can be a fragment of another
-# (project-permissions.lib.sh). Only a TYPE difference counts: `-F` also reports the SELinux user and the MLS range,
-# and on the file classes the targeted policy constrains the user for create, relabelfrom and relabelto alone,
-# and ai_tools_t does not carry mcs_constrained_type, so a user or category difference on its own does not deny
-# the agent (`seinfo --constrain` and `seinfo -a mcs_constrained_type -x` read both on a host). Owner-only paths
-# and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out. Returns 1, with <detail-var>
-# naming why, when restorecon is absent, the walk or the batch output is not complete, a per-path check reads unknown,
-# or a drifted path's mode cannot be read and the path is not confirmed gone; the drift it did read stays in the arrays.
+# The walk is the relabel's scope, the tree `restorecon -FR` walks, which ai_tools_relabel__label_project labels
+# through ai-tools-relabel-tree: every directory, `.git` and skip-listed names included, crossing mount points. Every
+# walked name without a line feed goes into one non-recursive batch with `-i`, since a path removed after the walk is
+# outside the run's scope; a name holding one goes through ai_tools_project_permissions__check_label on its own, so no
+# record can be a fragment of another (project-permissions.lib.sh). Only a TYPE difference counts: `-F` also reports
+# the SELinux user and the MLS range, and on the file classes the targeted policy constrains the user for create,
+# relabelfrom and relabelto alone, and ai_tools_t does not carry mcs_constrained_type, so a user or category difference
+# on its own does not deny the agent (`seinfo --constrain` and `seinfo -a mcs_constrained_type -x` read both on a host).
+# Owner-only paths and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out. Returns 1,
+# with <detail-var> naming why, when restorecon is absent, the walk or the batch output is not complete, a per-path
+# check reads unknown, or a drifted path's mode cannot be read and the path is not confirmed gone; the drift it did read
+# stays in the arrays.
 label_drift_scan() {
     local dir="$1" work="$2" status=0 path outcome from to excl skip mode incomplete=0 index
     local -n _label_scan_paths="$3" _label_scan_types="$4" _label_scan_detail="$5"
@@ -2092,8 +2086,9 @@ clone_access_ready() {
 # maps (the module not loaded); 0 as well where SELinux is disabled or restorecon is absent, with no walk; 1 otherwise.
 #
 # sandbox_finalize runs it while the clone root is still 0700 and the operator's, ahead of normalize_clone, so no
-# directory inside the clone is the sandbox account's to rename mid-walk and the walk does not take the live-session
-# gate (cli.rule.md, ref-section-e6c6). A resume over a clone already opened does not run a relabel: the first finalize
+# directory inside the clone is the sandbox account's to rename mid-walk. It keeps `restorecon -FR`, run
+# as the operator: the tree walker is root-only, and no component of the 0700 clone is one the account can rename
+# (cli.rule.md, ref-section-e6c6). A resume over a clone already opened does not run a relabel: the first finalize
 # labelled it, before it opened.
 #
 # Where SELinux runs and no ai_tools policy is on the host, ai_tools_project_t does not exist to read the clone
@@ -2149,9 +2144,14 @@ run_lockdown() {
 }
 
 # run_relabel <dir> [--remove]  -- apply (or revert) the SELinux project label on <dir> via the root helper (sudo,
-# password); returns its status, RELABEL_LIVE_SESSION_STATUS where the live-session gate left the tree as it was.
-# The helper parses the path and the optional flag in any order.
-readonly RELABEL_LIVE_SESSION_STATUS=4
+# password); returns its status. The helper parses the path and the optional flag in any order.
+# The helper found no label to apply on this host -- SELinux disabled, or no ai_tools policy installed -- and said why
+# on stderr.
+readonly RELABEL_NOT_APPLICABLE_STATUS=5
+# The revert completed except on the hardlinked paths the helper listed on stderr, which keep their current type.
+readonly RELABEL_PARTIAL_REVERT_STATUS=4
+# The tree walker the helper runs could not start, so no path was reverted; the helper's line says why.
+readonly RELABEL_WALKER_UNAVAILABLE_STATUS=6
 run_relabel() {
     local d="$1"; shift
     # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"), which lands
@@ -2397,8 +2397,12 @@ claim_relabel() {
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
         return 0
     fi
-    if run_relabel "${d}"; then
+    local relabel_status=0
+    run_relabel "${d}" || relabel_status=$?
+    if (( relabel_status == 0 )); then
         say "    SELinux label: ai_tools_project_t applied"
+    elif (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+        say "    SELinux label: not applicable on this host (the helper's line above says why)"
     else
         warn "could not apply the SELinux label -- run it by hand:"
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
@@ -3539,19 +3543,6 @@ cmd_project_claim() {
         say "      ${C_DIM}which one above it is not${C_RST}"
     }
 
-    # The reading ai-tools-relabel refuses its walk on, made here as the operator so the Review block names a live
-    # session ahead of the verb's first sudo; it does not ask anything, and the helper's refusal is what decides. It
-    # shows for a drift relabel too, which the operator may then decline, and on `live` alone: why `unreadable` is left
-    # to the helper's refusal is cli.rule.md's (ref-section-e6c6).
-    note_live_session() {
-        ${need_label} || (( ${#label_drift[@]} )) || return 0
-        declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
-        [[ "$(ai_tools_sessions__read_live_session_state)" == live ]] || return 0
-        headline_warn "NOTICE: a process of the sandbox account is running" \
-            "An agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live. The SELinux label step walks the tree as root, and the helper refuses that step while one is live, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
-        say "      ${C_BOLD}atr stop${C_RST}"
-    }
-
     skip_listed_note() {
         (( ${#drift_skipped[@]} )) || return 0
         headline_warn "NOTICE: drift under skip-listed directories" \
@@ -3790,7 +3781,6 @@ cmd_project_claim() {
     skip_listed_note
     sealed_setgid_note
     ancestor_config_note
-    note_live_session
 
     # The files listed here are the step's whole reason; the walk it runs covers the tree. An owner's chmod g+x
     # over entries written rwx does not show here, so the step does not reset a deliberate one on every re-claim.
@@ -4364,26 +4354,37 @@ resolve_verb_target() {
 # `projects enable`, `projects handback` and ai-tools-unclaim each refusing a path the registry no longer names.
 # Best-effort except for the allowlist line: every other step warns and the pass goes on, while a drop that did not
 # apply refuses (unreg_allow) and a disable that did not apply returns 1 without the ✓, since either leaves a session
-# able to start here. A label reversal that did not apply,
-# or that the live-session gate refused, returns 1 without the ✓ as well, after the registry reversal (cli.rule.md,
-# ref-section-m5n5).
+# able to start here. A label reversal that did not apply, or that left hardlinked paths at their type, returns 1
+# without the ✓ as well, after the hand-back and the registry reversal, which run either way (cli.rule.md,
+# ref-section-m5n5): a reversal that did not apply prints the helper's re-run, which acts on a path no entry names.
 unclaim_one() {
     local d="$1" group="$2" hint="$3" retry="$4"; shift 4
-    local stopped=false handback_missing=false label_left=false
+    local stopped=false handback_missing=false label_revert_outcome=""
 
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         local relabel_status=0
         run_relabel "${d}" --remove || relabel_status=$?
-        if (( relabel_status != 0 )); then
-            label_left=true
-            warn "could not revert the SELinux label -- run it by hand:"
-            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
-            # The gate's refusal came after sudo authenticated, so the steps after it are attempted without asking.
-            (( relabel_status == RELABEL_LIVE_SESSION_STATUS )) || note_root_failure || stopped=true
-        else
+        if (( relabel_status == 0 )); then
             say "    SELinux label: reverted"
+        elif (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+            say "    SELinux label: not applicable on this host (the helper's line above says why)"
+        elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
+            # The helper ran past sudo and names what it left, with the command that lists it, so the steps after it are
+            # attempted without asking.
+            label_revert_outcome=partial
+            warn "the SELinux label was reverted except on hardlinked paths, which keep their current type -- the helper's line above names up to 20 and counts the rest"
+        elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
+            # Past sudo as well, and no path was walked: the re-run reverts the tree once the helper's cause is cleared.
+            label_revert_outcome=reverting
+            warn "the SELinux label was not reverted: the tree walker could not run (the helper's line above says why) -- once that is resolved, run:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
+        else
+            label_revert_outcome=reverting
+            warn "could not revert the SELinux label -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
+            note_root_failure || stopped=true
         fi
     fi
 
@@ -4456,7 +4457,15 @@ unclaim_one() {
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
-    if ${label_left}; then
+    if [[ "${label_revert_outcome}" == partial ]]; then
+        headline_warn "WARNING: the SELinux label was not reverted on every path" \
+            "${d} is ${entry_word}, so no session can launch there. The hardlinked paths keep their current type: through another name each may belong to another tree, so the walk does not write them. The helper's line above names up to 20, and its find command lists the hardlinked files the tree holds now."
+        ai_tools_log__structured warning \
+            "unclaimed ${d} (registries dropped; SELinux label NOT reverted on hardlinked paths)" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
+        return 1
+    fi
+    if [[ -n "${label_revert_outcome}" ]]; then
         headline_warn "WARNING: the SELinux label was not reverted" \
             "${d} is ${entry_word}, so no session can launch there. It still carries the type the agent reads and writes. The command above reverts it."
         ai_tools_log__structured warning \
@@ -4868,6 +4877,66 @@ get_covering_entry() {
     [[ "${CLASS_ENCLOSING_STATE}" != enabled || "${CLASS_BLOCKED}" != - ]] || printf '%s' "${CLASS_ENCLOSING}"
 }
 
+# How many hardlinked files a removal's inventory prints a command for; the count of the rest is stated beside them.
+readonly REMOVE_HARDLINKS_LISTED=20
+
+# read_hardlink_inventory <dir>  -- print `<inode> <mount>` once per hardlinked non-directory under <dir>, read as
+# the acting owner through run_as_owner, sorted, and `other-device` once where an entry sits on another device than
+# <dir>, a mount inside the tree, whose mount point this read does not name; returns non-zero where part of the tree was
+# not read. The inode and the device are find's own `-printf` reading of each entry, made inside the directory find
+# opened, so a directory the agent swaps for a symlink during the read does not substitute another file; the mount is
+# read once, from <dir>. find does not follow a symlink, and git is not run: the tree's names are the agent's to choose,
+# and its .git/config the agent's to write (cli.rule.md, ref-section-k3v7). A removal reads it ahead of the deletion,
+# since once the tree is gone the inode and the mount are what find the file's other names.
+read_hardlink_inventory() {
+    local root_identity root_device root_mount listing line status=0
+    root_identity="$(run_as_owner stat -c '%d %m' -- "$1" 2>/dev/null)" || return 1
+    root_device="${root_identity%% *}" root_mount="${root_identity#* }"
+    listing="$(run_as_owner find "$1" ! -type d -links +1 -printf '%D %i\n' 2>/dev/null)" || status=$?
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        if [[ "${line%% *}" == "${root_device}" ]]; then
+            printf '%s %s\n' "${line#* }" "${root_mount}"
+        else
+            printf 'other-device\n'
+        fi
+    done <<< "${listing}" | LC_ALL=C sort -u
+    return "${status}"
+}
+
+# report_hardlink_inventory <find-status> <listing>  -- after a removal's deletion, print one `sudo find <mount> -xdev
+# -inum <inode> -ls` for each of the first REMOVE_HARDLINKS_LISTED files of read_hardlink_inventory's <listing>,
+# under one warning stating how many files the tree held and that the type of their other names is the operator's
+# to decide. A <find-status> other than 0, or a line that does not read as an inode and an absolute mount, adds
+# that the read was incomplete, and a read that was incomplete and listed no file is its own warning. Prints nothing
+# where the listing is empty and the read complete.
+report_hardlink_inventory() {
+    local find_status="$1" listing="$2" line inode mount total=0 incomplete=false
+    local -a commands=()
+    [[ "${find_status}" == 0 ]] || incomplete=true
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        inode="${line%% *}" mount="${line#* }"
+        if [[ ! "${inode}" =~ ^[0-9]+$ || "${mount}" != /* ]]; then incomplete=true; continue; fi
+        total=$(( total + 1 ))
+        if (( total <= REMOVE_HARDLINKS_LISTED )); then
+            commands+=("      sudo find $(_quote_path "${mount}") -xdev -inum ${inode} -ls")
+        fi
+    done <<< "${listing}"
+    if (( total == 0 )); then
+        ${incomplete} || return 0
+        warn MSG-Y7P8 "the read of the tree's hardlinked files before the deletion did not complete, so this removal does not list the other names of a file it did not reach; those names keep the SELinux type they carry, and the type they take is yours to decide"
+        return 0
+    fi
+    local listed_clause="" incomplete_clause=""
+    if (( total > REMOVE_HARDLINKS_LISTED )); then listed_clause=", for the first ${REMOVE_HARDLINKS_LISTED} of them"; fi
+    if ${incomplete}; then
+        incomplete_clause=" -- the read of the tree before the deletion did not complete, so a file it did not reach is not counted"
+    fi
+    warn MSG-S6J8 "before the deletion the tree held ${total} hardlinked file(s); each one's names outside the tree keep the SELinux type they carry, and the type those names take is yours to decide -- each command below lists the other names of one file${listed_clause}${incomplete_clause}" \
+        "${commands[@]}"
+}
+
 # die_remove_incomplete <dir> <kind> <own-entry> <label-outcome> [<covering-entry>]  -- report a removal whose deletion
 # left paths under <dir>, and die. The warning states what the run verified: what became of <kind>'s own registry entry,
 # a session already running keeps what it holds until it ends, and the files left keep their group grant, since
@@ -4879,22 +4948,26 @@ get_covering_entry() {
 # the step ran and its helper returned success, which does not read the type the tree carries, since a rule
 # on an ancestor of the project keeps the project type through the step; `failed` says it did not complete,
 # and that the relabel command the failed step printed still applies, since `ai-tools-relabel --remove` does not read
-# the registry the removal has already changed; `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type
-# comes from the policy's file contexts) does not name a label. Any other value is a caller error. The remedy is
-# the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
+# the registry the removal has already changed; `partial` says the step left the hardlinked paths its helper listed;
+# `unwalked` says the step dropped the rules and its walker could not run, so the paths left keep their type; `skipped`
+# (SELinux off, no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name
+# a label. Any other value is a caller error. The remedy is the deletion run_as_owner ran, the path in bash's `%q`
+# encoding, named as the target's under `--for`.
 die_remove_incomplete() {
-    local d="$1" kind="$2" own_entry="$3" label_outcome="$4" covering_entry="${5-}" entry_clause label_clause
+    local d="$1" kind="$2" own_entry="$3" label_revert_outcome="$4" covering_entry="${5-}" entry_clause label_clause
     local covering_clause=""
     case "${own_entry}" in
         removed) entry_clause="the ${kind}'s own registry entry is removed and no longer authorizes a launch there" ;;
         none)    entry_clause="the ${kind} had no registry entry of its own" ;;
         *)       die "die_remove_incomplete: unknown own-entry state: ${own_entry}" ;;
     esac
-    case "${label_outcome}" in
+    case "${label_revert_outcome}" in
         completed) label_clause="; the SELinux label step completed" ;;
         failed)    label_clause="; the SELinux label step did not complete, and the relabel command printed above still applies" ;;
+        partial)   label_clause="; the SELinux label step left the hardlinked paths its helper listed at their current type, which their other names keep" ;;
+        unwalked)  label_clause="; the SELinux label step did not walk the tree, so the paths left keep their current type, as do the other names of its hardlinked files" ;;
         skipped)   label_clause="" ;;
-        *)         die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
+        *)         die "die_remove_incomplete: unknown label outcome: ${label_revert_outcome}" ;;
     esac
     [[ -z "${covering_entry}" ]] \
         || covering_clause=" -- the entry for ${covering_entry} still authorizes a launch there"
@@ -5050,37 +5123,57 @@ cmd_project_remove() {
     # ── Apply: registries first, deletion last. ──
     headline "Removing the project" "${d}"
     # A failed cleanup step asks once (note_root_failure) and does not stop the removal: the registries drop regardless,
-    # and `ai-tools projects` reports what is left behind. The live-session gate's refusal stops it instead,
-    # before either registry changes: a label reversal left for later cannot be applied to a path this run deletes
-    # (cli.rule.md, ref-section-k3v7). The label step stays ahead of the registry step, since ai-tools-relabel resolves
-    # membership from the entry, so a de-list that does not apply (MSG-K8S2) leaves a registered project whose label is
-    # reverted, which the listing reports and `projects claim` restores. The registry step precedes
-    # the safe.directory step, so that refusal leaves the trust entry in place.
-    local cleanup_stopped=false label_outcome=skipped
+    # and `ai-tools projects` reports what is left behind (cli.rule.md, ref-section-k3v7). The label step stays ahead
+    # of the registry step, since ai-tools-relabel resolves membership from the entry, so a de-list that does not apply
+    # (MSG-K8S2) leaves a registered project whose label is reverted, which the listing reports and `projects claim`
+    # restores. The registry step precedes the safe.directory step, so that refusal leaves the trust entry in place.
+    local cleanup_stopped=false label_revert_outcome=skipped inventory_read=false inventory_status=0 inventory=""
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         local relabel_status=0
         run_relabel "${d}" --remove || relabel_status=$?
-        if (( relabel_status == RELABEL_LIVE_SESSION_STATUS )); then
-            say  "    let each session end (/exit inside it) and the toolchain update finish, or end them all"
-            say  "    with ${C_BOLD}atr stop${C_RST}, then re-run the removal; the project is left as it was"
-            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session, the toolchain update, or a step run as the sandbox account may be live"
+        if (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+            say "    SELinux label: not applicable on this host (the helper's line above says why)"
+        elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
+            # The helper ran past sudo, so the step is counted and the question about the remaining root steps is not
+            # asked: it is about a step that did not apply.
+            label_revert_outcome=partial
+            warn "the SELinux label was reverted except on hardlinked paths (the helper's line above names up to 20 and counts the rest); the deletion removes their names in this tree, and a hardlinked path's other names outside it keep its current type"
+            ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
+        elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
+            # Past sudo as well: the rules are dropped and no path was walked. A re-run of the revert after the deletion
+            # does not reach any name the tree held, so none is printed; report_hardlink_inventory names the files
+            # whose other names stand outside it.
+            label_revert_outcome=unwalked
+            warn "the SELinux label was not reverted: the tree walker could not run (the helper's line above says why); the deletion removes the tree's names, and a hardlinked path's other names outside it keep its current type"
+            ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
         elif (( relabel_status != 0 )); then
-            label_outcome=failed
+            label_revert_outcome=failed
             warn "could not revert the SELinux label -- run it by hand:"
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
             note_root_failure || cleanup_stopped=true
         else
-            label_outcome=completed
+            label_revert_outcome=completed
             say "    SELinux label: reverted"
         fi
+    fi
+    # A revert that did not complete -- it left hardlinked paths, did not walk, or failed -- leaves each hardlinked
+    # file's names outside the tree at their type. Their inode and mount are read while the tree stands, since
+    # after the deletion they are what finds those names.
+    if [[ "${label_revert_outcome}" == partial || "${label_revert_outcome}" == unwalked \
+            || "${label_revert_outcome}" == failed ]]; then
+        inventory_read=true
+        inventory="$(read_hardlink_inventory "${d}")" || inventory_status=$?
     fi
     unreg_allow "${d}"
     ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
 
-    if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then
-        die_remove_incomplete "${d}" project removed "${label_outcome}" "${covering_entry}"
+    local deletion_complete=true
+    if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then deletion_complete=false; fi
+    if ${inventory_read}; then report_hardlink_inventory "${inventory_status}" "${inventory}"; fi
+    if ! ${deletion_complete}; then
+        die_remove_incomplete "${d}" project removed "${label_revert_outcome}" "${covering_entry}"
     fi
 
     say ""
@@ -5092,9 +5185,9 @@ cmd_project_remove() {
     # by stating both facts and exits non-zero, which is also what lets a script tell the two apart.
     if (( ROOT_STEP_FAILURES )); then
         warn MSG-S6V2 "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run"
-        say  "  Each is named above with the command that completes it. Registry entries left"
-        say  "  behind now point at a path that no longer exists; this lists every entry that"
-        say  "  needs attention, across all your projects:"
+        say  "  Each is named above, with what it left. Registry entries left behind now point"
+        say  "  at a path that no longer exists; this lists every entry that needs attention,"
+        say  "  across all your projects:"
         say  ""
         say  "      ${C_BOLD}$(format_projects_command "" "")${C_RST}"
         ai_tools_log__structured warning \
@@ -6288,34 +6381,24 @@ status_entrypoint_label() {
         # One reason is read rather than only printed: `incomplete-package` (written by ai-tools-relabel-agent) says
         # the executable the manifest declares is not installed, which no relabel can supply -- so naming the relabel
         # as the retry would send the operator around the loop this report exists to end. The package is what has to be
-        # reinstalled, and the provisioning command is what does it. `live-session` on a failure is a config directory
-        # the walk left at a type the agent cannot write, which the next run with no session labels.
+        # reinstalled, and the provisioning command is what does it. Every other reason, one an earlier release wrote
+        # among them, takes the relabel retry.
         failed)  printf '  %-28s %sNOT LABELLED%s %s(%s%s)%s\n' "" "${C_RED}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${reason:+, ${reason}}" "${C_RST}"
                  if [[ "${reason}" == incomplete-package ]]; then
                      say "      this agent's package does not hold the executable its manifest declares, so there is"
                      say "      nothing to label and no session of it starts; reinstall the package:"
                      say "      ${C_BOLD}atr admin system bootstrap${C_RST} ${C_DIM}(its output names an install that did not complete)${C_RST}"
-                 elif [[ "${reason}" == live-session ]]; then
-                     say "      its config directory was not labelled while a process of the sandbox account was"
-                     say "      live, or its sessions could not be read, and carries a type the agent cannot write;"
-                     say "      once none is live: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  else
                      say "      the last reconciliation could not apply this agent's labels; the label its"
                      say "      entrypoint carries now is read by: ${C_BOLD}atr admin status${C_RST}"
                      say "      retry: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
                  fi
                  return 1 ;;
-        # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet -- or the config
-        # directory's walk left while a process of the sandbox account was live, over a directory an earlier run
-        # labelled. None is a fault, so none is coloured or counted; the last names the run that completes it.
+        # Nothing to label: a DAC-only host, or an agent the toolchain has not provisioned yet. Neither is a fault,
+        # so neither is coloured or counted.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
-                     "${reason:-nothing to label}" "${C_RST}"
-                 if [[ "${reason}" == live-session ]]; then
-                     say "      ${C_DIM}the config directory was not relabelled while a process of the sandbox account was${C_RST}"
-                     say "      ${C_DIM}live, or its sessions could not be read; once none is live:${C_RST}"
-                     say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
-                 fi ;;
+                     "${reason:-nothing to label}" "${C_RST}" ;;
         # No record at all: this host has not run a reconciliation since the record was introduced, or the state
         # directory is unreadable from this account. It says only that, and never counts against the exit status --
         # the same rule the unqueryable units follow.

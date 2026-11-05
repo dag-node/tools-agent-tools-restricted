@@ -195,7 +195,12 @@ _b2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:[a-z_]+_port_t:' | gre
 # Category 3: other-domain /proc reads (dev="proc", tcontext not ai_tools_t).
 _b3="$(printf '%s\n' "${LINES}" | grep -E 'dev="proc"' | grep -Ev 'tcontext=[^ ]*:ai_tools_t:' || true)"
 
-boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" | sort -u | grep -v '^$' || true)"
+# Category 4: avc-denials.sh WLK-001's own FIFO, by the name the probe gives it -- the create of a FIFO of the domain's
+# type, or the filesystem associate its label needs. Any other denial on either keeps its own bucket.
+_b4="$(printf '%s\n' "${LINES}" | grep -E 'name="\.avc-denials-ownfifo-[0-9]+"' \
+  | grep -E 'denied  \{ create \} .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=fifo_file|denied  \{ associate \} .*scontext=[^ ]*:ai_tools_t:[^ ]* .*tclass=filesystem' || true)"
+
+boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" | sort -u | grep -v '^$' || true)"
 
 # Group-disabled set: lines hitting a GROUP_DISABLED_RE type, MINUS anything already claimed by boundary (boundary wins,
 # so each line lands in one bucket -- e.g. a /proc read of NetworkManager_t stays boundary, its D-Bus chat is group).

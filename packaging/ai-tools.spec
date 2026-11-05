@@ -127,6 +127,10 @@ Summary:        SELinux confinement policy for the ai-tools sandbox
 License:        GPL-2.0-or-later
 Requires:       ai-tools-base = %{version}-%{release}
 Requires(post): policycoreutils
+# The tree relabel ai-tools-base ships loads libselinux.so.1 through ctypes, which rpm's dependency generator does not
+# read. Base runs DAC-only without it, and the walker exits 3 there only when a label is asked for, which the helper
+# reports.
+Requires:       libselinux
 Requires(post): libselinux-utils
 Requires(postun): policycoreutils
 
@@ -325,6 +329,7 @@ for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
     install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
 install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexecdir}/ai-tools-handback
+install -m 0750 src%{ai_libexecdir}/ai-tools-relabel-tree.py %{buildroot}%{ai_libexecdir}/ai-tools-relabel-tree
 
 # ai-tools-admin is typed by an administrator (documented as a bare command) and is the one
 # base helper that is not daemon- or sudoers-invoked by fixed path, so it gets a symlink in
@@ -1601,6 +1606,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-unclaim
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-lockdown
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel-tree
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-safedir
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-reclaim
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-allowlist
@@ -1882,7 +1888,7 @@ fi
   unclaim's or a removal's revert, an agent config directory, the install-time restores -- runs only
   while no process of that account is live, since a live one could redirect a walk by path. While
   one is, the step is refused before any write and names 'atr stop' and the re-run: a claim applies
-  its other steps and exits 1, a removal stops with the tree as it was (MSG-H8V6, MSG-S3B9).
+  its other steps and exits 1, a removal stops with the tree as it was (MSG-H8V6, MSG-S3B9).%{?ref_index_marker:ref-index: ignore}
 - SECURITY: A claimed file gives the agent what its owner has: a read-only file stays read-only and
   a text file is not executable to it. Before, a file created in the clone area claimed as
   executable, and a read-only one as writable. A re-claim lists the files an earlier claim granted

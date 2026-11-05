@@ -243,11 +243,11 @@ else
     fail "a non-stale mark changed the rendering (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
-# ── (5b) A config directory the live-session gate left at another type is a counted fault ── The labelling record
-# ai-tools-relabel-agent files for that state is `failed` with the `live-session` reason, and the label line must count
-# it and name the service start that completes it; the same reason under `skipped`, a directory already at its type, is
-# the control that is shown and not counted. status_entrypoint_label takes the agent, so it is driven through a call
-# of its own.
+# ── (5b) A failed labelling record with a reason the report does not read is a counted fault ── Every reason
+# but `incomplete-package` renders through the generic branch, which counts the failure and names the service start
+# that re-runs the labelling; `live-session` is the reason an earlier release wrote, so a host upgraded over such
+# a record reads it there. The same reason under `skipped` is the control that is shown and not counted.
+# status_entrypoint_label takes the agent, so it is driven through a call of its own.
 #
 # The call sources entrypoint-verify.lib.sh after the CLI, as status_entrypoint_pins does before it calls the label
 # line: the CLI loads that library inside status_entrypoint_pins alone, and status_entrypoint_label reports its
@@ -281,18 +281,18 @@ else
     label_record alpha skipped live-session
     rc=0; out="$(call_label alpha)" || rc=$?
     if [[ "${rc}" -eq 0 ]] && grep -q 'not labelled (live-session)' <<<"${out}"; then
-        pass "a walk left over a directory at its type is shown and not counted (the control for the case below)"
+        pass "a skipped record with a reason is shown and not counted (the control for the case below)"
     else
         fail "a skipped live-session record (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
     fi
     label_record alpha failed live-session
     rc=0; out="$(call_label alpha)" || rc=$?
     if [[ "${rc}" -ne 0 ]] && grep -q 'NOT LABELLED' <<<"${out}"; then
-        pass "a walk left over a directory at another type is a counted fault"
+        pass "a failed record with an unread reason is a counted fault"
     else
         fail "a failed live-session record was not counted (rc ${rc}): $(head -c 300 <<<"${out}" | tr '\n' '|')"
     fi
-    says "that fault names the service start that completes it" 'systemctl start ai-tools-relabel\.service' "${out}"
+    says "that fault names the generic retry" 'retry: sudo systemctl start ai-tools-relabel\.service' "${out}"
 fi
 rm -f "${LABELS}"/*
 

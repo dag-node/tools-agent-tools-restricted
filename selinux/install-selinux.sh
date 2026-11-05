@@ -592,16 +592,6 @@ _restore_account_tree_labels() {
         _left_trees+=("$1")
     fi
 }
-# _record_left_agent_config <agent>: record <agent>'s config directory for the closing warning, after the library left
-# its walk (a `live` line, or status 3 from the unlabel). The path is the manifest's config_dir under CP_HOME, the one
-# the library walks; an agent whose manifest does not name one is warned about by name alone.
-_record_left_agent_config() {
-    local config_dir
-    warn MSG-S7C2 "left the label on ${1}'s config directory as it was -- the closing warning names the walk to run"
-    config_dir="$(ai_tools_providers__read_agent_manifest_field "$1" config_dir 2>/dev/null || true)"
-    [[ -n "${config_dir}" ]] && _left_trees+=("${CP_HOME}/${config_dir}")
-    return 0
-}
 # _warn_left_trees: the run's EXIT trap, so a run that ends in a die still names what it left.
 _warn_left_trees() {
     (( ${#_left_trees[@]} )) || return 0
@@ -654,7 +644,10 @@ _labels_drop() {
         rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
         case "${rc}" in
             0) ;;
-            3) _record_left_agent_config "${agent}" ;;
+            4) _report_skipped_walk_entries "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ;;
+            6) _warn_walker_unavailable "${agent}'s config directory" ;;
+            # The rules are dropped and the walk over the config directory could not label an entry.
+            5) warn MSG-B8Q9 "dropped the file-context rules for ${agent}; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
             *) log "  ${agent}: no file-context rules to drop" ;;
         esac
     done
@@ -745,8 +738,7 @@ source "${OPERATOR_LIB}" 2>/dev/null \
 # the report in the installer's voice. It is agent-agnostic: the paths come from the manifests
 # under /usr/local/lib/ai-tools/agents.d.
 verify_agent_labels() {
-    local report="" status=0 verdict subject detail wanted bad=0 labelled=0
-    local -A live_types=()
+    local report="" status=0 verdict subject detail wanted bad=0 labelled=0 agent_config_dir
     report="$(ai_tools_relabel__label_agent_paths)" || status=$?
     if [[ "${status}" -eq 2 ]]; then
         warn MSG-Y9V3 "SELinux or the ai_tools module is not active -- no agent paths to label"
@@ -793,21 +785,17 @@ verify_agent_labels() {
                       warn "    -- and no installed file matches the entrypoint its manifest declares"
                       warn "    Reinstall it: atr admin system bootstrap" ;;
                 none) warn MSG-S4K9 "no path to label for ${subject}: ${detail} is not installed" ;;
-                # The config directory's walk was left because a process of the sandbox account is live. Not `bad`:
-                # the rule is registered, and the closing warning names the walk that completes it. The type
-                # the directory carries is kept for the agent's closing line.
-                live) live_types["${subject}"]="${detail}"
-                      _record_left_agent_config "${subject}" ;;
+                # The config directory's walk completed and left hardlinked paths at their type. Not `bad`: every other
+                # entry took the type, and the paths are listed for review.
+                partial) agent_config_dir="${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${subject}" config_dir 2>/dev/null || true)"
+                      warn MSG-A5V5 "the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${agent_config_dir} -not -type d -links +1" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
-                # so `failed` prints, naming the agent those lines omit, and so does a config directory a live session
-                # left at a type the agent cannot write. That one is not `bad` either: the rule and the policy are
-                # in place, and the closing left-trees warning names the restorecon that labels the directory.
+                # so `failed` prints, naming the agent those lines omit.
                 agent)
                     if [[ "${detail}" == failed ]]; then
+                        bad=1
                         warn MSG-E6C4 "labelling did not complete for ${subject} -- see its lines above"
-                    elif [[ "${detail}" == live-session-mislabelled ]]; then
-                        warn MSG-T7X3 "the config directory of ${subject} carries ${live_types[${subject}]:-an unreadable type}, a type the agent cannot write, so no session of ${subject} can write its state until the walk the closing warning names runs"
                     fi ;;
                 # A verdict this renderer does not know is REPORTED, not dropped. Silently ignoring one turns
                 # a labelling result into no output at all, which reads as "no change" for the one path whose label
@@ -882,22 +870,41 @@ _restore_home_state_labels() {
 # belt-and-suspenders. Re-asserts the label on every registered project each run. The relabel is idempotent (restorecon
 # writes only a file whose context differs), so a clean tree costs a walk and no writes; a file that drifted
 # in with a foreign context -- a customizable type a plain restorecon would preserve -- is forced back
-# to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep. A status of 3 is the library's
-# live-session gate (relabel.lib.sh): the project was left as it was.
-_label_project()   { local rc=0; ai_tools_relabel__label_project "$1" || rc=$?
-                 case "${rc}" in
-                     0) ok "labelled project ai_tools_project_t: $1" ;;
-                     3) _warn_live_session "$1" ;;
-                     *) warn MSG-S5E4 "could not label $1 -- is the ai_tools module loaded?" ;;
-                 esac; }
-_unlabel_project() { local rc=0; ai_tools_relabel__unlabel_project "$1" || rc=$?
-                 case "${rc}" in
-                     0) ;;
-                     3) _warn_live_session "$1" ;;
-                     *) warn MSG-W8J4 "could not unlabel $1" ;;
-                 esac; }
-_warn_live_session() {
-    warn MSG-E9S6 "left the label on $1 as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run this command"
+# to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep. A status of 4 is a walk that completed
+# and left hardlinked paths at their type, and 6 a walk that could not start; an unlabel's 3 is a registered path
+# with no tree at it, whose rules are dropped.
+_label_project() {
+    local rc=0
+    ai_tools_relabel__label_project "$1" || rc=$?
+    case "${rc}" in
+        0) ok "labelled project ai_tools_project_t: $1" ;;
+        4) ok "labelled project ai_tools_project_t: $1"
+           _report_skipped_walk_entries "$1" ;;
+        6) _warn_walker_unavailable "$1" ;;
+        *) warn MSG-S5E4 "could not label $1 -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-is the ai_tools module loaded?}" ;;
+    esac
+}
+_unlabel_project() {
+    local rc=0
+    ai_tools_relabel__unlabel_project "$1" || rc=$?
+    case "${rc}" in
+        0) ;;
+        # The registry names a project whose tree is gone: its rules are dropped, and there is no tree to walk.
+        3) ;;
+        4) _report_skipped_walk_entries "$1" ;;
+        6) _warn_walker_unavailable "$1" ;;
+        *) warn MSG-W8J4 "could not unlabel $1" ;;
+    esac
+}
+# _report_skipped_walk_entries <dir>: the walk over <dir> completed and left the hardlinked paths the tree walker lists
+# in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS at the type they carry, since through another name a path may be another tree's.
+_report_skipped_walk_entries() {
+    log "  the walk over $1 left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}"
+}
+# _warn_walker_unavailable <dir>: the walk over <dir> did not start, because the tree walker or the selinux module it
+# imports is not installed.
+_warn_walker_unavailable() {
+    warn MSG-G6X4 "left the labels on $1 as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then re-run this command"
 }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --
@@ -1170,9 +1177,10 @@ case "${ACTION}" in
 
   remove)
     section "Removing SELinux confinement"
-    # Refused before the first store write while the reading is not `none`: the project unlabel leaves a project's rule
-    # in place under the gate, and the unload refuses on any local rule naming a type it removes. The sweep
-    # after the registry walks drops the rules they do not derive, for the same reason.
+    # Refused before the first store write while the reading is not `none`: a process of the account live at the unload
+    # would run on in a domain the policy no longer defines, and the restores after it walk the account's trees by path.
+    # The unload refuses on any local rule naming a type it removes, so the sweep after the registry walks drops
+    # the rules they do not derive.
     [[ "${_sandbox_session_state}" == none ]] \
         || die MSG-H7Q2 "left the policy loaded: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run: sudo $0 remove"
     log "dropping project fcontext rules"

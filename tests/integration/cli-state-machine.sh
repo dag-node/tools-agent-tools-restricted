@@ -273,6 +273,24 @@ while IFS='|' read -r verb state path extra code want_rc change helper; do
     check "${verb} x ${state}" "${code}" "${want_rc}" "${change}" "${helper}"
 done <<< "${TABLE}"
 
+# A directory inside a disabled project with no line of its own: the `%` line covers it, so a claim there is refused
+# naming the enable of the enclosing project, and does not register a nested project under it.
+reset; before="$(digest)"
+IFS=$'\t' read -r got _ _ enclosing_state blocked _ _ <<< "$(ai_tools_conf__read_registry_path_class "${AL}" "${R}/P/sub")"
+if [[ "${got}" == inside && "${enclosing_state}" == disabled && "${blocked}" != - ]]; then
+    pass "setup: P/sub reads inside a disabled project, its % line blocking it"
+else
+    fail "setup: P/sub reads ${got}/${enclosing_state}/${blocked}"
+fi
+cli_cmd ai-tools.projects.claim
+rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/P/sub")" || rc=$?
+check "claim inside a disabled project" MSG-R8C7 1 same -
+if [[ "${out}" == *"projects enable ${R}/P"* ]]; then
+    pass "that refusal names the enable of the enclosing project"
+else
+    fail "that refusal does not name projects enable ${R}/P: $(awk 'NF' <<<"${out}" | tail -n 4 | tr '\n' '~')"
+fi
+
 # ── A disabled project under another '%' line ───────────────────────────────────────────────────────
 # The covering line is read before the re-enable is offered: a claim of B/pb answered yes on a terminal is refused
 # with its '%' standing, the question not asked, since the line on B refuses the claim whatever the answer.

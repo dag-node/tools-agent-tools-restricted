@@ -319,5 +319,5 @@ Known, bounded, and not built:
   what](#who-may-stop-what)).
 - **A launch/stop gate.** A session launched after the final sweep is outside the window; closing that needs
   the launcher to take the same lock. It would also serialize concurrent stops, whose current cost is duplicate audit
-  events rather than a wrong result, and the recursive relabels, whose live-session gate has the same window
+  events rather than a wrong result, and the install-time restores, whose live-session gate has the same window
   ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)).

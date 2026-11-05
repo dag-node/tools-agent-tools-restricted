@@ -368,6 +368,8 @@ err_has() { grep -qF -- "$1" "${R}/.stderr"; }
 # out_has_text <text>: the row's captured output holds <text>.
 out_has_text() { grep -qF -- "$1" <<< "${out}"; }
 out_lacks_text() { ! out_has_text "$1"; }
+# out_has_line <line>: one line of the row's captured output is <line> whole -- a message code, a printed command.
+out_has_line() { grep -qxF -- "$1" <<< "${out}"; }
 # out_line_has_text <a> <b>: one line of the output carries both texts.
 out_line_has_text() { grep -F -- "$1" <<< "${out}" | grep -qF -- "$2"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
@@ -590,8 +592,36 @@ drive_rows() {
     expect "the page went to stderr"                                  err_has "Claim project"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/ph"
     expect "the same claim on the page exits 4"                       rc_is 4
+    # The label step's statuses. A getenforce reporting SELinux enforcing makes the label a pending step on a claimed
+    # tree with no other step pending; the stubbed relabel helper exits with each status the CLI reads. 0 applies it,
+    # 5 is a host with no label to apply and leaves the claim clean, and 1 and 6 leave the step pending at exit 1.
+    local claim_selinux_on="${R}/selinux-on-bin"
+    mkdir -p "${claim_selinux_on}"
+    printf '#!/bin/sh\necho Enforcing\n' > "${claim_selinux_on}/getenforce"
+    chmod 0755 "${claim_selinux_on}" "${claim_selinux_on}/getenforce"
+    claimed_fixture "${R}/pl"; rm -f "${R}/pl/moved-in.txt"
+    RUN_EXTRA_ENV=(PATH="${claim_selinux_on}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ ${R}/pl"; seed_gc "${R}/pl"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+    expect "control: the label step reaches the relabel helper"       cli_called ai-tools-relabel "${R}/pl$"
+    expect "control: the relabel helper exiting 0 leaves the claim at 0" rc_is 0
+    cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
+    drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+    expect "the relabel helper exiting 5 leaves the claim at 0"       rc_is 0
+    expect "the claim names the label not applicable on this host"    out_has_text "SELinux label: not applicable on this host"
+    local claim_status
+    for claim_status in 1 6; do
+        cli_stub_reset; cli_stub_fail_status ai-tools-relabel "${claim_status}"
+        drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "the relabel helper exiting ${claim_status} leaves the label pending, exit 1" rc_is 1
+        expect "the relabel helper exiting ${claim_status} is not read as not applicable" \
+            out_lacks_text "not applicable on this host"
+    done
+    RUN_EXTRA_ENV=()
     # A secret-named path in a drift list is marked, read with the operator's patterns -- here a fixture set
-    # through the classifier's own file override -- and a plain path beside it is not.
+    # through the classifier's own file override -- and a plain path beside it is not. A drift list is a re-claim's,
+    # and the label rows above seeded the registry with pl alone, so ph is listed again first.
+    seed "@ ${R}/ph"; seed_gc "${R}/ph"
     printf '*.pem\n' > "${R}/secret-patterns"; chmod 0644 "${R}/secret-patterns"
     : > "${R}/ph/deploy.pem"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/ph/deploy.pem"; chmod 0640 "${R}/ph/deploy.pem"
     RUN_EXTRA_ENV=(AI_TOOLS_SECRET_PATTERNS_FILE="${R}/secret-patterns")
@@ -927,10 +957,9 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "$(f full)" "${R}/pd"
     expect "unclaim --full asks the helper for the skipped trees"     cli_called ai-tools-unclaim "^${R}/pd${T}[^${T}]+${T}$(f full)$"
 
-    # A label reversal the live-session gate refused: the hand-back and the registry reversal still apply,
-    # and the unclaim ends non-zero without its ✓. The rows run with a getenforce that reports SELinux enforcing,
-    # so the CLI reaches the relabel step, and the stubbed helper exits with the gate's status; the same unclaim
-    # with the helper succeeding is the control.
+    # The label reversal's statuses. The rows run with a getenforce that reports SELinux enforcing, so the CLI reaches
+    # the relabel step, and the stubbed helper exits with each status the CLI reads; the same unclaim with the helper
+    # succeeding is the control.
     local selinux_on="${R}/selinux-on-bin"
     mkdir -p "${selinux_on}" "${R}/pe"
     printf '#!/bin/sh\necho Enforcing\n' > "${selinux_on}/getenforce"
@@ -940,9 +969,28 @@ drive_rows() {
     seed "@ ${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "control: with SELinux on, unclaim reverts the label and exits 0" rc_is 0
     expect "the label reversal reaches the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${R}/pe$"
-    seed "@ ${R}/pe"; cli_stub_fail_status ai-tools-relabel 4
+    # 5: no label to apply on this host, so the unclaim is complete; 4: the revert left hardlinked paths,
+    # which the helper lists; 6: the tree walker could not run, so no path was reverted and the helper's re-run is
+    # printed. Each of 4 and 6 ends the unclaim non-zero after the hand-back and the registry reversal.
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
     drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
-    expect "an unclaim whose label reversal the gate refused exits non-zero" rc_not0
+    expect "an unclaim whose relabel helper exits 5 exits 0"          rc_is 0
+    expect "that unclaim names the label not applicable on this host" out_has_text "SELinux label: not applicable on this host"
+    expect "that unclaim hands the tree back"                         cli_called ai-tools-unclaim "^${R}/pe${T}"
+    expect "that unclaim drops the entry"                             st_is "${R}/pe" absent
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "an unclaim whose revert left hardlinked paths exits non-zero" rc_not0
+    expect "that unclaim says the label was not reverted on every path" out_has_text "was not reverted on every path"
+    expect "that unclaim does not print a revert to run"              out_lacks_text "ai-tools-relabel --remove"
+    expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
+    expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "an unclaim whose tree walker could not run exits non-zero" rc_not0
+    expect "that unclaim says the walker could not run"               out_has_text "the tree walker could not run"
+    expect "that unclaim prints the helper's re-run"                  out_has_text "ai-tools-relabel --remove ${R}/pe"
+    expect "that unclaim does not read as a partial revert"           out_lacks_text "was not reverted on every path"
     expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
     expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
     RUN_EXTRA_ENV=()
@@ -1002,9 +1050,9 @@ drive_rows() {
 
     # ── E. Remove ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.remove.inplace"
-    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp/nested"
-    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp"
-    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rm4" "@ ${R}/rmp" "@ ${R}/rmp/nested"
+    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp"
+    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rmp" "@ ${R}/rmp/nested"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -1036,15 +1084,67 @@ drive_rows() {
     expect "remove refuses an entry containing another claimed project" rc_not0
     expect "the containing tree stands"                               test -d "${R}/rmp/nested"
     expect "that refusal reaches no helper"                           cli_log_empty
-    # The live-session gate's refusal of the label reversal stops the removal before either registry changes, since
-    # the helper cannot revert a path the removal deleted. SELinux reported enforcing, as in the unclaim rows.
+    # The label reversal's statuses, with SELinux reported enforcing as in the unclaim rows.
     RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
-    cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    # 5: no label to apply on this host, so the removal completes; 4: the revert left hardlinked paths, 6: the tree
+    # walker could not run, and 1: the revert failed, each a cleanup step the removal counts while it deletes the tree.
+    # The trees for 4, 6 and 1 each hold a file with a second name outside them, which the removal reads
+    # before the deletion and names after it by inode and mount; rm4n, status 4 over a tree with no hardlink, is
+    # the control.
+    mkdir -p "${R}/rm5" "${R}/rm4" "${R}/rm6" "${R}/rm1h" "${R}/rm4n" "${R}/rm-outside"
+    local tree_kind
+    local -A expected_inventory_find=()
+    for tree_kind in rm4 rm6 rm1h; do
+        printf 'linked\n' > "${R}/${tree_kind}/linked"
+        ln "${R}/${tree_kind}/linked" "${R}/rm-outside/${tree_kind}-linked"
+        expected_inventory_find[${tree_kind}]="      sudo find $(LC_ALL=C printf '%q' "$(stat -c %m -- "${R}/${tree_kind}")") -xdev -inum $(stat -c %i -- "${R}/${tree_kind}/linked") -ls"
+    done
+    printf 'plain\n' > "${R}/rm4n/plain"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm5" "${R}/rm4" "${R}/rm6" "${R}/rm1h" "${R}/rm4n" "${R}/rm-outside"
+    expect "setup: the trees for 4, 6 and 1 each hold a file whose second name is outside them" \
+        test "$(stat -c %h -- "${R}/rm4/linked")" -eq 2 -a "$(stat -c %h -- "${R}/rm6/linked")" -eq 2 \
+             -a "$(stat -c %h -- "${R}/rm1h/linked")" -eq 2 -a "$(stat -c %h -- "${R}/rm4n/plain")" -eq 1
+    seed "@ ${R}/rm5"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm5"
+    expect "a removal whose relabel helper exits 5 exits 0"           rc_is 0
+    expect "that removal names the label not applicable on this host" out_has_text "SELinux label: not applicable on this host"
+    expect "that removal deletes the tree"                            test ! -e "${R}/rm5"
+    expect "that removal drops the entry"                             st_is "${R}/rm5" absent
+    seed "@ ${R}/rm4"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4"
-    expect "a removal whose label reversal the gate refused exits non-zero" rc_not0
-    expect "that removal leaves the tree"                             test -d "${R}/rm4"
-    expect "that removal leaves the entry"                            st_is "${R}/rm4" enabled
-    expect "that removal leaves safe.directory alone"                 not_called ai-tools-safedir
+    expect "a removal whose revert left hardlinked paths exits non-zero" rc_not0
+    expect "that removal names the paths' other names"                out_has_text "a hardlinked path's other names outside it keep its current type"
+    expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
+    expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm4]}"
+    expect "that removal does not print a revert to re-run"           out_lacks_text "ai-tools-relabel --remove"
+    expect "that removal still deletes the tree"                      test ! -e "${R}/rm4"
+    expect "that removal drops the entry"                             st_is "${R}/rm4" absent
+    expect "the file's name outside the tree stands"                  test -f "${R}/rm-outside/rm4-linked"
+    seed "@ ${R}/rm4n"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4n"
+    expect "control: a removal at 4 over a tree with no hardlink exits non-zero" rc_not0
+    expect "control: that removal prints no inventory"                out_lacks_text "MSG-S6J8"
+    expect "control: that removal prints no find by inode"            out_lacks_text "-xdev -inum"
+    expect "control: that removal deletes the tree"                   test ! -e "${R}/rm4n"
+    seed "@ ${R}/rm6"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm6"
+    expect "a removal whose tree walker could not run exits non-zero" rc_not0
+    expect "that removal says the walker could not run"               out_has_text "the tree walker could not run"
+    expect "that removal does not print a revert to re-run"           out_lacks_text "ai-tools-relabel --remove"
+    expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
+    expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm6]}"
+    expect "that removal still deletes the tree"                      test ! -e "${R}/rm6"
+    expect "that removal drops the entry"                             st_is "${R}/rm6" absent
+    # A walk that skipped a hardlink and also failed on an entry exits 1, and a removal reads the failure as a revert
+    # that did not complete: the inventory names the file, beside the re-run the failed step prints.
+    seed "@ ${R}/rm1h"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 1
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm1h"
+    expect "a removal whose revert failed exits non-zero"             rc_not0
+    expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
+    expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm1h]}"
+    expect "that removal still prints the re-run for the rules the step left" out_has_text "ai-tools-relabel --remove ${R}/rm1h"
+    expect "that removal still deletes the tree"                      test ! -e "${R}/rm1h"
+    expect "that removal drops the entry"                             st_is "${R}/rm1h" absent
     RUN_EXTRA_ENV=()
 
     # ── F. Enable and disable ─────────────────────────────────────────────────────────

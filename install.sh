@@ -1074,6 +1074,7 @@ do_summary() {
     _chk /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
     _chk /usr/local/libexec/ai-tools/ai-tools-lockdown
     _chk /usr/local/libexec/ai-tools/ai-tools-relabel
+    _chk /usr/local/libexec/ai-tools/ai-tools-relabel-tree
     _chk /usr/local/libexec/ai-tools/ai-tools-relabel-agent
     _chk /usr/local/libexec/ai-tools/ai-tools-bootstrap
     _chk /usr/local/libexec/ai-tools/ai-tools-admin
@@ -2169,6 +2170,13 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel.sh" \
         /usr/local/libexec/ai-tools/ai-tools-relabel
+
+    # Descriptor-pinned tree relabel. 750 root:root -- run AS root by the relabel helpers over a tree the sandbox
+    # account can write; never by ai-tools. No placeholders.
+    log "/usr/local/libexec/ai-tools/ai-tools-relabel-tree"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel-tree.py" \
+        /usr/local/libexec/ai-tools/ai-tools-relabel-tree
 
     # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the ai-tools-relabel.path
     # watcher after a Node upgrade, and on demand by `atr admin system entrypoints relabel`; never by ai-tools. No
