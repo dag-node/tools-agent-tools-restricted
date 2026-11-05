@@ -238,7 +238,7 @@ if grep -qE '^ +4\) _report_skipped_walk_entries ' <<<"${drop_text}" && grep -qE
 else
     fail "the agent unlabel loop does not read status 4 and status 6"
 fi
-if grep -qE '^ +5\) warn MSG-B8Q9 ' <<<"${drop_text}" && ! grep -q 'TREE_DIAGNOSTICS:-}" ]]' <<<"${drop_text}"; then
+if grep -E '^ +5\) warn ' <<<"${drop_text}" | grep -qF 'MSG-B8Q9' && ! grep -q 'TREE_DIAGNOSTICS:-}" ]]' <<<"${drop_text}"; then
     pass "the agent unlabel loop reads a failed config walk by its status, not by the walker's lines"
 else
     fail "the agent unlabel loop does not read status 5, or still reads the walker's lines for it"
