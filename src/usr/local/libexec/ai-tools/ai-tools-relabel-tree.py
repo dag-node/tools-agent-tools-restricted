@@ -9,7 +9,10 @@
 # <dir> is one absolute path, taken as given: the caller has canonicalized it. The walker opens it O_PATH|O_NOFOLLOW
 # and exits 1 unless `/proc/self/fd/<fd>` reads back as the same path, so a symlink swapped into an ancestor the account
 # can write (a project nested under another) is not followed. A root that is not a directory exits 1 as well: the caller
-# read it as a directory when it canonicalized it, so a file or a symlink there was placed after that read.
+# read it as a directory when it canonicalized it, so a file or a symlink there was placed after that read. After
+# the walk it reads `/proc/self/fd/<fd>` again, and a name other than <dir>, a ` (deleted)` suffix among them, is
+# reported with both names and exits 1. A walk therefore exits 0 only where <dir> named the walked tree from the open
+# through the end of the walk; the walk ends at that read, so a rename after it is not a race on the walk.
 #
 # Every entry under it is opened O_PATH|O_NOFOLLOW relative to its parent's listing descriptor and typed with fstat,
 # and its label is read, written and read back through `/proc/self/fd/<fd>`, so a rename or a planted symlink after
@@ -34,8 +37,8 @@
 #
 # Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked paths left; 1 an entry could not
 # be labelled (the first named on stderr, then the count), a read-back differing from the write (which ends the walk),
-# or the root check; each of the three past the root check ends stderr with one `summary hardlinks-left=<n>
-# failures=<n>` line. stderr names at most the first 20 hardlinked paths, then how many it did not list, so its size
+# a root check, or a root that moved during the walk, whatever the walk's own result; each of these past the opening
+# root check ends stderr with one `summary hardlinks-left=<n> failures=<n>` line. stderr names at most the first 20 hardlinked paths, then how many it did not list, so its size
 # does not grow with the tree; a caller reads the counts from the summary line, which no escaped path can begin, since
 # the escaping leaves no newline in a path; 2 usage; 3 libselinux.so.1 does not load or lacks a function the lookup
 # calls. A real run prints nothing on stdout. `--dry-run` writes nothing and prints `<path> <from> <to>` for each entry
@@ -289,6 +292,16 @@ def relabel_tree(root, lookup, xattr, opener, report, dry_run=False):
             completed = run.relabel_descendants(root, root_fd, root_stat)
         else:
             completed = False
+        root_moved = None
+        try:
+            closing = opener.readlink(_get_proc_fd_path(root_fd))
+        except OSError as error:
+            root_moved = 'failed to read the root %s again after the walk: %s' % (
+                format_shell_quoted(root), _format_error(error))
+        else:
+            if closing != root:
+                root_moved = 'the root %s moved during the walk: the walked tree is now %s' % (
+                    format_shell_quoted(root), format_shell_quoted(closing))
     finally:
         opener.close(root_fd)
     if run.hardlinks_left > _HARDLINKS_LISTED:
@@ -303,6 +316,9 @@ def relabel_tree(root, lookup, xattr, opener, report, dry_run=False):
         status = 1
     elif run.hardlinks_left:
         status = 4
+    if root_moved is not None:
+        report('error', root_moved)
+        status = 1
     if status:
         report('error', 'summary hardlinks-left=%d failures=%d' % (run.hardlinks_left, run.failures))
     return status

@@ -9,6 +9,7 @@ import errno
 import importlib.util
 import io
 import os
+import shutil
 import stat
 import sys
 import types
@@ -270,6 +271,66 @@ def main():
           inode_of_path(swap + '/sub.aside/b.txt') in written
           and inode_of_path(os.path.join(outside, 'dir', 'inside.txt')) not in written
           and not any(path.endswith('/inside.txt') for path, _mode in lookup.calls))
+
+    # ── A root moved during the walk ── RootMovingXattr runs a move at the first write to a chosen inode, as the swap rows
+    # do: the walk goes on in the tree it opened, and its closing read of /proc/self/fd/<root fd> names where that tree
+    # is now.
+    class RootMovingXattr(FakeXattr):
+        def __init__(self, moves):
+            super().__init__()
+            self.moves, self.moved = moves, []
+
+        def set(self, link, value):
+            key = inode_of_link(link)
+            if key in self.moves and key not in self.moved:
+                self.moved.append(key)
+                self.moves[key]()
+            super().set(link, value)
+
+    moving = build_tree('moving', hardlinks=False)
+    moving_aside = moving + '-aside'
+    moving_root_inode, moving_file_inode = inode_of_path(moving), inode_of_path(moving + '/sub/b.txt')
+
+    def move_root_aside_and_plant():
+        os.rename(moving, moving_aside)
+        os.makedirs(moving + '/sub')
+        with open(moving + '/sub/planted.txt', 'w') as handle:
+            handle.write('planted')
+    xattr, reports = RootMovingXattr({moving_root_inode: move_root_aside_and_plant}), Reports()
+    rc = walker.relabel_tree(moving, FakeLookup(), xattr, walker.OS_FILE_OPERATIONS, reports)
+    check('setup: the root was renamed aside and a new tree stands at its name',
+          xattr.moved == [moving_root_inode] and os.path.isdir(moving_aside + '/sub')
+          and os.path.isfile(moving + '/sub/planted.txt') and inode_of_path(moving) != moving_root_inode)
+    check('a root renamed aside during the walk exits 1, naming both names, the summary last (rc=%d, %r)'
+          % (rc, reports.errors()),
+          rc == 1 and reports.errors() == ['the root %s moved during the walk: the walked tree is now %s'
+                                           % (moving, moving_aside), 'summary hardlinks-left=0 failures=0'])
+    planted_keys = {inode_of_path(moving), inode_of_path(moving + '/sub'), inode_of_path(moving + '/sub/planted.txt')}
+    check('the walk writes the moved tree and does not reach the tree now at the name',
+          xattr.written(moving_aside + '/sub/b.txt') == [WANTED.encode()]
+          and inode_of_path(moving_aside + '/sub/b.txt') == moving_file_inode
+          and not planted_keys & ({key for key, _value in xattr.writes} | set(xattr.reads)))
+
+    deleting = build_tree('deleting', hardlinks=False)
+    xattr, reports = RootMovingXattr({inode_of_path(deleting): lambda: shutil.rmtree(deleting)}), Reports()
+    rc = walker.relabel_tree(deleting, FakeLookup(), xattr, walker.OS_FILE_OPERATIONS, reports)
+    moved_lines = [line for line in reports.errors() if line.startswith('the root %s moved during the walk' % deleting)]
+    check('setup: the root was deleted during the walk', not os.path.lexists(deleting))
+    check('a root deleted during the walk exits 1 and names the (deleted) name (rc=%d, %r)' % (rc, reports.errors()),
+          rc == 1 and len(moved_lines) == 1 and "(deleted)'" in moved_lines[0]
+          and reports.errors()[-2:] == [moved_lines[0], reports.errors()[-1]]
+          and reports.errors()[-1].startswith('summary hardlinks-left=0 failures='))
+
+    returning = build_tree('returning', hardlinks=False)
+    returning_aside = returning + '-aside'
+    xattr, reports = RootMovingXattr({inode_of_path(returning): lambda: os.rename(returning, returning_aside),
+                                      inode_of_path(returning + '/sub/b.txt'):
+                                          lambda: os.rename(returning_aside, returning)}), Reports()
+    rc = walker.relabel_tree(returning, FakeLookup(), xattr, walker.OS_FILE_OPERATIONS, reports)
+    check('setup: the root was renamed aside and back during the walk',
+          len(xattr.moved) == 2 and os.path.isdir(returning) and not os.path.lexists(returning_aside))
+    check('control: a root renamed aside and back before the walk ends exits 0 (rc=%d, %r)' % (rc, reports.errors()),
+          rc == 0 and reports.errors() == [])
 
     # ── The root checks ──
     file_root = os.path.join(BASE, 'file-root')
