@@ -2853,11 +2853,12 @@ require_claimable_owner() {
 
 # require_open_project_root <dir> <root-mode> <has-registry-entry>  -- die when <root-mode>, the owner-side read's mode
 # of the project root, has no group or other bit: ai-tools-setgid and ai-tools-setfacl leave an owner-only path as it is
-# (owner-only.lib.sh), so a claim would register the root and grant the sandbox account no access under it. The mode is
-# the operator's decision and its intent is not readable from it, so neither refusal names a command that changes it.
-# <has-registry-entry> is true for a root a registry line names, whose line the refusal keeps; an empty <root-mode> is a
-# reading the owner could not make and passes. A directory projects create made is named by the refusal, so the create's
-# leftover-directory line, which names a claim, is not printed. The consequence is cli.rule.md's (Claim in place).
+# (owner-only.lib.sh), so a claim would register the root without a grant under it, and the launch gate refuses
+# an owner-only directory whichever account owns it (MSG-H2E2). The mode is the operator's decision and its intent is
+# not readable from it, so neither refusal names a command that changes it. <has-registry-entry> is true for a root
+# a registry line names, whose line the refusal keeps; an empty <root-mode> is a reading the owner could not make
+# and passes. A directory projects create made is named by the refusal, so the create's leftover-directory line,
+# which names a claim, is not printed. The consequence is cli.rule.md's (Claim in place).
 require_open_project_root() {
     local d="$1" mode="$2" has_registry_entry="$3"
     [[ -n "${mode}" ]] && (( ( 8#${mode} & 077 ) == 0 )) || return 0
