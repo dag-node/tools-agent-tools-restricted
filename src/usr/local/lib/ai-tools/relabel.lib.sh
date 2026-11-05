@@ -702,7 +702,10 @@ _ai_tools_relabel__label_agent_config_dir() {
 #     skip  <agent> <reason...>        no rule to apply, a declaration was refused, or the walk
 #                                      over the config directory could not run
 #     partial <agent> <n>              the walk over the config directory completed and left <n>
-#                                      hardlinked paths at their type
+#                                      hardlinked paths under it at their type; the agent's closing
+#                                      line reads ok over it where the declared paths took their
+#                                      type, since a path a label leaves keeps the type it had and
+#                                      grants the agent no access it lacked
 #     agent <agent> <ok|failed|none>   that agent's whole outcome, closing its lines: every path it
 #                                      declares took its type, one of them did not, or neither is
 #                                      installed to label. This is what ai-tools-relabel-agent

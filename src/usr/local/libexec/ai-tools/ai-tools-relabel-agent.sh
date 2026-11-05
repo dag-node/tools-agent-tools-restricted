@@ -395,7 +395,8 @@ render_label_report() {
        ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
        the package is missing the executable a session is meant to exec"
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
-            # The config directory's walk completed and left hardlinked paths at their type; the walker listed them.
+            # The config directory's walk completed and left hardlinked paths at their type; the library's line carries
+            # their count, not their names.
             partial) say "${subject}: ${detail} hardlinked path(s) in its config directory kept their current type"
                    ai_tools_log__warn "${subject}: ${detail} hardlinked path(s) in its config directory not relabelled" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"

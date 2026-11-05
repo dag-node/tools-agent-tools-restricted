@@ -4373,7 +4373,7 @@ unclaim_one() {
             # The helper ran past sudo and names what it left, with the command that lists it, so the steps after it are
             # attempted without asking.
             label_revert_outcome=partial
-            warn "the SELinux label was reverted except on the hardlinked paths the helper's lines above list -- they keep their current type"
+            warn "the SELinux label was reverted except on hardlinked paths, which keep their current type -- the helper's line above names up to 20 and counts the rest"
         elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
             # Past sudo as well, and no path was walked: the re-run reverts the tree once the helper's cause is cleared.
             label_revert_outcome=reverting
@@ -5138,7 +5138,7 @@ cmd_project_remove() {
             # The helper ran past sudo, so the step is counted and the question about the remaining root steps is not
             # asked: it is about a step that did not apply.
             label_revert_outcome=partial
-            warn "the SELinux label was reverted except on the hardlinked paths the helper's lines above list; the deletion removes their names in this tree, and a hardlinked path's other names outside it keep its current type"
+            warn "the SELinux label was reverted except on hardlinked paths (the helper's line above names up to 20 and counts the rest); the deletion removes their names in this tree, and a hardlinked path's other names outside it keep its current type"
             ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
         elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
             # Past sudo as well: the rules are dropped and no path was walked. A re-run of the revert after the deletion

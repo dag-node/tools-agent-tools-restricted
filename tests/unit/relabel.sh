@@ -910,20 +910,20 @@ else
         fail "the directory check does not follow and read the presence read (presence line '${presence_line}', check '${directory_check}')"
     fi
     revert_body="$(extract_function "${relabel_helper}" report_revert_status)"
-    # revert_run <status> <present-at-start> : report_revert_status <status> over /home/op/proj; prints both streams
-    #   and the exit status last, as `exit=<n>`.
+    # revert_run <status> <present-at-start> [diagnostics] : report_revert_status <status> over /home/op/proj, with
+    #   [diagnostics] as the walk's; prints both streams and the exit status last, as `exit=<n>`.
     # shellcheck disable=SC2016  # the inner shell expands these, not this one
     revert_run() {
         bash -c '
             set -euo pipefail
             eval "$1"
-            dir=/home/op/proj root_present_at_start="$3" AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
+            dir=/home/op/proj root_present_at_start="$3" AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${4:-}"
             ai_tools_log__structured() { :; }
             err()  { printf "%s\n" "$@"; }
             die()  { printf "%s\n" "$@"; exit 1; }
             exit_walker_unavailable() { exit 6; }
             report_revert_status "$2"
-        ' _ "${revert_body}" "$1" "$2" 2>&1 && printf 'exit=0\n' || printf 'exit=%s\n' "$?"
+        ' _ "${revert_body}" "$1" "$2" "${3:-}" 2>&1 && printf 'exit=0\n' || printf 'exit=%s\n' "$?"
     }
     if [[ -z "${revert_body}" ]]; then
         fail "ai-tools-relabel does not define report_revert_status() in the form this file reads"
@@ -946,6 +946,23 @@ else
             pass "control: a revert that walked the tree exits 0"
         else
             fail "a revert that walked the tree: ${revert_out//$'\n'/ | }"
+        fi
+        # A walk that skipped more hardlinked paths than it names: the message carries the walker's bounded list with
+        # its count of the rest, and calls the find a listing of the tree as it is now, not of the walk's set.
+        revert_skipped="skipped hardlinked path /home/op/proj/1 (link count 2, inode 11)"
+        for (( revert_i = 2; revert_i <= 20; revert_i++ )); do
+            revert_skipped+="; skipped hardlinked path /home/op/proj/${revert_i} (link count 2, inode 1${revert_i})"
+        done
+        revert_skipped+="; 6 more hardlinked paths skipped, not listed"
+        revert_out="$(revert_run 4 true "${revert_skipped}")"
+        assert_msg MSG-D2T9 "${revert_out}" "a revert that left 26 hardlinked paths reports them"
+        if [[ "${revert_out}" == *"/home/op/proj/20 "*"6 more hardlinked paths skipped, not listed"* \
+                && "${revert_out}" != *"/home/op/proj/21"* \
+                && "${revert_out}" == *"list the hardlinked files the tree holds now with: find /home/op/proj "* \
+                && "${revert_out}" == *$'\n'"exit=4" ]]; then
+            pass "it names the first 20, counts the other 6, offers the find as a listing of the tree now, and exits 4"
+        else
+            fail "a revert that left 26 hardlinked paths: ${revert_out//$'\n'/ | }"
         fi
     fi
 fi

@@ -1589,7 +1589,7 @@ usage: ai\-tools\-relabel [\-\-remove] <dir>
 .TP
 .B MSG-D2T9
 ERROR.
-reverted ${dir} to its default SELinux type except these hardlinked paths, which keep their current type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} \-not \-type d \-links +1
+reverted ${dir} to its default SELinux type except these hardlinked paths, which keep their current type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list the hardlinked files the tree holds now with: find ${quoted_dir} \-not \-type d \-links +1
 .TP
 .B MSG-D6R4
 ERROR.
@@ -1625,7 +1625,7 @@ failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ \
 .TP
 .B MSG-R5F8
 NOTICE.
-labelled ${dir} ai_tools_project_t; ${skipped_hardlink_count} hardlinked path(s) kept their current type; they are listed above
+labelled ${dir} ai_tools_project_t; ${skipped_hardlink_count} hardlinked path(s) kept their current type; the lines above name up to 20 of them
 .TP
 .B MSG-S3E7
 ERROR.

@@ -27,7 +27,7 @@
 #
 # Exits 0 on success, a label that left hardlinked paths at their type included; 5 where this host has no label to apply
 # (SELinux disabled, or no ai_tools policy installed), named on stderr; 4 when a revert left hardlinked paths at their
-# current type, each named; 6 when the tree walker could not run, so no path was walked; 3 on a protected target; and 1
+# current type, the first 20 named with the count of the rest; 6 when the tree walker could not run, so no path was walked; 3 on a protected target; and 1
 # on every other refusal or failure, restorecon missing while SELinux is enabled and a tree moved or deleted
 # during a revert among them. The CLI discards this helper's stdout, so every outcome it reads is on stderr.
 #
@@ -210,7 +210,7 @@ report_revert_status() {
         # A hardlinked path keeps its current type: through its other name it may be another tree's, so the walk does
         # not write it, and a path left on a type the agent reads and writes is more access, so the exit is a failure.
         4) quoted_dir="$(printf '%q' "${dir}")"
-           err MSG-D2T9 "reverted ${dir} to its default SELinux type except these hardlinked paths, which keep their current type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} -not -type d -links +1"
+           err MSG-D2T9 "reverted ${dir} to its default SELinux type except these hardlinked paths, which keep their current type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list the hardlinked files the tree holds now with: find ${quoted_dir} -not -type d -links +1"
            exit 4 ;;
         6) exit_walker_unavailable ;;
         *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}}" ;;
@@ -233,7 +233,7 @@ else
         # Through another name a hardlinked path may be another tree's, so the walk does not write it.
         4) printf 'ai-tools-relabel: %s\n' "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" >&2
            skipped_hardlink_count="$(ai_tools_relabel__get_skipped_hardlink_count)"
-           notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${skipped_hardlink_count} hardlinked path(s) kept their current type; they are listed above" ;;
+           notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${skipped_hardlink_count} hardlinked path(s) kept their current type; the lines above name up to 20 of them" ;;
         6) exit_walker_unavailable ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
