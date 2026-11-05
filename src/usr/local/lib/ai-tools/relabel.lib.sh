@@ -357,11 +357,12 @@ ai_tools_relabel__label_project() {
 
 # ai_tools_relabel__unlabel_project <dir>: drop the per-project fcontext rules for <dir> -- its own rule and every local
 # rule registered under it (the build rule, under whatever name set it was written with) -- and walk the subtree back to
-# its default type (e.g. user_home_t) where <dir> is a directory. The semanage deletes are skipped for sandbox clones
-# (no local rule was ever added); the walk still runs. Returns 2 if SELinux is unavailable, 1 when the walk could not
-# label an entry, 6 when the walker could not run, 4 when the walk completed and left hardlinked paths on
-# ai_tools_project_t, and 0 otherwise -- an absent <dir> among them, whose rules are dropped with no walk. The rules are
-# deleted under the escaped encoding ai_tools_relabel__label_project writes.
+# its default type (e.g. user_home_t) wherever a name exists at <dir>: a file or a symlink placed there reaches
+# the walker, whose root check refuses it, so a tree renamed aside is not reported reverted. The semanage deletes are
+# skipped for sandbox clones (no local rule was ever added); the walk still runs. Returns 2 if SELinux is unavailable,
+# 1 when the walk could not label an entry, 6 when the walker could not run, 4 when the walk completed and left
+# hardlinked paths at their current type, and 0 otherwise -- a <dir> with no name there among them, whose rules are
+# dropped with no walk. The rules are deleted under the escaped encoding ai_tools_relabel__label_project writes.
 ai_tools_relabel__unlabel_project() {
     local dir="$1" pattern literal walk=0
     ai_tools_relabel__is_available || return 2
@@ -373,7 +374,7 @@ ai_tools_relabel__unlabel_project() {
         done < <(_ai_tools_relabel__list_local_rules_under "${literal}")
         semanage fcontext -d "${literal}(/.*)?" 2>/dev/null || true
     fi
-    [[ -d "${dir}" ]] || return 0
+    [[ -e "${dir}" || -L "${dir}" ]] || return 0
     _ai_tools_relabel__relabel_tree "${dir}" || walk=$?
     case "${walk}" in
         0|4|6) return "${walk}" ;;

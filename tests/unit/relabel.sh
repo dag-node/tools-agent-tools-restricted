@@ -296,8 +296,9 @@ fi
 # Every recursive relabel goes through _ai_tools_relabel__relabel_tree, which runs ai-tools-relabel-tree. The walk is
 # stubbed to each status it returns, recording its argument, and each function that runs it is driven over the status:
 # a walker that could not run (6) reaches the caller before the post-condition, a walk that left hardlinked files (4)
-# passes the post-condition and is returned, an entry the walk could not label (1) fails the function, and an unlabel
-# of an absent directory drops its rules with no walk.
+# passes the post-condition and is returned, an entry the walk could not label (1) fails the function, an unlabel
+# of a name that is not a directory reaches the walker, and an unlabel of an absent directory drops its rules with no
+# walk.
 section "relabel: the walks run the tree walker and read each of its statuses (unit)"
 if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_tools_relabel__label_project >/dev/null 2>&1; then
     if [[ ! -e /usr/local/libexec/ai-tools/ai-tools-relabel-tree ]]; then
@@ -342,6 +343,23 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
     walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 4 0 4 0 "an unlabel whose walk left hardlinked files"
     walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 6 0 6 0 "an unlabel whose walker could not run"
     walk_is ai_tools_relabel__unlabel_project "${TESTDIR}" 1 0 1 0 "an unlabel whose walk could not label an entry"
+    # A name at the root that is not a directory -- a tree renamed aside and a file or a link put in its place --
+    # reaches the walker, whose root check refuses it with 1, rather than reading as an absent tree.
+    : > "${TESTDIR}/file-root"
+    ln -s "${TESTDIR}/absent-target" "${TESTDIR}/dangling-root"
+    ln -s "${TESTDIR}" "${TESTDIR}/dir-link-root"
+    if [[ -f "${TESTDIR}/file-root" && -L "${TESTDIR}/dangling-root" && ! -e "${TESTDIR}/dangling-root" \
+            && -L "${TESTDIR}/dir-link-root" && -d "${TESTDIR}/dir-link-root" ]]; then
+        pass "setup: a regular file, a dangling symlink and a symlink to a directory stand at three roots"
+    else
+        fail "setup: the three non-directory roots were not created"
+    fi
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}/file-root" 1 0 1 0 \
+        "an unlabel of a regular file at the root walks it and fails"
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}/dangling-root" 1 0 1 0 \
+        "an unlabel of a dangling symlink at the root walks it and fails"
+    walk_is ai_tools_relabel__unlabel_project "${TESTDIR}/dir-link-root" 1 0 1 0 \
+        "an unlabel of a directory symlink at the root walks it and fails"
     CALLS=""; WALKS=""; stub_walk_status=0
     semanage() { CALLS+="$*"$'\n'; return 0; }
     status=0; ai_tools_relabel__unlabel_project "${TESTDIR}/absent" || status=$?
