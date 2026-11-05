@@ -1888,7 +1888,7 @@ fi
   unclaim's or a removal's revert, an agent config directory, the install-time restores -- runs only
   while no process of that account is live, since a live one could redirect a walk by path. While
   one is, the step is refused before any write and names 'atr stop' and the re-run: a claim applies
-  its other steps and exits 1, a removal stops with the tree as it was (MSG-H8V6, MSG-S3B9).
+  its other steps and exits 1, a removal stops with the tree as it was (MSG-H8V6, MSG-S3B9).%{?ref_index_marker:ref-index: ignore}
 - SECURITY: A claimed file gives the agent what its owner has: a read-only file stays read-only and
   a text file is not executable to it. Before, a file created in the clone area claimed as
   executable, and a read-only one as writable. A re-claim lists the files an earlier claim granted
