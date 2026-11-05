@@ -577,12 +577,24 @@ if grep -qF "$(cli_cmd_text ai-tools.projects.claim)" <<<"${OUT}"; then
 else
     pass "and the cancel path of the owner-only menu does not name the claim"
 fi
+# The clone is the owner-only screen's one remedy, so the screen and its cancel path state the mode
+# and what `projects clone` needs; the 750 control fixture prints neither.
+says "and the owner-only screen states the mode" "This directory is mode 700 (owner-only)"
+says "and the owner-only cancel path states why the claim is not listed" \
+    "${unapproved} is mode 700 (owner-only) -- a claim leaves that mode as it is, and the claim is not listed."
+says "and the owner-only cancel path states what the clone needs" \
+    "The clone needs a git repository with a remote and a checked-out branch."
 chmod 0750 "${unapproved}"
 fixture_mode "the unlisted 750 control fixture" "${unapproved}" 750
 run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
 refused "control: an unlisted directory at mode 750 takes Cancel without a terminal" MSG-N2Z7
 says "control: and the cancel path names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
 says "control: and the cancel path names the claim" "$(cli_cmd_text ai-tools.projects.claim)"
+if grep -qF '(owner-only)' <<<"${OUT}"; then
+    fail "control: the 750 screen states an owner-only mode: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"
+else
+    pass "control: and the 750 screen does not state an owner-only mode"
+fi
 chmod 0755 "${unapproved}"
 
 # ── (5) The exec refuses when the gates did not run ───────────────────────────

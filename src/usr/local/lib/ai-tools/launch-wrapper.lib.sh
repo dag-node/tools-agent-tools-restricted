@@ -492,12 +492,14 @@ ai_tools_launch_wrapper__gate_project() {
     # A directory whose own mode has no group or other bit does not start a session, and the mode is the operator's.
     # A claim leaves an owner-only mode as it is and refuses such a root (MSG-H6J3), so an approved one is refused here,
     # ahead of the claim guard and its finish-setup screen, and an unapproved one reaches the setup menu without
-    # the claim: `projects clone` does not change the source, so the clone stays on offer. A mode stat does not return
-    # leaves the directory to the screens as they are.
-    local cwd_mode owner_only=false
+    # the claim: `projects clone` does not change the source, so the clone stays on offer. That screen states the mode
+    # and the clone's own requirements, since the clone is then its one remedy and `projects clone` refuses a directory
+    # outside a git repository, one with no remote, and a detached HEAD. A mode stat does not return leaves
+    # the directory to the screens as they are.
+    local cwd_mode cwd_is_owner_only=false
     cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
     if [[ "${cwd_mode}" =~ ^[0-7]{1,4}$ ]] && (( (8#${cwd_mode} & 077) == 0 )); then
-        owner_only=true
+        cwd_is_owner_only=true
     fi
 
     local approved=false
@@ -509,26 +511,30 @@ ai_tools_launch_wrapper__gate_project() {
             fi
         done
     fi
-    if [[ "${approved}" == true && "${owner_only}" == true ]]; then
+    if [[ "${approved}" == true && "${cwd_is_owner_only}" == true ]]; then
         ai_tools_launch_wrapper__die MSG-H2E2 "refusing to launch -- ${cwd} is mode ${cwd_mode} (owner-only); no session starts in an owner-only directory"
     fi
     if [[ "${approved}" != true ]]; then
         # The block says what the screen is about; the MENU states the options, once (each with the consequence
         # that distinguishes it -- option 1 does not start a session here).
-        ai_tools_msg__block "Set up this project for the sandboxed agent" \
-            "The agent has no access here yet. Choose how it should work on this project."
+        local -a setup_lines=("The agent has no access here yet. Choose how it should work on this project.")
+        if [[ "${cwd_is_owner_only}" == true ]]; then
+            setup_lines+=("This directory is mode ${cwd_mode} (owner-only). A claim leaves that mode as it is, and this menu does not offer one; the mode is yours to keep or change."
+                "Create sandbox needs a git repository with a remote and a checked-out branch.")
+        fi
+        ai_tools_msg__block "Set up this project for the sandboxed agent" "${setup_lines[@]}"
         # No terminal: take Cancel and refuse to launch, without asking. The menu itself has no default (it re-asks,
         # then gives up), so the safe outcome of an unattended or piped run is decided HERE, by the have_tty branch,
         # rather than by a default index.
         # The owner-only menu numbers Cancel 2, and is read back onto the full menu's numbering.
-        local -a options=("Create sandbox"$'\t'"work in an isolated copy; the session runs there, not here")
-        [[ "${owner_only}" == true ]] \
-            || options+=("Claim here"$'\t'"work in this directory; its group becomes ${SANDBOX_GROUP}")
-        options+=("Cancel"$'\t'"change nothing")
+        local -a setup_options=("Create sandbox"$'\t'"work in an isolated copy; the session runs there, not here")
+        [[ "${cwd_is_owner_only}" == true ]] \
+            || setup_options+=("Claim here"$'\t'"work in this directory; its group becomes ${SANDBOX_GROUP}")
+        setup_options+=("Cancel"$'\t'"change nothing")
         sel=3
         if ai_tools_launch_wrapper__has_tty; then
-            sel="$(ai_tools_msg__pick none "${options[@]}")" || sel=3
-            [[ "${owner_only}" == true && "${sel}" == 2 ]] && sel=3
+            sel="$(ai_tools_msg__pick none "${setup_options[@]}")" || sel=3
+            [[ "${cwd_is_owner_only}" == true && "${sel}" == 2 ]] && sel=3
         fi
         case "${sel}" in
             1)
@@ -560,9 +566,12 @@ ai_tools_launch_wrapper__gate_project() {
                 _ai_tools_launch_wrapper__error MSG-N2Z7 "no session started -- ${cwd} is not set up for the agent."
                 printf '\n' >&2
                 printf '  %-30s %s\n' "${CLI_CMD} projects clone ." "isolated copy under the sandbox area" >&2
-                [[ "${owner_only}" == true ]] \
+                [[ "${cwd_is_owner_only}" == true ]] \
                     || printf '  %-30s %s\n' "${CLI_CMD} projects claim ." "claim this directory in place" >&2
-                if [[ "${owner_only}" == true ]]; then
+                if [[ "${cwd_is_owner_only}" == true ]]; then
+                    printf '\n%s\n%s\n' \
+                        "${cwd} is mode ${cwd_mode} (owner-only) -- a claim leaves that mode as it is, and the claim is not listed." \
+                        "The clone needs a git repository with a remote and a checked-out branch." >&2
                     printf '\nRun it, then start your agent in the clone it names.\n' >&2
                 else
                     printf '\nRun one of these, then start your agent again.\n' >&2

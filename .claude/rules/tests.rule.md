@@ -578,19 +578,20 @@ and `system post-upgrade`, with a migrated file as the control; the CWD gate ref
 directory, a sibling sharing a name prefix, an excluded subdirectory and a path under it, a disabled project,
 and an allowlisted protected directory, and passes an approved directory reached directly or through a symlink
 with the canonical path published; the CWD gate refuses a listed directory at an owner-only mode ahead
-of the finish-setup screen, and an unlisted one reaches the setup menu offering the clone without the claim, beside
-a `750` control offering both, each fixture's mode and owner read back first; the claim guard refuses an approved
-directory the sandbox group does not own when no terminal can answer its confirm; the session exec refuses without
-the gates' results; and the gate runner answers the sandbox account before it reads the allowlist. Every launcher is one
-program, so the name is an input: init refuses one outside a launcher's charset, a non-ASCII letter included
-under a UTF-8 locale where a bracket range matches it, and the launcher gate refuses a name no enabled manifest claims,
-the launcher program's own among them, while an empty enabled set is refused naming its cause, telling an input
-the resolver refused or could not read from a configuration that asks for no agent ([launch](launch.rule.md) states
-the split). The hook loader is driven through a copy of the library with its hook directory repointed: an undeclared
-hook is not read though present, and every other state refuses. The launcher's startup hardening is measured
-against a control: the same run without `-p` takes a `BASH_ENV` file and an exported function, so their absence
-with `-p` is evidence rather than an untaken branch. The installed wrapper's own test is `integration/wrapper.sh`,
-which proves the deployed wrapper reaches those gates in that order through its launcher symlinks.
+of the finish-setup screen, and an unlisted one reaches the setup menu offering the clone without the claim and stating
+the mode and what the clone needs, beside a `750` control offering both and stating neither, each fixture's mode
+and owner read back first; the claim guard refuses an approved directory the sandbox group does not own when no terminal
+can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers the sandbox
+account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses one outside
+a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range matches it,
+and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them, while an empty
+enabled set is refused naming its cause, telling an input the resolver refused or could not read from a configuration
+that asks for no agent ([launch](launch.rule.md) states the split). The hook loader is driven through a copy
+of the library with its hook directory repointed: an undeclared hook is not read though present, and every other state
+refuses. The launcher's startup hardening is measured against a control: the same run without `-p` takes a `BASH_ENV`
+file and an exported function, so their absence with `-p` is evidence rather than an untaken branch. The installed
+wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order
+through its launcher symlinks.
 
 `atr.sh` drives the short command over a copy of the wrapper whose two program paths are rewritten to recorders, its
 help library path to the checkout's and its domain and manifest directories to fixtures, with a recording `sudo` first

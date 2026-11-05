@@ -96,8 +96,9 @@ what the security model rests on, and every one of them refuses toward *less* ac
    A CWD whose own mode has no group or other bit does not start a session, since a claim leaves an owner-only mode
    as it is and refuses such a root ([cli](cli.rule.md)): one inside a registry entry is refused next (`MSG-H2E2`),
    ahead of the claim guard and its finish-setup screen, and one no entry lists reaches the setup menu without
-   the claim, offering the clone, which leaves the source as it is, and Cancel. A mode the operator cannot read leaves
-   the CWD to the screens as they are.
+   the claim, offering the clone, which leaves the source as it is, and Cancel; that screen states the mode
+   and what `projects clone` needs, since the clone is its one remedy. A mode the operator cannot read leaves the CWD
+   to the screens as they are.
 8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
 The agent's launch hook then appends its arguments, and the launch ends

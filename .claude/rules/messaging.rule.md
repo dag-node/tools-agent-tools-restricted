@@ -366,14 +366,16 @@ status of the operation whose outcome they report.
   names through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default
   to the current directory.
 
-  The **setup** screen carries one line of prose and **no commands**; its options live in the `ai_tools_msg__pick none`
-  menu under it, each with the consequence that distinguishes it — **1)** Create sandbox (*the session runs in the copy,
-  not here*), **2)** Claim here (*its group becomes `ai-tools`*), **3)** Cancel. Because the block does not name
-  a command, the Cancel path — which is also the no-terminal and unanswered-menu path — prints the commands itself,
-  plain and under the frame. For a directory at an owner-only mode the menu leaves out *Claim here* and the Cancel path
-  its command, since the claim refuses such a root ([launch](launch.rule.md)). The **finish-setup** screen keeps its
-  per-gap bullets, its embedded `projects clone` command (its prompt is a yes/no confirm offering only the claim,
-  so the alternative has nowhere else to appear), and its severity-based default.
+  The **setup** screen carries one line of prose, and the owner-only lines this paragraph names, and **no commands**;
+  its options live in the `ai_tools_msg__pick none` menu under it, each with the consequence that distinguishes it —
+  **1)** Create sandbox (*the session runs in the copy, not here*), **2)** Claim here (*its group becomes `ai-tools`*),
+  **3)** Cancel. Because the block does not name a command, the Cancel path — which is also the no-terminal
+  and unanswered-menu path — prints the commands itself, plain and under the frame. For a directory at an owner-only
+  mode the menu leaves out *Claim here* and the Cancel path its command, since the claim refuses such a root
+  ([launch](launch.rule.md)); the block and the Cancel path then state the mode and that the clone needs a git
+  repository with a remote and a checked-out branch, the clone being the screen's one remedy. The **finish-setup**
+  screen keeps its per-gap bullets, its embedded `projects clone` command (its prompt is a yes/no confirm offering only
+  the claim, so the alternative has nowhere else to appear), and its severity-based default.
 - **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and builds the `projects claim` /
   `projects clone` flows from `ai_tools_msg__headline` blocks, in the run order
   [ref-list-g6f5](cli.rule.md#ref-list-g6f5) states. The flows carry **no sudo-password notices**: the first sudo prompt
