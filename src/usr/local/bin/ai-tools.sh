@@ -4458,7 +4458,7 @@ unclaim_one() {
     fi
     if [[ "${label_revert_outcome}" == partial ]]; then
         headline_warn "WARNING: the SELinux label was not reverted on every path" \
-            "${d} is ${entry_word}, so no session can launch there. The hardlinked paths the helper listed keep their current type: through another name each may belong to another tree, so the walk does not write them. The find command above lists them."
+            "${d} is ${entry_word}, so no session can launch there. The hardlinked paths keep their current type: through another name each may belong to another tree, so the walk does not write them. The helper's line above names up to 20, and its find command lists the hardlinked files the tree holds now."
         ai_tools_log__structured warning \
             "unclaimed ${d} (registries dropped; SELinux label NOT reverted on hardlinked paths)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
