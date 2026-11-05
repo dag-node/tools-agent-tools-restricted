@@ -80,17 +80,20 @@ and the warning names it. A session already running keeps its access until it
 ends, and the files left keep their group grant, since the command does not
 hand them back before deleting them. The warning says whether the label step
 completed; where it did not, the relabel command printed with the failure still
-applies to the tree. A host with SELinux disabled has no label step. Remove
-what is left by hand: the command prints the `rm -rf` to run, and under `--for`
-the account to run it as. The registry step is the one that has to complete:
-where the entry cannot be removed, the command stops and prints the line
-to delete by hand.
+applies to the tree. Remove what is left by hand: the command prints
+the `rm -rf` to run, and under `--for` the account to run it as. The registry
+step is the one that has to complete: where the entry cannot be removed,
+the command stops and prints the line to delete by hand.
 
-While an agent session, the toolchain update, or a step run as the sandbox
-account is live, the label cannot be reverted, and the command stops
-at that step with the tree and both entries as they were. Let each session end
-(`/exit` inside it) and the update finish, or end them all with `atr stop`,
-then run the removal again.
+The label is reverted whether or not an agent session runs. A file
+with a second name outside the project, a hardlink, keeps its current type,
+and the deletion removes only its name in the tree. Where the revert did not
+complete, the command reads the tree's hardlinked files before it deletes
+the tree, then says how many it held and prints, for the first 20,
+the `sudo find … -ls` that lists one file's other names. The relabel command
+a failed revert prints drops the rules the step left; after the deletion it
+does not reach those other names, which the `find` lines list. On a host
+with no label to apply the step reads `not applicable`.
 
 ## A sandbox clone
 

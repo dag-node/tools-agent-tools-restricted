@@ -698,11 +698,11 @@ applied would show green for work that did not happen. It is written on the DAC-
 because there is no `ai_tools_exec_t` to assign, so that host reports "nothing to label" rather than "cannot tell".
 Writing it is best-effort and never changes the outcome of the relabel it describes.
 
-A config directory the live-session gate left ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) is filed by the type it
-carries. At the type the agent writes it is `skipped`, and the run warns and exits 0. At another type it is `failed`,
-and the run exits non-zero as it does for a path that did not take its type, since no session of that agent can write
-its state: `ai-tools-relabel.service` is a oneshot, so the unit then reads failed until a run with no session labels
-the directory.
+The config directory is walked whatever the account runs ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)), and its
+walk files the agent by what it left. A walk that left hardlinked files says how many and files the agent `ok` where its
+declared paths took their type, since a path a label leaves keeps the type it had; a walk whose walker could not start
+files it `failed` with the reason `walker-unavailable`; and a directory left at another type is `failed`, so the run
+exits non-zero, and `ai-tools-relabel.service`, a oneshot, reads failed until a run labels it.
 
 The helper then **reconciles** what it applied against what is installed: it resolves `/opt/ai-tools/bin/<launcher>`
 the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path the declared pattern

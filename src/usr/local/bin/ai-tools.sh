@@ -1608,17 +1608,18 @@ narrow_acl_entry_scan() {
 # a claimed tree whose SELinux type differs from the one the claim's relabel would apply, and <types-map>
 # with `<type it carries> -> <type the policy gives it>` under each. The expected type is asked of the policy: a dry run
 # of the relabel the claim performs (`restorecon -n -F`, unprivileged, reading the world-readable file contexts).
-# The walk is the relabel's scope (`restorecon -FR`, ai_tools_relabel__label_project): every directory, `.git`
-# and skip-listed names included, crossing mount points. Every walked name without a line feed goes into one
-# non-recursive batch with `-i`, since a path removed after the walk is outside the run's scope; a name holding one goes
-# through ai_tools_project_permissions__check_label on its own, so no record can be a fragment of another
-# (project-permissions.lib.sh). Only a TYPE difference counts: `-F` also reports the SELinux user and the MLS range,
-# and on the file classes the targeted policy constrains the user for create, relabelfrom and relabelto alone,
-# and ai_tools_t does not carry mcs_constrained_type, so a user or category difference on its own does not deny
-# the agent (`seinfo --constrain` and `seinfo -a mcs_constrained_type -x` read both on a host). Owner-only paths
-# and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out. Returns 1, with <detail-var>
-# naming why, when restorecon is absent, the walk or the batch output is not complete, a per-path check reads unknown,
-# or a drifted path's mode cannot be read and the path is not confirmed gone; the drift it did read stays in the arrays.
+# The walk is the relabel's scope, the tree `restorecon -FR` walks, which ai_tools_relabel__label_project labels
+# through ai-tools-relabel-tree: every directory, `.git` and skip-listed names included, crossing mount points. Every
+# walked name without a line feed goes into one non-recursive batch with `-i`, since a path removed after the walk is
+# outside the run's scope; a name holding one goes through ai_tools_project_permissions__check_label on its own, so no
+# record can be a fragment of another (project-permissions.lib.sh). Only a TYPE difference counts: `-F` also reports
+# the SELinux user and the MLS range, and on the file classes the targeted policy constrains the user for create,
+# relabelfrom and relabelto alone, and ai_tools_t does not carry mcs_constrained_type, so a user or category difference
+# on its own does not deny the agent (`seinfo --constrain` and `seinfo -a mcs_constrained_type -x` read both on a host).
+# Owner-only paths and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out. Returns 1,
+# with <detail-var> naming why, when restorecon is absent, the walk or the batch output is not complete, a per-path
+# check reads unknown, or a drifted path's mode cannot be read and the path is not confirmed gone; the drift it did read
+# stays in the arrays.
 label_drift_scan() {
     local dir="$1" work="$2" status=0 path outcome from to excl skip mode incomplete=0 index
     local -n _label_scan_paths="$3" _label_scan_types="$4" _label_scan_detail="$5"

@@ -18,18 +18,17 @@ under a per-file wall-clock budget (`AI_TOOLS_TEST_FILE_TIMEOUT`, default 600s):
 read, a wedged daemon, or a fixture process holding a pipe open — is killed and reported as a failure with its
 transcript, rather than hanging the run. That matters beyond convenience because `install.sh` runs this suite as its
 verification phase, so an unbounded file stalls an install. `AI_TOOLS_TEST_STRICT=1` turns the notice into a failure,
-and strict is the enforcing-host full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`), run with no process
-of the sandbox account live, since `integration/selinux.sh` skips its clone label cases while the live-session gate
-refuses the walk; the container selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s
-all-skip is a documented limitation, not a broken prerequisite.
+and strict is the enforcing-host full-install gate (`sudo AI_TOOLS_TEST_STRICT=1 tests/run.sh all`); the container
+selftest stays lenient because SELinux is legitimately absent there, so `selinux.sh`'s all-skip is a documented
+limitation, not a broken prerequisite.
 
 `tests/run.sh -j N` runs up to N files at once, 4 by default, the CPU count of a GitHub-hosted runner, while
 the container selftest passes the count `nproc` reads inside the container; `-j 1` runs them one after another with each
 file's output streamed live. The pool takes every file that does not carry the line `# run.sh: serial` in its header,
 largest first, each writing to a transcript of its own, and reports each file on one line as it finishes. The serial
-pass then runs the marked files one at a time, with `integration/selinux.sh` (`# run.sh: serial last`) after the rest,
-because its clone label cases skip while a pool file holds a process of the sandbox account live. A file carries
-the marker when it touches host state another file reads — a fixed path in the live toolchain or launcher directory,
+pass then runs the marked files one at a time, and a file carrying `# run.sh: serial last`, where one does,
+after the rest. A file carries the marker when it touches host state another file reads — the policy's file-context
+rules, which `integration/selinux.sh`'s walk rows add, a fixed path in the live toolchain or launcher directory,
 the live daemon, the live units, the installed layout, the cgroup root — and names that state in the paragraph after it.
 Every other file works inside its testdir and the fixture names [Fixture names and the residue
 sweep](#fixture-names-and-the-residue-sweep) gives it, which is what lets it run beside any other. The run prints each
@@ -878,13 +877,11 @@ and this project's own entries pass. A compressed stub read without its tool on 
 naming the tool, beside a plain stub that passes with none, and the file holds the package to the `Requires(pre)` lines
 that place the gzip reader's tools ahead of it.
 
-`claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
-out of the checkout's `ai-tools.sh` as text: the notice prints on `live` alone, with a label step or a drift relabel
-pending, and the `live` case reaching the renderer is the control that the extraction found the function. It reads
-`require_open_project_root` out of the same file and drives the owner-only refusal over a table of root modes: each mode
-without a group or other bit refused under the code for a first claim or for a listed project, with exit 1, beside
-a `750` root that passes as the control, a mode the owner-side read could not make passing, and the leftover-directory
-name of `projects create` cleared for that root alone.
+`claim-notice.sh` reads `require_open_project_root` out of the checkout's `ai-tools.sh` as text and drives
+the owner-only refusal over a table of root modes: each mode without a group or other bit refused under the code
+for a first claim or for a listed project, with exit 1, beside a `750` root that passes as the control, a mode
+the owner-side read could not make passing, and the leftover-directory name of `projects create` cleared for that root
+alone.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `atr admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
@@ -1249,18 +1246,31 @@ package ships, which makes that half report deterministically as not installed a
 the type comparisons. A function the report calls, removed, returns 3 with no report, apart from the inactive layer's 2,
 so a partial load does not read as SELinux off or an entrypoint not installed.
 
-A fifth covers the live-session gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)): each gated walk is driven
-with the session reader stubbed to `live` and to `unreadable`, and must return its status with no `semanage`
-or `restorecon` call recorded, while `none` runs it and the per-path entrypoint label runs under `live`; a copy
-of the library with no `sessions.lib.sh` beside it reads as live. Every other section stubs the reader to `none`, since
-a session may be running on the host the suite runs on. `sessions.sh` pins the reader itself on two properties: each
-walk function is held equal to `ai-tools-stop`'s through `declare -f`, beside a control that a one-character change
-breaks the equality, and every reading that cannot be made reads `unreadable` rather than `none`, over a fixture cgroup
-tree, with the strict-mode `IFS` its in-process callers set driven beside the default. Its boundary half is a type rule,
-so it is `integration/selinux.sh`'s policy read and `selinux/avc/avc-denials.sh` section Y, made from inside a session.
-`relabel-agent.sh` drives how `ai-tools-relabel-agent` closes a run over the library's status lines: a config directory
-the gate left at the type the agent writes warns at exit 0, the control, and one left at another type is filed `failed`
-and exits 1.
+A fifth covers the walks through the descriptor-held walker ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)),
+with `_ai_tools_relabel__relabel_tree` stubbed to each status it returns: a walker that could not run reaches the caller
+ahead of the post-condition, a walk that left hardlinked files passes it and is returned, an entry the walk could not
+label fails the function, an unlabel of a name that is not a directory reaches the walker, and one of an absent
+directory drops its rules without a walk; an agent config directory's walk over each status gives its `partial`, `skip`
+or `bad` line, and its `partial` line precedes the directory's `ok`. The real wrapper is driven through a library copy
+whose walker path names a fixture script, over each exit status and the summary line: 25 skipped paths with 20 named,
+and a name carrying the summary's own text, which is not read as it. The helper's `report_revert_status` is driven
+out of its text over the revert statuses, a 26-path partial revert among them, which must name the first 20, count
+the rest and offer its `find` as a listing of the tree now. `relabel-tree.sh` drives the walker itself:
+`relabel-tree-harness.py` imports it by path and runs `relabel_tree()` and `main()` with a fake lookup and a fake label
+store over the lookup's inputs, the write and its read-back, `<<none>>`, hardlinks, symlinks, the root checks
+and the command line; then the real `libselinux` lookup over a name carrying an invalid UTF-8 byte, and the real dry run
+over a fixture tree. Its enforcing-host half is `integration/selinux.sh`'s walk rows: a tmpfs tree under per-run rules
+where each entry takes its rule's type and a link's target keeps its own, the hardlink sysctl and the policy's `rename`
+and `link` set as boundary rows, a walk beside a live process of the sandbox account, a revert over a hardlinked file
+at exit 4, an invalid UTF-8 name, and a `<<none>>` path. `sessions.sh` pins the reader the install-time restores read
+on two properties: each walk function is held equal to `ai-tools-stop`'s through `declare -f`, beside a control
+that a one-character change breaks the equality, and every reading that cannot be made reads `unreadable` rather than
+`none`, over a fixture cgroup tree, with the strict-mode `IFS` its in-process callers set driven beside the default. Its
+boundary half is a type rule, so it is `integration/selinux.sh`'s policy read and `selinux/avc/avc-denials.sh` section
+Y, made from inside a session. `relabel-agent.sh` drives how `ai-tools-relabel-agent` closes a run over the library's
+status lines: every path at its type exits 0, the control; a config directory left at another type is filed `failed`
+and exits 1; a walk that left hardlinked files is said with its count and filed by the agent's verdict; and a walk
+that could not start is filed `walker-unavailable`, apart from a refused declaration's `rule-not-registered`.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read

@@ -592,16 +592,6 @@ _restore_account_tree_labels() {
         _left_trees+=("$1")
     fi
 }
-# _record_left_agent_config <agent>: record <agent>'s config directory for the closing warning, after the library left
-# its walk (a `live` line, or status 3 from the unlabel). The path is the manifest's config_dir under CP_HOME, the one
-# the library walks; an agent whose manifest does not name one is warned about by name alone.
-_record_left_agent_config() {
-    local config_dir
-    warn MSG-S7C2 "left the label on ${1}'s config directory as it was -- the closing warning names the walk to run"
-    config_dir="$(ai_tools_providers__read_agent_manifest_field "$1" config_dir 2>/dev/null || true)"
-    [[ -n "${config_dir}" ]] && _left_trees+=("${CP_HOME}/${config_dir}")
-    return 0
-}
 # _warn_left_trees: the run's EXIT trap, so a run that ends in a die still names what it left.
 _warn_left_trees() {
     (( ${#_left_trees[@]} )) || return 0
@@ -1187,9 +1177,10 @@ case "${ACTION}" in
 
   remove)
     section "Removing SELinux confinement"
-    # Refused before the first store write while the reading is not `none`: the project unlabel leaves a project's rule
-    # in place under the gate, and the unload refuses on any local rule naming a type it removes. The sweep
-    # after the registry walks drops the rules they do not derive, for the same reason.
+    # Refused before the first store write while the reading is not `none`: a process of the account live at the unload
+    # would run on in a domain the policy no longer defines, and the restores after it walk the account's trees by path.
+    # The unload refuses on any local rule naming a type it removes, so the sweep after the registry walks drops
+    # the rules they do not derive.
     [[ "${_sandbox_session_state}" == none ]] \
         || die MSG-H7Q2 "left the policy loaded: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run: sudo $0 remove"
     log "dropping project fcontext rules"

@@ -36,7 +36,10 @@
 # UTF-8 byte would otherwise stop the walk. A path the database maps to <<none>> is left as it is. An entry other than
 # a directory with more than one link is not written, whatever its file type: through its other name it may be another
 # project's or another operator's. It is listed on stderr with its link count and its inode when its label differs,
-# so its other names can be found once the tree is gone, and the walk exits 4.
+# so its other names can be found once the tree is gone, and the walk exits 4. The count is the one fstat read when it
+# typed the entry, so a link made between that read and the write is written: one the sandbox account makes reaches only
+# an inode the policy already lets it write, and one the operator makes during the walk is the residual cli.rule.md
+# states (ref-section-e6c6).
 #
 # Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked paths left; 1 an entry could not
 # be labelled (the first named on stderr, then the count), a read-back differing from the write (which ends the walk),

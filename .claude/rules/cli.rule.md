@@ -6,6 +6,7 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-safedir.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-relabel-tree.py"
   - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh"
@@ -1207,8 +1208,8 @@ A registry line the writer cannot write back, other than the project's own, refu
 (`MSG-A5Y2`), since the registry step follows the label reversal. A read-only deletability pre-flight runs as the acting
 owner and refuses when any directory in the tree is not writable and traversable by them, naming
 `atr projects handback --full`: the failure a destructive verb must not have is a tree deleted down to the first
-directory it could not enter, with no entry left to find the remains by. The project's **parent** is checked first and
-separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory is not part of the project;
+directory it could not enter, with no entry left to find the remains by. The project's **parent** is checked first
+and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory is not part of the project;
 missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim` instead. Teardown then runs
 registries first, deletion last — the label, the registry entry, the `safe.directory` entry, then the tree — so a failed
 deletion leaves an *unregistered* tree, less access rather than more. The registry step is the first that cannot be
@@ -1216,13 +1217,16 @@ undone and the one that refuses, so a de-list that does not apply leaves the tru
 ahead of it, since `ai-tools-relabel` resolves membership from the entry. A clone takes the same order without the label
 step, since its type comes from the policy's file contexts ([Sandbox clone](#sandbox-clone)), and its registry step
 comes first and is fatal as the project's is, so a de-list that does not apply leaves the clone as it was: on disk,
-registered and trusted. A label reversal the live-session gate refuses stops the removal at that step, with the tree and
-both registries as they were and exit 1: the refusal is a state a re-run passes once the sessions end, and a label left
-for later could not be reverted over a path the removal deleted, since `ai-tools-relabel` refuses a path that does not
-exist. The registry step is fatal if it cannot complete, since that entry is the launch gate: `unreg_allow` verifies the
-entry is gone by re-reading the file rather than trusting `sed`, and names the line to delete by hand (`sed -i` writes
-its temporary file into the registry's own directory, which the operator may not be able to write). The filesystem
-hand-back an unclaim performs is not run over files about to be deleted.
+registered and trusted. A label reversal that did not complete does not stop the removal: a revert that left hardlinked
+paths (4), one whose walker could not run (6), and one that failed (1) are each warned about, and the deletion follows.
+Ahead of the deletion the verb reads the tree's hardlinked files by inode and mount, from `find`'s own `-printf`, since
+after it those are what find a file's other names, and once the tree is gone it names how many the tree held and prints
+a `sudo find <mount> -xdev -inum <inode> -ls` for each of the first 20 (`report_hardlink_inventory`); a read that did
+not complete says so. The relabel command a failed reversal prints drops the rules the step left, and a revert
+after the deletion does not reach those names. The registry step is fatal if it cannot complete, since that entry is
+the launch gate: `unreg_allow` verifies the entry is gone by re-reading the file rather than trusting `sed`, and names
+the line to delete by hand (`sed -i` writes its temporary file into the registry's own directory, which the operator may
+not be able to write). The filesystem hand-back an unclaim performs is not run over files about to be deleted.
 
 The verb does not run git over the tree, in either kind. The agent co-writes `.git`, so `.git/config` is the agent's
 to write, and git run as the operator executes the commands that file names: the invariant
@@ -1288,11 +1292,12 @@ a dropped line would leave the remedy without the entry the hand-back resolves i
 at the group prompt is a choice rather than a failure, and drops the line as usual. A registry line the unclaim could
 not change ends it non-zero as well, in a `--for` run as in a plain one, since the line is the launch gate: a drop
 that did not apply refuses (`unreg_allow`), naming the line or the helper command that removes it, and a disable
-that did not apply closes with the entry reported still enabled and no ✓. A label reversal that failed,
-or that the live-session gate refused, closes the same way, without the ✓ and non-zero, after the hand-back
-and the registry reversal have run: the project type and its rule stay on a tree no entry names until the printed
-command runs. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem
-effect per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
+that did not apply closes with the entry reported still enabled and no ✓. A label reversal that failed, that left
+hardlinked paths, or whose walker could not run closes the same way, without the ✓ and non-zero, after the hand-back
+and the registry reversal have run: the project type stays on the paths the step did not revert, on a tree no entry
+names, and the close names the command that reverts them, or for a partial reversal the `find` that lists the hardlinked
+files. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem effect
+per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
 
 ## Sandbox clone <a id="ref-section-u9a9"></a>
 
@@ -1355,14 +1360,76 @@ and the base `%post` place ([layout](layout.rule.md)) — so an operator creates
 `SANDBOX_GROUP` membership — the shared-area counterpart to the per-project `user:<operator>` grant. The agent is not
 in `ai-ops` (`ai-tools-run` refuses to launch otherwise), so the grant adds it no access.
 
-## The recursive relabels and the live-session gate <a id="ref-section-e6c6"></a>
+## The recursive relabels: the descriptor-held walk <a id="ref-section-e6c6"></a>
 
-A `restorecon -R` over a tree the sandbox account can write — a claimed project, a clone, an agent's config directory,
-the toolchain under `/opt/ai-tools` — walks by path, and on libselinux before 3.11 it resolves each path again before it
-writes the label. A process of that account that renames a directory aside and plants a symlink of its name inside
-the walk sends the tree's type onto an inode it chose. The account's only writers are its live processes, agent
+A project's label and revert, an agent config directory's label, and the config half of an agent's unlabel each walk
+a tree the sandbox account can write, so each runs through `ai-tools-relabel-tree` (`_ai_tools_relabel__relabel_tree`
+in `relabel.lib.sh`), which labels the entry it holds open rather than the one a path names. None of these walks reads
+the account's sessions: a claim, an unclaim, a removal and an agent relabel label while a session runs.
+
+**The invariant.** The walker reaches only an inode the account could already move or link into the tree, and the policy
+limits those to the types the account writes. A descriptor keeps a rename or a planted link from redirecting the write
+it holds; it does not keep the account from renaming an opened directory out of the tree and moving another entry
+in, or from linking a file in after the walker reads its link count. `selinux/policy/ai_tools.te` bounds both:
+`ai_tools_t` holds `rename` and `link`, through `manage_*_pattern`, on `ai_tools_project_t`, `ai_tools_project_build_t`,
+`ai_tools_home_t` and `ai_tools_tmp_t` alone, so an inode the account places in a tree already carries a type it writes.
+The label the walker writes is the walked path's: on a label a type the account manages, and on a revert the default
+type, which narrows the account's access to that inode through every name. `fs.protected_hardlinks` holds the account
+to linking a file it owns or can read and write. `tests/integration/selinux.sh` reads the sysctl and the policy's
+`rename` and `link` set as boundary rows, the optional groups loaded included. Two residuals remain. On a host running
+Permissive whose operator set `AI_TOOLS_REQUIRE_SELINUX=no`, no type check holds. A hardlink the **operator** makes
+during a walk — a `pnpm install` while a claim walks — can be written, since the walker's link-count read precedes its
+write; a second read before the write narrows that window without closing it, and is not made. A host without the policy
+does not write a label.
+
+**How the walk holds an entry.** The root is opened `O_PATH|O_NOFOLLOW`, and every entry under it relative to its
+parent's listing descriptor, typed with `fstat`. A directory is listed through a second, `O_RDONLY|O_DIRECTORY` open
+of its `O_PATH` descriptor, since `getdents` refuses an `O_PATH` one, and the walk descends while the two name one
+`(st_dev, st_ino)`. The label is the file-context database's for the logical path — the root plus the names opened
+under it — looked up through `libselinux.so.1` over `ctypes` with the path as `bytes`, so a name carrying an invalid
+UTF-8 byte is labelled as `restorecon` labels it; `libselinux` is the walker's one runtime requirement. Where the label
+differs the walker writes it in full, customizable types included (`restorecon -F`), through `/proc/self/fd/<fd>`,
+and reads it back. A symlink is labelled as itself and a symlinked directory is not descended; a path the database maps
+to `<<none>>` keeps its label. Mounts are crossed, as `restorecon -R` crosses them, since the account cannot create
+a mount. An excluded path (`!`) is labelled with the rest of the tree, as `restorecon -FR` labels it.
+
+**The root.** The walker exits 1 unless `/proc/self/fd/<fd>` names the root's path both at the open and at the end
+of the walk, so a walk exits 0 only where the path named the walked tree at both reads. A rename away and back
+between the two is not seen, and leaves the walk on the opened tree. A root renamed before the open is not followed;
+only a project nested in a claimed one gives the account write on a root's parent, and there the outer project's rule
+types the tree either way.
+
+**Hardlinks, by direction.** An entry other than a directory with more than one link is not written where its label
+differs, since through another name it may be another project's or another operator's. The walker names the first 20
+such paths with their link count and inode, counts the rest, exits 4, and closes stderr with one `summary` line
+the library reads the counts from, so its output does not grow with the tree. A label discloses them: `ai-tools-relabel`
+exits 0 under `MSG-R5F8`, and `ai-tools-relabel-agent` reports a `partial` line before the agent's `ok`, since a path
+a label leaves keeps the type it had. A revert fails on them, as the DAC hand-back refuses the same inodes
+([Unclaim](#unclaim)): a path left on a type the agent reads and writes is more access, so `ai-tools-relabel --remove`
+exits 4 under `MSG-D2T9`, with the `find` that lists the hardlinked files the tree holds now.
+
+**The helper's exits.** `ai-tools-relabel` exits 0 for a label applied, one that left hardlinked paths included; 4
+for a revert that left them; 5 where the host has no label to apply, SELinux `Disabled` or no `ai_tools` policy, named
+on stderr; 6 where the walker could not run, so no path was walked; 3 for a protected target; and 1 for every other
+refusal or failure, a tree moved or deleted during a revert among them. The CLI reads 5 as a step that does not apply
+on the host: a claim reports the label pending and exits 1 on every other non-zero status, an unclaim closes non-zero
+after its other steps over 1, 4 and 6 ([Unclaim](#unclaim)), and a removal deletes after each of them, naming
+what the step left ([Remove](#remove)).
+
+**The walks that keep `restorecon`** each walk a tree the account cannot write, write one path, or write nothing:
+the operator config subtree (`ai_tools_relabel__label_operator_conf`), an agent entrypoint's per-path `restorecon -F`,
+the clone's label while its root is still owner-only ([Sandbox clone](#sandbox-clone)), whose own entry sits in an area
+`ai_tools_t` may search and not write, and the claim's drift scan, a dry run as the operator. The install-time restores
+walk by path as well, behind the gate the next section states.
+
+### The install-time restores and the live-session gate
+
+An install-time restore walks with `restorecon -R`, which on libselinux before 3.11 resolves each path again before it
+writes the label: a process of the sandbox account that renames a directory aside and plants a symlink of its name
+inside the walk sends the tree's type onto an inode it chose. The account's only writers are its live processes, agent
 sessions, the toolchain update with the install scripts it runs, and the steps a bootstrap and a package erase run
-as the account, so every such walk runs **only while no process of the account is live**.
+as the account, so each restore that crosses a tree the account can write runs **only while no process of the account is
+live**.
 
 The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
 from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live; the enumeration is a twin
@@ -1387,17 +1454,8 @@ live by its own unit until it moves, and one that moves itself into an exempt na
 that already holds the account's whole DAC reach. `tests/integration/selinux.sh` reads the cgroup half from the loaded
 policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside a session.
 
-Where each walk takes the gate:
+Where each restore takes the gate:
 
-- `relabel.lib.sh` gates its own walks — the project label and unlabel, an agent config directory's label and the config
-  half of its unlabel. The project walks return 3 before any write, so a re-run applies the whole step; the config
-  directory's label registers its fcontext rule first and returns 4 or 5 by the type the directory already carries,
-  and the agent unlabel deletes its rules and then returns 3, the statuses its header states. `ai-tools-relabel` refuses
-  under a code with an exit status of its own; the claim then reports its label step pending and exits 1, an unclaim
-  reports the revert as not applied once its other steps have run ([Unclaim](#unclaim)), and a removal stops
-  before either registry changes ([Remove](#remove)). `ai-tools-relabel-agent` files a config directory the gate left
-  by the type it carries ([updater](updater.rule.md)), and labels the entrypoint as it otherwise would: that write is
-  per path, not a walk.
 - The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
   the reading, with one WARNING naming the `restorecon` to run when it skips; the selinux `%postun` makes both its
   policy-store writes behind the same reading, leaving the policy loaded with one WARNING naming the re-run
@@ -1405,19 +1463,9 @@ Where each walk takes the gate:
   directories, and `selinux/install-selinux.sh` for every tree the account can write that its actions walk,
   the toolchain, the home state, the clones and the projects its removal restores, reading the account
   through the installed `sandbox-exec.lib.sh`; its `remove` refuses before its first policy-store write while
-  the reading is not idle, since the module unload fails on a project rule the gate left in place. `ai-tools-admin`'s
-  clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label reset, warn the same way.
-- `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
-  block, ahead of the verb's first `sudo`; a `--for` run's registry snapshot precedes it ([Acting for another
-  operator](#acting-for-another-operator---for)). The notice does not ask anything; the helper's refusal decides,
-  where the claim runs the label step, and a drift relabel the operator declines does not run it. The notice shows
-  on a `live` reading alone: the operator account reads `unreadable` where the sandbox account's user manager creates
-  its slices owner-only, the state EL10's manager leaves (`app.slice`, `session.slice` and `background.slice`
-  under `user@<uid>.service` at `0700`, the account's), so on such a host the helper's refusal at the label step is
-  the first report, and a notice on `unreadable` would open every labelling claim with it.
-- A clone is labelled while it is still private ([Sandbox clone](#sandbox-clone)), ahead of `normalize_clone`, so its
-  walk does not cross a directory the account can rename, and the clone's own entry sits in an area whose type
-  `ai_tools_t` may search and not write; that walk does not take the gate.
+  the reading is not idle, since a process of the account live at the unload would run on in a domain the policy no
+  longer defines. `ai-tools-admin`'s clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label
+  reset, warn the same way.
 
 Every message leads with letting the sessions end and the update finish, and offers `atr stop` beside it, since a stop
 ends a session without its session-end handback and an update mid-run.

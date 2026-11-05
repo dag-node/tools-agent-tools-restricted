@@ -81,7 +81,7 @@ returns groups. Include a unit only when the output uses that unit.
 | Turns text into values | `parse_` | `parse_path_entry` |
 | Reads a file, the kernel, or another program's output | `read_` | `read_pin` |
 | Prints items, one per line | `list_` | `list_enabled_agents` |
-| Searches and prints matches | `find_` | `find_raw_rule_matches` |
+| Searches and prints matches | `find_` | `find_unreadable_configs` |
 | Computes a value | `calculate_` | `calculate_sha256` |
 | Decides a verdict token from its inputs | `evaluate_` | `evaluate_pin` |
 | Renders text for a reader | `format_` | `format_age` |

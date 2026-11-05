@@ -145,26 +145,12 @@ Two more notices name what the claim saw and left alone:
   and claim again; for ownership alone inside them, run
   `atr projects handback --full`.
 
-Where your account can read the sandbox account's sessions, a claim whose label
-step is pending says so in the same block, before it asks for a password,
-when an agent session, the toolchain update, or a step run as the sandbox
-account is live
-([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
-On a host where it cannot, the refusal of the label step is the first report,
-after the password:
-
-```text
-NOTICE: a process of the sandbox account is running
-  ... The SELinux label step walks the tree as root, and the helper refuses
-  that step while one is live, where the claim runs it: the other steps apply,
-  the label is reported pending ...
-      atr stop
-```
-
-The label step walks the tree as root, and is refused while an agent session,
-the toolchain update, or a step run as the sandbox account is live. Let each
-session end with `/exit` and the toolchain update finish, or end them all
-with `atr stop`, then claim again: the re-run applies the label alone.
+The label step walks the tree as root, while an agent session runs as well
+([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)). A file
+with a second name elsewhere, a hardlink, keeps the type it has, and the step
+names up to 20 such files and counts the rest. On a host with no label
+to apply, SELinux disabled or no `ai_tools` policy installed, the step reads
+`not applicable` and the claim completes.
 
 The claim's permission walks, which set the group, the ACL and the secret scan,
 skip an owner-only path, and one an excluded line (`!`) of your project
@@ -253,12 +239,11 @@ prints carries `--for svc-ci`.
 ## Exit status
 
 0 when the tree is claimed or there was no work; 1 when the path was refused,
-the disabled project was not re-enabled, a root step failed, or the label step
-was refused while a session ran, the last two with the pending steps named —
-a re-run applies exactly those; 2 for a rejected command line (a missing
-directory, an unknown option, a `--format` other than `tsv`); 3 when the path
-is a protected system directory or a home root; 4 when a drifted file was left
-as it was or a scan stopped early; 5 when a file's state or part of the tree
-could not be read, and when the tree could not be read as its owner at all,
-in which case the claim leaves the tree and the registries as they were. `man
-ai-tools` has the full list.
+the disabled project was not re-enabled, or a root step failed, the last
+with the pending steps named — a re-run applies exactly those; 2 for a rejected
+command line (a missing directory, an unknown option, a `--format` other than
+`tsv`); 3 when the path is a protected system directory or a home root; 4
+when a drifted file was left as it was or a scan stopped early; 5 when a file's
+state or part of the tree could not be read, and when the tree could not be
+read as its owner at all, in which case the claim leaves the tree
+and the registries as they were. `man ai-tools` has the full list.
