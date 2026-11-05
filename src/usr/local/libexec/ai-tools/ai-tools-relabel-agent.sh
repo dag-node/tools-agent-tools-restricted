@@ -401,7 +401,13 @@ render_label_report() {
                    ai_tools_log__warn "${subject}: ${detail} hardlinked path(s) in its config directory not relabelled" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
-            skip)  agent_label_reason["${subject}"]="rule-not-registered"
+            # A walk over the config directory that could not start is filed apart from a rule that did not register,
+            # since its remedy is the walker's and not the policy's.
+            skip)  if [[ "${detail} ${wanted}" == "could not walk its config directory --"* ]]; then
+                       agent_label_reason["${subject}"]="walker-unavailable"
+                   else
+                       agent_label_reason["${subject}"]="rule-not-registered"
+                   fi
                    warn MSG-X7F9 "labelling skipped for ${subject} -- ${detail} ${wanted}"
                    ai_tools_log__warn "${subject}: labelling skipped -- ${detail} ${wanted}" ;;
             # Closes an agent's lines with its whole outcome. Recorded here, where the per-agent reason lines have

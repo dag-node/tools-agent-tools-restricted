@@ -95,6 +95,15 @@ has_line "the left files are said with their count" "ai-tools-relabel-agent: acm
 has_line "the agent is filed as its verdict reads" "record acme ok "
 if [[ "${RC}" -eq 0 ]]; then pass "the run exits 0"; else fail "the run exits ${RC} over a walk that left hardlinked files"; fi
 
+# ── A config directory the walker could not reach ────────────────────────────────────────────
+# The library's skip line for it reads `skip <agent> could not walk its config directory -- <why>`; the run files
+# a reason of its own, apart from a rule that did not register, whose skip line is the control.
+section "a walk that could not start is filed apart from a rule that did not register"
+close_run $'skip acme could not walk its config directory -- libselinux.so.1 did not load\nagent acme failed'
+has_line "the agent is filed failed as walker-unavailable" "record acme failed walker-unavailable"
+close_run $'skip acme no entrypoint_fcontext declared\nagent acme failed'
+has_line "control: a refused declaration is filed as rule-not-registered" "record acme failed rule-not-registered"
+
 # ── `--remove`: each status ai_tools_relabel__unlabel_agent_paths returns ────────────────────
 section "--remove renders each status of the agent unlabel, and an erase completes over a walk left"
 unlabel_probe="${TESTDIR}/unlabel-probe.sh"
