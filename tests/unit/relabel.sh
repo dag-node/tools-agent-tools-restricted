@@ -411,14 +411,15 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
         else
             fail "an agent whose config walk could not run: status ${status}, '${line//$'\n'/ | }'"
         fi
-        # The erase: the rules are dropped, then the walk's status is returned.
-        for walk_status in 4 6 1; do
-            stub_walk_status="${walk_status}"; status=0
+        # The erase: the rules are dropped, then the walk's status is returned, a walk that could not label an entry
+        # as 5, apart from the 1 of an agent that declares no usable rule.
+        for walk_pair in 4:4 6:6 1:5; do
+            stub_walk_status="${walk_pair%%:*}"; status=0
             ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || status=$?
-            if [[ "${status}" -eq "${walk_status}" ]]; then
-                pass "an agent unlabel whose config walk returned ${walk_status} returns ${walk_status}"
+            if [[ "${status}" -eq "${walk_pair##*:}" ]]; then
+                pass "an agent unlabel whose config walk returned ${walk_pair%%:*} returns ${walk_pair##*:}"
             else
-                fail "an agent unlabel whose config walk returned ${walk_status} returned ${status}"
+                fail "an agent unlabel whose config walk returned ${walk_pair%%:*} returned ${status}"
             fi
         done
         stub_walk_status=0; status=0

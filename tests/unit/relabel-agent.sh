@@ -132,12 +132,16 @@ unlabel_run 1
 assert_msg MSG-S6C5 "${OUT}" "status 1 refuses: no usable rule"
 if [[ "${RC}" -eq 1 ]]; then pass "status 1 exits 1"; else fail "status 1 exits ${RC}"; fi
 unlabel_run 1 "failed to restore the file context of /opt/ai-tools/.acme/x: Permission denied; 1 entries not labelled"
-assert_msg MSG-V4H3 "${OUT}" "status 1 carrying the walker's lines warns that the config directory's walk failed"
+assert_msg MSG-S6C5 "${OUT}" "status 1 refuses as no usable rule whatever the diagnostics hold"
+unlabel_run 5 "failed to restore the file context of /opt/ai-tools/.acme/x: Permission denied; 1 entries not labelled"
+assert_msg MSG-V4H3 "${OUT}" "status 5 warns that the config directory's walk failed after the rules were dropped"
 if command grep -qxF MSG-S6C5 <<< "${OUT}"; then
-    fail "status 1 carrying the walker's lines is reported as no usable rule"
+    fail "status 5 is reported as no usable rule"
 else
-    pass "status 1 carrying the walker's lines is not reported as no usable rule"
+    pass "status 5 is not reported as no usable rule"
 fi
-if [[ "${RC}" -eq 0 ]]; then pass "status 1 carrying the walker's lines exits 0, so the erase completes"; else fail "that run exits ${RC}"; fi
+if [[ "${RC}" -eq 0 ]]; then pass "status 5 exits 0, so the erase completes"; else fail "status 5 exits ${RC}"; fi
+unlabel_run 5 "the walker exited 137 without a diagnostic"
+assert_msg MSG-V4H3 "${OUT}" "status 5 from a walker that printed nothing still warns that the walk failed"
 
 finish

@@ -238,10 +238,10 @@ if grep -qE '^ +4\) _note_walk_left ' <<<"${drop_text}" && grep -qE '^ +6\) _war
 else
     fail "the agent unlabel loop does not read status 4 and status 6"
 fi
-if grep -qE '^ +1\) if \[\[ -n "\$\{AI_TOOLS_RELABEL__TREE_DIAGNOSTICS' <<<"${drop_text}" && grep -q 'MSG-B8Q9' <<<"${drop_text}"; then
-    pass "the agent unlabel loop tells a failed config walk from an agent with no usable rule"
+if grep -qE '^ +5\) warn MSG-B8Q9 ' <<<"${drop_text}" && ! grep -q 'TREE_DIAGNOSTICS:-}" ]]' <<<"${drop_text}"; then
+    pass "the agent unlabel loop reads a failed config walk by its status, not by the walker's lines"
 else
-    fail "the agent unlabel loop does not read a status 1 carrying the walker's lines"
+    fail "the agent unlabel loop does not read status 5, or still reads the walker's lines for it"
 fi
 
 # ── remove: the rules outside the registries, and an unload that reads the store back ────────

@@ -183,7 +183,8 @@ _ai_tools_relabel__relabel_tree() {
         0|4) return "${rc}" ;;
         3) AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-libselinux.so.1 did not load}"
            return 6 ;;
-        *) return 1 ;;
+        *) AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker exited ${rc} without a diagnostic}"
+           return 1 ;;
     esac
 }
 
@@ -730,10 +731,11 @@ ai_tools_relabel__label_agent_paths() {
 #   default labels on what they matched -- the erase-time counterpart, so a removed agent package
 #   leaves behind no rule for types its host may stop defining. Reads the manifest, so it runs
 #   while that package's files are still present (rpm %preun). Returns 2 when the SELinux layer is
-#   inactive, 1 when the agent does not declare a usable value or the walk over its config directory could not label
-#   an entry, 4 when the rules were dropped and that walk completed leaving hardlinked paths at their type, 6 when
-#   the rules were dropped and the walker could not run, and 0 otherwise. A walk's own lines are in
-#   AI_TOOLS_RELABEL__TREE_DIAGNOSTICS.
+#   inactive, 1 when the agent does not declare a usable value, 5 when the rules were dropped and the walk over its
+#   config directory could not label an entry, 4 when the rules were dropped and that walk completed leaving hardlinked
+#   paths at their type, 6 when the rules were dropped and the walker could not run, and 0 otherwise. A walk's own
+#   lines are in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS, and each status after the drop is its own, so a reader does not
+#   tell them apart by whether the walker printed.
 ai_tools_relabel__unlabel_agent_paths() {
     local agent="$1" pattern config_dir path dropped=1 walk=0
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
@@ -759,7 +761,11 @@ ai_tools_relabel__unlabel_agent_paths() {
         path="${CP_HOME}/${config_dir}"
         if [[ -d "${path}" ]]; then
             _ai_tools_relabel__relabel_tree "${path}" || walk=$?
-            (( walk == 0 )) || return "${walk}"
+            case "${walk}" in
+                0)   ;;
+                4|6) return "${walk}" ;;
+                *)   return 5 ;;
+            esac
         fi
         dropped=0
     fi
