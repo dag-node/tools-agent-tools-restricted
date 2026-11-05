@@ -272,9 +272,9 @@ def main():
           and inode_of_path(os.path.join(outside, 'dir', 'inside.txt')) not in written
           and not any(path.endswith('/inside.txt') for path, _mode in lookup.calls))
 
-    # ── A root moved during the walk ── RootMovingXattr runs a move at the first write to a chosen inode, as the swap rows
-    # do: the walk goes on in the tree it opened, and its closing read of /proc/self/fd/<root fd> names where that tree
-    # is now.
+    # ── A root moved during the walk ── RootMovingXattr runs a move at the first write to a chosen inode, as the swap
+    # rows do: the walk goes on in the tree it opened, and its closing read of /proc/self/fd/<root fd> names where that
+    # tree is now.
     class RootMovingXattr(FakeXattr):
         def __init__(self, moves):
             super().__init__()

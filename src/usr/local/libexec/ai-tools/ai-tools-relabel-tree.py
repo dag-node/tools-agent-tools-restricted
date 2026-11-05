@@ -38,13 +38,13 @@
 # Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked paths left; 1 an entry could not
 # be labelled (the first named on stderr, then the count), a read-back differing from the write (which ends the walk),
 # a root check, or a root that moved during the walk, whatever the walk's own result; each of these past the opening
-# root check ends stderr with one `summary hardlinks-left=<n> failures=<n>` line. stderr names at most the first 20 hardlinked paths, then how many it did not list, so its size
-# does not grow with the tree; a caller reads the counts from the summary line, which no escaped path can begin, since
-# the escaping leaves no newline in a path; 2 usage; 3 libselinux.so.1 does not load or lacks a function the lookup
-# calls. A real run prints nothing on stdout. `--dry-run` writes nothing and prints `<path> <from> <to>` for each entry
-# it would write, `-` for no current label; `--expected-context` replaces the lookup with <ctx> there and does not load
-# libselinux. Every path printed is escaped to printable ASCII in bash `printf %q` form, since a name in the tree is
-# the account's.
+# root check ends stderr with one `summary hardlinks-left=<n> failures=<n>` line. stderr names at most the first 20
+# hardlinked paths, then how many it did not list, so its size does not grow with the tree; a caller reads the counts
+# from the summary line, which no escaped path can begin, since the escaping leaves no newline in a path; 2 usage;
+# 3 libselinux.so.1 does not load or lacks a function the lookup calls. A real run prints nothing on stdout.
+# `--dry-run` writes nothing and prints `<path> <from> <to>` for each entry it would write, `-` for no current label;
+# `--expected-context` replaces the lookup with <ctx> there and does not load libselinux. Every path printed is escaped
+# to printable ASCII in bash `printf %q` form, since a name in the tree is the account's.
 #
 # relabel_tree() takes its collaborators as parameters, so tests/unit/relabel-tree-harness.py imports this file by path
 # and drives it with fakes; main() binds the real ones. Installed 0750 root:root as ai-tools-relabel-tree. Its domain
