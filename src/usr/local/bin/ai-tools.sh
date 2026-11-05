@@ -2851,18 +2851,18 @@ require_claimable_owner() {
         "${why[@]}"
 }
 
-# require_open_project_root <dir> <root-mode> <has-entry>  -- die when <root-mode>, the owner-side read's mode of
-# the project root, has no group or other bit: ai-tools-setgid and ai-tools-setfacl leave an owner-only path as it is
+# require_open_project_root <dir> <root-mode> <has-registry-entry>  -- die when <root-mode>, the owner-side read's mode
+# of the project root, has no group or other bit: ai-tools-setgid and ai-tools-setfacl leave an owner-only path as it is
 # (owner-only.lib.sh), so a claim would register the root and grant the sandbox account no access under it. The mode is
 # the operator's decision and its intent is not readable from it, so neither refusal names a command that changes it.
-# <has-entry> is true for a root a registry line names, whose line the refusal keeps; an empty <root-mode> is a reading
-# the owner could not make and passes. A directory projects create made is named by the refusal, so the create's
+# <has-registry-entry> is true for a root a registry line names, whose line the refusal keeps; an empty <root-mode> is a
+# reading the owner could not make and passes. A directory projects create made is named by the refusal, so the create's
 # leftover-directory line, which names a claim, is not printed. The consequence is cli.rule.md's (Claim in place).
 require_open_project_root() {
-    local d="$1" mode="$2" has_entry="$3"
+    local d="$1" mode="$2" has_registry_entry="$3"
     [[ -n "${mode}" ]] && (( ( 8#${mode} & 077 ) == 0 )) || return 0
     [[ "${CREATE_LEFT_TREE}" != "${d}" ]] || CREATE_LEFT_TREE=""
-    if [[ "${has_entry}" == true ]]; then
+    if [[ "${has_registry_entry}" == true ]]; then
         die MSG-B5D2 "the project root ${d} is mode ${mode} (owner-only) -- the claim leaves it as it is; no change applied, and no session can start here"
     fi
     die MSG-H6J3 "refusing to claim -- ${d} is mode ${mode} (owner-only); a claim leaves an owner-only mode as it is and does not grant the sandbox account access under it, and no session could start here"
@@ -3450,9 +3450,9 @@ cmd_project_claim() {
     fi
     # Ahead of the re-enable offer, the first step that can write. The mode is the owner-side read's, so a `--for` run
     # reads it as the target.
-    local has_entry=false
-    { ${listed} || ${reenable}; } && has_entry=true
-    require_open_project_root "${d}" "${root_mode}" "${has_entry}"
+    local has_registry_entry=false
+    { ${listed} || ${reenable}; } && has_registry_entry=true
+    require_open_project_root "${d}" "${root_mode}" "${has_registry_entry}"
 
     # The trust list is read ahead of the re-enable offer, the first step that can write: a claim that cannot read it
     # does not describe its pending steps, and applies none.
@@ -6770,7 +6770,7 @@ cmd_project_list() {
         say "  ${C_YEL}the projects verbs other than this list refuse until it is. Migrate it with:${C_RST}"
         say "      ${C_BOLD}atr admin system post-upgrade${C_RST}"
     fi
-    local raw entry excl kind safe sd row_mode shown=0
+    local raw entry excl kind safe sd project_root_mode shown=0
     local -a cleanup=()
 
     # _is_labelled <dir>  -- 0 when SELinux is active and <dir> carries ai_tools_project_t.
@@ -6814,10 +6814,10 @@ cmd_project_list() {
     # _read_owner_only_mode <dir>  -- print the mode of the directory <dir> names and return 0 when it has no group
     # or other bit, as the invoker reads it; return 1 for any other mode and for a mode the invoker cannot read.
     _read_owner_only_mode() {
-        local owner_only_mode
-        owner_only_mode="$(stat -L -c '%a' -- "$1" 2>/dev/null)" || return 1
-        [[ "${owner_only_mode}" =~ ^[0-7]{1,4}$ ]] && (( ( 8#${owner_only_mode} & 077 ) == 0 )) || return 1
-        printf '%s\n' "${owner_only_mode}"
+        local project_root_mode
+        project_root_mode="$(stat -L -c '%a' -- "$1" 2>/dev/null)" || return 1
+        [[ "${project_root_mode}" =~ ^[0-7]{1,4}$ ]] && (( ( 8#${project_root_mode} & 077 ) == 0 )) || return 1
+        printf '%s\n' "${project_root_mode}"
     }
     # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
     # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
@@ -6897,9 +6897,9 @@ cmd_project_list() {
         esac
         _read_safedir_column "${entry}"
         read_path_class "$(resolve_entry_path "${entry}")"
-        if row_mode="$(_read_owner_only_mode "${entry}")"; then
+        if project_root_mode="$(_read_owner_only_mode "${entry}")"; then
             printf '  %-8s %-50s %s  %s\n' "${kind}" "${entry}" "${safe}" \
-                "${C_YEL}mode ${row_mode} (owner-only)${C_RST} ${C_DIM}-- no session can start here${C_RST}"
+                "${C_YEL}mode ${project_root_mode} (owner-only)${C_RST} ${C_DIM}-- no session can start here${C_RST}"
         else
             printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
         fi
