@@ -657,6 +657,13 @@ _labels_drop() {
             3) _record_left_agent_config "${agent}" ;;
             4) _note_walk_left "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ;;
             6) _warn_walker_unavailable "${agent}'s config directory" ;;
+            # The walker's lines tell a walk that could not label an entry, after the rules were dropped, from
+            # an agent that does not declare a usable rule.
+            1) if [[ -n "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-}" ]]; then
+                   warn MSG-B8Q9 "dropped the file-context rules for ${agent}; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"
+               else
+                   log "  ${agent}: no file-context rules to drop"
+               fi ;;
             *) log "  ${agent}: no file-context rules to drop" ;;
         esac
     done

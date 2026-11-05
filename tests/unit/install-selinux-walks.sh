@@ -291,6 +291,11 @@ if grep -qE '^ +4\) _note_walk_left ' <<<"${drop_text}" && grep -qE '^ +6\) _war
 else
     fail "the agent unlabel loop does not read status 4 and status 6"
 fi
+if grep -qE '^ +1\) if \[\[ -n "\$\{AI_TOOLS_RELABEL__TREE_DIAGNOSTICS' <<<"${drop_text}" && grep -q 'MSG-B8Q9' <<<"${drop_text}"; then
+    pass "the agent unlabel loop tells a failed config walk from an agent with no usable rule"
+else
+    fail "the agent unlabel loop does not read a status 1 carrying the walker's lines"
+fi
 
 # ── remove: the rules outside the registries, and an unload that reads the store back ────────
 # A local rule naming an ai_tools type that no registry walk dropped keeps every module loaded, and the unload's exit

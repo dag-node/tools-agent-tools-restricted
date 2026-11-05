@@ -14,8 +14,8 @@
 # Labelling a path requires an allow line for it in the operator's project registry and no `%` or `!` line naming
 # it: only a project a session may start in carries the agent-accessible type. The gate reads the project root alone,
 # and the label covers every path under it, an excluded or owner-only path included. Reverting (`--remove`) is lenient
-# -- it cleans up a path that may already have been unregistered, and restorecon only ever restores the system default
-# context.
+# -- it cleans up a path that may already have been unregistered or deleted, and the walk only restores the system
+# default context. A path `--remove` names that no longer exists has its rules dropped with no walk.
 #
 # Runs as root via sudo, invoked by YOU (the projects user) -- not ai-tools:
 #       ```bash
@@ -23,8 +23,11 @@
 #       sudo ai-tools-relabel --remove <dir>   # revert <dir> to its default type
 #       ```
 #
-# Exits 0 on success and where SELinux is inactive, 4 when the live-session gate left the tree as it was (a re-run
-# applies the step), 3 on a protected target, and 1 on every other refusal or failure.
+# Exits 0 on success, a label that left hardlinked files at their type included; 5 where this host has no label to apply
+# (SELinux disabled, or no ai_tools policy installed), named on stderr; 6 when a revert left hardlinked files
+# on ai_tools_project_t, each named, or the tree walker could not run; 3 on a protected target; and 1 on every other
+# refusal or failure, restorecon missing while SELinux is enabled among them. The CLI discards this helper's stdout,
+# so every outcome it reads is on stderr.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -59,15 +62,18 @@ fi
 
 # A leading message code (msg.lib.sh states the form) is printed on its own line ahead of the message, the shape
 # tests/lib/harness.sh's assert_msg reads, and carried into the log line. Matched inline: this helper does not load
-# the library. It exits DIE_STATUS, which die_live_session sets for the one refusal a caller re-runs.
-DIE_STATUS=1
-die() {
-    local code=""
+# the library. Every outcome goes to stderr. err and notice print and log one line, the caller choosing the exit status
+# after them; die exits 1.
+_emit() {
+    local severity="$1" result="$2" code=""; shift 2
     if [[ "${1-}" =~ ^MSG-[A-Z][0-9][A-Z][0-9]$ ]]; then code="$1"; shift; fi
-    ai_tools_log__coded error "${code}" "$*" "AI_TOOLS_RESULT=failed"
+    ai_tools_log__coded "${severity}" "${code}" "$*" "AI_TOOLS_RESULT=${result}"
     [[ -z "${code}" ]] || printf '%s\n' "${code}" >&2
-    printf 'ai-tools-relabel: error: %s\n' "$*" >&2; exit "${DIE_STATUS}"
+    printf 'ai-tools-relabel: %s: %s\n' "${severity}" "$*" >&2
 }
+err()    { _emit error failed "$@"; }
+notice() { _emit notice ok "$@"; }
+die()    { _emit error failed "$@"; exit 1; }
 
 # Protected-paths backstop (safe-paths.lib.sh): refuse to relabel a system directory even when the allowlist includes
 # it. See safe-paths.rule.md.
@@ -117,8 +123,16 @@ for a in "$@"; do
 done
 [[ -n "${target}" ]] || die MSG-A6G2 "usage: ai-tools-relabel [--remove] <dir>"
 
-dir="$(realpath -e "${target}" 2>/dev/null)" || die MSG-N3A5 "path not found: ${target}"
-[[ -d "${dir}" ]] || die MSG-S3E7 "not a directory: ${dir}"
+# A label needs the tree; a revert may name a tree a removal has deleted, whose rules are still to drop. Its path is
+# resolved without requiring it, and held to the form of a canonical absolute path before the backstop reads it.
+if ${remove}; then
+    dir="$(realpath -m -- "${target}" 2>/dev/null)" || dir=""
+    [[ "${dir}" == /* && "/${dir}/" != *"/./"* && "/${dir}/" != *"/../"* ]] || dir=""
+else
+    dir="$(realpath -e -- "${target}" 2>/dev/null)" || dir=""
+fi
+[[ -n "${dir}" ]] || die MSG-N3A5 "path not found: ${target}"
+[[ -d "${dir}" ]] || { ${remove} && [[ ! -e "${dir}" && ! -L "${dir}" ]]; } || die MSG-S3E7 "not a directory: ${dir}"
 # Refuse to (un)label a protected system directory.
 ai_tools_safe_paths__assert_safe_target "${dir}" "relabel" || exit 3
 
@@ -138,22 +152,38 @@ ai_tools_relabel__lock
          ai_tools_log__structured warning \
              "proceeding without the relabel lock -- ${AI_TOOLS_RELABEL__LOCK_NOTE}"; }
 
-if ai_tools_relabel__is_available; then :; else
-    # SELinux off or restorecon absent -- no work to do, and not an error: the confinement layer simply is not in play
-    # on this host.
-    echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}"
-    exit 0
+# not_applicable <reason> : this host has no label to apply, which is not a fault; exits 5.
+not_applicable() {
+    notice MSG-J5P7 "no SELinux label to apply on ${dir}: $1"
+    exit 5
+}
+# SELinux disabled, read the way ai_tools_relabel__is_available reads it, and restorecon missing are two answers that
+# function folds into one status; here the first is a host without a label to apply, and the second a broken toolchain.
+[[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || not_applicable "SELinux is disabled on this host"
+command -v restorecon >/dev/null 2>&1 \
+    || die MSG-U9R2 "restorecon is not installed while SELinux is enabled -- install policycoreutils"
+# A host whose ai_tools policy is neither live nor on disk is DAC-only by its own configuration, read through the one
+# predicate the launch and the status reports read it by. Loaded best-effort: a reader that did not load proceeds
+# to the label, which semanage then refuses with MSG-M2D2.
+readonly CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
+# shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
+source "${CONFINEMENT_LIB}" 2>/dev/null || true
+if declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null 2>&1 \
+        && declare -F ai_tools_confinement__read_module_present >/dev/null 2>&1 \
+        && declare -F ai_tools_confinement__read_policy_shipped >/dev/null 2>&1 \
+        && module_present="$(ai_tools_confinement__read_module_present \
+                                 "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null)"; then
+    policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
+    if [[ "$(ai_tools_confinement__evaluate_dac_only_state "$(getenforce 2>/dev/null || true)" \
+                 "${module_present}" "${policy_shipped}" || true)" == module-absent ]]; then
+        not_applicable "no ai_tools policy is installed on this host (install ai-tools-selinux)"
+    fi
 fi
 
-# die_live_session <command> -- refuse a walk the library declined (status 3) because a process of the sandbox account
-# is live, or because the reading could not be made, naming the stop and the command that re-runs this step, and exit 4.
-# A removal names this helper's own re-run at its fixed path, the line the CLI's unclaim and removal print beside their
-# own, since the helper's directory is not on sudo's PATH; a label names the claim, which re-runs it, since this helper
-# refuses a path no allowlist names. The path is shell-quoted, so the printed command names the tree a space or a shell
-# metacharacter in its name would otherwise split. The tree is left as it was: the library gates before its first write.
-die_live_session() {
-    DIE_STATUS=4
-    die MSG-H8V6 "left the SELinux label on ${dir} as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read, and a walk while one is live could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run: $1 $(printf '%q' "${dir}")"
+# die_walker_unavailable : the library's status 6 from a walk that could not start; exits 6.
+die_walker_unavailable() {
+    err MSG-W9Y5 "the SELinux label on ${dir} was left as it was: the tree walker could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; install python3-libselinux, which ai-tools-selinux requires, then re-run"
+    exit 6
 }
 
 if ${remove}; then
@@ -161,8 +191,13 @@ if ${remove}; then
     case "${rc}" in
         0) echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
            ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok" ;;
-        3) die_live_session "sudo /usr/local/libexec/ai-tools/ai-tools-relabel --remove" ;;
-        *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}" ;;
+        # A hardlinked file keeps ai_tools_project_t: through its other name it may be another tree's, so the walk does
+        # not write it, and a file left on the type the agent reads and writes is more access, so the exit is a failure.
+        4) quoted_dir="$(printf '%q' "${dir}")"
+           err MSG-D2T9 "reverted ${dir} to its default SELinux type except these hardlinked files, which keep ai_tools_project_t: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} -xdev -type f -links +1"
+           exit 6 ;;
+        6) die_walker_unavailable ;;
+        *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}}" ;;
     esac
 else
     allowlisted "${dir}" \
@@ -172,8 +207,12 @@ else
         0) echo "ai-tools-relabel: labelled ${dir} ai_tools_project_t"
            ai_tools_log__structured info "labelled project ${dir} ai_tools_project_t" \
                "AI_TOOLS_RESULT=ok" ;;
-        2) echo "ai-tools-relabel: SELinux inactive -- no labelling needed for ${dir}" ;;
-        3) die_live_session "atr projects claim" ;;
+        2) not_applicable "SELinux is not active on this host" ;;
+        # Through another name a hardlinked file may be another tree's, so the walk does not write it.
+        4) printf 'ai-tools-relabel: %s\n' "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" >&2
+           hardlinks_left="$(_ai_tools_relabel__get_hardlinks_left_count)"
+           notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked file(s) kept their type; they are listed above" ;;
+        6) die_walker_unavailable ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;
     esac
 fi

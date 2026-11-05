@@ -1583,6 +1583,10 @@ unknown option: ${arg}
 ERROR.
 usage: ai\-tools\-relabel [\-\-remove] <dir>
 .TP
+.B MSG-D2T9
+ERROR.
+reverted ${dir} to its default SELinux type except these hardlinked files, which keep ai_tools_project_t: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; list them with: find ${quoted_dir} \-xdev \-type f \-links +1
+.TP
 .B MSG-D6R4
 ERROR.
 must run as root (via sudo)
@@ -1591,9 +1595,9 @@ must run as root (via sudo)
 ERROR.
 takes a single path
 .TP
-.B MSG-H8V6
-ERROR.
-left the SELinux label on ${dir} as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read, and a walk while one is live could be redirected outside the tree; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run: $1 $(printf '%q' "${dir}")
+.B MSG-J5P7
+NOTICE.
+no SELinux label to apply on ${dir}: $1
 .TP
 .B MSG-M2D2
 ERROR.
@@ -1609,7 +1613,11 @@ refusing to label ${dir}: not an enabled project in the operator's project regis
 .TP
 .B MSG-Q4X9
 ERROR.
-failed to revert SELinux label on ${dir}
+failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}}
+.TP
+.B MSG-R5F8
+NOTICE.
+labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked file(s) kept their type; they are listed above
 .TP
 .B MSG-S3E7
 ERROR.
@@ -1618,6 +1626,14 @@ not a directory: ${dir}
 .B MSG-U2G7
 ERROR.
 missing label library: ${RELABEL_LIB}
+.TP
+.B MSG-U9R2
+ERROR.
+restorecon is not installed while SELinux is enabled \-\- install policycoreutils
+.TP
+.B MSG-W9Y5
+ERROR.
+the SELinux label on ${dir} was left as it was: the tree walker could not run \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-no detail}; install python3\-libselinux, which ai\-tools\-selinux requires, then re\-run
 .TP
 .B MSG-Y2P3
 ERROR.
@@ -1719,6 +1735,10 @@ usage: ai\-tools\-relabel\-agent [\-\-remove <agent\-name>]
 .B MSG-U6H8
 WARNING.
 the ${agent} entrypoint changed under an unchanged version ${version} \-\- leaving the pin as it is, so the next session refuses to start
+.TP
+.B MSG-V4H3
+WARNING.
+dropped the file\-context rules for ${agent}; the walk over its config directory could not label every entry \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${remove_config_dir}
 .TP
 .B MSG-W6V4
 ERROR.
@@ -2127,6 +2147,10 @@ sandbox clone NOT labelled ai_tools_project_t: ${clone}
 .B MSG-A5V5
 WARNING.
 the walk over the config directory of ${subject} left ${detail} hardlinked file(s) at their type; list them with: sudo find ${partial_dir} \-xdev \-type f \-links +1
+.TP
+.B MSG-B8Q9
+WARNING.
+dropped the file\-context rules for ${agent}; the walk over its config directory could not label every entry \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}
 .TP
 .B MSG-D3G7
 WARNING.

@@ -160,5 +160,13 @@ if [[ "${RC}" -eq 0 ]]; then pass "status 6 exits 0, so the erase completes"; el
 unlabel_run 1
 assert_msg MSG-S6C5 "${OUT}" "status 1 refuses: no usable rule"
 if [[ "${RC}" -eq 1 ]]; then pass "status 1 exits 1"; else fail "status 1 exits ${RC}"; fi
+unlabel_run 1 "failed to restore the file context of /opt/ai-tools/.acme/x: Permission denied; 1 entries not labelled"
+assert_msg MSG-V4H3 "${OUT}" "status 1 carrying the walker's lines warns that the config directory's walk failed"
+if command grep -qxF MSG-S6C5 <<< "${OUT}"; then
+    fail "status 1 carrying the walker's lines is reported as no usable rule"
+else
+    pass "status 1 carrying the walker's lines is not reported as no usable rule"
+fi
+if [[ "${RC}" -eq 0 ]]; then pass "status 1 carrying the walker's lines exits 0, so the erase completes"; else fail "that run exits ${RC}"; fi
 
 finish
