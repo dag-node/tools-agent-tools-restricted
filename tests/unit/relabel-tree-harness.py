@@ -331,7 +331,8 @@ def main():
     rc = walker.relabel_tree(returning, FakeLookup(), xattr, walker.OS_FILE_OPERATIONS, reports)
     check('setup: the root was renamed aside and back during the walk',
           len(xattr.moved) == 2 and os.path.isdir(returning) and not os.path.lexists(returning_aside))
-    check('control: a root renamed aside and back before the walk ends exits 0 (rc=%d, %r)' % (rc, reports.errors()),
+    check('a root renamed aside and back between the two reads exits 0, the stated limit (rc=%d, %r)'
+          % (rc, reports.errors()),
           rc == 0 and reports.errors() == [])
 
     # ── The root checks ──
