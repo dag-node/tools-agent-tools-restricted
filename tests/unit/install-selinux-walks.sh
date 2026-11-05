@@ -11,10 +11,11 @@
 # rewrites to a fixture root, so no host path is read. The script's text is then read for the two properties a function
 # cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel library, and every restorecon outside
 # the gate names a root-owned tree, held against a control line the reader must flag, and the remove action reads
-# the live-session state ahead of its first policy-store write. verify_agent_labels is driven over stubbed library
-# lines for an agent closed as failed, which fails the install, and a config directory walk that left hardlinked files;
-# _label_project and _unlabel_project over the library's partial-walk and walker-missing statuses. for_each_project is
-# driven through the checkout's conf.lib.sh over a registry holding each sign, and does not yield an excluded path.
+# the live-session state ahead of its first policy-store write. verify_agent_labels is driven over stubbed library lines
+# for an agent closed as failed, which fails the install, and a config directory walk that left hardlinked files;
+# _label_project and _unlabel_project over the library's partial-walk and walker-missing statuses, and _unlabel_project
+# over its absent-tree status. for_each_project is driven through the checkout's conf.lib.sh over a registry holding
+# each sign, and does not yield an excluded path.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -177,7 +178,7 @@ else
 fi
 
 # ── _label_project / _unlabel_project: the statuses beside the gate's ─────────────────────────
-section "install-selinux.sh: the project walks read a partial walk and a walker that could not run (unit)"
+section "install-selinux.sh: the project walks read a partial walk, a walker that could not run and an absent tree (unit)"
 project_text=""
 for name in warn _label_project _unlabel_project _report_skipped_walk_entries _warn_walker_unavailable; do
     body="$(extract_function "${INSTALLER}" "${name}")"
@@ -224,6 +225,16 @@ for fn in _label_project _unlabel_project; do
         fail "${fn} at status 6 does not carry the reason: ${project_out//$'\n'/ | }"
     fi
 done
+# The library's 3 is a registered path with no tree at it: the rules are dropped and no tree is walked, which the sweep
+# reads as done; a status it does not know, the control, warns.
+project_out="$(project_run _unlabel_project 3 "")"
+if [[ -z "${project_out}" ]]; then
+    pass "an unlabel at status 3 reads as a path with no tree to walk, silently"
+else
+    fail "an unlabel at status 3 printed: ${project_out//$'\n'/ | }"
+fi
+project_out="$(project_run _unlabel_project 7 "")"
+assert_msg MSG-W8J4 "${project_out}" "control: an unlabel at a status it does not know warns"
 project_out="$(project_run _label_project 4 "x")"
 if grep -qF "OK labelled project ai_tools_project_t: /p" <<<"${project_out}"; then
     pass "a label at status 4 reports the project labelled"

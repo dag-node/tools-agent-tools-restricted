@@ -248,7 +248,7 @@ if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
         esac
     }
     CALLS=""
-    ai_tools_relabel__unlabel_project /home/op/proj
+    ai_tools_relabel__unlabel_project /home/op/proj || true   # 3: no tree stands at the path; the row reads the calls
     if [[ "${CALLS}" == "fcontext -d -- /home/op/proj(/.*)?/(bin|target)(/.*)?"$'\n'"fcontext -d /home/op/proj(/.*)?"$'\n' ]]; then
         pass "an unlabel drops the build rule found by listing (an older name set included), then the project rule, and leaves a sibling project's rule alone"
     else
@@ -277,7 +277,7 @@ if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
         fail "label calls for a path with metacharacters: ${CALLS//$'\n'/ | }"
     fi
     CALLS=""
-    ai_tools_relabel__unlabel_project '/home/op/app.v1'
+    ai_tools_relabel__unlabel_project '/home/op/app.v1' || true
     if [[ "${CALLS}" == "fcontext -d /home/op/app\\.v1(/.*)?"$'\n' ]]; then
         pass "an unlabel removes the escaped rule alone"
     else
@@ -364,12 +364,24 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
     CALLS=""; WALKS=""; stub_walk_status=0
     semanage() { CALLS+="$*"$'\n'; return 0; }
     status=0; ai_tools_relabel__unlabel_project "${TESTDIR}/absent" || status=$?
-    if [[ "${status}" -eq 0 && -z "${WALKS}" \
+    if [[ "${status}" -eq 3 && -z "${WALKS}" \
             && "${CALLS}" == *"fcontext -d $(ai_tools_relabel__get_fcontext_literal "${TESTDIR}/absent")(/.*)?"* ]]; then
-        pass "an unlabel of an absent directory drops its rules and does not walk"
+        pass "an unlabel of an absent directory drops its rules, does not walk, and returns 3"
     else
         fail "an unlabel of an absent directory: status ${status}, walks '${WALKS}', calls ${CALLS//$'\n'/ | }"
     fi
+    # A tree that stands when the unlabel starts and is moved away while the rules are dropped reads as absent
+    # at the walk, and returns 3 for the caller to tell from a tree already gone.
+    mkdir "${TESTDIR}/vanishing"
+    semanage() { CALLS+="$*"$'\n'; [[ "$*" != "fcontext -d "* ]] || rm -rf -- "${TESTDIR}/vanishing"; return 0; }
+    CALLS=""; WALKS=""
+    status=0; ai_tools_relabel__unlabel_project "${TESTDIR}/vanishing" || status=$?
+    if [[ "${status}" -eq 3 && -z "${WALKS}" && ! -e "${TESTDIR}/vanishing" && "${CALLS}" == *"fcontext -d "* ]]; then
+        pass "an unlabel whose tree is removed while its rules are dropped returns 3 and does not walk"
+    else
+        fail "an unlabel whose tree is removed during the rule drop: status ${status}, walks '${WALKS}', calls ${CALLS//$'\n'/ | }"
+    fi
+    semanage() { CALLS+="$*"$'\n'; return 0; }
 
     # The config directory: a name under the control-plane home that exists on every installed host stands in for one,
     # with the manifest reader, the validator and the rule writer stubbed.
@@ -876,6 +888,56 @@ else
         pass "the protected-paths backstop reads the path after it is resolved"
     else
         fail "the backstop does not follow the resolution (resolve line '${resolve_line}', backstop line '${backstop_line}')"
+    fi
+
+    # The library returns 3 where no name stands at the path once the rules are dropped. The helper reads whether a name
+    # stood there at its own start, ahead of the lock wait and the library call, and report_revert_status reads 3
+    # as success only where none did. The function is driven out of the helper's text with its emitters stubbed.
+    presence_line="$(grep -n '^root_present_at_start=false$' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
+    lock_line="$(grep -n '^ai_tools_relabel__lock$' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
+    if [[ -n "${presence_line}" && -n "${lock_line}" ]] && (( presence_line < lock_line )); then
+        pass "--remove reads whether a name stands at the path ahead of the lock wait and the revert"
+    else
+        fail "the presence read does not precede the lock (presence line '${presence_line}', lock line '${lock_line}')"
+    fi
+    revert_body="$(extract_function "${relabel_helper}" report_revert_status)"
+    # revert_run <status> <present-at-start> : report_revert_status <status> over /home/op/proj; prints both streams
+    #   and the exit status last, as `exit=<n>`.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    revert_run() {
+        bash -c '
+            set -euo pipefail
+            eval "$1"
+            dir=/home/op/proj root_present_at_start="$3" AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
+            ai_tools_log__structured() { :; }
+            err()  { printf "%s\n" "$@"; }
+            die()  { printf "%s\n" "$@"; exit 1; }
+            exit_walker_unavailable() { exit 6; }
+            report_revert_status "$2"
+        ' _ "${revert_body}" "$1" "$2" 2>&1 && printf 'exit=0\n' || printf 'exit=%s\n' "$?"
+    }
+    if [[ -z "${revert_body}" ]]; then
+        fail "ai-tools-relabel does not define report_revert_status() in the form this file reads"
+    else
+        revert_out="$(revert_run 3 false)"
+        if [[ "${revert_out}" == *$'\n'"exit=0" && "${revert_out}" != *MSG-* ]]; then
+            pass "control: a revert of a path absent at the helper's start that finds no tree exits 0"
+        else
+            fail "a revert of a path absent at the start: ${revert_out//$'\n'/ | }"
+        fi
+        revert_out="$(revert_run 3 true)"
+        assert_msg MSG-M2A2 "${revert_out}" "a revert whose tree was moved away during it names the move"
+        if [[ "${revert_out}" == *$'\n'"exit=1" ]]; then
+            pass "a revert whose tree stood at the start and was gone at the walk exits 1"
+        else
+            fail "a revert whose tree was moved away during it: ${revert_out//$'\n'/ | }"
+        fi
+        revert_out="$(revert_run 0 true)"
+        if [[ "${revert_out}" == *"reverted /home/op/proj"*$'\n'"exit=0" ]]; then
+            pass "control: a revert that walked the tree exits 0"
+        else
+            fail "a revert that walked the tree: ${revert_out//$'\n'/ | }"
+        fi
     fi
 fi
 

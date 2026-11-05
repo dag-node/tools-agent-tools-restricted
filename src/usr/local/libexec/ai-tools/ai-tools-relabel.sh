@@ -11,11 +11,13 @@
 # The labelling body lives in the shared relabel.lib.sh (single source of truth, also used by the policy installer
 # install-selinux.sh's registry sweep). This helper only validates the target and dispatches.
 #
-# Labelling a path requires an allow line for it in the operator's project registry and no `%` or `!` line naming
-# it: only a project a session may start in carries the agent-accessible type. The gate reads the project root alone,
+# Labelling a path requires an allow line for it in the operator's project registry and no `%` or `!` line naming it:
+# only a project a session may start in carries the agent-accessible type. The gate reads the project root alone,
 # and the label covers every path under it, an excluded or owner-only path included. Reverting (`--remove`) is lenient
 # -- it cleans up a path that may already have been unregistered or deleted, and the walk only restores the system
-# default context. A path `--remove` names that no longer exists has its rules dropped with no walk.
+# default context. A path `--remove` names that does not exist when the helper starts has its rules dropped with no
+# walk; a name that stood there at the start and is gone by the walk fails the revert, since the tree it named was moved
+# or deleted with its labels as they were.
 #
 # Runs as root via sudo, invoked by YOU (the projects user) -- not ai-tools:
 #       ```bash
@@ -26,8 +28,8 @@
 # Exits 0 on success, a label that left hardlinked paths at their type included; 5 where this host has no label to apply
 # (SELinux disabled, or no ai_tools policy installed), named on stderr; 4 when a revert left hardlinked paths at their
 # current type, each named; 6 when the tree walker could not run, so no path was walked; 3 on a protected target; and 1
-# on every other refusal or failure, restorecon missing while SELinux is enabled among them. The CLI discards this
-# helper's stdout, so every outcome it reads is on stderr.
+# on every other refusal or failure, restorecon missing while SELinux is enabled and a tree moved or deleted
+# during a revert among them. The CLI discards this helper's stdout, so every outcome it reads is on stderr.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -133,6 +135,10 @@ else
 fi
 [[ -n "${dir}" ]] || die MSG-N3A5 "path not found: ${target}"
 [[ -d "${dir}" ]] || { ${remove} && [[ ! -e "${dir}" && ! -L "${dir}" ]]; } || die MSG-S3E7 "not a directory: ${dir}"
+# Read once, here: where the library does not find a tree to walk (its status 3), the tree was already gone if no name
+# stood at <dir> now, and was moved or deleted during the revert if one did (report_revert_status).
+root_present_at_start=false
+[[ ! -e "${dir}" && ! -L "${dir}" ]] || root_present_at_start=true
 # Refuse to (un)label a protected system directory.
 ai_tools_safe_paths__assert_safe_target "${dir}" "relabel" || exit 3
 
@@ -186,11 +192,20 @@ exit_walker_unavailable() {
     exit 6
 }
 
-if ${remove}; then
-    rc=0; ai_tools_relabel__unlabel_project "${dir}" || rc=$?
-    case "${rc}" in
+# report_revert_status <status> : report ai_tools_relabel__unlabel_project's <status> for ${dir} and exit with this
+#   helper's status for it. A 3 is a success only where root_present_at_start is false, the tree a removal already
+#   deleted; where a name stood at <dir> at the start, the tree there was moved or deleted during the revert, and its
+#   labels were not walked.
+report_revert_status() {
+    local quoted_dir
+    case "$1" in
         0) echo "ai-tools-relabel: reverted ${dir} to its default SELinux type"
            ai_tools_log__structured info "unlabelled project ${dir}" "AI_TOOLS_RESULT=ok" ;;
+        3) if ${root_present_at_start}; then
+               die MSG-M2A2 "the tree at ${dir} was moved or deleted during the revert -- its SELinux rules are dropped, and its labels are left as they were"
+           fi
+           echo "ai-tools-relabel: dropped the SELinux rules of ${dir}; no tree stands there to revert"
+           ai_tools_log__structured info "dropped the rules of absent project ${dir}" "AI_TOOLS_RESULT=ok" ;;
         # A hardlinked path keeps its current type: through its other name it may be another tree's, so the walk does
         # not write it, and a path left on a type the agent reads and writes is more access, so the exit is a failure.
         4) quoted_dir="$(printf '%q' "${dir}")"
@@ -199,6 +214,12 @@ if ${remove}; then
         6) exit_walker_unavailable ;;
         *) die MSG-Q4X9 "failed to revert SELinux label on ${dir}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+ -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}}" ;;
     esac
+    exit 0
+}
+
+if ${remove}; then
+    rc=0; ai_tools_relabel__unlabel_project "${dir}" || rc=$?
+    report_revert_status "${rc}"
 else
     allowlisted "${dir}" \
         || die MSG-P8J7 "refusing to label ${dir}: not an enabled project in the operator's project registry"

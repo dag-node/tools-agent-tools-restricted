@@ -881,7 +881,8 @@ _restore_home_state_labels() {
 # writes only a file whose context differs), so a clean tree costs a walk and no writes; a file that drifted
 # in with a foreign context -- a customizable type a plain restorecon would preserve -- is forced back
 # to ai_tools_project_t by the lib's `-F`, which is the whole point of the sweep. A status of 4 is a walk that completed
-# and left hardlinked paths at their type, and 6 a walk that could not start.
+# and left hardlinked paths at their type, and 6 a walk that could not start; an unlabel's 3 is a registered path
+# with no tree at it, whose rules are dropped.
 _label_project() {
     local rc=0
     ai_tools_relabel__label_project "$1" || rc=$?
@@ -898,6 +899,8 @@ _unlabel_project() {
     ai_tools_relabel__unlabel_project "$1" || rc=$?
     case "${rc}" in
         0) ;;
+        # The registry names a project whose tree is gone: its rules are dropped, and there is no tree to walk.
+        3) ;;
         4) _report_skipped_walk_entries "$1" ;;
         6) _warn_walker_unavailable "$1" ;;
         *) warn MSG-W8J4 "could not unlabel $1" ;;

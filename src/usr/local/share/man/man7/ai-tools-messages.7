@@ -1595,6 +1595,10 @@ takes a single path
 NOTICE.
 no SELinux label to apply on ${dir}: $1
 .TP
+.B MSG-M2A2
+ERROR.
+the tree at ${dir} was moved or deleted during the revert \-\- its SELinux rules are dropped, and its labels are left as they were
+.TP
 .B MSG-M2D2
 ERROR.
 failed to label ${dir} (is the ai_tools policy module loaded? install ai\-tools\-selinux, or from a checkout run: sudo selinux/install\-selinux.sh install)
