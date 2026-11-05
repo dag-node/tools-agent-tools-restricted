@@ -210,7 +210,7 @@ else
         2) not_applicable "SELinux is not active on this host" ;;
         # Through another name a hardlinked path may be another tree's, so the walk does not write it.
         4) printf 'ai-tools-relabel: %s\n' "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" >&2
-           hardlinks_left="$(_ai_tools_relabel__get_hardlinks_left_count)"
+           hardlinks_left="$(ai_tools_relabel__get_skipped_hardlink_count)"
            notice MSG-R5F8 "labelled ${dir} ai_tools_project_t; ${hardlinks_left} hardlinked path(s) kept their current type; they are listed above" ;;
         6) die_walker_unavailable ;;
         *) die MSG-M2D2 "failed to label ${dir} (is the ai_tools policy module loaded? install ai-tools-selinux, or from a checkout run: sudo selinux/install-selinux.sh install)" ;;

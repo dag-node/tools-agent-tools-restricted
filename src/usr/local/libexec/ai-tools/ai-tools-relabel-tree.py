@@ -34,10 +34,14 @@
 #
 # Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked paths left; 1 an entry could not
 # be labelled (the first named on stderr, then the count), a read-back differing from the write (which ends the walk),
-# or the root check; 2 usage; 3 libselinux.so.1 does not load or lacks a function the lookup calls. A real run prints
-# nothing on stdout. `--dry-run` writes nothing and prints `<path> <from> <to>` for each entry it would write, `-`
-# for no current label; `--expected-context` replaces the lookup with <ctx> there and does not load libselinux. Every
-# path printed is escaped to printable ASCII in bash `printf %q` form, since a name in the tree is the account's.
+# or the root check; each of the three past the root check ends stderr with one `summary hardlinks-left=<n>
+# failures=<n>` line. stderr names at most the first 20 hardlinked paths, then how many it did not list, so its size
+# does not grow with the tree; a caller reads the counts from the summary line, which no escaped path can begin, since
+# the escaping leaves no newline in a path; 2 usage; 3 libselinux.so.1 does not load or lacks a function the lookup
+# calls. A real run prints nothing on stdout. `--dry-run` writes nothing and prints `<path> <from> <to>` for each entry
+# it would write, `-` for no current label; `--expected-context` replaces the lookup with <ctx> there and does not load
+# libselinux. Every path printed is escaped to printable ASCII in bash `printf %q` form, since a name in the tree is
+# the account's.
 #
 # walk() takes its collaborators as parameters, so tests/unit/relabel-tree-harness.py imports this file by path
 # and drives it with fakes; main() binds the real ones. Installed 0750 root:root as ai-tools-relabel-tree.
@@ -52,6 +56,7 @@ import sys
 import types
 
 _PROGRAM = 'ai-tools-relabel-tree'
+_HARDLINKS_LISTED = 20
 _LIBSELINUX = 'libselinux.so.1'
 _SELABEL_CTX_FILE = 0
 _XATTR = 'security.selinux'
@@ -145,7 +150,8 @@ class _Walk:
             return True
         if not stat.S_ISDIR(st.st_mode) and st.st_nlink > 1:
             self.hardlinks_left += 1
-            self.report('error', 'skipped hardlinked path %s (link count %d)' % (quote(path), st.st_nlink))
+            if self.hardlinks_left <= _HARDLINKS_LISTED:
+                self.report('error', 'skipped hardlinked path %s (link count %d)' % (quote(path), st.st_nlink))
             return True
         if self.dry_run:
             shown = '-' if current is None else quote(current.decode('utf-8', 'surrogateescape'))
@@ -282,14 +288,21 @@ def walk(root, lookup, xattr, opener, report, dry_run=False):
             completed = False
     finally:
         opener.close(root_fd)
+    if run.hardlinks_left > _HARDLINKS_LISTED:
+        report('error', '%d more hardlinked paths skipped, not listed' % (run.hardlinks_left - _HARDLINKS_LISTED))
+    status = 0
     if not completed:
         report('error', run.first_failure)
-        return 1
-    if run.failures:
+        status = 1
+    elif run.failures:
         report('error', run.first_failure)
         report('error', '%d entries not labelled' % run.failures)
-        return 1
-    return 4 if run.hardlinks_left else 0
+        status = 1
+    elif run.hardlinks_left:
+        status = 4
+    if status:
+        report('error', 'summary hardlinks-left=%d failures=%d' % (run.hardlinks_left, run.failures))
+    return status
 
 
 def _usage(message):

@@ -161,6 +161,8 @@ def main():
           and 'skipped hardlinked path %s/hardlink-symlink (link count 2)' % root in reports.errors()
           and 'skipped hardlinked path %s/hardlink-fifo (link count 2)' % root in reports.errors())
     check('the walk with hardlinked files left exits 4 (rc=%d)' % rc, rc == 4)
+    check('the walk ends its report with the summary line: %r' % reports.errors()[-1:],
+          reports.errors()[-1:] == ['summary hardlinks-left=4 failures=0'])
     check('the rest of the tree is written beside the hardlinks (the root, sub, the links)',
           xattr.written(root) and xattr.written(root + '/sub') and xattr.written(root + '/filelink'))
     check('a symlink is labelled as itself, not its target',
@@ -172,8 +174,33 @@ def main():
 
     # ── Control for exit 4: the same shape without hardlinks exits 0 ──
     plain = build_tree('plain', hardlinks=False)
-    rc = walker.walk(plain, FakeLookup(), FakeXattr(), walker.OS_OPENER, Reports())
-    check('control: a tree without hardlinked files exits 0 (rc=%d)' % rc, rc == 0)
+    reports = Reports()
+    rc = walker.walk(plain, FakeLookup(), FakeXattr(), walker.OS_OPENER, reports)
+    check('control: a tree without hardlinked files exits 0 and reports nothing (rc=%d, %r)' % (rc, reports.errors()),
+          rc == 0 and reports.errors() == [])
+
+    # ── The report is bounded: 20 hardlinked paths listed, the rest counted ──
+    many = os.path.join(BASE, 'many')
+    os.makedirs(many)
+    with open(os.path.join(many, 'origin'), 'w') as handle:
+        handle.write('x')
+    for index in range(1, 25):
+        os.link(os.path.join(many, 'origin'), os.path.join(many, 'link-%02d' % index))
+    tricky = 'tricky\nsummary hardlinks-left=99 failures=0'
+    os.link(os.path.join(many, 'origin'), os.path.join(many, tricky))
+    check('setup: one inode holds 26 names in the tree, one carrying the summary text after a newline',
+          os.lstat(os.path.join(many, 'origin')).st_nlink == 26)
+    reports = Reports()
+    rc = walker.walk(many, FakeLookup(), FakeXattr(), walker.OS_OPENER, reports)
+    listed = [line for line in reports.errors() if line.startswith('skipped hardlinked path ')]
+    check('the walk lists 20 hardlinked paths and counts the 6 more (rc=%d, %d listed, %r)'
+          % (rc, len(listed), reports.errors()[-2:]),
+          rc == 4 and len(listed) == 20
+          and reports.errors()[-2:] == ['6 more hardlinked paths skipped, not listed',
+                                        'summary hardlinks-left=26 failures=0'])
+    check('no line of the report but the last begins with the summary text',
+          not any(line.startswith('summary ') for line in reports.errors()[:-1])
+          and all('\n' not in line for line in reports.errors()))
 
     # ── A read-back differing from the write ends the walk at once ──
     mismatch = build_tree('mismatch', hardlinks=False)
@@ -200,7 +227,8 @@ def main():
           % (rc, reports.errors()),
           rc == 1 and xattr.written(failing + '/sub/b.txt')
           and reports.errors() == ['failed to restore the file context of %s/a.txt: %s'
-                                   % (failing, os.strerror(errno.EACCES)), '1 entries not labelled'])
+                                   % (failing, os.strerror(errno.EACCES)), '1 entries not labelled',
+                                   'summary hardlinks-left=0 failures=1'])
 
     # ── The root checks ──
     file_root = os.path.join(BASE, 'file-root')
@@ -267,7 +295,7 @@ def main():
           % (rc, reports.errors()),
           rc == 1 and xattr.written(raising + '/sub/b.txt') == [WANTED.encode()]
           and xattr.written(os.path.join(raising, bad_name)) == []
-          and reports.errors()[-1] == '1 entries not labelled'
+          and reports.errors()[-2:] == ['1 entries not labelled', 'summary hardlinks-left=0 failures=1']
           and reports.errors()[0].startswith("failed to restore the file context of $'%s/bad-\\xff'" % raising))
 
     # ── `--dry-run`: no write, one line per change, names escaped ──

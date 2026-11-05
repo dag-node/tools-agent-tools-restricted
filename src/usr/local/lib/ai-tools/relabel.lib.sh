@@ -158,11 +158,13 @@ ai_tools_relabel__is_available() {
 
 # The descriptor-pinned tree relabel every walk in this library runs. Root-only, as the walk is.
 readonly _AI_TOOLS_RELABEL__TREE_HELPER=/usr/local/libexec/ai-tools/ai-tools-relabel-tree
-# What the last walk printed on stderr -- the hardlinked paths it left, or why it failed -- its lines joined with "; ",
-# since the walker escapes a `;` inside a path. Set by _ai_tools_relabel__relabel_tree for the caller that just called
-# it.
+# What the last walk printed on stderr but its summary line -- the hardlinked paths it listed, or why it failed -- its
+# lines joined with "; ", since the walker escapes a `;` inside a path; the walker bounds what it prints. Set
+# by _ai_tools_relabel__relabel_tree for the caller that just called it.
 # shellcheck disable=SC2034  # read by ai-tools-relabel, ai-tools-relabel-agent and install-selinux.sh
 AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
+# The hardlinked paths the last walk skipped, from the walker's summary line; 0 where it printed none.
+_AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT=0
 
 # _ai_tools_relabel__relabel_tree <dir>: label <dir> and every entry under it as `restorecon -FR` would, through
 #   ai-tools-relabel-tree, its stderr kept in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS. Returns 0 when the walk labelled every
@@ -170,15 +172,24 @@ AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
 #   the walker refused its root or its command line, and 6 when the walker could not run: not installed or not
 #   executable, or libselinux.so.1 did not load, which the walker names.
 _ai_tools_relabel__relabel_tree() {
-    local dir="$1" rc=0 diagnostics
+    local dir="$1" rc=0 walker_diagnostics line kept=""
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
+    _AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT=0
     if [[ ! -x "${_AI_TOOLS_RELABEL__TREE_HELPER}" ]]; then
         AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${_AI_TOOLS_RELABEL__TREE_HELPER} is not installed or not executable"
         return 6
     fi
-    diagnostics="$("${_AI_TOOLS_RELABEL__TREE_HELPER}" -- "${dir}" 2>&1 >/dev/null)" || rc=$?
-    diagnostics="${diagnostics//$'\r'/}"
-    AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${diagnostics//$'\n'/; }"
+    walker_diagnostics="$("${_AI_TOOLS_RELABEL__TREE_HELPER}" -- "${dir}" 2>&1 >/dev/null)" || rc=$?
+    # The summary line begins a line, which an escaped path cannot, so a name carrying its text is not read as it.
+    while IFS= read -r line; do
+        line="${line//$'\r'/}"
+        if [[ "${line}" =~ ^summary\ hardlinks-left=([0-9]+)\ failures=[0-9]+$ ]]; then
+            _AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT="$(( 10#${BASH_REMATCH[1]} ))"
+        elif [[ -n "${line}" ]]; then
+            kept+="${kept:+; }${line}"
+        fi
+    done <<< "${walker_diagnostics}"
+    AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${kept}"
     case "${rc}" in
         0|4) return "${rc}" ;;
         3) AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-libselinux.so.1 did not load}"
@@ -188,15 +199,10 @@ _ai_tools_relabel__relabel_tree() {
     esac
 }
 
-# _ai_tools_relabel__get_hardlinks_left_count: print how many hardlinked paths the last walk left, read
-#   from AI_TOOLS_RELABEL__TREE_DIAGNOSTICS.
-_ai_tools_relabel__get_hardlinks_left_count() {
-    local text="${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" count=0
-    while [[ "${text}" == *"skipped hardlinked path "* ]]; do
-        text="${text#*skipped hardlinked path }"
-        count=$(( count + 1 ))
-    done
-    printf '%s\n' "${count}"
+# ai_tools_relabel__get_skipped_hardlink_count: print how many hardlinked paths the last walk skipped, as its summary
+#   line counted them, listed or not.
+ai_tools_relabel__get_skipped_hardlink_count() {
+    printf '%s\n' "${_AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT}"
 }
 
 # _ai_tools_relabel__is_under_sandbox_root <dir>: 0 if <dir> lies under the statically-labelled sandbox root,
@@ -669,7 +675,7 @@ _ai_tools_relabel__label_agent_config_dir() {
     _ai_tools_relabel__relabel_tree "${path}" || walk=$?
     case "${walk}" in
         0) ;;
-        4) printf 'partial %s %s\n' "${agent}" "$(_ai_tools_relabel__get_hardlinks_left_count)" ;;
+        4) printf 'partial %s %s\n' "${agent}" "$(ai_tools_relabel__get_skipped_hardlink_count)" ;;
         6) printf 'skip %s could not walk its config directory -- %s\n' "${agent}" "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"
            return 1 ;;
         *) printf 'bad %s unknown %s\n' "${path}" "${AI_TOOLS_RELABEL__AGENT_CONFIG_TYPE}"

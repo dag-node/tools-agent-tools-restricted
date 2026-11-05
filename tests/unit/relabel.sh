@@ -316,6 +316,7 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
     _ai_tools_relabel__relabel_tree() {
         WALKS+="$1"$'\n'
         AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${stub_walk_diagnostics}"
+        _AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT="${stub_skipped_count:-0}"
         return "${stub_walk_status}"
     }
     ai_tools_relabel__is_available() { return 0; }
@@ -386,7 +387,8 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
         # config_is <walk-status> <expected-status> <expected-lines> <why>
         config_is() {
             local status=0 line
-            stub_walk_status="$1"; stub_walk_diagnostics="skipped hardlinked path ${config_path}/a (link count 2); skipped hardlinked path ${config_path}/b (link count 3)"
+            stub_walk_status="$1"; stub_skipped_count=2
+            stub_walk_diagnostics="skipped hardlinked path ${config_path}/a (link count 2); skipped hardlinked path ${config_path}/b (link count 3)"
             line="$(_ai_tools_relabel__label_agent_config_dir acme)" || status=$?
             if [[ "${status}" -eq "$2" && "${line}" == "$3" ]]; then
                 pass "$4: status $2"
@@ -930,6 +932,89 @@ else
     else
         fail "pattern is '${pattern}', expected every dot escaped and a (/.*)? tail"
     fi
+fi
+
+
+# ── The real wrapper over each walker status ─────────────────────────────────────────────────
+# _ai_tools_relabel__relabel_tree runs the walker at a readonly path, so each case sources a copy of the library
+# whose walker path is substituted, in a shell of its own, beside the real library's siblings. With /bin/bash
+# as the walker the wrapper's `<walker> -- <dir>` runs <dir> as a script, so a fixture script stands for the walker's
+# exit status and stderr without an executable fixture; a missing and a non-executable walker path are the two it
+# refuses before running anything. Each case prints the wrapper's status, the skipped count and the diagnostics, one
+# per line, the last absent where the diagnostics are empty.
+section "relabel: the real tree-walk wrapper reads each walker status and the summary line (unit)"
+if grep -q '^readonly _AI_TOOLS_RELABEL__TREE_HELPER=' "${LIB}"; then
+    # walker_copy <walker-path> : print the path of a library copy whose walker is <walker-path>.
+    walker_copy() {
+        local dir lib
+        dir="$(mktemp -d "${TESTDIR}/lib-copy.XXXXXX")"
+        for lib in "${LIB%/*}"/*.lib.sh; do ln -s "${lib}" "${dir}/${lib##*/}"; done
+        rm -f "${dir}/relabel.lib.sh"
+        sed "s|^readonly _AI_TOOLS_RELABEL__TREE_HELPER=.*|readonly _AI_TOOLS_RELABEL__TREE_HELPER=$1|" "${LIB}" \
+            > "${dir}/relabel.lib.sh"
+        printf '%s\n' "${dir}/relabel.lib.sh"
+    }
+    # wrapper_run <copy> <script> : the wrapper's three outputs over <script> as the walked directory.
+    # shellcheck disable=SC2016  # the inner shell expands these
+    wrapper_run() {
+        bash -c 'source "$1" 2>/dev/null; status=0; _ai_tools_relabel__relabel_tree "$2" || status=$?
+                 printf "%s\n%s\n%s\n" "${status}" "$(ai_tools_relabel__get_skipped_hardlink_count)" \
+                     "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"' _ "$1" "$2"
+    }
+    # wrapper_is <why> <script-body> <status> <count> <diagnostics-glob>
+    bash_copy="$(walker_copy /bin/bash)"
+    wrapper_is() {
+        local script out
+        script="$(mktemp "${TESTDIR}/walker.XXXXXX")"
+        printf '%s\n' "$2" > "${script}"
+        out="$(wrapper_run "${bash_copy}" "${script}")"
+        local status count diagnostics
+        { IFS= read -r status; IFS= read -r count; IFS= read -r diagnostics || true; } <<< "${out}"
+        # shellcheck disable=SC2053  # $5 is a glob the case states
+        if [[ "${status}" == "$3" && "${count}" == "$4" && "${diagnostics}" == $5 ]]; then
+            pass "$1: status $3, count $4"
+        else
+            fail "$1: status ${status}, count ${count}, diagnostics '${diagnostics}'"
+        fi
+    }
+    wrapper_is "control: a walk that labelled every entry" 'exit 0' 0 0 ''
+    wrapper_is "a walk that left 25 hardlinked paths, 20 listed" \
+        'for i in $(seq 20); do echo "skipped hardlinked path /p/$i (link count 2)" >&2; done
+         echo "5 more hardlinked paths skipped, not listed" >&2
+         echo "summary hardlinks-left=25 failures=0" >&2; exit 4' \
+        4 25 'skipped hardlinked path /p/1 (link count 2); *; 5 more hardlinked paths skipped, not listed'
+    wrapper_is "a name carrying the summary text, escaped onto one line, is not counted as it" \
+        "echo \"skipped hardlinked path \$'/p/a\\\\x0asummary hardlinks-left=99 failures=0' (link count 2)\" >&2
+         echo 'summary hardlinks-left=1 failures=0' >&2; exit 4" \
+        4 1 "skipped hardlinked path \$'/p/a\\\\x0asummary hardlinks-left=99 failures=0' (link count 2)"
+    wrapper_is "libselinux not loading is a walker that could not run" \
+        'echo "ai-tools-relabel-tree: libselinux.so.1 does not load: x" >&2; exit 3' 6 0 '*libselinux.so.1 does not load*'
+    wrapper_is "a silent exit 3 names libselinux" 'exit 3' 6 0 'libselinux.so.1 did not load'
+    wrapper_is "an entry the walk could not label" \
+        'echo "failed to restore the file context of /p/a: Permission denied" >&2; echo "1 entries not labelled" >&2
+         echo "summary hardlinks-left=0 failures=1" >&2; exit 1' \
+        1 0 'failed to restore the file context of /p/a: Permission denied; 1 entries not labelled'
+    wrapper_is "a walker exiting 1 with no diagnostic is named by its status" 'exit 1' 1 0 \
+        'the walker exited 1 without a diagnostic'
+    wrapper_is "a walker killed by a signal is named by its status" 'kill -KILL $$' 1 0 \
+        'the walker exited 137 without a diagnostic'
+    wrapper_is "a usage refusal is a failed walk" 'exit 2' 1 0 'the walker exited 2 without a diagnostic'
+    for absent_case in missing nonexec; do
+        if [[ "${absent_case}" == missing ]]; then
+            walker_path="${TESTDIR}/no-such-walker"
+        else
+            walker_path="${TESTDIR}/nonexec-walker"; : > "${walker_path}"; chmod 0644 "${walker_path}"
+        fi
+        out="$(wrapper_run "$(walker_copy "${walker_path}")" "${TESTDIR}")"
+        { IFS= read -r status; IFS= read -r _count; IFS= read -r diagnostics || true; } <<< "${out}"
+        if [[ "${status}" == 6 && "${diagnostics}" == "${walker_path} is not installed or not executable" ]]; then
+            pass "a ${absent_case} walker returns 6 and names its path"
+        else
+            fail "a ${absent_case} walker: status ${status}, '${diagnostics}'"
+        fi
+    done
+else
+    skip "the real wrapper" "${LIB} does not hold the walker path in the form this file substitutes"
 fi
 
 finish
