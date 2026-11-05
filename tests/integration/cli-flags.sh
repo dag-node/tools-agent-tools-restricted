@@ -1142,6 +1142,7 @@ drive_rows() {
     expect "a removal whose revert failed exits non-zero"             rc_not0
     expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
     expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm1h]}"
+    expect "that removal still prints the re-run for the rules the step left" out_has_text "ai-tools-relabel --remove ${R}/rm1h"
     expect "that removal still deletes the tree"                      test ! -e "${R}/rm1h"
     expect "that removal drops the entry"                             st_is "${R}/rm1h" absent
     RUN_EXTRA_ENV=()
