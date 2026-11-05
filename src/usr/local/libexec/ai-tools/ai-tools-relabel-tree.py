@@ -33,7 +33,8 @@
 # selabel_lookup refuses a str carrying an undecodable byte and refuses bytes, so a name the account gives an invalid
 # UTF-8 byte would otherwise stop the walk. A path the database maps to <<none>> is left as it is. An entry other than
 # a directory with more than one link is not written, whatever its file type: through its other name it may be another
-# project's or another operator's. It is listed on stderr when its label differs, and the walk exits 4.
+# project's or another operator's. It is listed on stderr with its link count and its inode when its label differs,
+# so its other names can be found once the tree is gone, and the walk exits 4.
 #
 # Exit status: 0 every entry labelled or already correct; 4 complete, with hardlinked paths left; 1 an entry could not
 # be labelled (the first named on stderr, then the count), a read-back differing from the write (which ends the walk),
@@ -155,8 +156,8 @@ class _RelabelRun:
         if not stat.S_ISDIR(entry_stat.st_mode) and entry_stat.st_nlink > 1:
             self.hardlinks_left += 1
             if self.hardlinks_left <= _HARDLINKS_LISTED:
-                self.report('error', 'skipped hardlinked path %s (link count %d)'
-                            % (format_shell_quoted(path), entry_stat.st_nlink))
+                self.report('error', 'skipped hardlinked path %s (link count %d, inode %d)'
+                            % (format_shell_quoted(path), entry_stat.st_nlink, entry_stat.st_ino))
             return True
         if self.dry_run:
             shown = '-' if current is None else format_shell_quoted(current.decode('utf-8', 'surrogateescape'))

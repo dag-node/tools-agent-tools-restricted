@@ -368,6 +368,8 @@ err_has() { grep -qF -- "$1" "${R}/.stderr"; }
 # out_has_text <text>: the row's captured output holds <text>.
 out_has_text() { grep -qF -- "$1" <<< "${out}"; }
 out_lacks_text() { ! out_has_text "$1"; }
+# out_has_line <line>: one line of the row's captured output is <line> whole -- a message code, a printed command.
+out_has_line() { grep -qxF -- "$1" <<< "${out}"; }
 # out_line_has_text <a> <b>: one line of the output carries both texts.
 out_line_has_text() { grep -F -- "$1" <<< "${out}" | grep -qF -- "$2"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
@@ -1085,9 +1087,22 @@ drive_rows() {
     # The label reversal's statuses, with SELinux reported enforcing as in the unclaim rows.
     RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
     # 5: no label to apply on this host, so the removal completes; 4: the revert left hardlinked paths, and 6: the tree
-    # walker could not run, each a cleanup step the removal counts while it deletes the tree.
-    mkdir -p "${R}/rm5" "${R}/rm4" "${R}/rm6"
-    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm5" "${R}/rm4" "${R}/rm6"
+    # walker could not run, each a cleanup step the removal counts while it deletes the tree. The trees for 4 and 6 each
+    # hold a file with a second name outside them, which the removal reads before the deletion and names after it
+    # by inode and mount; rm4n, the same status over a tree with no hardlink, is the control.
+    mkdir -p "${R}/rm5" "${R}/rm4" "${R}/rm6" "${R}/rm4n" "${R}/rm-outside"
+    local tree_kind expected_find
+    local -A expected_inventory_find=()
+    for tree_kind in rm4 rm6; do
+        printf 'linked\n' > "${R}/${tree_kind}/linked"
+        ln "${R}/${tree_kind}/linked" "${R}/rm-outside/${tree_kind}-linked"
+        expected_inventory_find[${tree_kind}]="      sudo find $(LC_ALL=C printf '%q' "$(stat -c %m -- "${R}/${tree_kind}/linked")") -xdev -inum $(stat -c %i -- "${R}/${tree_kind}/linked")"
+    done
+    printf 'plain\n' > "${R}/rm4n/plain"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm5" "${R}/rm4" "${R}/rm6" "${R}/rm4n" "${R}/rm-outside"
+    expect "setup: the trees for 4 and 6 each hold a file whose second name is outside them" \
+        test "$(stat -c %h -- "${R}/rm4/linked")" -eq 2 -a "$(stat -c %h -- "${R}/rm6/linked")" -eq 2 \
+             -a "$(stat -c %h -- "${R}/rm4n/plain")" -eq 1
     seed "@ ${R}/rm5"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm5"
     expect "a removal whose relabel helper exits 5 exits 0"           rc_is 0
@@ -1098,14 +1113,25 @@ drive_rows() {
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4"
     expect "a removal whose revert left hardlinked paths exits non-zero" rc_not0
     expect "that removal names the paths' other names"                out_has_text "a hardlinked path's other names outside it keep its current type"
+    expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
+    expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm4]}"
+    expect "that removal does not print a revert to re-run"           out_lacks_text "ai-tools-relabel --remove"
     expect "that removal still deletes the tree"                      test ! -e "${R}/rm4"
     expect "that removal drops the entry"                             st_is "${R}/rm4" absent
+    expect "the file's name outside the tree stands"                  test -f "${R}/rm-outside/rm4-linked"
+    seed "@ ${R}/rm4n"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4n"
+    expect "control: a removal at 4 over a tree with no hardlink exits non-zero" rc_not0
+    expect "control: that removal prints no inventory"                out_lacks_text "MSG-S6J8"
+    expect "control: that removal prints no find by inode"            out_lacks_text "-xdev -inum"
+    expect "control: that removal deletes the tree"                   test ! -e "${R}/rm4n"
     seed "@ ${R}/rm6"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm6"
     expect "a removal whose tree walker could not run exits non-zero" rc_not0
     expect "that removal says the walker could not run"               out_has_text "the tree walker could not run"
-    expect "that removal prints the helper's re-run"                  out_has_text "ai-tools-relabel --remove ${R}/rm6"
-    expect "that removal does not name hardlinked paths"              out_lacks_text "hardlinked path's other names"
+    expect "that removal does not print a revert to re-run"           out_lacks_text "ai-tools-relabel --remove"
+    expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
+    expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm6]}"
     expect "that removal still deletes the tree"                      test ! -e "${R}/rm6"
     expect "that removal drops the entry"                             st_is "${R}/rm6" absent
     RUN_EXTRA_ENV=()

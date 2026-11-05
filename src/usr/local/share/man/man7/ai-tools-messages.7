@@ -350,6 +350,10 @@ the git safe.directory list ${GITCONFIG} could not be read \-\- the claim did no
 WARNING.
 the directory $(ai_tools_log__sanitize "${CREATE_LEFT_TREE}") was created and its claim did not finish \-\- the directory stays; finish the claim with:
 .TP
+.B MSG-S6J8
+WARNING.
+before the deletion the tree held ${total} hardlinked file(s); each one's names outside the tree keep the SELinux type they carry, and the type those names take is yours to decide \-\- each command below lists the other names of one file${listed_clause}${incomplete_clause}
+.TP
 .B MSG-S6Q5
 ERROR.
 projects remove has no \-\-force: a project is deleted on its registry entry and a clone on its place, its owner and its shape, and no flag stands in for either.
@@ -475,6 +479,10 @@ projects lockdown takes a single path
 .B MSG-Y7K5
 ERROR.
 the project registry ${REGISTRY_DISPLAY_PATH} holds a line named above that no reader accepts \-\- nothing changed
+.TP
+.B MSG-Y7P8
+WARNING.
+the read of the tree's hardlinked files before the deletion did not complete, so this removal does not list the other names of a file it did not reach; those names keep the SELinux type they carry, and the type they take is yours to decide
 .TP
 .B MSG-Z5V5
 ERROR.

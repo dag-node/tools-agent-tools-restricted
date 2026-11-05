@@ -153,14 +153,16 @@ def main():
     check('a lookup failing with ENOENT leaves the entry and is not a failure',
           (root + '/none.txt') in calls and xattr.written(root + '/none.txt') == []
           and not any('none.txt' in line for line in reports.errors()))
-    check('a hardlinked file is not written and is listed with its link count: %r' % reports.errors(),
+    def skipped_line(name):
+        inode = os.lstat(root + '/' + name).st_ino
+        return 'skipped hardlinked path %s/%s (link count 2, inode %d)' % (root, name, inode)
+    check('a hardlinked file is not written and is listed with its link count and inode: %r' % reports.errors(),
           xattr.written(root + '/hard1') == [] and xattr.written(root + '/hard2') == []
-          and 'skipped hardlinked path %s/hard1 (link count 2)' % root in reports.errors()
-          and 'skipped hardlinked path %s/hard2 (link count 2)' % root in reports.errors())
+          and skipped_line('hard1') in reports.errors() and skipped_line('hard2') in reports.errors())
     check('a hardlinked symlink and a hardlinked FIFO are not written, and each is listed: %r' % reports.errors(),
           xattr.written(root + '/hardlink-symlink') == [] and xattr.written(root + '/hardlink-fifo') == []
-          and 'skipped hardlinked path %s/hardlink-symlink (link count 2)' % root in reports.errors()
-          and 'skipped hardlinked path %s/hardlink-fifo (link count 2)' % root in reports.errors())
+          and skipped_line('hardlink-symlink') in reports.errors()
+          and skipped_line('hardlink-fifo') in reports.errors())
     check('the walk with hardlinked files left exits 4 (rc=%d)' % rc, rc == 4)
     check('the walk ends its report with the summary line: %r' % reports.errors()[-1:],
           reports.errors()[-1:] == ['summary hardlinks-left=4 failures=0'])

@@ -4876,6 +4876,54 @@ get_covering_entry() {
     [[ "${CLASS_ENCLOSING_STATE}" != enabled || "${CLASS_BLOCKED}" != - ]] || printf '%s' "${CLASS_ENCLOSING}"
 }
 
+# How many hardlinked files a removal's inventory prints a command for; the count of the rest is stated beside them.
+readonly REMOVE_HARDLINKS_LISTED=20
+
+# read_hardlink_inventory <dir>  -- print `<inode> <mount>` once per hardlinked non-directory under <dir>, read as
+# the acting owner through run_as_owner, sorted; returns find's status, non-zero where part of the tree was not read.
+# find does not follow a symlink and stat reads the entry itself, and git is not run: the tree's names are the agent's
+# to choose, and its .git/config the agent's to write (cli.rule.md, ref-section-k3v7). A removal reads it ahead
+# of the deletion, since once the tree is gone the inode and the mount are what find the file's other names.
+read_hardlink_inventory() {
+    local listing status=0
+    listing="$(run_as_owner find "$1" ! -type d -links +1 -exec stat -c '%i %m' -- {} + 2>/dev/null)" || status=$?
+    [[ -z "${listing}" ]] || LC_ALL=C sort -u <<< "${listing}"
+    return "${status}"
+}
+
+# report_hardlink_inventory <find-status> <listing>  -- after a removal's deletion, print one `sudo find <mount> -xdev
+# -inum <inode>` for each of the first REMOVE_HARDLINKS_LISTED files of read_hardlink_inventory's <listing>, under one
+# warning stating how many files the tree held and that the type of their other names is the operator's to decide.
+# A <find-status> other than 0, or a line that does not read as an inode and an absolute mount, adds that the read was
+# incomplete, and a read that was incomplete and listed no file is its own warning. Prints nothing where the listing is
+# empty and the read complete.
+report_hardlink_inventory() {
+    local find_status="$1" listing="$2" line inode mount total=0 incomplete=false
+    local -a commands=()
+    [[ "${find_status}" == 0 ]] || incomplete=true
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        inode="${line%% *}" mount="${line#* }"
+        if [[ ! "${inode}" =~ ^[0-9]+$ || "${mount}" != /* ]]; then incomplete=true; continue; fi
+        total=$(( total + 1 ))
+        if (( total <= REMOVE_HARDLINKS_LISTED )); then
+            commands+=("      sudo find $(_quote_path "${mount}") -xdev -inum ${inode}")
+        fi
+    done <<< "${listing}"
+    if (( total == 0 )); then
+        ${incomplete} || return 0
+        warn MSG-Y7P8 "the read of the tree's hardlinked files before the deletion did not complete, so this removal does not list the other names of a file it did not reach; those names keep the SELinux type they carry, and the type they take is yours to decide"
+        return 0
+    fi
+    local listed_clause="" incomplete_clause=""
+    if (( total > REMOVE_HARDLINKS_LISTED )); then listed_clause=", for the first ${REMOVE_HARDLINKS_LISTED} of them"; fi
+    if ${incomplete}; then
+        incomplete_clause=" -- the read of the tree before the deletion did not complete, so a file it did not reach is not counted"
+    fi
+    warn MSG-S6J8 "before the deletion the tree held ${total} hardlinked file(s); each one's names outside the tree keep the SELinux type they carry, and the type those names take is yours to decide -- each command below lists the other names of one file${listed_clause}${incomplete_clause}" \
+        "${commands[@]}"
+}
+
 # die_remove_incomplete <dir> <kind> <own-entry> <label-outcome> [<covering-entry>]  -- report a removal whose deletion
 # left paths under <dir>, and die. The warning states what the run verified: what became of <kind>'s own registry entry,
 # a session already running keeps what it holds until it ends, and the files left keep their group grant, since
@@ -4888,8 +4936,9 @@ get_covering_entry() {
 # on an ancestor of the project keeps the project type through the step; `failed` says it did not complete,
 # and that the relabel command the failed step printed still applies, since `ai-tools-relabel --remove` does not read
 # the registry the removal has already changed; `partial` says the step left the hardlinked paths its helper listed;
-# `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not
-# name a label. Any other value is a caller error. The remedy is the deletion run_as_owner ran, the path in bash's `%q`
+# `unwalked` says the step dropped the rules and its walker could not run, so the paths left keep their type; `skipped`
+# (SELinux off, no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name
+# a label. Any other value is a caller error. The remedy is the deletion run_as_owner ran, the path in bash's `%q`
 # encoding, named as the target's under `--for`.
 die_remove_incomplete() {
     local d="$1" kind="$2" own_entry="$3" label_revert_outcome="$4" covering_entry="${5-}" entry_clause label_clause
@@ -4902,7 +4951,8 @@ die_remove_incomplete() {
     case "${label_revert_outcome}" in
         completed) label_clause="; the SELinux label step completed" ;;
         failed)    label_clause="; the SELinux label step did not complete, and the relabel command printed above still applies" ;;
-        partial)   label_clause="; the SELinux label step left the hardlinked paths its helper listed above" ;;
+        partial)   label_clause="; the SELinux label step left the hardlinked paths its helper listed at their current type, which their other names keep" ;;
+        unwalked)  label_clause="; the SELinux label step did not walk the tree, so the paths left keep their current type, as do the other names of its hardlinked files" ;;
         skipped)   label_clause="" ;;
         *)         die "die_remove_incomplete: unknown label outcome: ${label_revert_outcome}" ;;
     esac
@@ -5064,7 +5114,7 @@ cmd_project_remove() {
     # of the registry step, since ai-tools-relabel resolves membership from the entry, so a de-list that does not apply
     # (MSG-K8S2) leaves a registered project whose label is reverted, which the listing reports and `projects claim`
     # restores. The registry step precedes the safe.directory step, so that refusal leaves the trust entry in place.
-    local cleanup_stopped=false label_revert_outcome=skipped
+    local cleanup_stopped=false label_revert_outcome=skipped inventory_read=false inventory_status=0 inventory=""
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
@@ -5079,11 +5129,11 @@ cmd_project_remove() {
             warn "the SELinux label was reverted except on the hardlinked paths the helper's lines above list; the deletion removes their names in this tree, and a hardlinked path's other names outside it keep its current type"
             ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
         elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
-            # Past sudo as well, and no path was walked. The deletion follows; the re-run drops the rules of a path
-            # that is gone and walks one the deletion left.
-            label_revert_outcome=failed
-            warn "the SELinux label was not reverted: the tree walker could not run (the helper's line above says why) -- once that is resolved, run:"
-            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
+            # Past sudo as well: the rules are dropped and no path was walked. A re-run of the revert after the deletion
+            # does not reach any name the tree held, so none is printed; report_hardlink_inventory names the files
+            # whose other names stand outside it.
+            label_revert_outcome=unwalked
+            warn "the SELinux label was not reverted: the tree walker could not run (the helper's line above says why); the deletion removes the tree's names, and a hardlinked path's other names outside it keep its current type"
             ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
         elif (( relabel_status != 0 )); then
             label_revert_outcome=failed
@@ -5095,10 +5145,19 @@ cmd_project_remove() {
             say "    SELinux label: reverted"
         fi
     fi
+    # A revert that left hardlinked paths, or did not walk, leaves each one's names outside the tree at their type.
+    # Their inode and mount are read while the tree stands, since after the deletion they are what finds those names.
+    if [[ "${label_revert_outcome}" == partial || "${label_revert_outcome}" == unwalked ]]; then
+        inventory_read=true
+        inventory="$(read_hardlink_inventory "${d}")" || inventory_status=$?
+    fi
     unreg_allow "${d}"
     ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
 
-    if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then
+    local deletion_complete=true
+    if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then deletion_complete=false; fi
+    if ${inventory_read}; then report_hardlink_inventory "${inventory_status}" "${inventory}"; fi
+    if ! ${deletion_complete}; then
         die_remove_incomplete "${d}" project removed "${label_revert_outcome}" "${covering_entry}"
     fi
 
@@ -5111,9 +5170,9 @@ cmd_project_remove() {
     # by stating both facts and exits non-zero, which is also what lets a script tell the two apart.
     if (( ROOT_STEP_FAILURES )); then
         warn MSG-S6V2 "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run"
-        say  "  Each is named above with the command that completes it. Registry entries left"
-        say  "  behind now point at a path that no longer exists; this lists every entry that"
-        say  "  needs attention, across all your projects:"
+        say  "  Each is named above, with what it left. Registry entries left behind now point"
+        say  "  at a path that no longer exists; this lists every entry that needs attention,"
+        say  "  across all your projects:"
         say  ""
         say  "      ${C_BOLD}$(format_projects_command "" "")${C_RST}"
         ai_tools_log__structured warning \
