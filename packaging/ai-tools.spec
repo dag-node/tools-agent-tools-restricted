@@ -127,6 +127,9 @@ Summary:        SELinux confinement policy for the ai-tools sandbox
 License:        GPL-2.0-or-later
 Requires:       ai-tools-base = %{version}-%{release}
 Requires(post): policycoreutils
+# The tree relabel ai-tools-base ships imports the selinux module. Base runs DAC-only without it, and the walker exits 3
+# there only when a label is asked for, which the helper reports.
+Requires:       python3-libselinux
 Requires(post): libselinux-utils
 Requires(postun): policycoreutils
 
@@ -325,6 +328,7 @@ for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
     install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
 install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexecdir}/ai-tools-handback
+install -m 0750 src%{ai_libexecdir}/ai-tools-relabel-tree.py %{buildroot}%{ai_libexecdir}/ai-tools-relabel-tree
 
 # ai-tools-admin is typed by an administrator (documented as a bare command) and is the one
 # base helper that is not daemon- or sudoers-invoked by fixed path, so it gets a symlink in
@@ -1601,6 +1605,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-unclaim
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-lockdown
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel-tree
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-safedir
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-reclaim
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-allowlist
