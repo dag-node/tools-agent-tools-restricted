@@ -2810,13 +2810,18 @@ status_entrypoints() {
 # status_agent_versions: one Version line per enabled agent, the version its installed package declares, read as data --
 # ai_tools_entrypoint_verify__read_installed_version over the package.json around the entrypoint the stable launcher
 # resolves to. Root traverses the toolchain the operator cannot, and reads it rather than running the agent's
-# `--version`, which would execute a file the sandbox account can write (updater.rule.md, "Root runs none
-# of the toolchain"). An entrypoint outside its package reads as unknown, with the path, which is itself the finding.
-# Best-effort: a missing reader does not print a line, and Entrypoints reports the libraries.
+# `--version`, which would execute a file the sandbox account can write (updater.rule.md, "Root runs none of the
+# toolchain"). An entrypoint outside its package reads as unknown, with the path, which is itself the finding. A missing
+# enabled-agent resolver does not print a line, since Provisioning and Entrypoints report it; a missing relabel resolver
+# or installed-version reader, each shipped with base, prints one line under MSG-M9D4 and counts in STATUS_UNREADABLE.
 status_agent_versions() {
     declare -F ai_tools_providers__list_enabled_agents                >/dev/null 2>&1 || return 0
-    declare -F ai_tools_relabel__resolve_agent_entrypoint_path         >/dev/null 2>&1 || return 0
-    declare -F ai_tools_entrypoint_verify__read_installed_version  >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__read_installed_version >/dev/null 2>&1; then
+        warn MSG-M9D4 "the relabel or entrypoint library (${RELABEL_LIB}, ${ENTRYPOINT_VERIFY_LIB}) did not load its readers -- no agent version was read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
     local agent entrypoint version
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
@@ -3282,8 +3287,10 @@ status_assets_summary() {
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders
 # (ai_tools_toolchain__evaluate_node_versions, toolchain.lib.sh): the active version read off the enabled agents' stable
 # launcher links, and the version the updater's last run recorded shown beside it only where the two differ. Root could
-# read the toolchain itself; the link is read instead so the two reports have one source and one answer. Best-effort:
-# a host with neither a link nor a stamp gets no Node line, and Provisioning says why.
+# read the toolchain itself; the link is read instead so the two reports have one source and one answer. A host
+# with neither a link nor a stamp gets no Node line, and Provisioning says why. toolchain.lib.sh ships with base, so its
+# link readers missing is a reading this section could not make: reported under MSG-B5R6 and counted
+# in STATUS_UNREADABLE, with the stamp's version printed as the last update run's, since no link was read.
 status_node_version() {
     local rec stamp_node="" verdict kind version stamp_seen
     if declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1; then
@@ -3299,10 +3306,12 @@ status_node_version() {
             && declare -F ai_tools_toolchain__evaluate_node_versions >/dev/null 2>&1; then
         verdict="$(ai_tools_toolchain__list_agent_link_node_versions "${LAUNCHER_LINK_DIR}" 2>/dev/null \
                        | ai_tools_toolchain__evaluate_node_versions "${stamp_node}")"
-    elif [[ -n "${stamp_node}" ]]; then
-        verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
     else
-        verdict=none
+        warn MSG-B5R6 "the toolchain library (${TOOLCHAIN_LIB}) did not load its link readers -- the active Node version was not read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        [[ -n "${stamp_node}" ]] \
+            && printf '    %-13s %s (the version the last update run recorded -- no launcher link was read)\n' "node" "${stamp_node}"
+        return 0
     fi
     IFS=$'\t' read -r kind version stamp_seen <<<"${verdict}"
     case "${kind}" in

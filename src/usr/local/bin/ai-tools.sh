@@ -5987,8 +5987,8 @@ status_sandbox_unit_commands() {
 # command that repairs it. What each state means is launch.rule.md's PATH ordering section; what this report says about
 # each is cli.rule.md.
 #
-# Best-effort like the rest of this report: without the library or the provider resolver this vantage has no launcher
-# to resolve, so the section is omitted rather than guessed at.
+# path-order.lib.sh ships with base, so a reader it did not define is a broken install: reported under MSG-N9Q3
+# and returned as STATUS_UNREADABLE, the later sections still printed.
 status_path_order() {
     local path_order_lib=/usr/local/lib/ai-tools/path-order.lib.sh
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
@@ -5996,7 +5996,11 @@ status_path_order() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/path-order.lib.sh
     source "${path_order_lib}" 2>/dev/null || true
-    declare -F ai_tools_path_order__read_here >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_path_order__read_here >/dev/null 2>&1; then
+        section "PATH ordering"
+        warn MSG-N9Q3 "the PATH ordering library (${path_order_lib}) did not load -- no launcher was resolved in this shell; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
 
     local state pair launcher winner seen=0
     ai_tools_path_order__read_here || true
@@ -6325,9 +6329,9 @@ status_entrypoint_label() {
 # counted: an unfinished install is what this section exists to say, not a fault in a finished one. Returns non-zero
 # when the enabled agents cannot be read at all, which is a broken install, like a missing service registry,
 # and when an installed agent that is not enabled still has its link (status_residue), the state every launch is refused
-# in.
+# in. A reader status_managed_files or status_residue reports missing makes it return STATUS_UNREADABLE.
 status_provisioning() {
-    local rec agent_name launcher reason faults=0 unreadable
+    local rec agent_name launcher reason faults=0 unreadable managed_status managed_unreadable=0
     section "Provisioning"
     # The resolver not loading is a broken install, a reading this section could not make: STATUS_UNREADABLE,
     # so the report exits 5 rather than counting it among the faults it did read.
@@ -6347,13 +6351,17 @@ status_provisioning() {
         else
             say "  ${C_YEL}${agent_name} not provisioned${C_RST} -- run: ${C_BOLD}atr admin system bootstrap${C_RST}"
         fi
-        status_managed_files "${agent_name}" || faults=$(( faults + 1 ))
+        managed_status=0
+        status_managed_files "${agent_name}" || managed_status=$?
+        if (( managed_status == STATUS_UNREADABLE )); then managed_unreadable=1
+        elif (( managed_status != 0 )); then faults=$(( faults + 1 )); fi
     done
     status_residue || {
         unreadable=$?
         if (( unreadable == STATUS_UNREADABLE )); then return "${STATUS_UNREADABLE}"; fi
         faults=$(( faults + 1 ))
     }
+    (( managed_unreadable == 0 )) || return "${STATUS_UNREADABLE}"
     (( faults == 0 ))
 }
 
@@ -6473,10 +6481,14 @@ status_node_version() {
 # is where an operator learns the live file differs: the agent reads it alone, a key this release adds is not in it,
 # and what it declares is the host's rather than the package's. A file matching the shipped copy is not reported,
 # and an edited one is not counted -- it is a supported state -- while a missing one is, since the package is then
-# broken and a reinstall is the remedy. Returns non-zero for a missing file.
+# broken and a reinstall is the remedy. Returns 1 for a missing file, and STATUS_UNREADABLE under MSG-K9T3 where
+# providers.lib.sh did not define its managed-files reader, a library base ships.
 status_managed_files() {
     local agent="$1" live reference state rc=0
-    declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1; then
+        warn MSG-K9T3 "the provider library did not load its managed-files reader -- the managed files of ${agent} were not compared; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     while IFS=$'\t' read -r live reference; do
         [[ -n "${live}" ]] || continue
         state="$(ai_tools_providers__evaluate_managed_file "${live}" "${reference}")"

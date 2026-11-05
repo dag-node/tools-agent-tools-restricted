@@ -7,8 +7,8 @@
 # of that verdict against fixture links -- the version a link points into, the split line where two links disagree,
 # and no claimed version where no link names one -- with the updater's stamp being the host's own and read alongside.
 # The Provisioning section is read the same way, per enabled agent's link, beside a base file that makes the launcher
-# directory non-empty on every host. The Entrypoints section is driven over the loaded libraries with one reader removed
-# at a time, each a reading the section could not make.
+# directory non-empty on every host. The Entrypoints and Version sections are driven over the loaded libraries with one
+# reader removed at a time, each a reading the section could not make.
 #
 # The helper is SOURCED rather than run (its root check and its dispatch are guarded for that), in a fresh shell
 # per case because the helper and the harness both declare SANDBOX_USER readonly, with the resolver's two hooks
@@ -225,9 +225,10 @@ call_section() {
 }
 mkdir -m 0755 "${TESTDIR}/pins"
 reset_fixtures; manifest alpha la; vlink la v9.9.9
-for section_fn in status_entrypoints; do
+for section_fn in status_entrypoints status_agent_versions status_node_version; do
     rc=0; out="$(call_section ':' "${section_fn}")" || rc=$?
-    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=0' <<<"${out}" && ! grep -qF '[UNREADABLE]' <<<"${out}"; then
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=0' <<<"${out}" && ! grep -qF '[UNREADABLE]' <<<"${out}" \
+            && ! grep -qxE 'MSG-(M9D4|B5R6)' <<<"${out}"; then
         pass "control: ${section_fn} with every reader loaded counts no unreadable reading"
     else
         fail "control: ${section_fn} with every reader loaded (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
@@ -243,6 +244,21 @@ for reader in ai_tools_entrypoint_verify__get_stale_path ai_tools_entrypoint_ver
         fail "Entrypoints without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
 done
+for reader in ai_tools_relabel__resolve_agent_entrypoint_path ai_tools_entrypoint_verify__read_installed_version; do
+    rc=0; out="$(call_section "unset -f ${reader}" status_agent_versions)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qx 'MSG-M9D4' <<<"${out}"; then
+        pass "the agent Version line without ${reader} prints one MSG-M9D4 line and counts it"
+    else
+        fail "the agent Version line without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+rc=0; out="$(call_section 'unset -f ai_tools_toolchain__list_agent_link_node_versions' status_node_version)" || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qx 'MSG-B5R6' <<<"${out}" \
+        && ! grep -qF 'no launcher link names one' <<<"${out}"; then
+    pass "the Node line without the toolchain link reader prints MSG-B5R6, counts it, and does not claim a link read"
+else
+    fail "the Node line without the toolchain link reader (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
 
 # ── The SELinux attestation section counts a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse a launch ──
 # `getenforce` and the selinuxfs reader are stubbed as shell functions, after the library is loaded, so its include

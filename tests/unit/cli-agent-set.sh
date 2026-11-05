@@ -462,6 +462,40 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     else
         fail "fault plus unreadable exited ${rc}, expected 5"
     fi
+    # A base-library reader the PATH ordering or the managed-files line calls, removed after the CLI loaded it, is
+    # a reading the report could not make: exit 5 under the section's code, the later sections still printed. Each
+    # library's include guard keeps the section's own re-source from restoring the reader. The PATH ordering and
+    # Provisioning sections run unstubbed here; the same run with every reader in place is the control.
+    # call_status_readers <pre> : cmd_status with every section but PATH ordering and Provisioning stubbed clean.
+    # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+    call_status_readers() {
+        runuser -u "${PROJECTS_USER}" -- env \
+            AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+            AI_TOOLS_MSG_PLAIN=1 \
+            bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                     source /usr/local/lib/ai-tools/path-order.lib.sh >/dev/null 2>&1 || exit 98
+                     ai_tools_services__list_records() { :; }; status_entrypoint_pins() { return 0; }
+                     status_selinux_attestation() { return 0; }; status_caches() { return 0; }
+                     status_registry() { return 0; }; status_residue() { return 0; }
+                     eval "${pre}"; cmd_status' _ "${CLI}" "$1" 2>&1
+    }
+    reset_fixtures; manifest alpha la yes; link la
+    rc=0; out="$(call_status_readers ':')" || rc=$?
+    if [[ "${rc}" -ne 5 ]] && ! grep -qxE 'MSG-(N9Q3|K9T3)' <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
+        pass "control: with the PATH ordering and managed-files readers loaded, neither code is printed and status does not exit 5"
+    else
+        fail "control: the PATH ordering and managed-files readers loaded (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+    for row in "ai_tools_path_order__read_here MSG-N9Q3 status_path_order" \
+               "ai_tools_providers__list_agent_managed_files MSG-K9T3 status_managed_files"; do
+        read -r reader code section_fn <<<"${row}"
+        rc=0; out="$(call_status_readers "unset -f ${reader}")" || rc=$?
+        if [[ "${rc}" -eq 5 ]] && grep -qx "${code}" <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
+            pass "${section_fn} without ${reader} exits 5, is named under ${code}, and the later sections still print"
+        else
+            fail "${section_fn} without ${reader} exited ${rc}, expected 5 with ${code} and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+        fi
+    done
     # The registry section reads the file as the launch gate does: an exclusion through a link in a directory
     # the sandbox group can write passes the grammar and is refused by the loader (MSG-Y5N6), so status exits 4 naming
     # it; the same exclusion written as the real path reads ok.

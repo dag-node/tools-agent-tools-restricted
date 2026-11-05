@@ -254,6 +254,10 @@ projects ${verb} without a directory acts on the project the current directory i
 ERROR.
 the registry was not updated \-\- ${dir} is still registered
 .TP
+.B MSG-K9T3
+WARNING.
+the provider library did not load its managed\-files reader \-\- the managed files of ${agent} were not compared; reinstall the ai\-tools package
+.TP
 .B MSG-M2U9
 ERROR.
 projects remove takes a single path
@@ -277,6 +281,10 @@ the confinement library ${CONFINEMENT_LIB} did not load its attestation readers 
 .B MSG-N2Y5
 NOTICE.
 narrow\-acl\-entries\-fixed
+.TP
+.B MSG-N9Q3
+WARNING.
+the PATH ordering library (${path_order_lib}) did not load \-\- no launcher was resolved in this shell; reinstall the ai\-tools package
 .TP
 .B MSG-P4D2
 ERROR.
@@ -533,6 +541,10 @@ assets: AI_TOOLS_ASSETS in ${conf} is not a valid list, so it is not rewritten \
 ERROR.
 a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floor}"), which is not <major>.<minor>
 .TP
+.B MSG-B5R6
+WARNING.
+the toolchain library (${TOOLCHAIN_LIB}) did not load its link readers \-\- the active Node version was not read; reinstall ai\-tools\-base
+.TP
 .B MSG-B6P3
 WARNING.
 declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be seeded
@@ -736,6 +748,10 @@ assets reconcile takes no arguments
 .B MSG-M8X2
 ERROR.
 semodule failed to replace ${former}
+.TP
+.B MSG-M9D4
+WARNING.
+the relabel or entrypoint library (${RELABEL_LIB}, ${ENTRYPOINT_VERIFY_LIB}) did not load its readers \-\- no agent version was read; reinstall ai\-tools\-base
 .TP
 .B MSG-N2A5
 ERROR.
