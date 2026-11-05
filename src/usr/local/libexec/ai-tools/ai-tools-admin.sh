@@ -2697,10 +2697,11 @@ status_provisioning() {
 # The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
 # a supported state and is not counted; a missing one is, since the package is then broken. Prints no line for a file
 # matching the shipped copy. Without the resolver status_provisioning has already said so; a resolver that loaded
-# without its managed-files reader is a reading this section could not make.
+# without its managed-files reader or the comparison it runs per file is a reading this section could not make.
 status_managed_files() {
     declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 0
-    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1; then
+    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__evaluate_managed_file >/dev/null 2>&1; then
         st UNREADABLE "managed files: ${PROVIDERS_LIB} did not load its managed-files reader; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
@@ -2735,23 +2736,33 @@ status_managed_files() {
 # state -- an air-gapped host, a release published without a manifest -- so it is reported and left uncounted.
 status_entrypoints() {
     heading "Entrypoints"
-    # Four libraries answer this section between them, and a partial load must report that rather than reach
-    # an undefined function -- which under `set -e` would abort the whole report over the section it could not give.
-    # Each ships with base, so a missing one is a reading this section could not make, not a `?`.
+    # The provider, entrypoint, relabel and service libraries answer this section between them, and a partial load must
+    # report that rather than reach an undefined function -- which under `set -e` would abort the whole report
+    # over the section it could not give. Each ships with base, so a missing one is a reading this section could not
+    # make, not a `?`. Every reader an agent's line calls is checked here, the ones entrypoint_live_verdict
+    # and entrypoint_stale_mark call included: a reader missing past this point would leave the pin's own fields
+    # to render as VERIFIED or UNCHANGED for a binary the report did not hash, and a missing verification-policy reader
+    # would render an unpinned agent as not blocked on a host that requires verification. The live labels have a reader
+    # and a guard of their own, so status_labels runs on this branch too.
     if ! declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 \
             || ! declare -F ai_tools_providers__read_agent_manifest_field  >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__get_pin_path   >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__read_pin_kind  >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__check          >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__is_required    >/dev/null 2>&1 \
+            || ! declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__read_stamp_field   >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__read_stamp_age     >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__format_age       >/dev/null 2>&1; then
-        st UNREADABLE "the provider, entrypoint or service libraries did not load -- no agent could be resolved; reinstall ai-tools-base"
+        st UNREADABLE "the provider, entrypoint, relabel or service libraries did not load -- no entrypoint was read; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        status_labels
         return 0
     fi
 
     local agent pin version age live strict=no seen=0
-    declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
-        && ai_tools_entrypoint_verify__is_required && strict=yes
+    ai_tools_entrypoint_verify__is_required && strict=yes
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         seen=1
@@ -2803,13 +2814,18 @@ status_entrypoints() {
 # status_agent_versions: one Version line per enabled agent, the version its installed package declares, read as data --
 # ai_tools_entrypoint_verify__read_installed_version over the package.json around the entrypoint the stable launcher
 # resolves to. Root traverses the toolchain the operator cannot, and reads it rather than running the agent's
-# `--version`, which would execute a file the sandbox account can write (updater.rule.md, "Root runs none
-# of the toolchain"). An entrypoint outside its package reads as unknown, with the path, which is itself the finding.
-# Best-effort: a missing reader does not print a line, and Entrypoints reports the libraries.
+# `--version`, which would execute a file the sandbox account can write (updater.rule.md, "Root runs none of the
+# toolchain"). An entrypoint outside its package reads as unknown, with the path, which is itself the finding. A missing
+# enabled-agent resolver does not print a line, since Provisioning and Entrypoints report it; a missing relabel resolver
+# or installed-version reader, each shipped with base, prints one line under MSG-M9D4 and counts in STATUS_UNREADABLE.
 status_agent_versions() {
     declare -F ai_tools_providers__list_enabled_agents                >/dev/null 2>&1 || return 0
-    declare -F ai_tools_relabel__resolve_agent_entrypoint_path         >/dev/null 2>&1 || return 0
-    declare -F ai_tools_entrypoint_verify__read_installed_version  >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__read_installed_version >/dev/null 2>&1; then
+        warn MSG-M9D4 "the relabel or entrypoint library (${RELABEL_LIB}, ${ENTRYPOINT_VERIFY_LIB}) did not load its readers -- no agent version was read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
     local agent entrypoint version
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
@@ -2829,11 +2845,10 @@ status_agent_versions() {
 # `ok`, `mismatch`, `unpinned`, `unreadable` -- or an empty string where the reading cannot be made. The third root-only
 # reading of this report, beside the live SELinux type: the toolchain is 0750 and sandbox-owned, so no operator-side
 # command can hash that file, and a pin records only what the last reconciliation found. Read-only, and it does not
-# reach the network: it is the comparison the launch shim makes on every launch.
+# reach the network: it is the comparison the launch shim makes on every launch. status_entrypoints checks both readers
+# it calls before the first agent.
 entrypoint_live_verdict() {
     local agent="$1" entrypoint
-    declare -F ai_tools_entrypoint_verify__check      >/dev/null 2>&1 || return 0
-    declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 || return 0
     entrypoint="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
     [[ -n "${entrypoint}" ]] || return 0
     ai_tools_entrypoint_verify__check "${agent}" "${entrypoint}" 2>/dev/null || true
@@ -2842,10 +2857,9 @@ entrypoint_live_verdict() {
 # entrypoint_stale_mark <agent>: report, and return 0, when the last reconciliation REFUSED to re-record this agent's
 # pin. The refusal leaves the pin standing -- that staleness is what makes the next launch refuse -- so without this
 # the pin's own fields render as a verification that succeeded. Returns non-zero when there is no mark, which is
-# the ordinary state.
+# the ordinary state. status_entrypoints checks the stale-path reader before the first agent.
 entrypoint_stale_mark() {
     local agent="$1" record reason version age
-    declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 || return 1
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -e "${record}" ]] || return 1
     [[ "$(ai_tools_services__read_stamp_field "${record}" STATE)" == stale ]] || return 1
@@ -2873,6 +2887,11 @@ status_labels() {
     report="$(ai_tools_relabel__list_agent_labels)" || rc=$?
     if [[ "${rc}" -eq 2 ]]; then
         st "n/a" "SELinux confinement is inactive here -- there is no agent label to carry"
+        return 0
+    fi
+    if [[ "${rc}" -eq 3 ]]; then
+        st UNREADABLE "live labels: a reader the label report calls did not load -- no agent label was read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     [[ -n "${report}" ]] || return 0
@@ -3277,8 +3296,10 @@ status_assets_summary() {
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders
 # (ai_tools_toolchain__evaluate_node_versions, toolchain.lib.sh): the active version read off the enabled agents' stable
 # launcher links, and the version the updater's last run recorded shown beside it only where the two differ. Root could
-# read the toolchain itself; the link is read instead so the two reports have one source and one answer. Best-effort:
-# a host with neither a link nor a stamp gets no Node line, and Provisioning says why.
+# read the toolchain itself; the link is read instead so the two reports have one source and one answer. A host
+# with neither a link nor a stamp gets no Node line, and Provisioning says why. toolchain.lib.sh ships with base, so its
+# link readers missing is a reading this section could not make: reported under MSG-B5R6 and counted
+# in STATUS_UNREADABLE, with the stamp's version printed as the last update run's, since no link was read.
 status_node_version() {
     local rec stamp_node="" verdict kind version stamp_seen
     if declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1; then
@@ -3294,10 +3315,12 @@ status_node_version() {
             && declare -F ai_tools_toolchain__evaluate_node_versions >/dev/null 2>&1; then
         verdict="$(ai_tools_toolchain__list_agent_link_node_versions "${LAUNCHER_LINK_DIR}" 2>/dev/null \
                        | ai_tools_toolchain__evaluate_node_versions "${stamp_node}")"
-    elif [[ -n "${stamp_node}" ]]; then
-        verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
     else
-        verdict=none
+        warn MSG-B5R6 "the toolchain library (${TOOLCHAIN_LIB}) did not load its link readers -- the active Node version was not read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        [[ -n "${stamp_node}" ]] \
+            && printf '    %-13s %s (the version the last update run recorded -- no launcher link was read)\n' "node" "${stamp_node}"
+        return 0
     fi
     IFS=$'\t' read -r kind version stamp_seen <<<"${verdict}"
     case "${kind}" in

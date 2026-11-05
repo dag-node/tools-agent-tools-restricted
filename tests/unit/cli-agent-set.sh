@@ -15,6 +15,8 @@
 # as a verification that succeeded, beside an agent whose every launch is already refused. The mark the refusal writes
 # is what tells the report otherwise, and the cases are the control (a pin alone renders its tier line), the mark
 # replacing that line and counting toward the exit status, and a mark saying anything but `stale` leaving it alone.
+# A reader either entrypoint line calls, removed after the CLI loaded it, exits 5 under the section's code, the later
+# sections still printed, and the label line's own guard keeps its code.
 #
 # The CLI carries a sourced-guard, so this loads it as the projects user (it refuses root and the sandbox account)
 # with six hooks pointed at fixtures in the testdir: AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF (the resolver's,
@@ -248,10 +250,10 @@ fi
 # of its own.
 #
 # The call sources entrypoint-verify.lib.sh after the CLI, as status_entrypoint_pins does before it calls the label
-# line: the CLI loads that library inside status_entrypoint_pins alone, and status_entrypoint_label returns 0 and prints
-# nothing where the library's record-path reader is not defined. The control ahead of the cases asserts the reader is
-# defined in the same inner shell, so a library that does not load fails once, naming that, rather than as three empty
-# readings.
+# line: the CLI loads that library inside status_entrypoint_pins alone, and status_entrypoint_label reports its
+# unreadable status where the library's record-path reader is not defined (5c). The control ahead of the cases asserts
+# the reader is defined in the same inner shell, so a library that does not load fails once, naming that, rather than
+# as three wrong readings.
 label_record() {
     printf '# fixture label record\nAGENT=%s\nRESULT=%s\nLABELLED=%s\nREASON=%s\n' \
         "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$3" > "${LABELS}/$1"
@@ -293,6 +295,99 @@ else
     says "that fault names the service start that completes it" 'systemctl start ai-tools-relabel\.service' "${out}"
 fi
 rm -f "${LABELS}"/*
+
+# ── (5c) An entrypoint library that did not load is a reading the report could not make ── The two entrypoint lines are
+# read through providers.lib.sh and entrypoint-verify.lib.sh, both shipped with base, so a reader missing after the CLI
+# loaded them -- the shape a half-upgraded install takes -- exits 5 under the section's code with the later sections
+# still printed. Each library's include guard keeps the section's own re-source from restoring the reader. cmd_status
+# runs with every other section stubbed clean; the same run with the readers in place is the control. shellcheck
+# disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+call_status_entrypoints() {
+    runuser -u "${PROJECTS_USER}" -- env \
+        AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+        AI_TOOLS_ENTRYPOINT_PIN_DIR="${PINS}" AI_TOOLS_ENTRYPOINT_STALE_DIR="${STALES}" \
+        AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" AI_TOOLS_MSG_PLAIN=1 \
+        bash -c 'cli="$1"; verify_lib="$2"; pre="$3"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                 source "${verify_lib}" >/dev/null 2>&1 || exit 98
+                 ai_tools_services__list_records() { :; }; status_path_order() { return 0; }
+                 status_selinux_attestation() { return 0; }; status_caches() { return 0; }
+                 status_registry() { return 0; }
+                 eval "${pre}"; cmd_status' _ "${CLI}" "${VERIFY_LIB}" "$1" 2>&1
+}
+reset_fixtures; rm -f "${PINS}"/* "${STALES}"/* "${LABELS}"/*
+manifest alpha la yes; link la; pin_record alpha 1.2.3 observed
+rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -q 'UNCHANGED' <<<"${out}" && ! grep -qxE 'MSG-(E5C3|K8K4)' <<<"${out}"; then
+    pass "control: with both entrypoint readers loaded, the pin line renders and status exits 0"
+else
+    fail "control: the entrypoint section with its readers loaded (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+# Every reader an agent's lines call is checked at the section's head, so each one missing is reported under the head's
+# code before any agent line renders: the pin reader, the stale-mark reader (without which a refused pin read as no
+# mark), the pin-kind reader (without which an observed pin read as VERIFIED), and the label-record reader.
+for reader in ai_tools_entrypoint_verify__get_pin_path ai_tools_entrypoint_verify__get_stale_path \
+              ai_tools_entrypoint_verify__read_pin_kind ai_tools_entrypoint_verify__get_label_path; do
+    rc=0; out="$(call_status_entrypoints "unset -f ${reader}")" || rc=$?
+    if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && ! grep -qE 'VERIFIED|UNCHANGED' <<<"${out}" \
+            && grep -qF 'atr providers' <<<"${out}"; then
+        pass "status_entrypoint_pins without ${reader} exits 5, is named under MSG-E5C3 with no tier line, and the later sections still print"
+    else
+        fail "status_entrypoint_pins without ${reader} exited ${rc}, expected 5 with MSG-E5C3, no tier line and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+# An enabled agent with no release_manifest_url and no pin takes `continue` before its label line, so the label reader
+# is reached at the head alone. The same run with the reader in place is the control: it exits 0 and does not print a
+# tier line.
+rm -f "${PINS}"/* "${LABELS}"/*
+rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+if [[ "${rc}" -eq 0 ]] && ! grep -qx MSG-E5C3 <<<"${out}"; then
+    pass "control: an agent with no manifest URL and no pin, every reader loaded, exits 0"
+else
+    fail "control: an agent with no manifest URL and no pin (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__get_label_path')" || rc=$?
+if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
+    pass "the label reader missing for an agent with no manifest URL and no pin exits 5 under MSG-E5C3, the later sections still printed"
+else
+    fail "the label reader missing for an agent with no manifest URL and no pin exited ${rc}, expected 5 with MSG-E5C3: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+# A host that requires verification refuses an unpinned agent's launch, so the verification-policy reader is checked
+# at the head as well: without it the agent's line would read as not blocked. The control, with the reader in place,
+# names the agent as one whose sessions will not launch and exits 4.
+operator_conf "AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes"
+printf 'release_manifest_url=https://example.invalid/manifest.json\n' >> "${AGENTS_DIR}/alpha.conf"
+rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+if [[ "${rc}" -eq 4 ]] && grep -qF 'sessions will not launch' <<<"${out}"; then
+    pass "control: an unpinned agent on a host requiring verification is named as blocked, and status exits 4"
+else
+    fail "control: an unpinned agent on a host requiring verification (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__is_required')" || rc=$?
+if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && ! grep -qF 'launches are not blocked' <<<"${out}" \
+        && grep -qF 'atr providers' <<<"${out}"; then
+    pass "the verification-policy reader missing exits 5 under MSG-E5C3 and does not report the unpinned agent as unblocked"
+else
+    fail "the verification-policy reader missing exited ${rc}, expected 5 with MSG-E5C3 and no unblocked line: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+operator_conf; manifest alpha la yes
+# status_entrypoint_label keeps its own guard: called directly without its reader, it returns the unreadable status
+# under MSG-K8K4.
+# call_label_unloaded : the label line for alpha with the record-path reader removed after the library loaded.
+# shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+call_label_unloaded() {
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" AI_TOOLS_MSG_PLAIN=1 \
+        bash -c 'cli="$1"; verify_lib="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                 source "${verify_lib}" >/dev/null 2>&1 || exit 98
+                 unset -f ai_tools_entrypoint_verify__get_label_path; status_entrypoint_label alpha' \
+        _ "${CLI}" "${VERIFY_LIB}" 2>&1
+}
+rc=0; out="$(call_label_unloaded)" || rc=$?
+if [[ "${rc}" -eq 2 ]] && grep -qx MSG-K8K4 <<<"${out}"; then
+    pass "status_entrypoint_label without its reader returns the unreadable status under MSG-K8K4"
+else
+    fail "status_entrypoint_label without its reader returned ${rc}, expected 2 with MSG-K8K4: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+rm -f "${PINS}"/* "${LABELS}"/*
 
 # ── (6) The Version section's Node line reads the launcher link, not the updater's record ── The link is repointed
 # by every path that changes Node, so the line is right after a bootstrap as after an update, and it is the read
@@ -386,6 +481,41 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
     else
         fail "fault plus unreadable exited ${rc}, expected 5"
     fi
+    # A base-library reader the PATH ordering or the managed-files line calls, removed after the CLI loaded it, is
+    # a reading the report could not make: exit 5 under the section's code, the later sections still printed. Each
+    # library's include guard keeps the section's own re-source from restoring the reader. The PATH ordering and
+    # Provisioning sections run unstubbed here; the same run with every reader in place is the control.
+    # call_status_readers <pre> : cmd_status with every section but PATH ordering and Provisioning stubbed clean.
+    # shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+    call_status_readers() {
+        runuser -u "${PROJECTS_USER}" -- env \
+            AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+            AI_TOOLS_MSG_PLAIN=1 \
+            bash -c 'cli="$1"; pre="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                     source /usr/local/lib/ai-tools/path-order.lib.sh >/dev/null 2>&1 || exit 98
+                     ai_tools_services__list_records() { :; }; status_entrypoint_pins() { return 0; }
+                     status_selinux_attestation() { return 0; }; status_caches() { return 0; }
+                     status_registry() { return 0; }; status_residue() { return 0; }
+                     eval "${pre}"; cmd_status' _ "${CLI}" "$1" 2>&1
+    }
+    reset_fixtures; manifest alpha la yes; link la
+    rc=0; out="$(call_status_readers ':')" || rc=$?
+    if [[ "${rc}" -ne 5 ]] && ! grep -qxE 'MSG-(N9Q3|K9T3)' <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
+        pass "control: with the PATH ordering and managed-files readers loaded, neither code is printed and status does not exit 5"
+    else
+        fail "control: the PATH ordering and managed-files readers loaded (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+    for row in "ai_tools_path_order__read_here MSG-N9Q3 status_path_order" \
+               "ai_tools_providers__list_agent_managed_files MSG-K9T3 status_managed_files" \
+               "ai_tools_providers__evaluate_managed_file MSG-K9T3 status_managed_files"; do
+        read -r reader code section_fn <<<"${row}"
+        rc=0; out="$(call_status_readers "unset -f ${reader}")" || rc=$?
+        if [[ "${rc}" -eq 5 ]] && grep -qx "${code}" <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
+            pass "${section_fn} without ${reader} exits 5, is named under ${code}, and the later sections still print"
+        else
+            fail "${section_fn} without ${reader} exited ${rc}, expected 5 with ${code} and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+        fi
+    done
     # The registry section reads the file as the launch gate does: an exclusion through a link in a directory
     # the sandbox group can write passes the grammar and is refused by the loader (MSG-Y5N6), so status exits 4 naming
     # it; the same exclusion written as the real path reads ok.

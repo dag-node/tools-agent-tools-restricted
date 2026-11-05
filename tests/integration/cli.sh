@@ -624,13 +624,13 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "ai-tools.projects.create seeded owner-only path(s) the claim will skip:${_sealed}"
     fi
-    # Matched on the NOTICE's own title, not on the phrase "owner-only": the create prints that phrase itself when it
+    # Matched on the refusal's codes, not on the phrase "owner-only": the create prints that phrase itself when it
     # explains the modes it set on a umask-077 host, so a looser grep asserts the opposite of what it means on exactly
     # the hosts this case exists for.
-    if ! grep -qi 'this project directory is owner-only' <<<"${out}"; then
-        pass "the claim does not report the new project as out of the agent's reach"
+    if ! grep -qxE 'MSG-(H6J3|B5D2)' <<<"${out}"; then
+        pass "the claim does not refuse the new project as owner-only"
     else
-        fail "the created project was claimed as owner-only: $(brief "${out}" 'owner-only')"
+        fail "the created project was refused as owner-only: $(brief "${out}" 'owner-only')"
     fi
 
     # (6d) ai-tools.projects.remove.inplace deletes, so every assertion here is that it did NOT. Its authorization is
@@ -993,6 +993,9 @@ EOF
     # A git entry may name a listed project through a symlink or a `..`, so it is classified by its real path.
     ln -s "${lst}/partial" "${lst}/alias"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${lst}"
+    # mkdir takes the invoker's umask, and a 0700 root is annotated as owner-only in place of the row's own state.
+    chmod 0755 "${lst}" "${lst}/partial" "${lst}/eol-comment" "${lst}/quoted dir" "${lst}/glob-parent" \
+        "${lst}/excluded-live" "${lst}/orphan" "${lst}/disabled-proj" "${lst}/disabled-proj/child"
     # The reverse scan attributes an uncovered safe.directory before it offers a removal: a tree another account holds
     # (other-op, root's) and one under a directory the projects user cannot enter (sealed, 0700 root) are counted
     # and not listed; a tree the sandbox account holds (foreign) is named with a removal to run only if the tree is
@@ -1502,6 +1505,8 @@ else
     pd_proj="${TESTDIR}/api"; pd_other="${TESTDIR}/web"
     pd_nested="${pd_proj}/service-a"; pd_excluded="${pd_proj}/secrets"
     mkdir -p "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_excluded}"
+    # mkdir takes the invoker's umask, and the claim refuses a 0700 root (MSG-B5D2) ahead of its disabled-line refusal.
+    chmod 0755 "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_excluded}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${TESTDIR}"
     # Written after the chown, so the fixture stays root's and the gate honours its AI_TOOLS_AGENTS line.
     mk_operator_conf "${pd_conf}" "${PROJECTS_USER}"
@@ -1550,6 +1555,23 @@ else
         pass "the refused claim appended no duplicate line"
     else
         fail "the refused claim duplicated the entry:"$'\n'"$(cat "${pd_al}")"
+    fi
+    # (2b) The owner-only refusal precedes the re-enable offer: over the same disabled project with its root at 0700,
+    # the claim refuses under the listed-project code and leaves the registry as it was.
+    pd_held="$(cat "${pd_al}")"
+    chmod 0700 "${pd_proj}"
+    if [[ "$(stat -c '%a %U' "${pd_proj}")" == "700 ${PROJECTS_USER}" ]]; then
+        pass "control: the disabled project's root is mode 700, held by ${PROJECTS_USER}"
+    else
+        fail "control: the disabled project's root reads '$(stat -c '%a %U' "${pd_proj}")', expected '700 ${PROJECTS_USER}'"
+    fi
+    out="$(pd_cli ai-tools.projects.claim "${pd_proj}")" && rc=0 || rc=$?
+    chmod 0755 "${pd_proj}"
+    refused "ai-tools.projects.claim over a disabled project at mode 700 refuses it as owner-only" MSG-B5D2 1
+    if [[ "$(cat "${pd_al}")" == "${pd_held}" ]]; then
+        pass "the owner-only refusal kept the disabled line and left the registry as it was"
+    else
+        fail "the owner-only refusal changed the registry:"$'\n'"$(cat "${pd_al}")"
     fi
 
     # (3) ai-tools.projects.list calls it what it is, and names the verb that restores it.

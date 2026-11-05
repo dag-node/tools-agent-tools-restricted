@@ -70,6 +70,10 @@ could not add ${dir} to ${FOR_OPERATOR}'s project registry \-\- it is not regist
 ERROR.
 ai\-tools: \-\-for needs an operator name
 .TP
+.B MSG-B5D2
+ERROR.
+the project root ${d} is mode ${mode} (owner\-only) \-\- the claim leaves it as it is; no change applied, and no session can start here
+.TP
 .B MSG-B5K3
 ERROR.
 \-\-for cannot be combined with \-\-force
@@ -138,6 +142,10 @@ not a configured ai\-tools operator: ${FOR_OPERATOR} \-\- enrol it first with:
 NOTICE.
 label\-gone
 .TP
+.B MSG-E5C3
+WARNING.
+the provider or entrypoint library (${providers_lib}, ${verify_lib}) did not load \-\- no entrypoint pin was read; reinstall the ai\-tools package
+.TP
 .B MSG-E8W4
 ERROR.
 could not read ${FOR_OPERATOR}'s project registry \-\- nothing changed
@@ -169,6 +177,10 @@ providers list takes no arguments
 .B MSG-H3F6
 ERROR.
 the parent directory is not writable by ${OWNER_USER}: ${rm_parent}
+.TP
+.B MSG-H6J3
+ERROR.
+refusing to claim \-\- ${d} is mode ${mode} (owner\-only); a claim leaves an owner\-only mode as it is and does not grant the sandbox account access under it, and no session could start here
 .TP
 .B MSG-H6R3
 ERROR.
@@ -230,6 +242,10 @@ projects $1 needs the directory it acts on; it does not take the current directo
 ERROR.
 unknown projects inspect option: $(ai_tools_log__sanitize "${a}")
 .TP
+.B MSG-K8K4
+WARNING.
+the entrypoint library did not load its label\-record reader \-\- the labelling of ${agent} was not read; reinstall the ai\-tools package
+.TP
 .B MSG-K8R8
 ERROR.
 projects ${verb} without a directory acts on the project the current directory is in, and $(pwd \-P) is in none
@@ -237,6 +253,10 @@ projects ${verb} without a directory acts on the project the current directory i
 .B MSG-K8S2
 ERROR.
 the registry was not updated \-\- ${dir} is still registered
+.TP
+.B MSG-K9T3
+WARNING.
+the provider library did not load its managed\-files reader \-\- the managed files of ${agent} were not compared; reinstall the ai\-tools package
 .TP
 .B MSG-M2U9
 ERROR.
@@ -261,6 +281,10 @@ the confinement library ${CONFINEMENT_LIB} did not load its attestation readers 
 .B MSG-N2Y5
 NOTICE.
 narrow\-acl\-entries\-fixed
+.TP
+.B MSG-N9Q3
+WARNING.
+the PATH ordering library (${path_order_lib}) did not load \-\- no launcher was resolved in this shell; reinstall the ai\-tools package
 .TP
 .B MSG-P4D2
 ERROR.
@@ -517,6 +541,10 @@ assets: AI_TOOLS_ASSETS in ${conf} is not a valid list, so it is not rewritten \
 ERROR.
 a malformed interface floor: ${fragment} declares $(printf '%q' "${declared_floor}"), which is not <major>.<minor>
 .TP
+.B MSG-B5R6
+WARNING.
+the toolchain library (${TOOLCHAIN_LIB}) did not load its link readers \-\- the active Node version was not read; reinstall ai\-tools\-base
+.TP
 .B MSG-B6P3
 WARNING.
 declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be seeded
@@ -720,6 +748,10 @@ assets reconcile takes no arguments
 .B MSG-M8X2
 ERROR.
 semodule failed to replace ${former}
+.TP
+.B MSG-M9D4
+WARNING.
+the relabel or entrypoint library (${RELABEL_LIB}, ${ENTRYPOINT_VERIFY_LIB}) did not load its readers \-\- no agent version was read; reinstall ai\-tools\-base
 .TP
 .B MSG-N2A5
 ERROR.
@@ -2498,6 +2530,10 @@ resolved path '${AI_TOOLS_LAUNCH_WRAPPER__EXEC}' contains parent\-directory refe
 ERROR.
 the ${agent} launch hook cannot be loaded \-\- refusing to start
 .TP
+.B MSG-H2E2
+ERROR.
+refusing to launch \-\- ${cwd} is mode ${cwd_mode} (owner\-only); no session starts in an owner\-only directory
+.TP
 .B MSG-H4E2
 ERROR.
 no session starts while a disabled agent's package is still in the sandbox toolchain: ${joined%, }
@@ -2517,6 +2553,10 @@ the sandbox account cannot read ${#unreadable[@]} configuration file(s) above th
 .B MSG-N8Q4
 ERROR.
 this is the sandbox account ${SANDBOX_USER}, which is not an ai\-tools operator
+.TP
+.B MSG-P5X5
+ERROR.
+refusing to launch \-\- the working directory's path holds a control character: $(_ai_tools_launch_wrapper__format_shell_word "${cwd}")
 .TP
 .B MSG-R2V6
 ERROR.

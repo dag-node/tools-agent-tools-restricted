@@ -205,14 +205,21 @@ and offers to re-enable it behind a default-No confirm. Yes claims the project
 again with its line, and its comment, where they were ([Enable](enable.md)).
 A disabled project that another line also covers, such as a `%` on a directory
 enclosing it, is refused instead, naming that line, and the re-enable is not
-offered.
+offered. A disabled project whose directory is owner-only is refused
+before the offer as well, and its `%` line stays.
 
 A claim refuses, before it writes anything:
 
 - a path an excluded line (`!`) names, since an excluded path is not a project;
 - a path inside a disabled project, or under an excluded or glob line, since
   the steps that grant the agent access do not act there. The refusal shows
-  the line; for a `%` line it names the `atr projects enable` that lifts it.
+  the line; for a `%` line it names the `atr projects enable` that lifts it;
+- a directory whose own mode has no group or other bit, such as `700`, `600`
+  or `500`. The claim leaves an owner-only mode as it is and does not add
+  a grant under it, and no session starts in an owner-only directory. The mode
+  is yours to keep or change. On a project already listed or disabled,
+  the refusal keeps its line, and `atr projects list` marks the row
+  with the mode.
 
 A directory with registered projects under it is claimed as one project,
 and the Review block names the projects it holds.

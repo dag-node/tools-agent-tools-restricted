@@ -14,9 +14,10 @@
 # parent, a disabled project and a path inside it, a registry holding a refused line, a legacy '!' naming the directory
 # with the migration named beside it, and an allowlisted protected directory are refused, each with its own code;
 # a legacy allowed-projects is read while it exists beside project-registry; an approved directory passes, reached
-# through a symlink too, since the CWD is canonicalized first), the claim guard (an approved directory the sandbox group
-# does not own is refused without a terminal), and the exec (refused when the gates did not run). It closes
-# with the order: the gate runner answers a non-operator before it reads the allowlist.
+# through a symlink too, since the CWD is canonicalized first, and a directory at an owner-only mode, listed or not, is
+# refused ahead of either setup screen), the claim guard (an approved directory the sandbox group does not own is
+# refused without a terminal), and the exec (refused when the gates did not run). It closes with the order: the gate
+# runner answers a non-operator before it reads the allowlist.
 #
 # The library reads the allowlist off ${HOME} and the stable launcher symlink under AI_TOOLS_LAUNCHER_DIR, so each is
 # pointed at the testdir; every run is as the account the case is about, through runuser, and detached with setsid so no
@@ -55,10 +56,12 @@ chmod -R 0755 "${home}" "${approved}" "${sibling}" "${disabled_dir}" "${unapprov
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${home}" "${approved}" "${sibling}" "${disabled_dir}" "${unapproved}"
 
 # allowlist <line>... : the fixture registry, the format marker then one entry per argument; no argument removes it.
+# Each write sets the file's mode, since `>` keeps the mode of a file that exists and the MSG-X4N6 case leaves it 000.
 allowlist() {
     if [[ $# -eq 0 ]]; then rm -f "${allowlist}"; return; fi
     printf '%s\n' "# ai-tools-project-registry-format: 1.0" "$@" > "${allowlist}"
     chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${allowlist}"
+    chmod 0600 "${allowlist}"
 }
 # legacy <line>... : the allowed-projects an earlier release wrote, one entry per argument and no marker; no argument
 # removes it. While it exists the wrapper reads it in place of the registry.
@@ -536,6 +539,83 @@ allowlist "@ ${approved}" "! ${excluded}" "% ${disabled_dir}"
 FIXTURE_PROJECT_DIR="${approved}" run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__guard_claim
 refused "an approved directory the sandbox group does not own is refused without a terminal" MSG-W4X4
 says "and the screen names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
+# A directory at an owner-only mode does not start a session. Listed, the CWD gate refuses it ahead of the claim guard
+# and its finish-setup screen; unlisted, it reaches the setup menu without the claim, since a claim refuses such a root
+# and the clone leaves the source as it is. The menu is driven without a terminal, so it takes Cancel, whose command
+# list names what the menu offered. The 0750 unlisted run is the control that lists both commands. Each fixture's mode
+# and owner are read back before the probe, so a chmod that did not apply fails as that and not as a gate verdict.
+# fixture_mode <what> <dir> <mode> : a control line of its own, that <dir> is at <mode> and held by the projects user.
+fixture_mode() {
+    local observed
+    observed="$(stat -c '%a %U' "$2" 2>/dev/null || true)"
+    if [[ "${observed}" == "$3 ${PROJECTS_USER}" ]]; then
+        pass "control: $1 is mode $3, held by ${PROJECTS_USER}"
+    else
+        fail "control: $1 reads '${observed}', expected '$3 ${PROJECTS_USER}'"
+    fi
+}
+chmod 0700 "${approved}"
+fixture_mode "the listed owner-only fixture" "${approved}" 700
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
+refused "a listed directory at mode 700 is refused as owner-only by the CWD gate" MSG-H2E2
+says "and the refusal states the mode and what the wrapper does" \
+    "refusing to launch -- ${approved} is mode 700 (owner-only); no session starts in an owner-only directory"
+if grep -qxE 'MSG-(N2Z7|W4X4)' <<<"${OUT}" || grep -qF "$(cli_cmd_text ai-tools.projects.claim)" <<<"${OUT}"; then
+    fail "the owner-only refusal of the listed directory still reached a setup screen: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"
+else
+    pass "and the refusal of the listed directory does not offer the claim"
+fi
+chmod 0755 "${approved}"
+chmod 0700 "${unapproved}"
+fixture_mode "the unlisted owner-only fixture" "${unapproved}" 700
+run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
+refused "an unlisted directory at mode 700 reaches the setup menu and, without a terminal, takes Cancel" MSG-N2Z7
+silent "and the owner-only refusal does not fire for it" 'MSG-H2E2'
+says "and the cancel path names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
+if grep -qF "$(cli_cmd_text ai-tools.projects.claim)" <<<"${OUT}"; then
+    fail "the owner-only setup menu still names the claim: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"
+else
+    pass "and the cancel path of the owner-only menu does not name the claim"
+fi
+# The clone is the owner-only screen's one remedy, so the screen and its cancel path state the mode
+# and what `projects clone` needs; the 750 control fixture prints neither.
+says "and the owner-only screen states the mode" "This directory is mode 700 (owner-only)"
+says "and the owner-only cancel path states why the claim is not listed" \
+    "${unapproved} is mode 700 (owner-only) -- a claim leaves that mode as it is, and the claim is not listed."
+says "and the owner-only cancel path states what the clone needs" \
+    "The clone needs a git repository with a remote and a checked-out branch."
+chmod 0750 "${unapproved}"
+fixture_mode "the unlisted 750 control fixture" "${unapproved}" 750
+run "${LIB}" "${PROJECTS_USER}" "${unapproved}" ai_tools_launch_wrapper__gate_project
+refused "control: an unlisted directory at mode 750 takes Cancel without a terminal" MSG-N2Z7
+says "control: and the cancel path names the clone" "$(cli_cmd_text ai-tools.projects.clone)"
+says "control: and the cancel path names the claim" "$(cli_cmd_text ai-tools.projects.claim)"
+if grep -qF '(owner-only)' <<<"${OUT}"; then
+    fail "control: the 750 screen states an owner-only mode: $(head -c 300 <<<"${OUT}" | tr '\n' '|')"
+else
+    pass "control: and the 750 screen does not state an owner-only mode"
+fi
+chmod 0755 "${unapproved}"
+# A CWD whose name holds a control character is refused ahead of every message that names it -- listed, and unlisted
+# at an owner-only mode, whose screens print the CWD -- and the output does not carry the raw byte. The plain-named
+# listed directory is the control.
+esc_name=$'esc\033[31mdir'
+esc_listed="${approved}/${esc_name}"; esc_unlisted="${TESTDIR}/${esc_name}"
+mkdir -m 0755 "${esc_listed}"; mkdir -m 0700 "${esc_unlisted}"
+chown "${PROJECTS_USER}" "${esc_listed}" "${esc_unlisted}"
+for esc_dir in "${esc_listed}" "${esc_unlisted}"; do
+    run "${LIB}" "${PROJECTS_USER}" "${esc_dir}" ai_tools_launch_wrapper__gate_project
+    refused "a CWD whose name holds an escape byte is refused before any message names it" MSG-P5X5
+    if grep -q $'\033' <<<"${OUT}"; then
+        fail "and the refusal printed the raw escape byte: $(head -c 300 <<<"${OUT}" | od -c | head -3 | tr '\n' '|')"
+    else
+        pass "and the refusal prints the path without the raw escape byte"
+    fi
+done
+rm -rf "${esc_listed}" "${esc_unlisted}"
+run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_project
+passed "control: the plain-named listed directory passes the CWD gate"
+silent "control: and the control-character refusal does not fire for it" 'MSG-P5X5'
 
 # ── (5) The exec refuses when the gates did not run ───────────────────────────
 run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__launch_session --version

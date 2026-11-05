@@ -551,15 +551,21 @@ record directories, so the label line under each pin reads from a fixture too �
 the opposite of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its own,
 as a verification that succeeded. So the tier line is asserted as a control, then the mark replacing it and counting
 toward the exit status, then a mark saying anything but `stale` leaving the line as it was — the record grammar
-deciding, rather than the file's presence. A further section drives the Version section's Node line against fixture
-links: the version a link points into is the one named, two links naming different versions are reported as such,
-and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole, the host-reading
-sections stubbed to a known answer, over the exit fold `ai-tools-records(5)` states: a section that read a fault exits
-4, the service registry's readers removed after the CLI loaded them exits 5 under its code with the later sections still
-printed, a section returning its unreadable status exits 5, and a fault beside an unreadable reading exits 5. Its last
-section drives the Caches section over fixture state files: each verdict the library counts returns 1 with the library's
-remedy under the line, an overdue cache returns 0 with the line its recorded reason selects, and an empty file
-and a value forged with a control byte read as `?` and are not counted.
+deciding, rather than the file's presence. Each reader the section's lines call — the pin, the stale mark, the pin's
+kind, the label record — is removed after the CLI loaded it, through `cmd_status`, which must exit 5 under the section's
+code with no tier line and the later sections still printed, beside the same run with every reader as the control;
+the label reader is removed for an agent with no manifest URL and no pin as well, which no label line reaches,
+the verification-policy reader for an unpinned agent on a host requiring verification, which must not read as not
+blocked, and the label line's own guard keeps its code when it is called alone. A further section drives the Version
+section's Node line against fixture links: the version a link points into is the one named, two links naming different
+versions are reported as such, and a link outside the versioned shape claims none. Its closing section drives
+`cmd_status` whole, the host-reading sections stubbed to a known answer, over the exit fold `ai-tools-records(5)`
+states: a section that read a fault exits 4, the service registry's readers removed after the CLI loaded them exits 5
+under its code with the later sections still printed, a section returning its unreadable status exits 5, a fault beside
+an unreadable reading exits 5, and the PATH ordering reader and the managed-files reader each removed exit 5 under their
+section's code. Its last section drives the Caches section over fixture state files: each verdict the library counts
+returns 1 with the library's remedy under the line, an overdue cache returns 0 with the line its recorded reason
+selects, and an empty file and a value forged with a control byte read as `?` and are not counted.
 
 `launch-wrapper.sh` drives the gate library every agent's wrapper runs (`launch-wrapper.lib.sh`, see
 [launch](launch.rule.md)), one gate at a time and each in its fail direction, as the account the case is
@@ -571,10 +577,13 @@ with the target left unresolved; the provider-list gate refuses a name written w
 and `system post-upgrade`, with a migrated file as the control; the CWD gate refuses a missing allowlist, an unapproved
 directory, a sibling sharing a name prefix, an excluded subdirectory and a path under it, a disabled project,
 and an allowlisted protected directory, and passes an approved directory reached directly or through a symlink
-with the canonical path published; the claim guard refuses an approved directory the sandbox group does not own when no
-terminal can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers
-the sandbox account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses
-one outside a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range matches it,
+with the canonical path published; the CWD gate refuses a listed directory at an owner-only mode ahead
+of the finish-setup screen, and an unlisted one reaches the setup menu offering the clone without the claim and stating
+the mode and what the clone needs, beside a `750` control offering both and stating neither, each fixture's mode
+and owner read back first; the claim guard refuses an approved directory the sandbox group does not own when no terminal
+can answer its confirm; the session exec refuses without the gates' results; and the gate runner answers the sandbox
+account before it reads the allowlist. Every launcher is one program, so the name is an input: init refuses one outside
+a launcher's charset, a non-ASCII letter included under a UTF-8 locale where a bracket range matches it,
 and the launcher gate refuses a name no enabled manifest claims, the launcher program's own among them, while an empty
 enabled set is refused naming its cause, telling an input the resolver refused or could not read from a configuration
 that asks for no agent ([launch](launch.rule.md) states the split). The hook loader is driven through a copy
@@ -871,7 +880,11 @@ that place the gzip reader's tools ahead of it.
 
 `claim-notice.sh` drives the live-session reader's one unprivileged caller, the claim's `note_live_session`, read
 out of the checkout's `ai-tools.sh` as text: the notice prints on `live` alone, with a label step or a drift relabel
-pending, and the `live` case reaching the renderer is the control that the extraction found the function.
+pending, and the `live` case reaching the renderer is the control that the extraction found the function. It reads
+`require_open_project_root` out of the same file and drives the owner-only refusal over a table of root modes: each mode
+without a group or other bit refused under the code for a first claim or for a listed project, with exit 1, beside
+a `750` root that passes as the control, a mode the owner-side read could not make passing, and the leftover-directory
+name of `projects create` cleared for that root alone.
 
 `postupgrade.sh` is that same reconciliation seen from the RPM side: `atr admin system post-upgrade` end to end,
 from dispatch through the registry to each treatment (see [providers](providers.rule.md)
@@ -946,8 +959,12 @@ holds a base file, which is the state every installed host is in, and a present 
 section drives `status` whole with the host-reading sections stubbed, over the same exit fold the CLI's test pins:
 a counted fault exits 4, the service registry's readers removed after the library loaded (its include guard keeps
 `status`'s own re-source from restoring them) exits 5 under `MSG-V6N9` with the later sections still printed,
-and a fault beside that exits 5. Its Caches case pins the count this report keeps and the size it reads with `du`
-over a fixture home.
+and a fault beside that exits 5. The Entrypoints, Version and managed-files sections are driven directly over the loaded
+libraries, since `relabel.lib.sh` has no include guard: each reader they call, removed, prints one unreadable line
+and counts it, the Node line then does not claim a link read, and Entrypoints without a pin reader still names
+a mislabelled entrypoint from the live label reader, stubbed to report one, while the real reader with a function it
+calls removed reads as an unreadable label reading and never as inactive SELinux. Its Caches case pins the count this
+report keeps and the size it reads with `du` over a fixture home.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `atr status` re-checks
@@ -1229,7 +1246,8 @@ with a plain `read`, so an unreadable label must report `unknown` rather than an
 later field left, rendering a type where a path belongs in a report whose whole job is to be believed. `CP_HOME` is
 a readonly constant, so the config directory cannot be moved into the testdir; the fixture agent's name is one no
 package ships, which makes that half report deterministically as not installed and leaves the entrypoint half to carry
-the type comparisons.
+the type comparisons. A function the report calls, removed, returns 3 with no report, apart from the inactive layer's 2,
+so a partial load does not read as SELinux off or an entrypoint not installed.
 
 A fifth covers the live-session gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)): each gated walk is driven
 with the session reader stubbed to `live` and to `unreadable`, and must return its status with no `semanage`

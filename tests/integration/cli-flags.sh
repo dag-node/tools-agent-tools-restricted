@@ -528,6 +528,46 @@ drive_rows() {
     expect "claim refuses --format without a value with exit 2"       quiet_rc 2
     expect "the refused --format writes nothing to stdout"            out_is_empty
 
+    # mode_owner_is <path> <mode> <owner> : the fixture reads back at <mode> and <owner>, a control line of its own.
+    mode_owner_is() { [[ "$(stat -c '%a %U' "$1" 2>/dev/null)" == "$2 $3" ]]; }
+    # An owner-only project root: the claim helpers leave that mode as it is, so a first claim is refused ahead of its
+    # first registry write and does not call a helper, beside a 750 control that claims; a listed project whose root is
+    # then set to 700 is refused with its line kept, and the listing annotates its row without a cleanup entry for it.
+    # Each chmod is read back, mode and owner, before the probe that follows it.
+    mkdir -p "${R}/po"; printf '# po\n' > "${R}/po/README.md"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/po"; chmod 0700 "${R}/po"
+    expect "control: the root is 700, held by ${PROJECTS_USER}"       mode_owner_is "${R}/po" 700 "${PROJECTS_USER}"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/po"
+    expect "a first claim of a 700 root exits 1"                      rc_is 1
+    expect "the refusal is read by its code"                          err_has MSG-H6J3
+    expect "the refused claim registers nothing"                      st_is "${R}/po" absent
+    expect "the refused claim reaches no helper"                      cli_log_empty
+    expect "the refused claim writes nothing to stdout"               out_is_empty
+    chmod 0750 "${R}/po"
+    expect "control: the root is 750, held by ${PROJECTS_USER}"       mode_owner_is "${R}/po" 750 "${PROJECTS_USER}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/po"
+    expect "control: the same root at 750 is claimed"                 rc_is 0
+    expect "control: and registered"                                  st_is "${R}/po" enabled
+    chmod 0700 "${R}/po"
+    expect "control: the root is 700, held by ${PROJECTS_USER}"       mode_owner_is "${R}/po" 700 "${PROJECTS_USER}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/po"
+    expect "a re-claim of a listed project whose root is now 700 exits 1" rc_is 1
+    expect "that refusal is read by its own code"                     out_has_text MSG-B5D2
+    expect "the refused re-claim keeps the registry line"             st_is "${R}/po" enabled
+    expect "the refused re-claim reaches no helper"                   cli_log_empty
+    cli_stub_reset; drive cli ai-tools.projects.list
+    expect "the listing over a 700 root exits 0"                      rc_is 0
+    expect "the listing annotates the 700 root's row"                 out_line_has_text "${R}/po " "owner-only"
+    AI_TOOLS_CLI_SPELLING=collection cli_cmd ai-tools.projects.claim || return 2
+    expect "the listing offers no claim for the 700 root"             out_lacks_text "${CLI_ARGV[*]} ${R}/po"
+    # At 750 the stubbed helpers left the group as it was, so the listing offers the claim: the control that the 700
+    # row's missing claim is the cleanup the listing would otherwise print.
+    chmod 0750 "${R}/po"
+    expect "control: the root is 750, held by ${PROJECTS_USER}"       mode_owner_is "${R}/po" 750 "${PROJECTS_USER}"
+    cli_stub_reset; drive cli ai-tools.projects.list
+    expect "control: the listing does not annotate the row at 750"    test "$(grep -F "${R}/po " <<<"${out}" | grep -c 'owner-only')" -eq 0
+    expect "control: the listing offers the claim for it at 750"      out_has_text "${CLI_ARGV[*]} ${R}/po"
+
     # ── B2. Claim: drift rows and exits ──────────────────────────────────────────────
     # A re-claim over a project already carrying the claim's group, setgid and default ACL, with one file moved in (the
     # projects user's own group, 640): the group scan finds it, no terminal declines the repair, and the per-path check

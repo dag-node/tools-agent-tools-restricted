@@ -85,14 +85,22 @@ what the security model rests on, and every one of them refuses toward *less* ac
    (backstop, allowlist, claim): such a run stays out of the working tree, so no project grant is implied. It still
    launches the same validated binary confined as `SANDBOX_USER`, with the sandbox home as `WorkingDirectory`.
 7. **Protected-paths backstop, then the allowlist**, both on the `realpath -e`-canonicalized CWD. A session starts only
-   inside an allowed project and never in a CWD a `!` excluded line or a `%` disabled line covers. Every allow entry is
-   canonicalized before matching and the match is exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle
-   a CWD past the gate and a sibling sharing a name prefix does not match; an exclusion is matched as written
-   and as the real path the loader resolved for it, so an excluded path spelled through a symlink refuses the directory
-   it names, a read the loader refuses refuses the launch outright (`MSG-Z3Q6`, `MSG-D9R4`), wherever the CWD is
-   under that file, and a match the library does not make -- the matcher returning a status other than its 0 and 1 --
-   refuses it too (`MSG-T6U6`). The read and the match are [ref-section-d2n3](providers.rule.md#ref-section-d2n3),
-   and `ai-tools-chown` makes the same ones, so the launch gate and the ownership handback agree on what is in-project.
+   inside an allowed project and never in a CWD a `!` excluded line or a `%` disabled line covers. A canonical CWD
+   holding a control character is refused first (`MSG-P5X5`), the path printed in its C-locale `%q` form: the gate's
+   refusals and screens print the CWD, a session can create such a name inside a project, and `projects claim` refuses
+   the same paths, so no session could start there. Every allow entry is canonicalized before matching and the match is
+   exact-or-`/`-prefixed, so a symlink or `..` component cannot smuggle a CWD past the gate and a sibling sharing a name
+   prefix does not match; an exclusion is matched as written and as the real path the loader resolved for it,
+   so an excluded path spelled through a symlink refuses the directory it names, a read the loader refuses refuses
+   the launch outright (`MSG-Z3Q6`, `MSG-D9R4`), wherever the CWD is under that file, and a match the library does not
+   make -- the matcher returning a status other than its 0 and 1 -- refuses it too (`MSG-T6U6`). The read and the match
+   are [ref-section-d2n3](providers.rule.md#ref-section-d2n3), and `ai-tools-chown` makes the same ones, so the launch
+   gate and the ownership handback agree on what is in-project. A CWD whose own mode has no group or other bit does not
+   start a session, since a claim leaves an owner-only mode as it is and refuses such a root ([cli](cli.rule.md)): one
+   inside a registry entry is refused next (`MSG-H2E2`), ahead of the claim guard and its finish-setup screen, and one
+   no entry lists reaches the setup menu without the claim, offering the clone, which leaves the source as it is,
+   and Cancel; that screen states the mode and what `projects clone` needs, since the clone is its one remedy. A mode
+   the operator cannot read leaves the CWD to the screens as they are.
 8. **Claim guard** — the project's ownership, label and `safe.directory` gaps, detected read-only.
 
 The agent's launch hook then appends its arguments, and the launch ends

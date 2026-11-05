@@ -2851,6 +2851,24 @@ require_claimable_owner() {
         "${why[@]}"
 }
 
+# require_open_project_root <dir> <root-mode> <has-registry-entry>  -- die when <root-mode>, the owner-side read's mode
+# of the project root, has no group or other bit: ai-tools-setgid and ai-tools-setfacl leave an owner-only path as it is
+# (owner-only.lib.sh), so a claim would register the root without a grant under it, and the launch gate refuses
+# an owner-only directory whichever account owns it (MSG-H2E2). The mode is the operator's decision and its intent is
+# not readable from it, so neither refusal names a command that changes it. <has-registry-entry> is true for a root
+# a registry line names, whose line the refusal keeps; an empty <root-mode> is a reading the owner could not make
+# and passes. A directory projects create made is named by the refusal, so the create's leftover-directory line,
+# which names a claim, is not printed. The consequence is cli.rule.md's (Claim in place).
+require_open_project_root() {
+    local d="$1" mode="$2" has_registry_entry="$3"
+    [[ -n "${mode}" ]] && (( ( 8#${mode} & 077 ) == 0 )) || return 0
+    [[ "${CREATE_LEFT_TREE}" != "${d}" ]] || CREATE_LEFT_TREE=""
+    if [[ "${has_registry_entry}" == true ]]; then
+        die MSG-B5D2 "the project root ${d} is mode ${mode} (owner-only) -- the claim leaves it as it is; no change applied, and no session can start here"
+    fi
+    die MSG-H6J3 "refusing to claim -- ${d} is mode ${mode} (owner-only); a claim leaves an owner-only mode as it is and does not grant the sandbox account access under it, and no session could start here"
+}
+
 # ── The owner-side read: `projects inspect` ────────────────────────────────────────
 # The claim reads a project's tree as the account whose tree it is: it runs this file again as the owner, through
 # run_as_owner (`sudo -u <target> -H` under `--for`, directly otherwise), as `projects inspect`, and reads the record
@@ -3431,6 +3449,11 @@ cmd_project_claim() {
         claim_write_row error directory inspect "${d}" "the tree was not read as ${OWNER_USER} (${INSPECT_FAILURE})"
         claim_end
     fi
+    # Ahead of the re-enable offer, the first step that can write. The mode is the owner-side read's, so a `--for` run
+    # reads it as the target.
+    local has_registry_entry=false
+    { ${listed} || ${reenable}; } && has_registry_entry=true
+    require_open_project_root "${d}" "${root_mode}" "${has_registry_entry}"
 
     # The trust list is read ahead of the re-enable offer, the first step that can write: a claim that cannot read it
     # does not describe its pending steps, and applies none.
@@ -3702,17 +3725,6 @@ cmd_project_claim() {
     fi
 
     find_blocking_ancestors "${d}"
-
-    # The project root being owner-only is find_blocking_ancestors's problem one level down: ai-tools-setfacl honours
-    # a 0600/0700 mode and skips the path, so every later step still succeeds and the claim closes with its ✓ while
-    # the sandbox account cannot enter the tree at all. Stated here, before the confirm, rather than left
-    # to the helper's skip count afterwards; the mode is the owner-side read's, and a mode it could not read does
-    # not raise the notice.
-    if [[ -n "${root_mode}" ]] && (( ( 8#${root_mode} & 077 ) == 0 )); then
-        headline_warn "NOTICE: this project directory is owner-only" \
-            "${d} is mode ${root_mode}, which keeps it out of the sandbox account's reach: the claim honours that mode and grants nothing on it."
-        say ""
-    fi
 
     # A claimed project can still sit under a non-traversable parent (a later chmod 700 on an ancestor), and the grant
     # that closes that is a pending step like the others -- it takes the gate -- so a project with one takes
@@ -5964,19 +5976,20 @@ status_sandbox_unit_commands() {
 # through the SAME accessors -- charset-clamped fields and one age implementation - rather than a second reader
 # that could drift. Its path comes from entrypoint-verify.lib.sh, never hardcoded.
 #
-# Returns non-zero only when an unpinned entrypoint is actionable, which is exactly when the operator has required
-# verification: everywhere else unpinned is a legitimate state (an air-gapped host, a release the vendor published no
-# manifest for) and must not make a healthy host alarm, the same rule the unqueryable units follow. A pin this account
-# has no read on is reported as unknown, which ai_tools_services__is_attention_needed does not count as a fault:
-# `status` stays open to a non-operator, whom the state directory's mode keeps out. status_path_order -- where THIS
-# shell finds each enabled agent's launcher. The one reading this report can make for free and no other vantage can make
-# at all: the CLI runs in the operator's own login shell, so `command -v claude` resolves exactly what typing `claude`
-# would run. A launcher resolving to a file other than the wrapper starts UNCONFINED, as the operator, so it counts
-# toward the report's exit status and names the command that repairs it. What each state means is launch.rule.md's PATH
-# ordering section; what this report says about each is cli.rule.md.
+# Returns STATUS_UNREADABLE when the provider or entrypoint library did not load, and 1 for a stale pin, a recorded
+# labelling failure, and an unpinned entrypoint where the operator has required verification: everywhere else unpinned
+# is a legitimate state (an air-gapped host, a release the vendor published no manifest for) and must not make a healthy
+# host alarm, the same rule the unqueryable units follow. A pin this account has no read on is reported as unknown,
+# which ai_tools_services__is_attention_needed does not count as a fault: `status` stays open to a non-operator, whom
+# the state directory's mode keeps out. status_path_order -- where THIS shell finds each enabled agent's launcher. The
+# one reading this report can make for free and no other vantage can make at all: the CLI runs in the operator's own
+# login shell, so `command -v claude` resolves exactly what typing `claude` would run. A launcher resolving to a file
+# other than the wrapper starts UNCONFINED, as the operator, so it counts toward the report's exit status and names the
+# command that repairs it. What each state means is launch.rule.md's PATH ordering section; what this report says about
+# each is cli.rule.md.
 #
-# Best-effort like the rest of this report: without the library or the provider resolver this vantage has no launcher
-# to resolve, so the section is omitted rather than guessed at.
+# path-order.lib.sh ships with base, so a reader it did not define is a broken install: reported under MSG-N9Q3
+# and returned as STATUS_UNREADABLE, the later sections still printed.
 status_path_order() {
     local path_order_lib=/usr/local/lib/ai-tools/path-order.lib.sh
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
@@ -5984,7 +5997,11 @@ status_path_order() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/path-order.lib.sh
     source "${path_order_lib}" 2>/dev/null || true
-    declare -F ai_tools_path_order__read_here >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_path_order__read_here >/dev/null 2>&1; then
+        section "PATH ordering"
+        warn MSG-N9Q3 "the PATH ordering library (${path_order_lib}) did not load -- no launcher was resolved in this shell; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
 
     local state pair launcher winner seen=0
     ai_tools_path_order__read_here || true
@@ -6029,15 +6046,29 @@ status_entrypoint_pins() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/entrypoint-verify.lib.sh
     source "${verify_lib}" 2>/dev/null || true
-    declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 || return 0
-    declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 || return 0
+    # Both libraries ship with base, so one that did not load is a broken install: a reading this section promises
+    # and could not make. Every reader an agent's lines call is checked here, ahead of the first agent, so a missing one
+    # does not leave the pin's own fields to render as VERIFIED, a missing verification-policy reader does not leave
+    # an unpinned agent to render as not blocked where the host requires verification, and an agent that takes
+    # `continue` before its label line still has its label reader checked; status_entrypoint_label keeps its own guard
+    # (MSG-K8K4). The service registry's absence is the Services section's to report (MSG-X5Z8).
+    if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__read_pin_kind >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; then
+        section "Entrypoint verification"
+        warn MSG-E5C3 "the provider or entrypoint library (${providers_lib}, ${verify_lib}) did not load -- no entrypoint pin was read; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1 || return 0
 
     local strict=no
-    declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
-        && ai_tools_entrypoint_verify__is_required && strict=yes
+    ai_tools_entrypoint_verify__is_required && strict=yes
 
-    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0
+    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0 unreadable=0 label_status
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
@@ -6093,9 +6124,13 @@ status_entrypoint_pins() {
                     "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
             fi
         fi
-        status_entrypoint_label "${agent}" || mislabelled=$(( mislabelled + 1 ))
+        label_status=0
+        status_entrypoint_label "${agent}" || label_status=$?
+        if (( label_status == STATUS_UNREADABLE )); then unreadable=$(( unreadable + 1 ))
+        elif (( label_status != 0 )); then mislabelled=$(( mislabelled + 1 )); fi
     done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
 
+    [[ "${unreadable}" -gt 0 ]] && return "${STATUS_UNREADABLE}"
     [[ "${stale}" -gt 0 ]] && return 1
     [[ "${mislabelled}" -gt 0 ]] && return 1
     [[ "${strict}" == yes && "${blocking}" -gt 0 ]] && return 1
@@ -6204,10 +6239,9 @@ status_selinux_attestation() {
 # of a verification that once succeeded, so without the mark each status report renders it green while every status
 # reports render it green while every launch of that agent is already refused. The remedy is the reconcile command,
 # which re-reads the installed binary -- and the commands that replace it are the relabel helper's to print, since only
-# root can name the package directory.
+# root can name the package directory. status_entrypoint_pins checks the stale-path reader before the first agent.
 status_entrypoint_stale() {
     local agent="$1" record state version reason detected age
-    declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 || return 1
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -r "${record}" ]] || return 1
     state="$(ai_tools_services__read_stamp_field "${record}" STATE)"
@@ -6236,10 +6270,14 @@ status_entrypoint_stale() {
 # which reads the labels as root, and the service start that re-runs the work and clears the unit's own recorded failure
 # with it.
 #
-# Returns non-zero only for a recorded failure, which is the one state that stops a launch.
+# Returns 1 for a recorded failure, which is the one state that stops a launch, and STATUS_UNREADABLE when
+# entrypoint-verify.lib.sh's record-path reader is not defined, a library base ships that did not load.
 status_entrypoint_label() {
     local agent="$1" record result reason age
-    declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; then
+        warn MSG-K8K4 "the entrypoint library did not load its label-record reader -- the labelling of ${agent} was not read; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
     result="$(ai_tools_services__read_stamp_field "${record}" RESULT)"
     age="$(status_fmt_age "$(ai_tools_services__read_stamp_age "${record}" LABELLED)")"
@@ -6293,9 +6331,9 @@ status_entrypoint_label() {
 # counted: an unfinished install is what this section exists to say, not a fault in a finished one. Returns non-zero
 # when the enabled agents cannot be read at all, which is a broken install, like a missing service registry,
 # and when an installed agent that is not enabled still has its link (status_residue), the state every launch is refused
-# in.
+# in. A reader status_managed_files or status_residue reports missing makes it return STATUS_UNREADABLE.
 status_provisioning() {
-    local rec agent_name launcher reason faults=0 unreadable
+    local rec agent_name launcher reason faults=0 unreadable managed_status managed_unreadable=0
     section "Provisioning"
     # The resolver not loading is a broken install, a reading this section could not make: STATUS_UNREADABLE,
     # so the report exits 5 rather than counting it among the faults it did read.
@@ -6315,13 +6353,17 @@ status_provisioning() {
         else
             say "  ${C_YEL}${agent_name} not provisioned${C_RST} -- run: ${C_BOLD}atr admin system bootstrap${C_RST}"
         fi
-        status_managed_files "${agent_name}" || faults=$(( faults + 1 ))
+        managed_status=0
+        status_managed_files "${agent_name}" || managed_status=$?
+        if (( managed_status == STATUS_UNREADABLE )); then managed_unreadable=1
+        elif (( managed_status != 0 )); then faults=$(( faults + 1 )); fi
     done
     status_residue || {
         unreadable=$?
         if (( unreadable == STATUS_UNREADABLE )); then return "${STATUS_UNREADABLE}"; fi
         faults=$(( faults + 1 ))
     }
+    (( managed_unreadable == 0 )) || return "${STATUS_UNREADABLE}"
     (( faults == 0 ))
 }
 
@@ -6441,10 +6483,16 @@ status_node_version() {
 # is where an operator learns the live file differs: the agent reads it alone, a key this release adds is not in it,
 # and what it declares is the host's rather than the package's. A file matching the shipped copy is not reported,
 # and an edited one is not counted -- it is a supported state -- while a missing one is, since the package is then
-# broken and a reinstall is the remedy. Returns non-zero for a missing file.
+# broken and a reinstall is the remedy. Returns 1 for a missing file, and STATUS_UNREADABLE under MSG-K9T3
+# where providers.lib.sh did not define the managed-files reader or the comparison it runs per file, a library base
+# ships.
 status_managed_files() {
     local agent="$1" live reference state rc=0
-    declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__evaluate_managed_file >/dev/null 2>&1; then
+        warn MSG-K9T3 "the provider library did not load its managed-files reader -- the managed files of ${agent} were not compared; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     while IFS=$'\t' read -r live reference; do
         [[ -n "${live}" ]] || continue
         state="$(ai_tools_providers__evaluate_managed_file "${live}" "${reference}")"
@@ -6726,7 +6774,7 @@ cmd_project_list() {
         say "  ${C_YEL}the projects verbs other than this list refuse until it is. Migrate it with:${C_RST}"
         say "      ${C_BOLD}atr admin system post-upgrade${C_RST}"
     fi
-    local raw entry excl kind safe sd shown=0
+    local raw entry excl kind safe sd project_root_mode shown=0
     local -a cleanup=()
 
     # _is_labelled <dir>  -- 0 when SELinux is active and <dir> carries ai_tools_project_t.
@@ -6767,6 +6815,14 @@ cmd_project_list() {
         [[ -z "${FOR_OPERATOR}" ]] || cleanup+=( "      ${FOR_OPERATOR}'s own atr projects reads it" )
         return 0
     }
+    # _read_owner_only_mode <dir>  -- print the mode of the directory <dir> names and return 0 when it has no group
+    # or other bit, as the invoker reads it; return 1 for any other mode and for a mode the invoker cannot read.
+    _read_owner_only_mode() {
+        local project_root_mode
+        project_root_mode="$(stat -L -c '%a' -- "$1" 2>/dev/null)" || return 1
+        [[ "${project_root_mode}" =~ ^[0-7]{1,4}$ ]] && (( ( 8#${project_root_mode} & 077 ) == 0 )) || return 1
+        printf '%s\n' "${project_root_mode}"
+    }
     # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
     # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
     # the removal command deletes.
@@ -6793,6 +6849,9 @@ cmd_project_list() {
         [[ "${k}" == project ]] || return 0            # a sandbox clone takes the clone kind of `projects remove`
         # Not fully claimed: agent has no group access, the ACL is missing, or (SELinux active) the tree is unlabelled.
         # Read from the same read_project_state tokens the claim flow uses.
+        # An owner-only root is annotated on its row: the claim leaves that mode as it is, so a claim command is not
+        # a remedy for it.
+        _read_owner_only_mode "${e}" >/dev/null && return 0
         local listed safedir filemode owngap acl labelled git
         IFS=' ' read -r listed safedir filemode owngap acl labelled git < <(read_project_state "${e}")
         if [[ "${owngap}" == true || "${acl}" == true || "${labelled}" == false ]]; then
@@ -6842,7 +6901,12 @@ cmd_project_list() {
         esac
         _read_safedir_column "${entry}"
         read_path_class "$(resolve_entry_path "${entry}")"
-        printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
+        if project_root_mode="$(_read_owner_only_mode "${entry}")"; then
+            printf '  %-8s %-50s %s  %s\n' "${kind}" "${entry}" "${safe}" \
+                "${C_YEL}mode ${project_root_mode} (owner-only)${C_RST} ${C_DIM}-- no session can start here${C_RST}"
+        else
+            printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
+        fi
         # A listed project under a `%`, a `!` or a glob line is still this operator's entry, and no session reaches it
         # while that line stands.
         [[ "${CLASS_STATE}" != enabled || "${CLASS_BLOCKED}" == - ]] \

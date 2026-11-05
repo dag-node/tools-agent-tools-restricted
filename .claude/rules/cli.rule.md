@@ -389,9 +389,10 @@ being the authoritative one.
   loads and requires): 4 where a section read a fault, 5 where a section could not make a reading it promises, and 0
   otherwise. Each section returns 1 for a fault and `STATUS_UNREADABLE` for a reading it could not make,
   and `status_fold` turns the two into the fold, so the sections stay free of the library and drivable on their own.
-  What exits 5 is a library base ships that did not load — the service registry, the provider resolver, the toolchain
-  readers — a broken install, reported under a code and still followed by every later section, so the page carries each
-  reading it could make beside the one it could not.
+  What exits 5 is a library base ships that did not load — the service registry, the provider resolver and its
+  managed-files reader, the toolchain readers, the entrypoint readers, the PATH ordering reader — a broken install,
+  reported under a code and still followed by every later section, so the page carries each reading it could make beside
+  the one it could not.
 
   **Both halves of the entrypoint reconciliation are reported, from the records it writes.** Neither the binary nor its
   label can be inspected from this account, so each half leaves a root-owned record where the operator can read it.
@@ -479,18 +480,20 @@ being the authoritative one.
   directions: a protected system path the tools refuse to touch; a stale enabled or disabled line, or a stale non-glob
   excluded line, whose path no longer exists; a project listed but not fully claimed; and — the reverse direction —
   a git `safe.directory` with **no** registry entry, skipping the deliberately-registered control-plane paths
-  the protected-paths backstop already covers. `safe.directory` is one list every operator's claims write
-  into and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is attributed
-  before a removal is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted
-  unclaim); one whose tree the sandbox account holds is named with its removal, to run only if the tree is the reader's,
-  since `require_claimable_owner` accepts that owner for any operator and no registry attributes it; one whose path is
-  gone is stale; one under a directory the invoker cannot enter, in a tree another account holds, or whose owner cannot
-  be read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not write — git's `*`
-  and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not absolute
-  — is named by its form with the command that lists the file, and does not take a removal or count, since
-  the exact-value removal deletes a live rule. Each printed path is one bash word, and `ai-tools-safedir --remove`
-  removes a value as git holds it, so a stored spelling is removed as stored. The list is read once, with git run
-  from `/`, since git exits on a working directory that was deleted, the one a shell keeps
+  the protected-paths backstop already covers. A row whose directory the invoker reads at an owner-only mode carries
+  that mode and that no session can start there, and takes no *listed but not fully claimed* entry, since the claim
+  refuses such a root; a mode the invoker cannot read leaves the row as it was. `safe.directory` is one list every
+  operator's claims write into and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is
+  attributed before a removal is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line,
+  an interrupted unclaim); one whose tree the sandbox account holds is named with its removal, to run only if the tree
+  is the reader's, since `require_claimable_owner` accepts that owner for any operator and no registry attributes it;
+  one whose path is gone is stale; one under a directory the invoker cannot enter, in a tree another account holds,
+  or whose owner cannot be read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not
+  write — git's `*` and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value
+  that is not absolute — is named by its form with the command that lists the file, and does not take a removal
+  or count, since the exact-value removal deletes a live rule. Each printed path is one bash word,
+  and `ai-tools-safedir --remove` removes a value as git holds it, so a stored spelling is removed as stored. The list
+  is read once, with git run from `/`, since git exits on a working directory that was deleted, the one a shell keeps
   after `atr projects remove .`; a list git cannot read is named under the cleanup, and each row's status reads `?`.
   A registry line under a directory the invoker cannot enter is reported as one it cannot read, without a removal,
   and on a `--for` run names the target's own listing as the one that reads it. The `sed` line deletes the verbatim
@@ -928,6 +931,17 @@ while the registries, the `safe.directory` entry and the label apply regardless,
 take every step that registers a project and none that grants access, and close with a ✓ over a tree the agent cannot
 enter. `require_claimable_owner` refuses before the first registry write and names the `chown`; transferring a tree
 recursively needs an authority this CLI does not hold, and is deliberately not built.
+
+**The project root must carry a group or other bit.** The same helpers leave an owner-only path as it is
+([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)), so a root at `700`, `600` or `500` would take
+the registry steps and no grant, and no session could start there. `require_open_project_root` reads the mode
+the owner-side read reports, so a `--for` run reads it as the target, and refuses ahead of the re-enable offer,
+the claim's first write, with exit 1 and no `--format tsv` row: a root no registry line names under `MSG-H6J3`, ahead
+of every root helper and, on a plain run, of any `sudo` prompt, and a listed or disabled project under `MSG-B5D2`, its
+line kept. The mode is the operator's decision and its intent is not readable from it, so neither refusal names
+a command that changes it. A mode the owner could not read passes. A `projects create` whose `0750` did not apply meets
+the refusal, which names the directory, so the create's leftover-directory line (`MSG-S3U5`) is not printed: its remedy
+is a claim.
 
 **A claim that could not apply its root steps does not report success.** `reg_safedir`, `reg_ownership`,
 `claim_setfacl`, `claim_relabel` and `grant_ancestor_traversal` each return non-zero when their step did not take,

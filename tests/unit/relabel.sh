@@ -875,6 +875,19 @@ else
         fail "an uninstalled entrypoint was misreported (rc=${rc}): ${out//$'\n'/ | }"
     fi
 
+    # A function the report calls that is not defined is a reading it could not make: 3 with no report, told apart
+    # from the inactive layer's 2, so a caller does not render a partial load as SELinux being off or an entrypoint
+    # as not installed. Each is removed inside the capture's subshell, which the next case does not inherit.
+    for reader in ai_tools_providers__list_enabled_agents ai_tools_providers__read_agent_manifest_field \
+                  ai_tools_relabel__resolve_agent_entrypoint_path; do
+        rc=0; out="$(unset -f "${reader}"; ai_tools_relabel__list_agent_labels)" || rc=$?
+        if [[ "${rc}" -eq 3 && -z "${out}" ]]; then
+            pass "the report without ${reader} returns 3 with no report, not the inactive layer's 2"
+        else
+            fail "the report without ${reader} returned ${rc}: ${out//$'\n'/ | }"
+        fi
+    done
+
     _ai_tools_relabel__is_entrypoint_policy_active() { return 1; }
     rc=0; out="$(ai_tools_relabel__list_agent_labels)" || rc=$?
     if [[ "${rc}" -eq 2 && -z "${out}" ]]; then
