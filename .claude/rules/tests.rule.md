@@ -551,11 +551,13 @@ record directories, so the label line under each pin reads from a fixture too �
 the opposite of a refusal: a pin a reconciliation declined to re-record is left standing and reads, on its own,
 as a verification that succeeded. So the tier line is asserted as a control, then the mark replacing it and counting
 toward the exit status, then a mark saying anything but `stale` leaving the line as it was — the record grammar
-deciding, rather than the file's presence. The pin reader and the label-record reader are each removed after the CLI
-loaded them, through `cmd_status`, which must exit 5 under that line's code with the later sections still printed,
-beside the same run with both readers as the control. A further section drives the Version section's Node line
-against fixture links: the version a link points into is the one named, two links naming different versions are reported
-as such, and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole,
+deciding, rather than the file's presence. Each reader the section's lines call — the pin, the stale mark, the pin's
+kind, the label record — is removed after the CLI loaded it, through `cmd_status`, which must exit 5 under the section's
+code with no tier line and the later sections still printed, beside the same run with every reader as the control;
+the label reader is removed for an agent with no manifest URL and no pin as well, which no label line reaches,
+and the label line's own guard keeps its code when it is called alone. A further section drives the Version section's
+Node line against fixture links: the version a link points into is the one named, two links naming different versions
+are reported as such, and a link outside the versioned shape claims none. Its closing section drives `cmd_status` whole,
 the host-reading sections stubbed to a known answer, over the exit fold `ai-tools-records(5)` states: a section
 that read a fault exits 4, the service registry's readers removed after the CLI loaded them exits 5 under its code
 with the later sections still printed, a section returning its unreadable status exits 5, and a fault beside
@@ -953,8 +955,9 @@ holds a base file, which is the state every installed host is in, and a present 
 section drives `status` whole with the host-reading sections stubbed, over the same exit fold the CLI's test pins:
 a counted fault exits 4, the service registry's readers removed after the library loaded (its include guard keeps
 `status`'s own re-source from restoring them) exits 5 under `MSG-V6N9` with the later sections still printed,
-and a fault beside that exits 5. Its Caches case pins the count this report keeps and the size it reads with `du`
-over a fixture home.
+and a fault beside that exits 5. The Entrypoints section is driven directly over the loaded libraries, since
+`relabel.lib.sh` has no include guard: each reader it calls, removed, prints one unreadable line and counts it. Its
+Caches case pins the count this report keeps and the size it reads with `du` over a fixture home.
 
 `path-order.sh` pins where an operator's shell finds an agent launcher (`path-order.lib.sh`, see
 [launch](launch.rule.md)) — the reading `operators add` asks with, `atr status` re-checks

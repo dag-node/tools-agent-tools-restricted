@@ -15,8 +15,8 @@
 # as a verification that succeeded, beside an agent whose every launch is already refused. The mark the refusal writes
 # is what tells the report otherwise, and the cases are the control (a pin alone renders its tier line), the mark
 # replacing that line and counting toward the exit status, and a mark saying anything but `stale` leaving it alone.
-# A reader of either entrypoint line removed after the CLI loaded it exits 5 under that line's code, the later sections
-# still printed.
+# A reader either entrypoint line calls, removed after the CLI loaded it, exits 5 under the section's code, the later
+# sections still printed, and the label line's own guard keeps its code.
 #
 # The CLI carries a sourced-guard, so this loads it as the projects user (it refuses root and the sandbox account)
 # with six hooks pointed at fixtures in the testdir: AI_TOOLS_AGENTS_DIR and AI_TOOLS_OPERATOR_CONF (the resolver's,
@@ -322,16 +322,52 @@ if [[ "${rc}" -eq 0 ]] && grep -q 'UNCHANGED' <<<"${out}" && ! grep -qxE 'MSG-(E
 else
     fail "control: the entrypoint section with its readers loaded (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
 fi
-for row in "ai_tools_entrypoint_verify__get_pin_path MSG-E5C3 status_entrypoint_pins" \
-           "ai_tools_entrypoint_verify__get_label_path MSG-K8K4 status_entrypoint_label"; do
-    read -r reader code section_fn <<<"${row}"
+# Every reader an agent's lines call is checked at the section's head, so each one missing is reported under the head's
+# code before any agent line renders: the pin reader, the stale-mark reader (without which a refused pin read as no
+# mark), the pin-kind reader (without which an observed pin read as VERIFIED), and the label-record reader.
+for reader in ai_tools_entrypoint_verify__get_pin_path ai_tools_entrypoint_verify__get_stale_path \
+              ai_tools_entrypoint_verify__read_pin_kind ai_tools_entrypoint_verify__get_label_path; do
     rc=0; out="$(call_status_entrypoints "unset -f ${reader}")" || rc=$?
-    if [[ "${rc}" -eq 5 ]] && grep -qx "${code}" <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
-        pass "${section_fn} without ${reader} exits 5, is named under ${code}, and the later sections still print"
+    if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && ! grep -qE 'VERIFIED|UNCHANGED' <<<"${out}" \
+            && grep -qF 'atr providers' <<<"${out}"; then
+        pass "status_entrypoint_pins without ${reader} exits 5, is named under MSG-E5C3 with no tier line, and the later sections still print"
     else
-        fail "${section_fn} without ${reader} exited ${rc}, expected 5 with ${code} and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+        fail "status_entrypoint_pins without ${reader} exited ${rc}, expected 5 with MSG-E5C3, no tier line and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
     fi
 done
+# An enabled agent with no release_manifest_url and no pin takes `continue` before its label line, so the label reader
+# is reached at the head alone. The same run with the reader in place is the control: it exits 0 and does not print a
+# tier line.
+rm -f "${PINS}"/* "${LABELS}"/*
+rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+if [[ "${rc}" -eq 0 ]] && ! grep -qx MSG-E5C3 <<<"${out}"; then
+    pass "control: an agent with no manifest URL and no pin, every reader loaded, exits 0"
+else
+    fail "control: an agent with no manifest URL and no pin (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__get_label_path')" || rc=$?
+if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
+    pass "the label reader missing for an agent with no manifest URL and no pin exits 5 under MSG-E5C3, the later sections still printed"
+else
+    fail "the label reader missing for an agent with no manifest URL and no pin exited ${rc}, expected 5 with MSG-E5C3: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+# status_entrypoint_label keeps its own guard: called directly without its reader, it returns the unreadable status
+# under MSG-K8K4.
+# call_label_unloaded : the label line for alpha with the record-path reader removed after the library loaded.
+# shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+call_label_unloaded() {
+    runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" AI_TOOLS_MSG_PLAIN=1 \
+        bash -c 'cli="$1"; verify_lib="$2"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
+                 source "${verify_lib}" >/dev/null 2>&1 || exit 98
+                 unset -f ai_tools_entrypoint_verify__get_label_path; status_entrypoint_label alpha' \
+        _ "${CLI}" "${VERIFY_LIB}" 2>&1
+}
+rc=0; out="$(call_label_unloaded)" || rc=$?
+if [[ "${rc}" -eq 2 ]] && grep -qx MSG-K8K4 <<<"${out}"; then
+    pass "status_entrypoint_label without its reader returns the unreadable status under MSG-K8K4"
+else
+    fail "status_entrypoint_label without its reader returned ${rc}, expected 2 with MSG-K8K4: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
 rm -f "${PINS}"/* "${LABELS}"/*
 
 # ── (6) The Version section's Node line reads the launcher link, not the updater's record ── The link is repointed

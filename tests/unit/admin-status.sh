@@ -7,7 +7,8 @@
 # of that verdict against fixture links -- the version a link points into, the split line where two links disagree,
 # and no claimed version where no link names one -- with the updater's stamp being the host's own and read alongside.
 # The Provisioning section is read the same way, per enabled agent's link, beside a base file that makes the launcher
-# directory non-empty on every host.
+# directory non-empty on every host. The Entrypoints section is driven over the loaded libraries with one reader removed
+# at a time, each a reading the section could not make.
 #
 # The helper is SOURCED rather than run (its root check and its dispatch are guarded for that), in a fresh shell
 # per case because the helper and the harness both declare SANDBOX_USER readonly, with the resolver's two hooks
@@ -203,6 +204,45 @@ if [[ "${rc}" -eq 5 ]]; then
 else
     fail "fault plus unreadable exited ${rc}, expected 5"
 fi
+
+# ── A base-library reader a section calls, missing after the libraries loaded, is a reading it could not make ──
+# Each section is driven directly over the libraries status() loads, with the reader removed after the load, since
+# relabel.lib.sh has no include guard and status()'s own source would restore it. Each case prints the section and
+# the unreadable count: one coded or UNREADABLE line and a count of 1, where the same run with every reader in place,
+# the control, prints neither and counts 0. The live label report is stubbed, so no case reads the host's labels.
+# call_section <pre> <section> : source the helper and the libraries with the hooks set, run <pre>, then <section>.
+# shellcheck disable=SC2016  # the $1/$2/$3 are for the inner `bash -c`, not this shell -- do not expand here
+call_section() {
+    env AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+        AI_TOOLS_ENTRYPOINT_PIN_DIR="${TESTDIR}/pins" \
+        bash -c 'helper="$1"; pre="$2"; section_fn="$3"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+                 for lib in "${SERVICES_LIB}" "${PROVIDERS_LIB}" "${RELABEL_LIB}" "${ENTRYPOINT_VERIFY_LIB}" "${TOOLCHAIN_LIB}"; do
+                     source "${lib}" >/dev/null 2>&1 || exit 98
+                 done
+                 status_labels() { :; }
+                 eval "${pre}"; "${section_fn}"; printf "unreadable=%s\n" "${STATUS_UNREADABLE}"' \
+        _ "${HELPER}" "$1" "$2" 2>&1
+}
+mkdir -m 0755 "${TESTDIR}/pins"
+reset_fixtures; manifest alpha la; vlink la v9.9.9
+for section_fn in status_entrypoints; do
+    rc=0; out="$(call_section ':' "${section_fn}")" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=0' <<<"${out}" && ! grep -qF '[UNREADABLE]' <<<"${out}"; then
+        pass "control: ${section_fn} with every reader loaded counts no unreadable reading"
+    else
+        fail "control: ${section_fn} with every reader loaded (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+for reader in ai_tools_entrypoint_verify__get_stale_path ai_tools_entrypoint_verify__read_pin_kind \
+              ai_tools_entrypoint_verify__check ai_tools_relabel__resolve_agent_entrypoint_path; do
+    rc=0; out="$(call_section "unset -f ${reader}" status_entrypoints)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
+            && ! grep -qE '\[(VERIFIED|UNCHANGED)\]' <<<"${out}"; then
+        pass "Entrypoints without ${reader} prints its UNREADABLE line before any agent line and counts it"
+    else
+        fail "Entrypoints without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
 
 # ── The SELinux attestation section counts a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse a launch ──
 # `getenforce` and the selinuxfs reader are stubbed as shell functions, after the library is loaded, so its include

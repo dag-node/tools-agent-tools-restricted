@@ -6042,11 +6042,16 @@ status_entrypoint_pins() {
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/entrypoint-verify.lib.sh
     source "${verify_lib}" 2>/dev/null || true
     # Both libraries ship with base, so one that did not load is a broken install: a reading this section promises and
-    # could not make. The label-record reader is status_entrypoint_label's to report, and the service registry's absence
-    # the Services section's (MSG-X5Z8).
+    # could not make. Every reader an agent's lines call is checked here, ahead of the first agent, so a missing one
+    # does not leave the pin's own fields to render as VERIFIED, and an agent that takes `continue` before its label
+    # line still has its label reader checked; status_entrypoint_label keeps its own guard (MSG-K8K4). The service
+    # registry's absence is the Services section's to report (MSG-X5Z8).
     if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
             || ! declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 \
-            || ! declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1; then
+            || ! declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__read_pin_kind >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; then
         section "Entrypoint verification"
         warn MSG-E5C3 "the provider or entrypoint library (${providers_lib}, ${verify_lib}) did not load -- no entrypoint pin was read; reinstall the ai-tools package"
         return "${STATUS_UNREADABLE}"
@@ -6228,10 +6233,9 @@ status_selinux_attestation() {
 # of a verification that once succeeded, so without the mark each status report renders it green while every status
 # reports render it green while every launch of that agent is already refused. The remedy is the reconcile command,
 # which re-reads the installed binary -- and the commands that replace it are the relabel helper's to print, since only
-# root can name the package directory.
+# root can name the package directory. status_entrypoint_pins checks the stale-path reader before the first agent.
 status_entrypoint_stale() {
     local agent="$1" record state version reason detected age
-    declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 || return 1
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -r "${record}" ]] || return 1
     state="$(ai_tools_services__read_stamp_field "${record}" STATE)"
