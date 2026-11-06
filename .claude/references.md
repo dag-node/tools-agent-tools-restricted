@@ -112,6 +112,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | q9d3 | [MSG-Q9D3](../install.sh) | no enabled agent to link -- launcher symlinks skipped | install.sh |  | warn |
 | k6n8 | [MSG-K6N8](../install.sh) | launcher ${launcher} not found at ${versioned_launcher} -- its symlink is skipped | install.sh |  | warn |
 | t2e2 | [MSG-T2E2](../install.sh) | failed to create the ${ai_tools_bin}/${launcher} symlink | install.sh |  | warn |
+| s5g6 | [MSG-S5G6](../install.sh) | could not resolve $(printf '%q' "$1") to a canonical path, so it was not walked; once it resolves, re-run this install | install.sh | install.sh, tests/unit/install-writes.sh | warn |
 | g4w5 | [MSG-G4W5](../install.sh) | could not restore every label under ${dir} -- ai-tools-relabel-tree exited ${rc}: ${kept:-no detail}; once that is fixed, run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- $(printf '%q' "${dir}") | install.sh | tests/unit/install-writes.sh | warn |
 | p2n3 | [MSG-P2N3](../install.sh) | restorecon not found -- skipping SELinux context restoration | install.sh |  | warn |
 | w6y7 | [MSG-W6Y7](../install.sh) | SELinux step refused: a source install compiles its policy modules, and the | install.sh |  | warn |
@@ -151,7 +152,9 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | d3g7 | [MSG-D3G7](../selinux/install-selinux.sh) | could not load layout module ${module}; build output is typed at relabel time only | selinux/install-selinux.sh |  | warn |
 | f2v5 | [MSG-F2V5](../selinux/install-selinux.sh) | compiled module ${pp} was built for policy module version ${reading%% *}, and this host reads ${reading#* }: recompiling it from source | selinux/install-selinux.sh |  | warn |
 | n5v4 | [MSG-N5V4](../selinux/install-selinux.sh) | ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing: | selinux/install-selinux.sh |  | warn |
+| x5f9 | [MSG-X5F9](../selinux/install-selinux.sh) | could not resolve $1 to a canonical path, so it was not walked | selinux/install-selinux.sh | selinux/install-selinux.sh, tests/unit/install-selinux-walks.sh | warn |
 | d6b7 | [MSG-D6B7](../selinux/install-selinux.sh) | could not restore every label under $1 -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; re-run this command once the entry it names is fixed | selinux/install-selinux.sh | tests/unit/install-selinux-walks.sh | warn |
+| q6v5 | [MSG-Q6V5](../selinux/install-selinux.sh) | these paths under ${dir} keep a type the policy no longer defines: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}; list an inode's names with: sudo find $(printf '%q' "${mount:-/}") -xdev -inum <inode> -ls | selinux/install-selinux.sh | selinux/install-selinux.sh, tests/unit/install-selinux-walks.sh | warn |
 | v8u7 | [MSG-V8U7](../selinux/install-selinux.sh) | policy-store writes are not serialized on this host -- ${AI_TOOLS_RELABEL__LOCK_NOTE} | selinux/install-selinux.sh |  | warn |
 | b8q9 | [MSG-B8Q9](../selinux/install-selinux.sh) | dropped the file-context rules for ${agent}; a path they covered keeps its type -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS} | selinux/install-selinux.sh | tests/unit/install-selinux-walks.sh | warn |
 | n5w8 | [MSG-N5W8](../selinux/install-selinux.sh) | could not drop the local file-context rule ${pattern} (${type}) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f ${letter} -- $(printf '%q' "${pattern}") | selinux/install-selinux.sh | packaging/ai-tools.spec, tests/unit/install-selinux-walks.sh | warn |

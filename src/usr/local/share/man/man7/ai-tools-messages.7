@@ -2228,6 +2228,10 @@ copied toolchain link for ${subject}: its launcher resolves to
 ERROR.
 the shipped module set is empty \-\- is the group registry readable?
 .TP
+.B MSG-Q6V5
+WARNING.
+these paths under ${dir} keep a type the policy no longer defines: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-the walker printed no detail}; list an inode's names with: sudo find $(printf '%q' "${mount:\-/}") \-xdev \-inum <inode> \-ls
+.TP
 .B MSG-Q8W8
 WARNING.
 no agent resolved from the manifests, so no entrypoint was labelled
@@ -2275,6 +2279,10 @@ could not unlabel $1
 .B MSG-X4S3
 WARNING.
 unknown group '${name}'. Available groups:
+.TP
+.B MSG-X5F9
+WARNING.
+could not resolve $1 to a canonical path, so it was not walked
 .TP
 .B MSG-Y5N5
 WARNING.
@@ -2436,6 +2444,10 @@ cannot source ${1} \-\- the checkout is incomplete; re\-clone or re\-download it
 .B MSG-S3Y6
 ERROR.
 no usable operator named \-\- re\-run the install and name one that exists
+.TP
+.B MSG-S5G6
+WARNING.
+could not resolve $(printf '%q' "$1") to a canonical path, so it was not walked; once it resolves, re\-run this install
 .TP
 .B MSG-S9C4
 ERROR.

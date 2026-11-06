@@ -822,12 +822,19 @@ bootstrap_launcher_symlinks() {
     done
 }
 
-# walk_account_tree <dir>: label <dir> and every entry under it through the installed ai-tools-relabel-tree. Its stderr
-# is the walker's own, every path escaped, and its `summary` line is dropped. A walk that left hardlinked paths at their
-# type is a note naming them; any other non-zero exit warns naming <dir> and the command to re-run. Returns 0 either
-# way, since a label left is reported and does not stop the install.
+# walk_account_tree <dir>: label <dir> and every entry under it through the installed ai-tools-relabel-tree, at the
+# canonical path realpath resolves: the walker reads its root back through /proc/self/fd and refuses a root whose path
+# is not the one it was given, which a symlinked ancestor (/opt a link) makes of every fixed path here. A path realpath
+# cannot resolve is warned under MSG-S5G6 and not walked. The walker's stderr is its own, every path escaped, and its
+# `summary` line is dropped. A walk that left hardlinked paths at their type is a note naming them; any other non-zero
+# exit warns naming the tree and the command to re-run. Returns 0 either way, since a label left is reported and does
+# not stop the install.
 walk_account_tree() {
-    local dir="$1" rc=0 diagnostics line kept=""
+    local dir rc=0 diagnostics line kept=""
+    if ! dir="$(realpath -e -- "$1" 2>/dev/null)"; then
+        warn MSG-S5G6 "could not resolve $(printf '%q' "$1") to a canonical path, so it was not walked; once it resolves, re-run this install"
+        return 0
+    fi
     diagnostics="$(/usr/local/libexec/ai-tools/ai-tools-relabel-tree -- "${dir}" 2>&1 >/dev/null)" || rc=$?
     while IFS= read -r line; do
         if [[ -n "${line}" && ! "${line}" =~ ^summary\ hardlinks-left= ]]; then kept+="${kept:+; }${line}"; fi

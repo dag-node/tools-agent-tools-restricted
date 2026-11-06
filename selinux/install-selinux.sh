@@ -580,19 +580,57 @@ source "${SAFE_PATHS_LIB}" || refuse_unsourced "${SAFE_PATHS_LIB}"
 # a process of that account runs (cli.rule.md, ref-section-e6c6). The root-owned trees (the log and runtime directories,
 # the helpers) and the operators' config directories keep restorecon.
 #
-# _restore_account_tree_labels <dir>: walk <dir> where it exists through ai_tools_relabel__relabel_tree (relabel.lib.sh)
-# and report a walk that did not label every entry: hardlinked paths left at their type as a note, a walker that could
-# not run under MSG-G6X4, and any other failure as a warning carrying the walker's line. None of them stops the run.
+# Each walk is over the canonical path realpath resolves: the walker reads its root back through /proc/self/fd
+# and refuses a root whose path is not the one it was given, which a symlinked ancestor (/opt a link) makes of every
+# fixed path here. _resolve_walk_root <path>: print that path where <path> exists; return 1 with no output where it
+# does not exist, and where realpath cannot resolve it, warned under MSG-X5F9 and not walked.
+_resolve_walk_root() {
+    [[ -e "$1" || -L "$1" ]] || return 1
+    realpath -e -- "$1" 2>/dev/null && return 0
+    warn MSG-X5F9 "could not resolve $1 to a canonical path, so it was not walked"
+    return 1
+}
+
+# _restore_account_tree_labels <dir> [agent-relabel]: the label direction. Walk <dir> where it exists through
+# ai_tools_relabel__relabel_tree (relabel.lib.sh) and report a walk that did not label every entry: hardlinked paths
+# left at their type as a note -- with `agent-relabel`, the toolchain's walk, which adds that an entrypoint among them
+# takes its type from the agent relabel that follows -- a walker that could not run under MSG-G6X4, and any other
+# failure as a warning carrying the walker's line. None of them stops the run.
 _restore_account_tree_labels() {
-    [[ -e "$1" || -L "$1" ]] || return 0
-    local rc=0
-    ai_tools_relabel__relabel_tree "$1" || rc=$?
+    local dir rc=0
+    dir="$(_resolve_walk_root "$1")" || return 0
+    ai_tools_relabel__relabel_tree "${dir}" || rc=$?
     case "${rc}" in
         0) ;;
-        4) _report_skipped_walk_entries "$1" ;;
-        6) _warn_walker_unavailable "$1" ;;
-        *) warn MSG-D6B7 "could not restore every label under $1 -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; re-run this command once the entry it names is fixed" ;;
+        4) _report_skipped_walk_entries "${dir}" "${2:-}" ;;
+        6) _warn_walker_unavailable "${dir}" ;;
+        *) _warn_walk_incomplete "${dir}" ;;
     esac
+}
+# _warn_walk_incomplete <dir>: the walk over <dir> could not label an entry, or the walker refused its root; the walker's
+# line says which.
+_warn_walk_incomplete() {
+    warn MSG-D6B7 "could not restore every label under $1 -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; re-run this command once the entry it names is fixed"
+}
+
+# _revert_account_tree_labels <dir>: the removal direction, the remove action's walk over a tree whose types the
+# unloaded policy no longer defines. A walk that left hardlinked paths at their type is a warning under MSG-Q6V5, since
+# a path left on a type the agent reads and writes is more access, with the find that lists an inode's names from
+# the tree's mount; a walker that could not run and any other failure keep their warnings. Each sets REMOVE_LEFT_PATHS,
+# which the action's close reads to exit non-zero.
+REMOVE_LEFT_PATHS=0
+_revert_account_tree_labels() {
+    local dir rc=0 mount
+    dir="$(_resolve_walk_root "$1")" || return 0
+    ai_tools_relabel__relabel_tree "${dir}" || rc=$?
+    case "${rc}" in
+        0) return 0 ;;
+        4) mount="$(stat -c '%m' -- "${dir}" 2>/dev/null || true)"
+           warn MSG-Q6V5 "these paths under ${dir} keep a type the policy no longer defines: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}; list an inode's names with: sudo find $(printf '%q' "${mount:-/}") -xdev -inum <inode> -ls" ;;
+        6) _warn_walker_unavailable "${dir}" ;;
+        *) _warn_walk_incomplete "${dir}" ;;
+    esac
+    REMOVE_LEFT_PATHS=1
 }
 
 # _locked <command...>: run one store-writing command under ai_tools_relabel__lock, released when it returns. semanage
@@ -670,7 +708,7 @@ _drop_remaining_policy_type_rules() {
         if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
             log "  dropped ${pattern} (${type}): a rule outside this host's registries"
             if tree="$(_resolve_pattern_tree "${pattern}")"; then
-                _restore_account_tree_labels "${tree}"
+                _revert_account_tree_labels "${tree}"
             fi
         else
             warn MSG-N5W8 "could not drop the local file-context rule ${pattern} (${type}) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f ${letter} -- $(printf '%q' "${pattern}")"
@@ -851,11 +889,11 @@ for_each_project() {
 # .gitconfig, takes one `restorecon -F`: its parent is the home, root-owned and not writable by the account (its layout
 # row), so the account cannot put another inode at its name, and the walker refuses a root that is not a directory.
 _restore_home_state_labels() {
-    local p path
+    local walk="${1:-_restore_account_tree_labels}" p path
     for p in "${HOME_STATE[@]}"; do
         path="/opt/ai-tools/${p}"
         if [[ -d "${path}" && ! -L "${path}" ]]; then
-            _restore_account_tree_labels "${path}"
+            "${walk}" "${path}"
         elif [[ -e "${path}" || -L "${path}" ]]; then
             restorecon -F "${path}" 2>/dev/null || true
         fi
@@ -897,6 +935,7 @@ _unlabel_project() {
 # in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS at the type they carry, since through another name a path may be another tree's.
 _report_skipped_walk_entries() {
     log "  the walk over $1 left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}"
+    [[ "${2:-}" != agent-relabel ]] || log "  an agent entrypoint among them takes its type from the agent relabel that follows"
 }
 # _warn_walker_unavailable <dir>: the walk over <dir> did not start, because the tree walker is not installed
 # or libselinux.so.1, which it loads, did not load.
@@ -1029,7 +1068,7 @@ case "${ACTION}" in
     stage_shipped_modules
 
     section "Labelling"
-    _restore_account_tree_labels "${NVM_DIR}"
+    _restore_account_tree_labels "${NVM_DIR}" agent-relabel
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
@@ -1110,7 +1149,7 @@ case "${ACTION}" in
 
   relabel)
     section "Re-applying labels"
-    _restore_account_tree_labels "${NVM_DIR}"
+    _restore_account_tree_labels "${NVM_DIR}" agent-relabel
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
@@ -1152,7 +1191,7 @@ case "${ACTION}" in
     stage_shipped_modules force
 
     section "Re-applying labels"
-    _restore_account_tree_labels "${NVM_DIR}"
+    _restore_account_tree_labels "${NVM_DIR}" agent-relabel
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
@@ -1179,9 +1218,13 @@ case "${ACTION}" in
     _locked _drop_remaining_policy_type_rules
     _unload_modules
     log "reverting contexts to defaults"
-    _restore_account_tree_labels "${NVM_DIR}"
-    _restore_home_state_labels
-    for_each_project _restore_account_tree_labels
+    _revert_account_tree_labels "${NVM_DIR}"
+    _restore_home_state_labels _revert_account_tree_labels
+    for_each_project _revert_account_tree_labels
+    if (( REMOVE_LEFT_PATHS )); then
+        sayx "  removed the policy; the paths named above keep a type it no longer defines"
+        exit 1
+    fi
     ok "removed"
     ;;
 

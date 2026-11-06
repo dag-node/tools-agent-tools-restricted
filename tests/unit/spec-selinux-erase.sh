@@ -87,13 +87,13 @@ body="${body//\/usr\/local\/libexec\/ai-tools/${libexec}}"
 body="${body//\/usr\/local\/lib\/ai-tools/${lib}}"
 body="${body//\/run\/lock\/ai-tools-relabel.lock/${TESTDIR}/relabel.lock}"
 walker_test="[ -x ${libexec}/ai-tools-relabel-tree ]"
-walker_call="${libexec}/ai-tools-relabel-tree -- \"\${tree}\" >/dev/null"
+walker_call="${libexec}/ai-tools-relabel-tree -- \"\${canonical}\" 2>&1 >/dev/null"
 if [[ "${body}" != *"${walker_test}"* || "${body}" != *"${walker_call}"* ]]; then
     fail "the %postun does not test and run the walker in the form this file rewrites"
     finish; exit
 fi
 # shellcheck disable=SC2016  # the replacements are scriptlet text, expanded when it runs
-walker_test_stub='[ -e "${STUB}/walker_present" ]' walker_call_stub='relabel_tree_stub -- "${tree}" >/dev/null'
+walker_test_stub='[ -e "${STUB}/walker_present" ]' walker_call_stub='relabel_tree_stub -- "${canonical}" 2>&1 >/dev/null'
 body="${body//"${walker_test}"/"${walker_test_stub}"}"
 body="${body//"${walker_call}"/"${walker_call_stub}"}"
 
@@ -143,6 +143,10 @@ semodule() {
 relabel_tree_stub() {
     printf "walk %s\n" "$*" >> "${STUB}/recorder"
     [ -f "${STUB}/walk_fails" ] && [ "$2" = "$(cat "${STUB}/walk_fails")" ] && return 1
+    if [ -f "${STUB}/walk_hardlinks" ] && [ "$2" = "$(cat "${STUB}/walk_hardlinks")" ]; then
+        printf "skipped hardlinked path %s/bin/claude.exe (link count 2, inode 4242)\nsummary hardlinks-left=1 failures=0\n" "$2" >&2
+        return 4
+    fi
     return 0
 }
 restorecon() {
@@ -167,12 +171,13 @@ run_erase() {
     cp "${TESTDIR}/relabel.lib.fixture" "${lib}/relabel.lib.sh"
     rm -f "${TESTDIR}/recorder" "${TESTDIR}/list_fails" "${TESTDIR}/unload_fails" "${TESTDIR}/delete_fails" \
           "${TESTDIR}/restore_fails" "${TESTDIR}/flock_flips" "${TESTDIR}/flock_fails" "${TESTDIR}/last_args" \
-          "${TESTDIR}/relabel.lock" "${TESTDIR}/walker_present" "${TESTDIR}/walk_fails" "${TESTDIR}/unlabel_status"
+          "${TESTDIR}/relabel.lock" "${TESTDIR}/walker_present" "${TESTDIR}/walk_fails" "${TESTDIR}/unlabel_status" \
+          "${TESTDIR}/walk_hardlinks"
     : > "${TESTDIR}/recorder"
     local marker
     for marker in "$@"; do
         case "${marker}" in
-            restore_fails=*|walk_fails=*|unlabel_status=*) printf '%s' "${marker#*=}" > "${TESTDIR}/${marker%%=*}" ;;
+            restore_fails=*|walk_fails=*|unlabel_status=*|walk_hardlinks=*) printf '%s' "${marker#*=}" > "${TESTDIR}/${marker%%=*}" ;;
             # A library that loads and does not define the unlabel.
             no_unlabel_lib) printf 'true\n' > "${lib}/relabel.lib.sh" ;;
             *) : > "${TESTDIR}/${marker}" ;;
@@ -358,6 +363,30 @@ if grep -qF "could not restore the default types under ${home}; run: sudo ${libe
 else
     fail "none, a walk fails: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
 fi
+# A walk that left a hardlinked path: the WARNING, the walker's line and the find for its inode's names, no restorecon
+# of a path inside the toolchain, and the later tree still walked.
+run_erase none walker_present "walk_hardlinks=${home}"
+mount="$(stat -c '%m' -- "${home}")"
+if grep -qF "WARNING these paths under ${home} keep a type the policy no longer defines" <<< "${err}" \
+        && grep -qF "ai-tools-selinux:   skipped hardlinked path ${home}/bin/claude.exe (link count 2, inode 4242)" <<< "${err}" \
+        && grep -qF "sudo find ${mount} -xdev -inum 4242 -ls" <<< "${err}" \
+        && ! grep -q 'restorecon -F' <<< "${err}" && ! grep -qF 'summary hardlinks-left' <<< "${err}" \
+        && grep -qx -- "walk -- ${clones}" <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+    pass "none, a walk left a hardlinked path: the WARNING, the walker's line, the find for its inode, no restorecon -F, the later tree walked, exit 0"
+else
+    fail "none, a walk left a hardlinked path: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
+fi
+# A tree named through a symlinked ancestor is walked at its canonical path: the body with the tree's name replaced
+# by a symlink to it.
+ln -s "${home}" "${TESTDIR}/homelink"
+printf '%s\n%s\n' "${stubs}" "${body//"${home}"/${TESTDIR}/homelink}" > "${TESTDIR}/run.sh"
+run_erase none walker_present
+if grep -qx -- "walk -- ${home}" <<< "${recorder}" && ! grep -qF 'homelink' <<< "${recorder}"; then
+    pass "none, the tree named through a symlinked ancestor: the walk is over its canonical path"
+else
+    fail "none, the tree named through a symlinked ancestor: ${recorder//$'\n'/; }"
+fi
+printf '%s\n%s\n' "${stubs}" "${body}" > "${TESTDIR}/run.sh"
 run_erase none walker_present unload_fails
 if ! grep -qE '^(restorecon|walk) ' <<< "${recorder}" && grep -q 'left loaded: ' <<< "${err}"; then
     pass "none, walker present, unload refused: no tree is walked or restored"

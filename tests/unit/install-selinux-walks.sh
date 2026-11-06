@@ -34,8 +34,8 @@ fi
 mktestdir
 
 functions_text=""
-for name in warn _restore_account_tree_labels _report_skipped_walk_entries _warn_walker_unavailable \
-        _restore_home_state_labels _label_sandbox_clones; do
+for name in warn _resolve_walk_root _restore_account_tree_labels _revert_account_tree_labels _warn_walk_incomplete _report_skipped_walk_entries \
+        _warn_walker_unavailable _restore_home_state_labels _label_sandbox_clones; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -285,7 +285,8 @@ fi
 # rows.
 section "install-selinux.sh: remove drops every rule naming a policy type and reports an unload that left a module (unit)"
 remove_text=""
-for name in warn die _list _restore_account_tree_labels _report_skipped_walk_entries _warn_walker_unavailable \
+for name in warn die _list _resolve_walk_root _restore_account_tree_labels _revert_account_tree_labels _warn_walk_incomplete \
+        _report_skipped_walk_entries _warn_walker_unavailable \
         _resolve_pattern_tree _drop_remaining_policy_type_rules _read_loaded_policy_modules _unload_modules; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
@@ -449,6 +450,101 @@ grep -qx 'exit=1' <<<"${unload_out}" && grep -qxF 'semodule -r ai_tools ai_tools
 # Every label, unlabel and restore over the operators' projects goes through for_each_project, so an entry it yields is
 # a tree that takes ai_tools_project_t. It is driven through the checkout's conf.lib.sh over a format 1.0 registry
 # holding each sign, every path an existing directory, so the kind alone decides what is yielded.
+# ── The canonical root, and the removal direction's reading of a walk left ─────────────────────
+# Every walk is over the path realpath resolves, since the walker refuses a root whose path is not the one it reads
+# back; a path realpath cannot resolve is warned and not walked. The remove action reads a walk that left hardlinked
+# paths as a warning with the find for an inode's names and closes non-zero, where the label direction notes them.
+section "install-selinux.sh: the walks resolve their root, and remove reads a walk left (unit)"
+mkdir -p "${TESTDIR}/real/tree"
+ln -s "${TESTDIR}/real" "${TESTDIR}/alias"
+ln -s "${TESTDIR}/absent-target" "${TESTDIR}/dangling"
+# run_walk <function> <walk-status> <path> [note-arg]: drive one walk function with the tree walk stubbed
+#   to <walk-status>; prints both streams, then `left=<REMOVE_LEFT_PATHS>`; the recorder holds the walks.
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+run_walk() {
+    : > "${TESTDIR}/recorder"
+    bash -c '
+        set -euo pipefail
+        eval "$1"
+        C_YEL="" C_RST="" C_DIM=""
+        stub_testdir="$2" walk_status="$3"
+        ai_tools_relabel__relabel_tree() {
+            printf "walk %s\n" "$1" >> "${stub_testdir}/recorder"
+            AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="skipped hardlinked path $1/x (link count 2, inode 4242)"
+            return "${walk_status}"
+        }
+        log() { printf "LOG %s\n" "$*" >&2; }
+        REMOVE_LEFT_PATHS=0
+        "$4" "$5" ${6:+"$6"}
+        printf "left=%s\n" "${REMOVE_LEFT_PATHS}" >&2
+    ' _ "${functions_text}" "${TESTDIR}" "$2" "$1" "$3" "${4:-}" 2>&1 || true
+}
+out="$(run_walk _restore_account_tree_labels 0 "${TESTDIR}/alias/tree")"
+if [[ "$(<"${TESTDIR}/recorder")" == "walk ${TESTDIR}/real/tree" ]]; then
+    pass "a tree named through a symlinked ancestor is walked at its canonical path"
+else
+    fail "a tree named through a symlinked ancestor: $(<"${TESTDIR}/recorder") / ${out//$'\n'/ | }"
+fi
+out="$(run_walk _restore_account_tree_labels 0 "${TESTDIR}/dangling")"
+assert_msg MSG-X5F9 "${out}" "a path realpath cannot resolve is warned"
+if [[ ! -s "${TESTDIR}/recorder" ]]; then
+    pass "a path realpath cannot resolve is not walked"
+else
+    fail "a path realpath cannot resolve was walked: $(<"${TESTDIR}/recorder")"
+fi
+out="$(run_walk _restore_account_tree_labels 0 "${TESTDIR}/absent")"
+if [[ ! -s "${TESTDIR}/recorder" && "${out}" != *MSG-X5F9* ]]; then
+    pass "an absent path is neither walked nor warned"
+else
+    fail "an absent path: $(<"${TESTDIR}/recorder") / ${out//$'\n'/ | }"
+fi
+out="$(run_walk _restore_account_tree_labels 4 "${TESTDIR}/real/tree" agent-relabel)"
+if grep -qF 'an agent entrypoint among them takes its type from the agent relabel that follows' <<<"${out}"; then
+    pass "the toolchain's label walk notes that an entrypoint among the paths left takes the agent relabel"
+else
+    fail "the toolchain's label walk at status 4: ${out//$'\n'/ | }"
+fi
+out="$(run_walk _restore_account_tree_labels 4 "${TESTDIR}/real/tree")"
+if ! grep -qF 'agent relabel that follows' <<<"${out}" && grep -qF 'left these entries at their type' <<<"${out}"; then
+    pass "control: another tree's label walk notes the paths left without the agent-relabel line"
+else
+    fail "control: another tree's label walk at status 4: ${out//$'\n'/ | }"
+fi
+mount="$(stat -c '%m' -- "${TESTDIR}/real/tree")"
+out="$(run_walk _revert_account_tree_labels 4 "${TESTDIR}/real/tree")"
+assert_msg MSG-Q6V5 "${out}" "remove: a walk that left hardlinked paths warns that they keep a type the policy no longer defines"
+if grep -qF "sudo find ${mount} -xdev -inum <inode> -ls" <<<"${out}" && grep -qF 'inode 4242' <<<"${out}" && grep -qx 'left=1' <<<"${out}"; then
+    pass "remove: the warning carries the walker's line and the find for an inode's names, and the action closes non-zero"
+else
+    fail "remove: at status 4: ${out//$'\n'/ | }"
+fi
+out="$(run_walk _revert_account_tree_labels 0 "${TESTDIR}/real/tree")"
+if grep -qx 'left=0' <<<"${out}" && ! grep -q 'MSG-' <<<"${out}"; then
+    pass "control: remove over a walk that reverted every entry leaves the action's close clean"
+else
+    fail "control: remove at status 0: ${out//$'\n'/ | }"
+fi
+for pair in 1:MSG-D6B7 6:MSG-G6X4; do
+    out="$(run_walk _revert_account_tree_labels "${pair%%:*}" "${TESTDIR}/real/tree")"
+    assert_msg "${pair##*:}" "${out}" "remove: a walk returning ${pair%%:*} keeps its warning"
+    if grep -qx 'left=1' <<<"${out}"; then
+        pass "remove: a walk returning ${pair%%:*} closes the action non-zero"
+    else
+        fail "remove at status ${pair%%:*} did not set the close: ${out//$'\n'/ | }"
+    fi
+done
+# The remove arm, read as text: every tree takes the removal direction's walk, and the close reads what they left.
+remove_arm="$(awk '/^  remove\)/ { inside = 1; next } inside && /^    ;;/ { exit } inside' "${INSTALLER}")"
+if grep -qF '_revert_account_tree_labels "${NVM_DIR}"' <<<"${remove_arm}" \
+        && grep -qF '_restore_home_state_labels _revert_account_tree_labels' <<<"${remove_arm}" \
+        && grep -qF 'for_each_project _revert_account_tree_labels' <<<"${remove_arm}" \
+        && ! grep -qF ' _restore_account_tree_labels ' <<<"${remove_arm}" \
+        && grep -qF 'REMOVE_LEFT_PATHS' <<<"${remove_arm}" && grep -qE '^[[:space:]]+exit 1$' <<<"${remove_arm}"; then
+    pass "the remove arm walks every tree in the removal direction and exits 1 over a walk left"
+else
+    fail "the remove arm: ${remove_arm//$'\n'/ | }"
+fi
+
 section "install-selinux.sh: the project walk yields @ and % entries and no excluded path (unit)"
 walk_text="$(extract_function "${INSTALLER}" for_each_project)"
 if [[ -z "${walk_text}" ]]; then

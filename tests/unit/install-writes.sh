@@ -13,7 +13,8 @@
 # out of install.sh as text (extract_function) and run over a fixture tree through the checkout's layout library
 # under AI_TOOLS_LAYOUT_ROOT. A file at its row needs a root-owned fixture, so that half runs as root and skips
 # otherwise. do_selinux_restore's text is read for every `restorecon -R` naming a root-owned tree and the account's
-# trees going through walk_account_tree, which is driven over the walker's statuses with the walker a shell function.
+# trees going through walk_account_tree, which is driven over the walker's statuses, over a tree named through
+# a symlinked ancestor and over a path realpath cannot resolve, with the walker a shell function.
 #
 # The ACL tools check, require_acl_tools, is driven the same way under a PATH without the tools, and do_install's text
 # is read for the call's place ahead of the first write. ensure_dir is driven over fixtures: a name that is not
@@ -280,8 +281,13 @@ else
         fail "walk_account_tree does not run /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- <dir>"
     fi
 
-    # walk_run <status> <stderr> : walk_account_tree over /d with the walker a shell function printing <stderr>
-    #   and exiting <status>; prints both streams and then `exit=<status>`.
+    # walk_run <status> <stderr> [named-path] : walk_account_tree over the fixture directory (named as <named-path>
+    #   where given, a symlinked spelling of it among them) with the walker a shell function printing <stderr>
+    #   and exiting <status>, which answers the canonical directory alone; prints both streams and then `exit=<status>`.
+    WALK_DIR="${TESTDIR}/d"
+    mkdir -p "${WALK_DIR}"
+    ln -s "${TESTDIR}" "${TESTDIR}/alias"
+    ln -s "${TESTDIR}/absent-target" "${TESTDIR}/dangling"
     fake_walk_text="${walk_text//\"\$(\/usr\/local\/libexec\/ai-tools\/ai-tools-relabel-tree -- /\"\$(fake_walker -- }"
     # log is a one-line definition, which extract_function's `^}` range does not end on.
     emitters_text="$(grep -E '^log\(\)[[:space:]]+\{.*\}$' "${INSTALLER}" || true)"$'\n'"$(extract_function "${INSTALLER}" warn)"
@@ -291,21 +297,21 @@ else
             set -euo pipefail
             C_YEL="" C_RST="" C_DIM=""
             eval "$1"; eval "$2"
-            fake_status="$3" fake_stderr="$4"
-            fake_walker() { [[ "$1" == -- && "$2" == /d ]] || return 99; printf "%s" "${fake_stderr}" >&2; return "${fake_status}"; }
-            walk_account_tree /d
-        ' _ "${emitters_text}" "${fake_walk_text}" "$1" "$2" 2>&1; printf 'exit=%s\n' "$?"
+            fake_status="$3" fake_stderr="$4" fixture_dir="$5" named="${6:-$5}"
+            fake_walker() { [[ "$1" == -- && "$2" == "${fixture_dir}" ]] || return 99; printf "%s" "${fake_stderr}" >&2; return "${fake_status}"; }
+            walk_account_tree "${named}"
+        ' _ "${emitters_text}" "${fake_walk_text}" "$1" "$2" "${WALK_DIR}" "${3:-}" 2>&1; printf 'exit=%s\n' "$?"
     }
     if [[ "${fake_walk_text}" == *'"$(fake_walker -- "${dir}"'* && "${emitters_text}" == 'log()'*'warn() {'* ]]; then
         walk_out="$(walk_run 0 "")"
-        if grep -qF 'SELinux: labelled /d' <<<"${walk_out}" && ! grep -q '^MSG-' <<<"${walk_out}" \
+        if grep -qF "SELinux: labelled ${WALK_DIR}" <<<"${walk_out}" && ! grep -q '^MSG-' <<<"${walk_out}" \
                 && grep -qx 'exit=0' <<<"${walk_out}"; then
             pass "walk_account_tree: a walk that labelled every entry is logged (control)"
         else
             fail "walk_account_tree at status 0 printed: $(_san "${walk_out}")"
         fi
-        walk_out="$(walk_run 4 $'skipped hardlinked path /d/x (link count 2, inode 7)\nsummary hardlinks-left=1 failures=0\n')"
-        if grep -qF 'the walk left these hardlinked entries at their type: skipped hardlinked path /d/x (link count 2, inode 7)' \
+        walk_out="$(walk_run 4 "skipped hardlinked path ${WALK_DIR}/x (link count 2, inode 7)"$'\nsummary hardlinks-left=1 failures=0\n')"
+        if grep -qF "the walk left these hardlinked entries at their type: skipped hardlinked path ${WALK_DIR}/x (link count 2, inode 7)" \
                 <<<"${walk_out}" && ! grep -q 'summary hardlinks-left' <<<"${walk_out}" && ! grep -q '^MSG-' <<<"${walk_out}" \
                 && grep -qx 'exit=0' <<<"${walk_out}"; then
             pass "walk_account_tree: a walk that left hardlinked files is a note naming them, its summary line dropped"
@@ -313,16 +319,38 @@ else
             fail "walk_account_tree at status 4 printed: $(_san "${walk_out}")"
         fi
         for status in 1 3; do
-            walk_out="$(walk_run "${status}" $'ai-tools-relabel-tree: could not label /d/y\nsummary hardlinks-left=0 failures=1\n')"
+            walk_out="$(walk_run "${status}" "ai-tools-relabel-tree: could not label ${WALK_DIR}/y"$'\nsummary hardlinks-left=0 failures=1\n')"
             assert_msg MSG-G4W5 "${walk_out}" "walk_account_tree: a walker exiting ${status} is warned under its code"
-            if grep -qF 'under /d -- ai-tools-relabel-tree exited '"${status}"': ai-tools-relabel-tree: could not label /d/y' <<<"${walk_out}" \
-                    && grep -qF 'run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- /d' <<<"${walk_out}" \
+            if grep -qF "under ${WALK_DIR} -- ai-tools-relabel-tree exited ${status}: ai-tools-relabel-tree: could not label ${WALK_DIR}/y" <<<"${walk_out}" \
+                    && grep -qF "run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${WALK_DIR}" <<<"${walk_out}" \
                     && grep -qx 'exit=0' <<<"${walk_out}"; then
                 pass "walk_account_tree: the warning at ${status} names the directory, the walker's line and the walk to re-run, and the install goes on"
             else
                 fail "walk_account_tree at status ${status} printed: $(_san "${walk_out}")"
             fi
         done
+        # The root is the canonical path: the walker refuses a root whose path is not the one it reads back, so a tree
+        # named through a symlinked ancestor reaches it resolved, and a path realpath cannot resolve is warned and not walked.
+        walk_out="$(walk_run 0 "" "${TESTDIR}/alias/d")"
+        if grep -qF "SELinux: labelled ${WALK_DIR}" <<<"${walk_out}" && ! grep -q '^MSG-' <<<"${walk_out}" && grep -qx 'exit=0' <<<"${walk_out}"; then
+            pass "walk_account_tree: a tree named through a symlinked ancestor is walked at its canonical path"
+        else
+            fail "walk_account_tree over a symlinked ancestor printed: $(_san "${walk_out}")"
+        fi
+        walk_out="$(walk_run 0 "" "${TESTDIR}/dangling")"
+        assert_msg MSG-S5G6 "${walk_out}" "walk_account_tree: a path realpath cannot resolve is warned under its code"
+        if ! grep -q 'SELinux: labelled' <<<"${walk_out}" && grep -qx 'exit=0' <<<"${walk_out}"; then
+            pass "walk_account_tree: a path realpath cannot resolve is not walked, and the install goes on"
+        else
+            fail "walk_account_tree over a dangling symlink printed: $(_san "${walk_out}")"
+        fi
+        realpath_line="$(grep -nF 'realpath -e -- "$1"' <<<"${walk_text}" | head -n 1)"; realpath_line="${realpath_line%%:*}"
+        walker_line="$(grep -nF 'ai-tools-relabel-tree -- "${dir}"' <<<"${walk_text}" | head -n 1)"; walker_line="${walker_line%%:*}"
+        if [[ -n "${realpath_line}" && -n "${walker_line}" ]] && (( realpath_line < walker_line )); then
+            pass "walk_account_tree resolves its tree with realpath -e (line ${realpath_line}) ahead of the walker call (line ${walker_line})"
+        else
+            fail "walk_account_tree does not resolve its tree ahead of the walker call (realpath: '${realpath_line}', walker: '${walker_line}')"
+        fi
     else
         fail "the walker call in walk_account_tree could not be replaced by a fixture, or log and warn were not read, so its statuses are not driven"
     fi
