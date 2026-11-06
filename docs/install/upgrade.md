@@ -174,9 +174,11 @@ need to end first; the restore runs beside them
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
 
 The notes name files the restore leaves as they are because each has a second
-name. The agent's own binary is one of them, and the agent relabel that runs
-next gives it its type. A restore that could not label an entry prints
-a WARNING with the command that runs it again.
+name. Where the agent's own binary is among them, the agent relabel that runs
+next gives it its type, and prints its own warning if it cannot. Any other file
+listed, such as a hardlinked tool under a sandbox clone's `node_modules`, keeps
+the type it had. A restore that could not label an entry prints a WARNING
+with the command that runs it again.
 
 ## A new entrypoint is relabelled before it is launched
 
