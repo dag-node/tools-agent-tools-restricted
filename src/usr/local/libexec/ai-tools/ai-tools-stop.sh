@@ -580,13 +580,15 @@ cgroup_is_live() {
 #
 # Failing to read it means the process is GONE: this runs as root, the pid came from a cgroup being torn
 # down, and root's only reason to fail on /proc/<pid>/stat is that the entry no longer exists. So a read failure skips
-# the pid, which is correct rather than fail-open -- there is no process left to signal. The readability test comes
-# first purely to keep the common vanished-pid case off stderr; the read is still checked, because the pid can exit
-# between the two.
+# the pid, which is correct rather than fail-open -- there is no process left to signal. The readability test skips
+# the common vanished-pid case ahead of the read, which a caller under `set -e` needs: there a failed `$(< file)` ends
+# the shell whatever follows it. A pid can still exit between the two, so the read's stderr goes to /dev/null
+# through a group; a redirection on the assignment itself applies after the substitution has printed bash's "No such
+# file or directory".
 pid_start_time() {
     local stat_line fields_after_comm
     [[ -r "/proc/$1/stat" ]] || return 1
-    stat_line="$(< "/proc/$1/stat")" || return 1
+    { stat_line="$(< "/proc/$1/stat")"; } 2>/dev/null || return 1
     [[ -n "${stat_line}" ]] || return 1
     fields_after_comm="${stat_line##*) }"
     local -a fields
