@@ -40,7 +40,7 @@
 # the return value.
 #
 # A recursive relabel of a tree the sandbox account can write -- a project or an agent's config directory -- runs
-# through the descriptor-pinned walker ai-tools-relabel-tree (_ai_tools_relabel__relabel_tree), so a rename or a planted
+# through the descriptor-pinned walker ai-tools-relabel-tree (ai_tools_relabel__relabel_tree), so a rename or a planted
 # symlink inside the tree during the walk does not redirect a write, and no walk here gates on a live session. A walk
 # that leaves hardlinked paths returns 4 from the function that ran it, and a walker that cannot run returns 6, each
 # function's contract stating its set. What the walker pins and the residual it leaves are its header's, and where each
@@ -160,19 +160,20 @@ ai_tools_relabel__is_available() {
 readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=/usr/local/libexec/ai-tools/ai-tools-relabel-tree
 # What the last walk printed on stderr but its summary line -- the hardlinked paths it listed, or why it failed -- its
 # lines joined with "; ", since the walker escapes a `;` inside a path; the walker bounds what it prints. Set
-# by _ai_tools_relabel__relabel_tree for the caller that just called it, and by ai_tools_relabel__label_project to why
-# the label did not hold where the walk completed and the root's type is not the project's.
+# by ai_tools_relabel__relabel_tree for the caller that just called it, and by ai_tools_relabel__label_project
+# to why the label did not hold where the walk completed and the root's type is not the project's.
 # shellcheck disable=SC2034  # read by ai-tools-relabel, ai-tools-relabel-agent and install-selinux.sh
 AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
 # The hardlinked paths the last walk skipped, from the walker's summary line; 0 where it printed none.
 _AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT=0
 
-# _ai_tools_relabel__relabel_tree <dir>: label <dir> and every entry under it as `restorecon -FR` would, through
+# ai_tools_relabel__relabel_tree <dir>: label <dir> and every entry under it as `restorecon -FR` would, through
 #   ai-tools-relabel-tree, its stderr kept in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS. Returns 0 when the walk labelled every
 #   entry, 4 when it completed and left hardlinked paths at their type, 1 when an entry could not be labelled or
 #   the walker refused its root or its command line, and 6 when the walker could not run: not installed or not
-#   executable, or libselinux.so.1 did not load, which the walker names.
-_ai_tools_relabel__relabel_tree() {
+#   executable, or libselinux.so.1 did not load, which the walker names. Public for install-selinux.sh, whose restores
+#   of the sandbox account's trees run through it.
+ai_tools_relabel__relabel_tree() {
     local dir="$1" rc=0 walker_diagnostics line kept=""
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
     _AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT=0
@@ -313,7 +314,7 @@ ai_tools_relabel__list_local_rules_naming_policy_types() {
 # ai_tools_relabel__label_project <dir>: ensure <dir> and its subtree carry ai_tools_project_t, and its declared
 # build-output directories ai_tools_project_build_t. Adds (or refreshes) the per-project fcontext rules -- skipped
 # for sandbox clones, which the static rules already cover -- then forces the label through the tree walker
-# (_ai_tools_relabel__relabel_tree). Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. a type is not
+# (ai_tools_relabel__relabel_tree). Returns 2 if SELinux is unavailable, 1 on a hard failure (e.g. a type is not
 # in the loaded policy because the module is not installed, an entry the walk could not label, or a root left
 # on the wrong type because no fcontext rule matched the path), 6 when the walker could not run, 4 when the walk
 # completed and left hardlinked paths at their type, and 0 on success. Both rules must register: a build rule the store
@@ -349,7 +350,7 @@ ai_tools_relabel__label_project() {
                 || return 1
         fi
     fi
-    _ai_tools_relabel__relabel_tree "${dir}" || walk_status=$?
+    ai_tools_relabel__relabel_tree "${dir}" || walk_status=$?
     case "${walk_status}" in
         0|4) ;;
         6)   return 6 ;;
@@ -389,7 +390,7 @@ ai_tools_relabel__unlabel_project() {
         semanage fcontext -d "${project_fcontext_literal}(/.*)?" 2>/dev/null || true
     fi
     [[ -e "${dir}" || -L "${dir}" ]] || return 3
-    _ai_tools_relabel__relabel_tree "${dir}" || walk_status=$?
+    ai_tools_relabel__relabel_tree "${dir}" || walk_status=$?
     case "${walk_status}" in
         0|4|6) return "${walk_status}" ;;
         *)     return 1 ;;
@@ -679,7 +680,7 @@ _ai_tools_relabel__label_agent_config_dir() {
         printf 'none %s its config directory\n' "${agent}"
         return 3
     fi
-    _ai_tools_relabel__relabel_tree "${path}" || walk_status=$?
+    ai_tools_relabel__relabel_tree "${path}" || walk_status=$?
     case "${walk_status}" in
         0) ;;
         4) printf 'partial %s %s\n' "${agent}" "$(ai_tools_relabel__get_skipped_hardlink_count)" ;;
@@ -776,7 +777,7 @@ ai_tools_relabel__unlabel_agent_paths() {
         # the remaining policy maps it to rather than left on a type this host may stop defining.
         path="${CP_HOME}/${config_dir}"
         if [[ -d "${path}" ]]; then
-            _ai_tools_relabel__relabel_tree "${path}" || walk_status=$?
+            ai_tools_relabel__relabel_tree "${path}" || walk_status=$?
             case "${walk_status}" in
                 0)   ;;
                 4|6) return "${walk_status}" ;;
