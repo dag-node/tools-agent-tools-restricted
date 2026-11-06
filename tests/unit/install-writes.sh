@@ -330,7 +330,8 @@ else
             fi
         done
         # The root is the canonical path: the walker refuses a root whose path is not the one it reads back, so a tree
-        # named through a symlinked ancestor reaches it resolved, and a path realpath cannot resolve is warned and not walked.
+        # named through a symlinked ancestor reaches it resolved, and a path realpath cannot resolve is warned and not
+        # walked.
         walk_out="$(walk_run 0 "" "${TESTDIR}/alias/d")"
         if grep -qF "SELinux: labelled ${WALK_DIR}" <<<"${walk_out}" && ! grep -q '^MSG-' <<<"${walk_out}" && grep -qx 'exit=0' <<<"${walk_out}"; then
             pass "walk_account_tree: a tree named through a symlinked ancestor is walked at its canonical path"

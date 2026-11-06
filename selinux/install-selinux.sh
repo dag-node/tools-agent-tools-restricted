@@ -607,8 +607,8 @@ _restore_account_tree_labels() {
         *) _warn_walk_incomplete "${dir}" ;;
     esac
 }
-# _warn_walk_incomplete <dir>: the walk over <dir> could not label an entry, or the walker refused its root; the walker's
-# line says which.
+# _warn_walk_incomplete <dir>: the walk over <dir> could not label an entry, or the walker refused its root;
+# the walker's line says which.
 _warn_walk_incomplete() {
     warn MSG-D6B7 "could not restore every label under $1 -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; re-run this command once the entry it names is fixed"
 }
