@@ -3,15 +3,19 @@
 # tests/unit/spec-selinux-erase.sh
 # Hermetic check of the ai-tools-selinux %postun in packaging/ai-tools.spec: on final erase it does not write the policy
 # store while the sandbox account's sessions read `live` or `unreadable` (cli.rule.md, ref-section-e6c6),
-# and under `none` it drops every local rule naming a policy type, unloads the modules, names each project tree
+# and under `none` it reverts each installed agent's declared paths through the library's unlabel, once per manifest
+# and ahead of the rule sweep, drops every local rule naming a policy type, unloads the modules, names each project tree
 # a dropped rule covered with the restorecon that resets it, and restores the control-plane and sandbox trees once
-# the store shows every ai_tools module gone (confinement.rule.md, "How the policy ships").
+# the store shows every ai_tools module gone (confinement.rule.md, "How the policy ships"): the sandbox account's trees
+# through ai-tools-relabel-tree where it is executable, and through restorecon where an erase of base removed it.
 #
 # A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to fixture trees, and run under /bin/sh with the session reader, semanage, semodule, restorecon
 # and flock defined as shell functions ahead of it: each records its call, and a file in the fixture makes one of them
-# fail. The printed restore command is run through the same stub and its argument read back, so a path carrying a space
-# is held to reach restorecon as one argument. The gate itself is shown by a mutation: with its test rewritten, a live
+# fail. The walker runs at an absolute path behind an executable test, which no shell function can stand
+# in for, so the body's test reads a marker file and its call runs a stub; the rewrite is asserted before a case reads
+# it. The printed restore command is run through the same stub and its argument read back, so a path carrying a space is
+# held to reach restorecon as one argument. The gate itself is shown by a mutation: with its test rewritten, a live
 # reading writes the store, which the live and unreadable cases refuse.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
@@ -55,19 +59,45 @@ if [[ -z "${escaper}" ]]; then
 fi
 eval "${escaper}"
 
-# The fixture trees, standing in for the five the scriptlet restores (the log directory is left absent, the case a host
+# The fixture trees, standing in for the ones the scriptlet restores (the log directory is left absent, the case a host
 # erased it on) and for the trees local rules name.
 libexec="${TESTDIR}/libexec"; lib="${TESTDIR}/lib"; log="${TESTDIR}/log"; home="${TESTDIR}/home"; clones="${TESTDIR}/clones"
+rundir="${TESTDIR}/run"
 project="${TESTDIR}/proj with spaces"; raw="${TESTDIR}/raw[0-9]+"; absent="${TESTDIR}/absent"; conf="${TESTDIR}/conf"
 legacy="${TESTDIR}/legacy.v1"
-mkdir -p "${libexec}" "${lib}" "${home}/.nvm" "${clones}" "${project}" "${raw}" "${conf}" "${legacy}"
+mkdir -p "${libexec}" "${lib}" "${rundir}" "${home}/.nvm" "${clones}" "${project}" "${raw}" "${conf}" "${legacy}"
+
+# The installed agent manifests the revert loops over, and a relabel.lib.sh whose unlabel records each agent it is
+# called for and returns the status a marker names, with the diagnostic a walk would leave. The scriptlet's child
+# bash sources it from the rewritten library path, so the loop and its rendering are the scriptlet's own.
+mkdir -p "${lib}/agents.d"
+: > "${lib}/agents.d/acme.conf"; : > "${lib}/agents.d/beta.conf"
+cat > "${TESTDIR}/relabel.lib.fixture" <<EOF
+ai_tools_relabel__unlabel_agent_paths() {
+    printf 'unlabel %s\n' "\$1" >> "${TESTDIR}/recorder"
+    AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="fixture diagnostic"
+    [ -f "${TESTDIR}/unlabel_status" ] && return "\$(cat "${TESTDIR}/unlabel_status")"
+    return 0
+}
+EOF
 
 body="${body//\/var\/opt\/ai-tools\/sandbox-projects/${clones}}"
 body="${body//\/opt\/ai-tools/${home}}"
 body="${body//\/var\/log\/ai-tools/${log}}"
+body="${body//\/run\/ai-tools/${rundir}}"
 body="${body//\/usr\/local\/libexec\/ai-tools/${libexec}}"
 body="${body//\/usr\/local\/lib\/ai-tools/${lib}}"
 body="${body//\/run\/lock\/ai-tools-relabel.lock/${TESTDIR}/relabel.lock}"
+walker_test="[ -x ${libexec}/ai-tools-relabel-tree ]"
+walker_call="${libexec}/ai-tools-relabel-tree -- \"\${canonical}\" 2>&1 >/dev/null"
+if [[ "${body}" != *"${walker_test}"* || "${body}" != *"${walker_call}"* ]]; then
+    fail "the %postun does not test and run the walker in the form this file rewrites"
+    finish; exit
+fi
+# shellcheck disable=SC2016  # the replacements are scriptlet text, expanded when it runs
+walker_test_stub='[ -e "${STUB}/walker_present" ]' walker_call_stub='relabel_tree_stub -- "${canonical}" 2>&1 >/dev/null'
+body="${body//"${walker_test}"/"${walker_test_stub}"}"
+body="${body//"${walker_call}"/"${walker_call_stub}"}"
 
 # The store the stubs serve: a rule per shape the sweep meets. The raw rule holds a metacharacter no label writes,
 # over a directory that exists under that name, so the literal check and not the directory test decides its line.
@@ -84,7 +114,12 @@ printf 'zebra\nai_tools\nai_tools_tmpmap\n' > "${TESTDIR}/modules.base"
 # shellcheck disable=SC2016  # the stubs expand these when the scriptlet runs, not this shell
 stubs='
 STUB="__STUB__"
-bash() { printf "read-session\n" >> "${STUB}/recorder"; cat "${STUB}/session"; }
+bash() {
+    case "$2" in
+        *ai_tools_relabel__unlabel_agent_paths*) command bash "$@"; return ;;
+    esac
+    printf "read-session\n" >> "${STUB}/recorder"; cat "${STUB}/session"
+}
 flock() {
     printf "flock %s\n" "$*" >> "${STUB}/recorder"
     [ -f "${STUB}/flock_flips" ] && printf "live\n" > "${STUB}/session"
@@ -107,6 +142,15 @@ semodule() {
             mv "${STUB}/modules.next" "${STUB}/modules"; return 0 ;;
     esac
 }
+relabel_tree_stub() {
+    printf "walk %s\n" "$*" >> "${STUB}/recorder"
+    [ -f "${STUB}/walk_fails" ] && [ "$2" = "$(cat "${STUB}/walk_fails")" ] && return 1
+    if [ -f "${STUB}/walk_hardlinks" ] && [ "$2" = "$(cat "${STUB}/walk_hardlinks")" ]; then
+        printf "skipped hardlinked path %s/bin/claude.exe (link count 2, inode 4242)\nsummary hardlinks-left=1 failures=0\n" "$2" >&2
+        return 4
+    fi
+    return 0
+}
 restorecon() {
     printf "restorecon %s\n" "$*" >> "${STUB}/recorder"
     printf "%s\n" "$#" "$@" > "${STUB}/last_args"
@@ -117,17 +161,30 @@ restorecon() {
 stubs="${stubs//__STUB__/${TESTDIR}}"
 printf '%s\n%s\n' "${stubs}" "${body}" > "${TESTDIR}/run.sh"
 
-# run_erase <state> [fail-marker...]: run the scriptlet as a final erase under that reading, with each marker file
-# placed for the stubs; the recorder holds every store write and restore, out and err the two streams.
+# run_erase <state> [marker...]: run the scriptlet as a final erase under that reading, with each marker file placed
+# for the stubs -- walker_present makes the walker executable; restore_fails=<tree> and walk_fails=<tree> fail
+# that tree's call; unlabel_status=<n> is the status the fixture unlabel returns, and no_unlabel_lib places a library
+# that does not define it -- the recorder holding every store
+# write, walk, restore and unlabel, and out and err the two streams. The fixture relabel.lib.sh is placed for each run.
 run_erase() {
     local state="$1"; shift
     printf '%s\n' "${state}" > "${TESTDIR}/session"
     cp "${TESTDIR}/rules.base" "${TESTDIR}/rules"; cp "${TESTDIR}/modules.base" "${TESTDIR}/modules"
+    cp "${TESTDIR}/relabel.lib.fixture" "${lib}/relabel.lib.sh"
     rm -f "${TESTDIR}/recorder" "${TESTDIR}/list_fails" "${TESTDIR}/unload_fails" "${TESTDIR}/delete_fails" \
           "${TESTDIR}/restore_fails" "${TESTDIR}/flock_flips" "${TESTDIR}/flock_fails" "${TESTDIR}/last_args" \
-          "${TESTDIR}/relabel.lock"
+          "${TESTDIR}/relabel.lock" "${TESTDIR}/walker_present" "${TESTDIR}/walk_fails" "${TESTDIR}/unlabel_status" \
+          "${TESTDIR}/walk_hardlinks"
     : > "${TESTDIR}/recorder"
-    local marker; for marker in "$@"; do case "${marker}" in restore_fails=*) printf '%s' "${marker#*=}" > "${TESTDIR}/restore_fails" ;; *) : > "${TESTDIR}/${marker}" ;; esac; done
+    local marker
+    for marker in "$@"; do
+        case "${marker}" in
+            restore_fails=*|walk_fails=*|unlabel_status=*|walk_hardlinks=*) printf '%s' "${marker#*=}" > "${TESTDIR}/${marker%%=*}" ;;
+            # A library that loads and does not define the unlabel.
+            no_unlabel_lib) printf 'true\n' > "${lib}/relabel.lib.sh" ;;
+            *) : > "${TESTDIR}/${marker}" ;;
+        esac
+    done
     status=0
     sh "${TESTDIR}/run.sh" 0 > "${TESTDIR}/out" 2> "${TESTDIR}/err" || status=$?
     recorder="$(cat "${TESTDIR}/recorder")"; err="$(cat "${TESTDIR}/err")"
@@ -135,15 +192,15 @@ run_erase() {
 
 # ── A live or unreadable reading writes nothing and names the re-run ────────────────────────────
 for state in live unreadable; do
-    run_erase "${state}"
-    if ! grep -qE '^(semanage|semodule|restorecon) ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
-        pass "${state}: no store write, no restore, exit 0"
+    run_erase "${state}" walker_present
+    if ! grep -qE '^(semanage|semodule|restorecon|walk|unlabel) ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+        pass "${state}: no store write, no agent revert, no restore, exit 0"
     else
         fail "${state}: the scriptlet wrote or walked (exit ${status}): ${recorder//$'\n'/; }"
     fi
     if grep -q 'WARNING left the policy loaded' <<< "${err}" \
             && grep -qF 'sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux' <<< "${err}" \
-            && grep -qF "then restore the labels: sudo restorecon -R ${libexec} ${lib} ${log} ${home} ${clones}" <<< "${err}" \
+            && grep -qF "then restore the labels: sudo restorecon -R ${libexec} ${lib} ${log} ${rundir} ${home} ${clones}" <<< "${err}" \
             && grep -qF 'sudo semodule -r ai_tools ai_tools_tmpmap' <<< "${err}"; then
         pass "${state}: the warning names the stop, the package re-run, and the by-hand steps through the label restore"
     else
@@ -196,11 +253,11 @@ if grep -qF 'semodule -r ai_tools -r ai_tools_tmpmap' <<< "${recorder}"; then
 else
     fail "none: the unload is missing or partial: ${recorder//$'\n'/; }"
 fi
-restores="$(grep '^restorecon ' <<< "${recorder}" || true)"
-if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"restorecon -R ${home}"$'\n'"restorecon -R ${clones}" ]]; then
-    pass "none: the four present trees are restored one call each after the unload, the absent one skipped"
+restores="$(grep -E '^(restorecon|walk) ' <<< "${recorder}" || true)"
+if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"restorecon -R ${rundir}"$'\n'"restorecon -R ${home}"$'\n'"restorecon -R ${clones}" ]]; then
+    pass "none, walker absent: each present tree, the runtime directory among them, is restored by restorecon, one call each after the unload, the absent one skipped"
 else
-    fail "none: the trees were not restored as four calls over the present trees: ${restores//$'\n'/; }"
+    fail "none, walker absent: the trees were not restored as one restorecon call per present tree: ${restores//$'\n'/; }"
 fi
 if [[ "${status}" -eq 0 ]]; then pass "none: exit 0"; else fail "none: exit ${status}"; fi
 
@@ -246,6 +303,97 @@ if [[ "$(run_pasted "${unquoted}" | head -n 1)" -gt 2 ]]; then
     pass "control: the same command without its quotes reaches restorecon as several arguments"
 else
     fail "control: the unquoted command '${unquoted}' did not split; the argument count does not tell the two apart"
+fi
+
+# ── Each installed agent's declared paths are reverted ahead of the rule sweep ─────────────────
+unlabels="$(grep -n '^unlabel ' <<< "${recorder}" || true)"
+last_unlabel="$(tail -n 1 <<< "${unlabels}")"; last_unlabel="${last_unlabel%%:*}"
+if [[ "$(cut -d: -f2- <<< "${unlabels}")" == "unlabel acme"$'\n'"unlabel beta" ]] \
+        && [[ -n "${read_line}" && -n "${first_write}" ]] && (( read_line < ${last_unlabel:-0} && ${last_unlabel:-0} < first_write )); then
+    pass "none: the unlabel runs once per installed manifest, after the reading (line ${read_line}) and ahead of the first store write (line ${first_write})"
+else
+    fail "none: the unlabels were not one per manifest between the reading and the first write: ${recorder//$'\n'/; }"
+fi
+if ! grep -q 'ai-tools-selinux: acme\|ai-tools-selinux: beta' <<< "${err}"; then
+    pass "none: an unlabel returning 0 prints no line"
+else
+    fail "none: an unlabel returning 0 printed: ${err//$'\n'/; }"
+fi
+# Each status the library returns, rendered under the agent's name; 1 is an agent declaring no usable value.
+for case_line in "2|the SELinux layer is inactive here" "4|left these entries at their type: fixture diagnostic" \
+        "5|a path they covered keeps its type -- fixture diagnostic" "6|the tree walker could not run over its config directory -- fixture diagnostic" \
+        "1|no file-context rules to drop"; do
+    rc="${case_line%%|*}"; expected="${case_line#*|}"
+    run_erase none "unlabel_status=${rc}"
+    if grep -qF "ai-tools-selinux: acme: " <<< "${err}" && grep -F "ai-tools-selinux: beta: " <<< "${err}" | grep -qF "${expected}" \
+            && grep -q '^semanage fcontext -d ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+        pass "none, unlabel status ${rc}: each agent's line names it ('${expected}'), the sweep follows, exit 0"
+    else
+        fail "none, unlabel status ${rc}: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
+    fi
+done
+# A library that does not define the function is one line, and the erase goes on; no manifest is no line and no call.
+run_erase none no_unlabel_lib
+if grep -qF 'relabel.lib.sh did not load, so the paths each agent declares keep their types' <<< "${err}" \
+        && ! grep -q '^unlabel ' <<< "${recorder}" && grep -q '^semanage fcontext -d ' <<< "${recorder}"; then
+    pass "none, the library does not define the unlabel: one line names it, the sweep follows"
+else
+    fail "none, the library does not define the unlabel: ${err//$'\n'/; }"
+fi
+mv "${lib}/agents.d" "${TESTDIR}/agents.d.aside"
+run_erase none
+mv "${TESTDIR}/agents.d.aside" "${lib}/agents.d"
+if ! grep -q '^unlabel ' <<< "${recorder}" && ! grep -qF 'did not load' <<< "${err}" && grep -q '^semanage fcontext -d ' <<< "${recorder}"; then
+    pass "none, no agent manifest installed: no unlabel and no line, the sweep follows"
+else
+    fail "none, no agent manifest installed: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
+fi
+
+# ── The walker restores the sandbox account's trees where it is executable ──────────────────────
+run_erase none walker_present
+restores="$(grep -E '^(restorecon|walk) ' <<< "${recorder}" || true)"
+if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"restorecon -R ${rundir}"$'\n'"walk -- ${home}"$'\n'"walk -- ${clones}" ]] \
+        && [[ "${status}" -eq 0 ]]; then
+    pass "none, walker present: the root-owned trees take restorecon and the account's trees the walker, after the unload"
+else
+    fail "none, walker present: the restores were: ${restores//$'\n'/; } (exit ${status})"
+fi
+run_erase none walker_present "walk_fails=${home}"
+if grep -qF "could not restore the default types under ${home}; run: sudo ${libexec}/ai-tools-relabel-tree -- ${home}" <<< "${err}" \
+        && grep -qx -- "walk -- ${clones}" <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+    pass "none, a walk fails: the tree is named with the walk to re-run, the later tree is walked, exit 0"
+else
+    fail "none, a walk fails: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
+fi
+# A walk that left a hardlinked path: the WARNING, the walker's line and the find for its inode's names, no restorecon
+# of a path inside the toolchain, and the later tree still walked.
+run_erase none walker_present "walk_hardlinks=${home}"
+mount="$(stat -c '%m' -- "${home}")"
+if grep -qF "WARNING these paths under ${home} keep a type the policy no longer defines" <<< "${err}" \
+        && grep -qF "ai-tools-selinux:   skipped hardlinked path ${home}/bin/claude.exe (link count 2, inode 4242)" <<< "${err}" \
+        && grep -qF "sudo find ${mount} -xdev -inum 4242 -ls" <<< "${err}" \
+        && ! grep -q 'restorecon -F' <<< "${err}" && ! grep -qF 'summary hardlinks-left' <<< "${err}" \
+        && grep -qx -- "walk -- ${clones}" <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+    pass "none, a walk left a hardlinked path: the WARNING, the walker's line, the find for its inode, no restorecon -F, the later tree walked, exit 0"
+else
+    fail "none, a walk left a hardlinked path: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
+fi
+# A tree named through a symlinked ancestor is walked at its canonical path: the body with the tree's name replaced
+# by a symlink to it.
+ln -s "${home}" "${TESTDIR}/homelink"
+printf '%s\n%s\n' "${stubs}" "${body//"${home}"/${TESTDIR}/homelink}" > "${TESTDIR}/run.sh"
+run_erase none walker_present
+if grep -qx -- "walk -- ${home}" <<< "${recorder}" && ! grep -qF 'homelink' <<< "${recorder}"; then
+    pass "none, the tree named through a symlinked ancestor: the walk is over its canonical path"
+else
+    fail "none, the tree named through a symlinked ancestor: ${recorder//$'\n'/; }"
+fi
+printf '%s\n%s\n' "${stubs}" "${body}" > "${TESTDIR}/run.sh"
+run_erase none walker_present unload_fails
+if ! grep -qE '^(restorecon|walk) ' <<< "${recorder}" && grep -q 'left loaded: ' <<< "${err}"; then
+    pass "none, walker present, unload refused: no tree is walked or restored"
+else
+    fail "none, walker present, unload refused: ${recorder//$'\n'/; }"
 fi
 
 # ── The restore waits for a read-back listing no module ─────────────────────────────────────────

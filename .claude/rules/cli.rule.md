@@ -1362,10 +1362,13 @@ in `ai-ops` (`ai-tools-run` refuses to launch otherwise), so the grant adds it n
 
 ## The recursive relabels: the descriptor-held walk <a id="ref-section-e6c6"></a>
 
-A project's label and revert, an agent config directory's label, and the config half of an agent's unlabel each walk
-a tree the sandbox account can write, so each runs through `ai-tools-relabel-tree` (`_ai_tools_relabel__relabel_tree`
-in `relabel.lib.sh`), which labels the entry it holds open rather than the one a path names. None of these walks reads
-the account's sessions: a claim, an unclaim, a removal and an agent relabel label while a session runs.
+A project's label and revert, an agent config directory's label, the config half of an agent's unlabel, and the restores
+the installers, the selinux package's scriptlets, `ai-tools-admin`'s clone restore after a group change
+and `ai-tools-unclaim --unlisted` make over `/opt/ai-tools`, the toolchain, the clone area and a project each walk
+a tree the sandbox account can write, so each runs through `ai-tools-relabel-tree`, directly
+or through `ai_tools_relabel__relabel_tree` in `relabel.lib.sh`, which labels the entry it holds open rather than
+the one a path names. None of these walks reads the account's sessions: a claim, an unclaim, a removal, an agent relabel
+and an install label while a session runs.
 
 **The invariant.** The walker reaches only an inode the account could already move or link into the tree, and the policy
 limits those to a reviewed set of types. A descriptor keeps a rename or a planted link from redirecting the write it
@@ -1405,7 +1408,9 @@ a mount. An excluded path (`!`) is labelled with the rest of the tree, as `resto
 of the walk, so a walk exits 0 only where the path named the walked tree at both reads. A rename away and back
 between the two is not seen, and leaves the walk on the opened tree. A root renamed before the open is not followed;
 only a project nested in a claimed one gives the account write on a root's parent, and there the outer project's rule
-types the tree either way.
+types the tree either way. A caller of a fixed path hands the walker the path `realpath -e` resolves, since
+under a symlinked ancestor (`/opt` a link) the fixed path is not the one the walker reads back; a path `realpath` cannot
+resolve is named and not walked.
 
 **A walk is one pass, not a snapshot.** A writer that moves an entry the walk has not reached into a directory it has
 passed, or renames a directory the walk holds open and puts another at its name, leaves that entry at the type it
@@ -1435,64 +1440,52 @@ what the step left ([Remove](#remove)).
 **The walks that keep `restorecon`** each walk a tree the account cannot write, write one path, or write nothing:
 the operator config subtree (`ai_tools_relabel__label_operator_conf`), an agent entrypoint's per-path `restorecon -F`,
 the clone's label while its root is still owner-only ([Sandbox clone](#sandbox-clone)), whose own entry sits in an area
-`ai_tools_t` may search and not write, and the claim's drift scan, a dry run as the operator. The install-time restores
-walk by path as well, behind the gate the next section states.
+`ai_tools_t` may search and not write, and the claim's drift scan, a dry run as the operator. The installers
+and the selinux scriptlets keep `restorecon` for the root-owned trees (the helpers, the libraries, the log and runtime
+directories), the operators' config directories, and `/opt/ai-tools/.gitconfig`, one file in a directory the account
+cannot write. An entrypoint's `restorecon -F` is a root label write by a path through the account-owned toolchain,
+the class the write-side invariant [ref-list-b6z9](../../CLAUDE.md#ref-list-b6z9) states, and it does not walk.
+The selinux `%postun` restores the account's trees with `restorecon -R` where an erase removed `ai-tools-base`
+and the walker with it in the same transaction, and only after its session reading read `none`.
 
-### The install-time restores and the live-session gate
+### The policy unload and the live-session reading
 
-An install-time restore walks with `restorecon -R`, which on libselinux before 3.11 resolves each path again before it
-writes the label: a process of the sandbox account that renames a directory aside and plants a symlink of its name
-inside the walk sends the tree's type onto an inode it chose. The account's only writers are its live processes, agent
-sessions, the toolchain update with the install scripts it runs, and the steps a bootstrap and a package erase run
-as the account, so each restore that crosses a tree the account can write runs **only while no process of the account is
-live**.
+The selinux `%postun` on final erase and `install-selinux.sh remove` read the sandbox account's sessions before their
+first policy-store write, since a process of the account live at the unload would run on in a domain the policy no
+longer defines. While the reading is anything but `none`, the `%postun` leaves the policy loaded and every local rule
+in place with one WARNING naming the re-run, and `remove` refuses under `MSG-H7Q2` ([confinement](confinement.rule.md)
+states the order of the erase). No other walk or write reads the sessions.
 
 The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
 from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live; the enumeration is a twin
 of the stop helper's ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)). Every reading the reader cannot make — no
 cgroup v2 mount, no uid, a `user.slice` the caller cannot enter, a directory under the account's slice it cannot list
-and enter — reads `unreadable`, and a `cgroup.procs` or `cgroup.events` it cannot read makes its unit live; each gate
-treats both as live. The toolchain update is live by the same reading: it writes the toolchain the `%post` walk crosses.
+and enter — reads `unreadable`, and a `cgroup.procs` or `cgroup.events` it cannot read makes its unit live; the unload
+treats both as live. The toolchain update and a step run as the account inside the slice read live as a session does.
 A step this project's root code runs as the account outside the slice — the shim's cache cleanup ahead of its unit,
-the bootstrap's link repair under a plain `sudo -u` on a host whose sudo stack does not place it in a session scope —
-runs root-owned code, and is not a writer the gate defends against.
+the bootstrap's link repair under a plain `sudo -u` on a host whose sudo stack does not place it in a session scope — is
+not read.
 
 **The user manager's own plumbing is exempt by name**: its `init.scope` and the dbus broker it starts. The stop helper
 does not exempt any cgroup, because on a DAC-only host a session can move its tasks into any cgroup it names. Here
-the name is sound because of where the gate runs. `ai_tools_relabel__is_available` returns 2 and no walk happens
-where SELinux is `Disabled`; where the policy is loaded, `ai_tools_t` does not hold a write on `cgroup_t` and cannot
-reach its user manager's socket or its session bus, so the names under the slice are the ones `ai-tools-run`
-and the manager gave them; `Permissive` refuses every launch under the default `AI_TOOLS_REQUIRE_SELINUX`. The residual
-is a permissive host whose operator wrote `AI_TOOLS_REQUIRE_SELINUX=no`. A name is exempt only at the depth the manager
-gives it, so a unit of that name under a further slice is read like any other. The name is not sound against a process
-of the account outside `ai_tools_t`, the updater's unit and the install scripts it runs: the gate reads such a process
-live by its own unit until it moves, and one that moves itself into an exempt name is a compromised install script
-that already holds the account's whole DAC reach. `tests/integration/selinux.sh` reads the cgroup half from the loaded
-policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside a session.
+the name is sound because of where the reading decides: where SELinux is `Disabled` no process runs in `ai_tools_t`,
+so an unload does not leave one in an undefined domain; where the policy is loaded, `ai_tools_t` does not hold a write
+on `cgroup_t` and cannot reach its user manager's socket or its session bus, so the names under the slice are the ones
+`ai-tools-run` and the manager gave them; `Permissive` refuses every launch under the default
+`AI_TOOLS_REQUIRE_SELINUX`. The residual is a permissive host whose operator wrote `AI_TOOLS_REQUIRE_SELINUX=no`. A name
+is exempt only at the depth the manager gives it, so a unit of that name under a further slice is read like any other.
+The name is not sound against a process of the account outside `ai_tools_t`, the updater's unit and the install scripts
+it runs: the reading reads such a process live by its own unit until it moves, and one that moves itself into an exempt
+name is a compromised install script that already holds the account's whole DAC reach. `tests/integration/selinux.sh`
+reads the cgroup half from the loaded policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside
+a session.
 
-Where each restore takes the gate:
-
-- The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
-  the reading, with one WARNING naming the `restorecon` to run when it skips; the selinux `%postun` makes both its
-  policy-store writes behind the same reading, leaving the policy loaded with one WARNING naming the re-run
-  ([confinement](confinement.rule.md)); `install.sh` does the same for `/opt/ai-tools/.config` and the agent config
-  directories, and `selinux/install-selinux.sh` for every tree the account can write that its actions walk,
-  the toolchain, the home state, the clones and the projects its removal restores, reading the account
-  through the installed `sandbox-exec.lib.sh`; its `remove` refuses before its first policy-store write while
-  the reading is not idle, since a process of the account live at the unload would run on in a domain the policy no
-  longer defines. `ai-tools-admin`'s clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label
-  reset, warn the same way.
-
-Every message leads with letting the sessions end and the update finish, and offers `atr stop` beside it, since a stop
+Each message leads with letting the sessions end and the update finish, and offers `atr stop` beside it, since a stop
 ends a session without its session-end handback and an update mid-run.
 
-**The gate narrows the exposure and does not close it.** A session launched between the reading and the walk is inside
-the walk. What closes it is either a libselinux at or above 3.11, whose walker holds a descriptor, or the launch lock
-[stop](stop.rule.md) defers, which would serialize `ai-tools-run` against the stop and the relabel alike. No libselinux
-version is read: the gate holds on every version, and a version read is a label rather than a check. The per-path
-`restorecon -F` of an agent entrypoint through the account-owned toolchain is outside this gate: it is a root label
-write by a path, the class the write-side invariant [ref-list-b6z9](../../CLAUDE.md#ref-list-b6z9) states, and it does
-not walk.
+Removing the policy is an administrator's deliberate step that ends confinement on the host, so a session launched while
+the removal runs may start without the transition, as every launch after it does; `ai-tools-run` does not take
+the relabel lock the removal holds.
 
 ## Privilege model
 

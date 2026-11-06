@@ -123,9 +123,11 @@ report_agent_unlabel_outcome() {
         # The rules are dropped and the walk could not start.
         6) warn MSG-M5X4 "dropped the file-context rules for ${agent} and left the labels on its config directory as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${agent_config_dir}"
            ai_tools_log__warn "dropped the file-context rules for ${agent}; the tree walker could not run" ;;
-        # The rules are dropped and the walk over the config directory could not label an entry.
-        5) warn MSG-V4H3 "dropped the file-context rules for ${agent}; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${agent_config_dir}"
-           ai_tools_log__warn "dropped the file-context rules for ${agent}; its config directory's walk failed" ;;
+        # The rules are dropped and a path they covered keeps its type: an entrypoint after its per-path revert, or
+        # an entry the walk over the config directory could not label. The diagnostic names which, and the walk is
+        # the remedy for the second alone.
+        5) warn MSG-V4H3 "dropped the file-context rules for ${agent}; a path they covered keeps its type -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; where the line names an entry of its config directory, re-run the walk: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${agent_config_dir}"
+           ai_tools_log__warn "dropped the file-context rules for ${agent}; a path they covered keeps its type" ;;
         *) die MSG-S6C5 "no usable path rules declared by ${agent} -- nothing dropped" ;;
     esac
     return 0

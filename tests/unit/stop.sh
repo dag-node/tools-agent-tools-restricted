@@ -366,6 +366,21 @@ if pid_start_time "$(fixture_pid 201)" >/dev/null 2>&1; then
 else
     pass "a fixture pid has no /proc entry, so it can never be signalled"
 fi
+# A pid that exits between the readability test and the read reaches a read that fails; its error stays off the table
+# the operator reads. The function's text is run with the readability line removed and its /proc path pointed
+# at an absent file, the state the read meets after that exit, under the helper's own `set -u` without `set -e`.
+start_time_text="$(extract_function "${STOP_HELPER}" pid_start_time)"
+start_time_text="${start_time_text//\[\[ -r \"\/proc\/\$1\/stat\" \]\] || return 1/:}"
+start_time_text="${start_time_text//\/proc\/\$1\/stat/\$1}"
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+race_out="$(bash -c 'set -u; eval "$1"; pid_start_time "$2" >/dev/null; printf "status=%s\n" "$?"' _ \
+    "${start_time_text}" "${TESTDIR}/absent-stat" 2>&1)" || true
+# shellcheck disable=SC2016  # the pattern matches the literal "$1" text of the rewritten read
+if [[ "${start_time_text}" != *'[[ -r'* && "${start_time_text}" == *'< "$1"'* && "${race_out}" == "status=1" ]]; then
+    pass "a start-time read that fails past the readability test returns 1 and writes nothing to stderr"
+else
+    fail "a start-time read failing past the readability test: ${race_out//$'\n'/ | }"
+fi
 
 sleep 30 &
 victim=$!

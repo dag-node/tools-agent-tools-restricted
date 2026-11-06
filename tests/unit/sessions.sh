@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/sessions.sh
-# Unit test for sessions.lib.sh, the reader the recursive relabels gate on. Two properties carry it.
+# Unit test for sessions.lib.sh, the reader the policy unload gates on. Two properties carry it.
 #
 # THE TWIN. The library's enumeration is a copy of ai-tools-stop's (stop.rule.md, ref-section-e8k5). Each copied
 # function is held equal to the helper's through `declare -f` after the substitution this file spells out, so a fix
 # to either copy fails here until it reaches the other.
 #
-# THE FAIL DIRECTION. The gate refuses a walk on `live` and on `unreadable`, so a reading that cannot be made must never
-# come back `none`: no cgroup v2 mount, no uid, a user.slice the caller cannot enter, and a directory
-# under the account's slice it cannot list and enter each read `unreadable`, a cgroup.procs or cgroup.events it cannot
-# read makes its unit `live`, and an empty unit that sorts last must not turn a complete listing into `unreadable`.
-# A fixture cgroup tree under TESTDIR stands in for /sys/fs/cgroup, reached by stubbing the mount reader after its twin
-# is pinned; no host cgroup is read. The strict-IFS section reads the host's /proc/mounts through the real mount reader,
-# and skips where that does not name a cgroup v2 mount.
+# THE FAIL DIRECTION. The unload refuses on `live` and on `unreadable`, so a reading that cannot be made must never come
+# back `none`: no cgroup v2 mount, no uid, a user.slice the caller cannot enter, and a directory under the account's
+# slice it cannot list and enter each read `unreadable`, a cgroup.procs or cgroup.events it cannot read makes its unit
+# `live`, and an empty unit that sorts last must not turn a complete listing into `unreadable`. A fixture cgroup tree
+# under TESTDIR stands in for /sys/fs/cgroup, reached by stubbing the mount reader after its twin is pinned; no host
+# cgroup is read. The strict-IFS section reads the host's /proc/mounts through the real mount reader, and skips
+# where that does not name a cgroup v2 mount.
 #
 # Runs as root with the rest of the suite and unprivileged during development. The unreadable-file case holds only
 # for an unprivileged caller, since root reads any mode, so a root run drives it as the projects user through runuser.
@@ -116,7 +116,7 @@ ai_tools_sessions__read_cgroup2_mount() {
 
 state_is() {
     local want="$1" what="$2" uid="${3:-4242}" got
-    got="$(ai_tools_sessions__read_live_session_state_for_uid "${uid}")"
+    got="$(_ai_tools_sessions__read_live_session_state_for_uid "${uid}")"
     if [[ "${got}" == "${want}" ]]; then
         pass "${what}: ${want}"
     else
@@ -200,7 +200,7 @@ rm -rf "${MANAGER}/app.slice/acme-acme-15.service" "${MANAGER}/app.slice/zzz-emp
 state_is none "an account with no slice at all" 4343
 
 before="$(shopt -p dotglob nullglob || true)"
-ai_tools_sessions__read_live_session_state_for_uid 4242 >/dev/null
+_ai_tools_sessions__read_live_session_state_for_uid 4242 >/dev/null
 after="$(shopt -p dotglob nullglob || true)"
 if [[ "${before}" == "${after}" ]]; then
     pass "the walk's glob options do not reach the caller's shell"
@@ -235,7 +235,7 @@ mv "${MOUNT}/user.slice.away" "${MOUNT}/user.slice"
 # The remaining readings turn on a mode, which root reads through, so a root run asks them as the projects user.
 # state_unprivileged_is <want> <what> -- the reader's answer for an unprivileged caller, over the same fixture.
 # shellcheck disable=SC2016  # $1..$3 are the inner shell's positionals
-probe='source "$1"; stub_mount="$2"; ai_tools_sessions__read_cgroup2_mount() { printf "%s" "${stub_mount}"; }; ai_tools_sessions__read_live_session_state_for_uid "$3"'
+probe='source "$1"; stub_mount="$2"; ai_tools_sessions__read_cgroup2_mount() { printf "%s" "${stub_mount}"; }; _ai_tools_sessions__read_live_session_state_for_uid "$3"'
 state_unprivileged_is() {
     local want="$1" what="$2" got who
     if [[ "${EUID}" -ne 0 ]]; then
@@ -313,7 +313,7 @@ ai_tools_sessions__read_cgroup2_mount() {
     printf 'rc=%s mount=[%s]\n' "${rc}" "${real}" > "${fixture_mount}.read"
     printf '%s' "${fixture_mount}"
 }
-ai_tools_sessions__read_live_session_state_for_uid 4242 >/dev/null
+_ai_tools_sessions__read_live_session_state_for_uid 4242 >/dev/null
 cat "${fixture_mount}.read"
 PROBE
 
@@ -347,7 +347,7 @@ mode="$1"; lib="$2"; stub_mount="$3"
 [[ "${mode}" == strict ]] && IFS=$'\n\t'
 source "${lib}"
 ai_tools_sessions__read_cgroup2_mount() { printf '%s' "${stub_mount}"; }
-ai_tools_sessions__read_live_session_state_for_uid 4242
+_ai_tools_sessions__read_live_session_state_for_uid 4242
 PROBE
 
 unit="${MANAGER}/app.slice/acme-acme-17.service"

@@ -1024,7 +1024,7 @@ the SELinux gates."
   _own_uid="$(id -u 2>/dev/null || true)"
   if [[ -n "${_own_cgroup_path}" && -n "${_own_uid}" ]] && command -v python3 >/dev/null 2>&1; then
     _type="cgroup_t:file write"
-    _why="Writing a pid into a cgroup.procs moves that task into the cgroup. A session that could do it would move its own tasks into the manager's init.scope, which the relabel gate exempts by name, and the gate would read the account as idle while the session runs."
+    _why="Writing a pid into a cgroup.procs moves that task into the cgroup. A session that could do it would move its own tasks into the manager's init.scope, which the policy unload's session reading exempts by name, and the reading would read the account as idle while the session runs."
     check SES-001 SELinux "open this session's own cgroup.procs for write (no write made)" \
       _py write "/sys/fs/cgroup${_own_cgroup_path}/cgroup.procs"
 

@@ -160,24 +160,25 @@ Two consequences reach an operator:
 `atr status` reports when the update last ran and how it ended
 ([System](../system/index.md)).
 
-## Labels under the sandbox's own trees wait for idle sessions
+## Labels under the sandbox's own trees are restored while sessions run
 
 ```text
-ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: ...
-ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects
+ai-tools-selinux: NOTE /opt/ai-tools: skipped hardlinked path /opt/ai-tools/.nvm/... (link count 2, inode 1234)
+ai-tools-selinux: NOTE an agent entrypoint among the paths listed takes its type from the agent relabel that follows
 ```
 
 An upgrade of `ai-tools-selinux` restores the SELinux labels of the trees it
-covers. The ones the agent's account writes into — the toolchain, its caches,
-each agent's config directory, the sandbox clones — are restored only while no
-agent session, no toolchain update and no step run as that account is live,
-and while the host's sessions could be read
+covers, the ones the agent's account writes into included: the toolchain, its
+caches, each agent's config directory and the sandbox clones. Sessions do not
+need to end first; the restore runs beside them
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
-An upgrade made while one runs completes and prints that warning once. Let each
-session end with `/exit` and the update finish, or end them all
-with `atr stop`, then run the command it names. A label left as it was is
-the one the tree already carried, so a session started before you run it is
-confined as before.
+
+The notes name files the restore leaves as they are because each has a second
+name. Where the agent's own binary is among them, the agent relabel that runs
+next gives it its type, and prints its own warning if it cannot. Any other file
+listed, such as a hardlinked tool under a sandbox clone's `node_modules`, keeps
+the type it had. A restore that could not label an entry prints a WARNING
+with the command that runs it again.
 
 ## A new entrypoint is relabelled before it is launched
 

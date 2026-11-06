@@ -1113,8 +1113,8 @@ fi
 # optional groups ship compiled alongside it but stay OFF, toggled per host with
 # `atr admin selinux groups enable <name>` (experimental groups are not shipped).
 #
-# `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
-# labelled by the restorecon only once the module's types exist in the kernel, and
+# `semodule -i` loads into the RUNNING policy, not just the module store: an entrypoint takes
+# ai_tools_exec_t from its agent's rule only once the module's types exist in the kernel, and
 # ai-tools-run's preflight refuses to launch (`mislabel`) while it is unlabelled. The default
 # module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
 # selinux groups enable` address, so one host holds one copy of each module and a package upgrade
@@ -1148,20 +1148,39 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         echo "ai-tools-selinux: WARNING could not load the ai_tools policy module: ${_semodule_error}" >&2
         echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
     }
-    # The root-owned trees are restored unconditionally. /opt/ai-tools and the clone area hold trees the sandbox account
-    # writes, so they are restored only while no process of that account is live (cli.rule.md, ref-section-e6c6), read
-    # through sessions.lib.sh -- a library or reader this host lacks reads as live -- and a skip prints one WARNING
-    # naming the stop and the restorecon to run after it. A scriptlet must succeed, so the skip is not an error.
-    _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
-    _sandbox_trees_skipped=0
+    # The root-owned trees take restorecon. /opt/ai-tools and the clone area hold trees the sandbox account writes,
+    # so each goes through ai-tools-relabel-tree, base's descriptor-pinned walker, which labels the entry it holds open
+    # and so walks while a session of that account runs (cli.rule.md, ref-section-e6c6), at the canonical path realpath
+    # resolves: the walker reads its root back through /proc/self/fd and refuses one whose path differs, which /opt
+    # as a symlink makes of the fixed path. A path realpath cannot resolve is named and not walked. The walker's stderr
+    # is kept and its status read, so the call does not carry `|| :`: a walk that left hardlinked paths at their type
+    # (exit 4) is one NOTE per path, since the walker does not write a hardlinked file whose label differs, and an agent
+    # entrypoint among them takes its type from the agent relabel this scriptlet runs after its walks; every other
+    # non-zero exit is one WARNING
+    # carrying the walker's lines and the walk to re-run. A scriptlet must succeed, so neither is an error.
+    _walk_account_tree() {
+        _walk_rc=0; _walk_lines=""
+        [ -d "$1" ] || return 0
+        if ! _canonical=$(realpath -e -- "$1" 2>/dev/null); then
+            echo "ai-tools-selinux: WARNING could not resolve $1 to a canonical path, so it was not walked" >&2
+            return 0
+        fi
+        _walk_lines=$(%{ai_libexecdir}/ai-tools-relabel-tree -- "${_canonical}" 2>&1 >/dev/null) || _walk_rc=$?
+        _walk_lines=$(printf '%s\n' "${_walk_lines}" | grep -v '^summary ' || :)
+        case "${_walk_rc}" in
+            0) ;;
+            4) printf '%s\n' "${_walk_lines}" | while IFS= read -r _line; do
+                   [ -z "${_line}" ] || echo "ai-tools-selinux: NOTE ${_canonical}: ${_line}" >&2
+               done
+               echo "ai-tools-selinux: NOTE an agent entrypoint among the paths listed takes its type from the agent relabel that follows" >&2 ;;
+            *) echo "ai-tools-selinux: WARNING the walk over ${_canonical} did not label every entry, or the walker could not run (exit ${_walk_rc}): $(printf '%s' "${_walk_lines}" | tr '\n' ';'); re-run: sudo %{ai_libexecdir}/ai-tools-relabel-tree -- ${_canonical}" >&2 ;;
+        esac
+        return 0
+    }
     if command -v restorecon >/dev/null 2>&1; then
         restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools >/dev/null 2>&1 || :
-        if [ "${_sandbox_session_state}" = none ]; then
-            restorecon -R /opt/ai-tools >/dev/null 2>&1 || :
-        else
-            _sandbox_trees_skipped=1
-        fi
     fi
+    _walk_account_tree /opt/ai-tools
     # A renamed or split optional group: the registry (selinux-groups.lib.sh) records the former
     # module name per current group, and a host that enabled the old module keeps it loaded
     # across this upgrade. Replace it with every current group whose rules it carried, in a
@@ -1196,22 +1215,21 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         esac
     done
     # The sandbox clones take their labels from the static clone rules and the layout modules'
-    # rules, so they are relabelled after both have loaded. /var/opt is outside the restorecon
+    # rules, so they are relabelled after both have loaded. /var/opt is outside the walk
     # of /opt/ai-tools that follows the core load, and on a host whose file_contexts.subs_dist does
     # not alias /var/opt to /opt (EL9) a clone created before this module version carries var_t
     # until it is relabelled.
-    if command -v restorecon >/dev/null 2>&1 && [ -d /var/opt/ai-tools/sandbox-projects ]; then
-        if [ "${_sandbox_session_state}" = none ]; then
-            restorecon -R /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
-        else
-            _sandbox_trees_skipped=1
-        fi
-    fi
-    if [ "${_sandbox_trees_skipped}" = 1 ]; then
-        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then restore the labels:" >&2
-        echo "ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects" >&2
-    fi
+    _walk_account_tree /var/opt/ai-tools/sandbox-projects
     exec 9>&-
+    # The walks label the trees; an agent's entrypoint takes ai_tools_exec_t from the rule its own manifest declares,
+    # which ai-tools-relabel-agent registers and applies per path, since the walk does not write the hardlinked
+    # entrypoint. It runs here as each agent's %%post runs it, once the lock is released, since the helper takes
+    # the same lock. A run that did not complete is a WARNING naming the on-demand reconcile, and the scriptlet's status
+    # is untouched: a launch refuses on a mislabelled entrypoint on its own. Absent on a host without ai-tools-base.
+    if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
+        AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null 2>&1 \
+            || echo "ai-tools-selinux: WARNING the entrypoint relabel did not complete; see 'journalctl -t ai-tools-relabel-agent', then re-run: atr admin system entrypoints relabel" >&2
+    fi
     if command -v systemctl >/dev/null 2>&1 \
        && systemctl is-active --quiet ai-tools-handback.socket 2>/dev/null; then
         systemctl daemon-reexec >/dev/null 2>&1 || :
@@ -1231,8 +1249,8 @@ fi
 # The erase -- the local rules naming a type of this policy dropped ahead of the unload, the unload
 # read back from the store, the trees restored once that read-back shows every module gone, and
 # each step's fail direction -- is stated in confinement.rule.md ("How the policy ships"). Local to
-# this scriptlet: both store writes wait on the reading %%post makes of the sandbox account's
-# sessions, taken once the relabel lock is held (%%post states the lock), since a session can start
+# this scriptlet: both store writes wait on a reading of the sandbox account's sessions
+# (sessions.lib.sh), taken once the relabel lock is held (%%post states the lock), since a session can start
 # during the wait; a scriptlet must succeed, so a reading that is not `none` and a lock not taken
 # are each reported and are not errors. A dropped project-shaped rule is named with its restorecon
 # and not walked, since this scriptlet holds neither the protected-paths backstop nor the literal
@@ -1253,9 +1271,37 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
         loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
         echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then re-run this step:" >&2
         echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
-        echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
+        echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /run/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
         exec 9>&-
     else
+    # Each installed agent's declared paths are reverted first, while the policy still defines their types, as
+    # install-selinux.sh's `remove` reverts them: ai_tools_relabel__unlabel_agent_paths (relabel.lib.sh) drops
+    # the agent's rules and returns each entrypoint path to its default type through a per-path `restorecon -F`.
+    # The walk over /opt/ai-tools after the unload does not write a hardlinked file whose label differs, so
+    # an entrypoint with a second name would be listed there and keep ai_tools_exec_t; reverted here, the inode is
+    # at its default type when that walk meets it. The function does not take the relabel lock, which this
+    # scriptlet holds; `ai-tools-relabel-agent --remove` takes it, so that helper is not the call. A launch started
+    # while this erase runs may start without the transition, as every launch after it does (cli.rule.md,
+    # ref-section-e6c6). An erase that leaves the policy loaded does not reach this branch. Each agent's config directory is walked twice on this path: here, under the loaded
+    # policy, and by the walk over /opt/ai-tools after the unload.
+    bash -c '
+        set -- /usr/local/lib/ai-tools/agents.d/*.conf
+        [ -e "$1" ] || exit 0
+        . /usr/local/lib/ai-tools/relabel.lib.sh 2>/dev/null
+        declare -F ai_tools_relabel__unlabel_agent_paths >/dev/null 2>&1 || { echo "ai-tools-selinux: relabel.lib.sh did not load, so the paths each agent declares keep their types until the walk after the unload"; exit 0; }
+        for manifest in "$@"; do
+            agent=${manifest##*/}; agent=${agent%%.conf}
+            rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
+            case "${rc}" in
+                0) ;;
+                2) echo "ai-tools-selinux: ${agent}: the SELinux layer is inactive here, so no file-context rule was dropped" ;;
+                4) echo "ai-tools-selinux: ${agent}: the walk over its config directory left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}" ;;
+                5) echo "ai-tools-selinux: ${agent}: dropped its file-context rules; a path they covered keeps its type -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
+                6) echo "ai-tools-selinux: ${agent}: dropped its file-context rules; the tree walker could not run over its config directory -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}" ;;
+                *) echo "ai-tools-selinux: ${agent}: no file-context rules to drop" ;;
+            esac
+        done
+    ' >&2 || :
     if command -v semanage >/dev/null 2>&1; then
         semanage fcontext -l -C -n 2>/dev/null | awk '
             {
@@ -1319,11 +1365,43 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
             "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
     fi
     exec 9>&-
-    if [ "${unloaded}" = 1 ] && command -v restorecon >/dev/null 2>&1; then
-        for tree in %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
+    # The trees the sandbox account writes go through ai-tools-relabel-tree, the walker %%post runs, while it is still
+    # executable: an erase that removes ai-tools-base in the same transaction may have removed it, and the tree then
+    # takes restorecon. The walk is over the canonical path, as the %%post's is, and a path realpath cannot resolve is
+    # named and not walked. A walk that left hardlinked paths at their type (exit 4) is a WARNING, since each keeps
+    # a type the policy no longer defines and the walker does not write it: the walker's line per path, and the find
+    # that lists the inode's names from the tree's mount. No restorecon of a path inside the toolchain is printed:
+    # a root write by a path the account owns. The root-owned trees take restorecon.
+    if [ "${unloaded}" = 1 ]; then
+        for tree in %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /run/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
             [ -e "${tree}" ] || continue
-            restorecon -R "${tree}" >/dev/null 2>&1 \
-                || echo "ai-tools-selinux: could not restore the default types under ${tree}; run: sudo restorecon -R ${tree}" >&2
+            case "${tree}" in
+                /opt/ai-tools|/var/opt/ai-tools/sandbox-projects) account_tree=1 ;;
+                *) account_tree=0 ;;
+            esac
+            if [ "${account_tree}" = 1 ] && [ -x %{ai_libexecdir}/ai-tools-relabel-tree ]; then
+                if ! canonical=$(realpath -e -- "${tree}" 2>/dev/null); then
+                    echo "ai-tools-selinux: WARNING could not resolve ${tree} to a canonical path, so its default types were not restored" >&2
+                    continue
+                fi
+                walk_rc=0
+                walk_lines=$(%{ai_libexecdir}/ai-tools-relabel-tree -- "${canonical}" 2>&1 >/dev/null) || walk_rc=$?
+                case "${walk_rc}" in
+                    0) ;;
+                    4) mount=$(stat -c '%%m' -- "${canonical}" 2>/dev/null || echo /)
+                       echo "ai-tools-selinux: WARNING these paths under ${canonical} keep a type the policy no longer defines; each is followed by the find that lists its inode's names:" >&2
+                       printf '%s\n' "${walk_lines}" | grep -v '^summary ' | while IFS= read -r line; do
+                           [ -n "${line}" ] || continue
+                           echo "ai-tools-selinux:   ${line}" >&2
+                           inode=$(printf '%s' "${line}" | sed -n 's/.*inode \([0-9][0-9]*\))$/\1/p')
+                           [ -z "${inode}" ] || echo "ai-tools-selinux:     sudo find ${mount} -xdev -inum ${inode} -ls" >&2
+                       done ;;
+                    *) echo "ai-tools-selinux: could not restore the default types under ${canonical}; run: sudo %{ai_libexecdir}/ai-tools-relabel-tree -- ${canonical}" >&2 ;;
+                esac
+            elif command -v restorecon >/dev/null 2>&1; then
+                restorecon -R "${tree}" >/dev/null 2>&1 \
+                    || echo "ai-tools-selinux: could not restore the default types under ${tree}; run: sudo restorecon -R ${tree}" >&2
+            fi
         done
     fi
     fi

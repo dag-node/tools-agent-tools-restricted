@@ -827,40 +827,49 @@ and run over a fixture tree through the checkout's layout library under `AI_TOOL
 a symlink, and a file the layout does not list are refused, unprivileged; a `root:SANDBOX_GROUP 0640` file is kept,
 and the same file group-writable, with a named ACL entry, or hardlinked is refused, as root, the half that skips
 otherwise. The same reading covers the rest of what a source install must get right ahead of its first write: every
-`restorecon -R` ahead of the live-session reading names a root-owned tree, `require_acl_tools` refuses a host without
-the ACL tools and is called first, `ensure_dir` refuses a name that is not a directory where `install -d` would follow
-a link, the sandbox home and then `bin` reach their rows ahead of the first file written under them, and `do_install`
-places the sysusers fragment at the path `layout.lib.sh` declares. The names the short command `atr` takes are read
-the same way, over a fixture tree with `rpm` a shell function: each is replaced and removed only in one of this
-project's forms, a marked file `rpm` attributes to another package is refused, and an unmarked one is never removed.
-A page is the stub only while it holds the `.so` request and roff comments alone, so one that adds lines
-after the request is another's. The stub in each compression `man` reads (gzip, bzip2, xz, zstd) is this project's,
-and one read with its tool absent from `PATH` is refused as unreadable, naming the tool, rather than as another's.
-A compressed stub that fails its tool's `-t` (a CRC that does not match, a stream cut before its end), or whose text is
-past the stub's size, is refused as another's although its text opens with the stub's `.so` line. Another executable
-named `atr` in a directory of the default login `PATH` or `sudo`'s `secure_path` refuses the install under `MSG-E7B3`,
-naming its package, while the link to the wrapper and a merged directory reaching it, a file without an execute bit
-and a directory do not; those cases take an executable fixture root, `skip_required` where none is found. Each case runs
-beside its control; the file's header lists them.
+`restorecon -R` in `do_selinux_restore` names a root-owned tree and the account's trees take `walk_account_tree`,
+which is driven over the walker's statuses, a tree named through a symlinked ancestor and a path `realpath` cannot
+resolve, `require_acl_tools` refuses a host without the ACL tools and is called first, `ensure_dir` refuses a name
+that is not a directory where `install -d` would follow a link, the sandbox home and then `bin` reach their rows ahead
+of the first file written under them, and `do_install` places the sysusers fragment at the path `layout.lib.sh`
+declares. The names the short command `atr` takes are read the same way, over a fixture tree with `rpm` a shell
+function: each is replaced and removed only in one of this project's forms, a marked file `rpm` attributes to another
+package is refused, and an unmarked one is never removed. A page is the stub only while it holds the `.so` request
+and roff comments alone, so one that adds lines after the request is another's. The stub in each compression `man` reads
+(gzip, bzip2, xz, zstd) is this project's, and one read with its tool absent from `PATH` is refused as unreadable,
+naming the tool, rather than as another's. A compressed stub that fails its tool's `-t` (a CRC that does not match,
+a stream cut before its end), or whose text is past the stub's size, is refused as another's although its text opens
+with the stub's `.so` line. Another executable named `atr` in a directory of the default login `PATH` or `sudo`'s
+`secure_path` refuses the install under `MSG-E7B3`, naming its package, while the link to the wrapper and a merged
+directory reaching it, a file without an execute bit and a directory do not; those cases take an executable fixture
+root, `skip_required` where none is found. Each case runs beside its control; the file's header lists them.
 
-`install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, under each
-live-session reading with `restorecon` recorded: a `live` or `unreadable` reading does not walk any tree and names each
-one left, and the script's text is read for the properties a function cannot show, among them that `remove` reads
-the state ahead of its first policy-store write. The project walk every label and restore takes is driven
-through the checkout's `conf.lib.sh` over a registry holding each sign, and yields the `@` and `%` entries alone, since
-a path it yields takes the project type. Its remove section drives the sweep over the rules the registry walks do not
-derive and the unload over a stubbed `semodule`, each in its fail direction: a module the store still lists
-after the transaction is a refusal whatever the exit status said.
+`install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, with the tree
+walk and `restorecon` recorded and the live-session reader reading `live`: each walk runs through the library's walk
+whatever the reading, and one that did not label every entry is reported without stopping the run. The script's own
+lists of the trees under `/opt/ai-tools` it walks are held to the names the policy's `.fc` files type there, in both
+directions, so a tree the policy types cannot be left off the walks. The script's text is read for the properties
+a function cannot show: every `restorecon` names a root-owned tree or one file in the root-owned home, `remove` reads
+the sessions ahead of its first policy-store write, each label arm walks the shared asset trees, and the remove arm
+walks the control plane whole and the clone area. The root-owned trees `remove` reverts after the unload are driven
+with `restorecon` recorded: one call each, and a failed one warned under its code and closing the action non-zero.
+The project walk every label and restore takes is driven through the checkout's `conf.lib.sh` over a registry holding
+each sign, and yields the `@` and `%` entries alone, since a path it yields takes the project type. Its remove section
+drives the sweep over the rules the registry walks do not derive and the unload over a stubbed `semodule`, each in its
+fail direction: a module the store still lists after the transaction is a refusal whatever the exit status said.
 
 `spec-selinux-erase.sh` runs the `ai-tools-selinux` `%postun` the same way, its body read as RPM parses it (`rpmspec -P`
 where the host has it) and run under `/bin/sh` with the session reader and the store tools stubbed as recorders:
 a `live` and an `unreadable` reading make no store write, a reading that flips to `live` during the lock wait is the one
-the run acts on, and `none` sweeps, unloads and restores in the order [confinement](confinement.rule.md) states,
-with the gate's test rewritten as the control under which a live reading writes the store. The printed restore line is
-run through the stub, so a tree name carrying a space is held to reach `restorecon` whole. `spec-scriptlets.sh` beside
-it reads the spec as text for what source order shows: the `declare -F` guard on every library function a scriptlet
-calls, no agent `%preun` nulling the relabel helper's stderr, the `%postun`'s session read ahead of its first store
-write, and the escaping rule the spec's preamble states, held against the parsed text where `rpmspec` is on the host.
+the run acts on, and `none` reverts each installed agent's declared paths once per manifest, then sweeps, unloads
+and restores in the order [confinement](confinement.rule.md) states, the account's trees through the walker at their
+canonical paths where it is executable and through `restorecon` where it is not, with the gate's test rewritten
+as the control under which a live reading writes the store. The printed restore line is run through the stub, so a tree
+name carrying a space is held to reach `restorecon` whole. `spec-scriptlets.sh` beside it reads the spec as text
+for what source order shows: the `declare -F` guard on every library function a scriptlet calls, no agent `%preun`
+nulling the relabel helper's stderr, the `%postun`'s session read and agent revert ahead of its first store write,
+the `%post`'s walks at their canonical paths with no session reading and the agent relabel after the lock's release,
+and the escaping rule the spec's preamble states, held against the parsed text where `rpmspec` is on the host.
 `spec-atr-names.sh` runs the `ai-tools-base` `%pre` the same way over a fixture tree of the names `atr` takes: each
 of this project's forms passes, the stub in each compression `man` reads among them, each foreign entry exits 1 ahead
 of the account creation, a page that adds lines after the stub's request, the compressed stubs failing their tool's `-t`
@@ -1247,7 +1256,7 @@ the type comparisons. A function the report calls, removed, returns 3 with no re
 so a partial load does not read as SELinux off or an entrypoint not installed.
 
 A fifth covers the walks through the descriptor-held walker ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)),
-with `_ai_tools_relabel__relabel_tree` stubbed to each status it returns: a walker that could not run reaches the caller
+with `ai_tools_relabel__relabel_tree` stubbed to each status it returns: a walker that could not run reaches the caller
 ahead of the post-condition, a walk that left hardlinked files passes it and is returned, an entry the walk could not
 label fails the function, an unlabel of a name that is not a directory reaches the walker, and one of an absent
 directory drops its rules without a walk; an agent config directory's walk over each status gives its `partial`, `skip`
@@ -1263,8 +1272,8 @@ over a fixture tree. Its enforcing-host half is `integration/selinux.sh`'s walk 
 where each entry takes its rule's type and a link's target keeps its own, the hardlink sysctl as a boundary row,
 the policy's `rename` and `link` grants held to a reviewed table of `(type, class, permission)` behind a classifier
 control over synthetic rules, a walk beside a live process of the sandbox account, a revert over a hardlinked file
-at exit 4, an invalid UTF-8 name, and a `<<none>>` path. `sessions.sh` pins the reader the install-time restores read
-on two properties: each walk function is held equal to `ai-tools-stop`'s through `declare -f`, beside a control
+at exit 4, an invalid UTF-8 name, and a `<<none>>` path. `sessions.sh` pins the reader the policy unload reads on two
+properties: each walk function is held equal to `ai-tools-stop`'s through `declare -f`, beside a control
 that a one-character change breaks the equality, and every reading that cannot be made reads `unreadable` rather than
 `none`, over a fixture cgroup tree, with the strict-mode `IFS` its in-process callers set driven beside the default. Its
 boundary half is a type rule, so it is `integration/selinux.sh`'s policy read and `selinux/avc/avc-denials.sh` section

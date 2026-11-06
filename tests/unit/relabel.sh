@@ -207,8 +207,8 @@ if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
     ai_tools_providers__list_integrations_declaring() { printf 'dotnet\tbin obj\n'; }
     ai_tools_relabel__is_available() { return 0; }
     ai_tools_relabel__is_project_labelled()  { return 0; }
-    eval "build_real_relabel_tree() $(declare -f _ai_tools_relabel__relabel_tree | tail -n +2)"
-    _ai_tools_relabel__relabel_tree() { return 0; }
+    eval "build_real_relabel_tree() $(declare -f ai_tools_relabel__relabel_tree | tail -n +2)"
+    ai_tools_relabel__relabel_tree() { return 0; }
     CALLS=""
     semanage() { CALLS+="$*"$'\n'; return 0; }
     ai_tools_relabel__label_project /home/op/proj
@@ -285,7 +285,7 @@ if declare -F ai_tools_relabel__read_project_build_pattern >/dev/null 2>&1 \
     fi
     unset -f ai_tools_providers__list_integrations_declaring ai_tools_relabel__is_available \
              ai_tools_relabel__is_project_labelled semanage
-    eval "_ai_tools_relabel__relabel_tree() $(declare -f build_real_relabel_tree | tail -n +2)"
+    eval "ai_tools_relabel__relabel_tree() $(declare -f build_real_relabel_tree | tail -n +2)"
     unset -f build_real_relabel_tree
     unset CALLS
 else
@@ -293,16 +293,16 @@ else
 fi
 
 # ── The walks run the descriptor-pinned tree walker ──────────────────────────────────────────
-# Every recursive relabel goes through _ai_tools_relabel__relabel_tree, which runs ai-tools-relabel-tree. The walk is
+# Every recursive relabel goes through ai_tools_relabel__relabel_tree, which runs ai-tools-relabel-tree. The walk is
 # stubbed to each status it returns, recording its argument, and each function that runs it is driven over the status:
 # a walker that could not run (6) reaches the caller before the post-condition, a walk that left hardlinked files (4)
 # passes the post-condition and is returned, an entry the walk could not label (1) fails the function, an unlabel
 # of a name that is not a directory reaches the walker, and an unlabel of an absent directory drops its rules with no
 # walk.
 section "relabel: the walks run the tree walker and read each of its statuses (unit)"
-if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_tools_relabel__label_project >/dev/null 2>&1; then
+if declare -F ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_tools_relabel__label_project >/dev/null 2>&1; then
     if [[ ! -e /usr/local/libexec/ai-tools/ai-tools-relabel-tree ]]; then
-        status=0; _ai_tools_relabel__relabel_tree "${TESTDIR}" || status=$?
+        status=0; ai_tools_relabel__relabel_tree "${TESTDIR}" || status=$?
         if [[ "${status}" -eq 6 && "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == *"/usr/local/libexec/ai-tools/ai-tools-relabel-tree"* ]]; then
             pass "a walker that is not installed returns 6 and names its path"
         else
@@ -311,9 +311,9 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
     else
         note "an absent walker" "the walker is installed on this host, so its absence is not driven"
     fi
-    eval "walk_real_relabel_tree() $(declare -f _ai_tools_relabel__relabel_tree | tail -n +2)"
+    eval "walk_real_relabel_tree() $(declare -f ai_tools_relabel__relabel_tree | tail -n +2)"
     WALKS=""; LABEL_CHECKS=0; stub_labelled=0
-    _ai_tools_relabel__relabel_tree() {
+    ai_tools_relabel__relabel_tree() {
         WALKS+="$1"$'\n'
         AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${stub_walk_diagnostics}"
         _AI_TOOLS_RELABEL__SKIPPED_HARDLINK_COUNT="${stub_skipped_count:-0}"
@@ -461,21 +461,57 @@ if declare -F _ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_t
         else
             fail "control: an agent unlabel whose config walk labelled every entry returned ${status}"
         fi
+        # The entrypoint half of the erase: restorecon's status is swallowed, so the outcome is a read-back
+        # of the path's type. A path still at the entrypoint type, or one whose type cannot be read, returns 5
+        # with the path named ahead of the walk's own lines; a path at its default returns the walk's status.
+        entrypoint_saved="$(declare -f ai_tools_providers__is_entrypoint_fcontext_valid _ai_tools_relabel__find_entrypoint_paths \
+                                restorecon 2>/dev/null || true)"
+        ai_tools_providers__read_agent_manifest_field() {
+            case "$2" in config_dir) printf 'bin' ;; entrypoint_fcontext) printf '/fixture/claude\\.exe' ;; *) : ;; esac
+        }
+        ai_tools_providers__is_entrypoint_fcontext_valid() { return 0; }
+        _ai_tools_relabel__find_entrypoint_paths() { printf '%s\n' "${TESTDIR}/claude.exe"; }
+        restorecon() { return 0; }
+        _ai_tools_relabel__read_live_type() { printf '%s\n' "${stub_live_type}"; }
+        # entrypoint_is <live-type> <walk-status> <expected-status> <diagnostic-glob> <why>
+        entrypoint_is() {
+            local status=0
+            stub_live_type="$1"; stub_walk_status="$2"
+            ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || status=$?
+            # shellcheck disable=SC2053  # the fourth argument is a glob the diagnostic is matched against
+            if [[ "${status}" -eq "$3" && "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == $4 ]]; then
+                pass "$5: status $3"
+            else
+                fail "$5: status ${status}, diagnostic '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
+            fi
+        }
+        # The stubbed walk sets its lines whatever its status, so each glob ends on them.
+        entrypoint_is lib_t 0 0 "skipped hardlinked path *" "control: an entrypoint read back at its default type after its revert"
+        entrypoint_is "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" 0 5 "${TESTDIR}/claude.exe keeps ${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE} after its revert; skipped *" \
+            "an entrypoint still at its type after its revert returns 5 naming the path"
+        entrypoint_is "" 0 5 "the type of ${TESTDIR}/claude.exe could not be read back after its revert; skipped *" \
+            "an entrypoint whose type cannot be read back returns 5 naming the path"
+        entrypoint_is "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" 4 5 "${TESTDIR}/claude.exe keeps *; skipped hardlinked path *" \
+            "an entrypoint left at its type outranks a walk that left hardlinked files, and the diagnostic carries both"
+        entrypoint_is lib_t 4 4 "skipped hardlinked path *" "an entrypoint at its default leaves a walk's 4 as the status"
         unset -f ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
                  _ai_tools_relabel__register_fcontext _ai_tools_relabel__read_live_type \
                  _ai_tools_relabel__is_entrypoint_policy_active ai_tools_providers__list_enabled_agents \
-                 _ai_tools_relabel__label_agent_entrypoint
+                 _ai_tools_relabel__label_agent_entrypoint ai_tools_providers__is_entrypoint_fcontext_valid \
+                 _ai_tools_relabel__find_entrypoint_paths restorecon
+        eval "${entrypoint_saved}"
+        unset entrypoint_saved stub_live_type
         eval "${walk_saved}"
         unset walk_saved
     else
         skip "the config-directory walk" "no ${CP_HOME:-/opt/ai-tools}/bin to stand in for a config directory"
     fi
-    eval "_ai_tools_relabel__relabel_tree() $(declare -f walk_real_relabel_tree | tail -n +2)"
+    eval "ai_tools_relabel__relabel_tree() $(declare -f walk_real_relabel_tree | tail -n +2)"
     unset -f walk_real_relabel_tree ai_tools_relabel__is_available ai_tools_relabel__is_project_labelled \
              ai_tools_providers__list_integrations_declaring semanage
     unset CALLS WALKS
 else
-    skip "the tree walk" "_ai_tools_relabel__relabel_tree not defined by ${LIB}"
+    skip "the tree walk" "ai_tools_relabel__relabel_tree not defined by ${LIB}"
 fi
 
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────
@@ -1072,7 +1108,7 @@ fi
 
 
 # ── The real wrapper over each walker status ─────────────────────────────────────────────────
-# _ai_tools_relabel__relabel_tree runs the walker at a readonly path, so each case sources a copy of the library
+# ai_tools_relabel__relabel_tree runs the walker at a readonly path, so each case sources a copy of the library
 # whose walker path is substituted, in a shell of its own, beside the real library's siblings. With /bin/bash
 # as the walker the wrapper's `<walker> -- <dir>` runs <dir> as a script, so a fixture script stands for the walker's
 # exit status and stderr without an executable fixture; a missing and a non-executable walker path are the two it
@@ -1093,7 +1129,7 @@ if grep -q '^readonly _AI_TOOLS_RELABEL__TREE_WALKER_PATH=' "${LIB}"; then
     # wrapper_run <copy> <script> : the wrapper's three outputs over <script> as the walked directory.
     # shellcheck disable=SC2016  # the inner shell expands these
     wrapper_run() {
-        bash -c 'source "$1" 2>/dev/null; status=0; _ai_tools_relabel__relabel_tree "$2" || status=$?
+        bash -c 'source "$1" 2>/dev/null; status=0; ai_tools_relabel__relabel_tree "$2" || status=$?
                  printf "%s\n%s\n%s\n" "${status}" "$(ai_tools_relabel__get_skipped_hardlink_count)" \
                      "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"' _ "$1" "$2"
     }

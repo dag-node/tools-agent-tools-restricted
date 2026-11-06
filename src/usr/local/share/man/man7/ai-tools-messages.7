@@ -553,10 +553,6 @@ the toolchain library (${TOOLCHAIN_LIB}) did not load its link readers \-\- the 
 WARNING.
 declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be seeded
 .TP
-.B MSG-B9C4
-WARNING.
-left the labels under ${clones} as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${clones}
-.TP
 .B MSG-C2H5
 WARNING.
 registry\-unmigrated
@@ -587,7 +583,7 @@ an operator must not be the sandbox account ${SANDBOX_USER}
 .TP
 .B MSG-C9W9
 WARNING.
-could not restore labels under ${clones}; run: sudo restorecon \-FR ${clones}
+could not restore labels under ${dir} \-\- ${kept:\-ai\-tools\-relabel\-tree exited ${rc}}; run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${dir}
 .TP
 .B MSG-D4S7
 ERROR.
@@ -892,6 +888,10 @@ compiled module ${pp} not found \-\- reinstall ai\-tools\-selinux, or from a che
 .B MSG-S5S2
 WARNING.
 the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than the file(s) above \-\- the copy a file is compared with is the newest by date, so set the clock first (timedatectl set\-time, or chronyc makestep once a time source is reachable), then re\-run this command; no file was compared
+.TP
+.B MSG-S8K7
+WARNING.
+could not restore labels under ${clones} \-\- realpath cannot resolve it; once it resolves, run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${clones}
 .TP
 .B MSG-S9G3
 WARNING.
@@ -1738,7 +1738,7 @@ the ${agent} entrypoint changed under an unchanged version ${version} \-\- leavi
 .TP
 .B MSG-V4H3
 WARNING.
-dropped the file\-context rules for ${agent}; the walk over its config directory could not label every entry \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${agent_config_dir}
+dropped the file\-context rules for ${agent}; a path they covered keeps its type \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; where the line names an entry of its config directory, re\-run the walk: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${agent_config_dir}
 .TP
 .B MSG-W6V4
 ERROR.
@@ -1946,6 +1946,10 @@ ERROR.
 This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups
 .SS ai-tools-unclaim
 .TP
+.B MSG-B7A8
+WARNING.
+reset the SELinux label under ${canonical} except these hardlinked paths, which keep ai_tools_project_t: ${kept:\-the walker printed no detail}; list the hardlinked files the tree holds now with: find $(printf '%q' "${canonical}") \-xdev \-type f \-links +1
+.TP
 .B MSG-H9D4
 ERROR.
 \-\-unlisted: ${caller} is not a configured operator \-\- nothing changed
@@ -1976,15 +1980,11 @@ ERROR.
 .TP
 .B MSG-T4S2
 WARNING.
-could not reset the SELinux label \-\- run: sudo restorecon \-RF ${canonical}
+could not reset the SELinux label under ${canonical} \-\- ${kept:\-ai\-tools\-relabel\-tree exited ${rc}}; run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- $(printf '%q' "${canonical}")
 .TP
 .B MSG-T6H6
 WARNING.
 unknown option: ${_arg}
-.TP
-.B MSG-T6T2
-WARNING.
-left the SELinux label under ${canonical} as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-RF ${canonical}
 .TP
 .B MSG-V9Q6
 ERROR.
@@ -2136,6 +2136,10 @@ WARNING.
 ignoring every contributed command: ${dir} is a symlink, is not root\-owned, or is writable by group/other
 .SS install-selinux.sh
 .TP
+.B MSG-A3F7
+WARNING.
+could not restore the default types under $1, which keeps a type the policy no longer defines; run: sudo restorecon \-FR $1
+.TP
 .B MSG-A3V5
 ERROR.
 could not read the module store \-\- ${listing//$'\en'/; }; $1; re\-run once semodule answers: sudo $0 remove
@@ -2150,11 +2154,15 @@ the walk over the config directory of ${subject} left ${detail} hardlinked path(
 .TP
 .B MSG-B8Q9
 WARNING.
-dropped the file\-context rules for ${agent}; the walk over its config directory could not label every entry \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}
+dropped the file\-context rules for ${agent}; a path they covered keeps its type \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}
 .TP
 .B MSG-D3G7
 WARNING.
 could not load layout module ${module}; build output is typed at relabel time only
+.TP
+.B MSG-D6B7
+WARNING.
+could not restore every label under $1 \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; re\-run this command once the entry it names is fixed
 .TP
 .B MSG-E2A4
 ERROR.
@@ -2224,6 +2232,10 @@ copied toolchain link for ${subject}: its launcher resolves to
 ERROR.
 the shipped module set is empty \-\- is the group registry readable?
 .TP
+.B MSG-Q6V5
+WARNING.
+these paths under ${dir} keep a type the policy no longer defines: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:\-the walker printed no detail}; list an inode's names with: sudo find $(printf '%q' "${mount:\-/}") \-xdev \-inum <inode> \-ls
+.TP
 .B MSG-Q8W8
 WARNING.
 no agent resolved from the manifests, so no entrypoint was labelled
@@ -2256,10 +2268,6 @@ labelling skipped for ${subject} \-\- ${detail} ${wanted}
 ERROR.
 an agent path is not correctly labelled (see above) \-\- the session would be refused, or run UNCONFINED
 .TP
-.B MSG-U8U4
-WARNING.
-left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run:
-.TP
 .B MSG-V8U7
 WARNING.
 policy\-store writes are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
@@ -2275,6 +2283,10 @@ could not unlabel $1
 .B MSG-X4S3
 WARNING.
 unknown group '${name}'. Available groups:
+.TP
+.B MSG-X5F9
+WARNING.
+could not resolve $1 to a canonical path, so it was not walked
 .TP
 .B MSG-Y5N5
 WARNING.
@@ -2308,10 +2320,6 @@ no home directory on this host for ${name} (${home:\-none})
 .B MSG-C7T6
 ERROR.
 no account named
-.TP
-.B MSG-D6A5
-WARNING.
-left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
 .TP
 .B MSG-D7C6
 ERROR.
@@ -2352,6 +2360,10 @@ the asset reconcile reported a finding \-\- atr admin status names each one and 
 .B MSG-G3P2
 WARNING.
 could not write the timer stamp in /opt/ai\-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update \-\- see: atr admin system layout
+.TP
+.B MSG-G4W5
+WARNING.
+could not restore every label under ${dir} \-\- ai\-tools\-relabel\-tree exited ${rc}: ${kept:\-no detail}; once that is fixed, run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- $(printf '%q' "${dir}")
 .TP
 .B MSG-G6H3
 WARNING.
@@ -2436,6 +2448,10 @@ cannot source ${1} \-\- the checkout is incomplete; re\-clone or re\-download it
 .B MSG-S3Y6
 ERROR.
 no usable operator named \-\- re\-run the install and name one that exists
+.TP
+.B MSG-S5G6
+WARNING.
+could not resolve $(printf '%q' "$1") to a canonical path, so it was not walked; once it resolves, re\-run this install
 .TP
 .B MSG-S9C4
 ERROR.

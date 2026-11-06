@@ -557,35 +557,40 @@ cannot be labelled until the module's types exist in the kernel — at the defau
 **reported with `semodule`'s own message** and the command that repeats it, rather than swallowed: every type
 the entrypoint and project labels name comes from this module, so a load that did not happen surfaces later as a relabel
 that cannot register its rules and a launch that fail-closes, with no message naming this as the cause. The transaction
-still completes — the remedy is a re-run, not a rollback. After the module load, `%post` also `restorecon`s the trees
-that carry `ai_tools*` types (the handback daemon among them) — the root-owned ones always, and `/opt/ai-tools`
-and the clone area only while no process of the sandbox account is live, with a warning naming the walk to run when it
-skips ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) — and, when the handback socket is already active — an upgrade
-— refreshes the live listener: `restorecon` fixes the daemon binary's on-disk label, but the socket bound on tmpfs
-`/run/ai-tools` keeps its stale context and its per-connection handler keeps running `unconfined_service_t`,
-so `daemon-reexec` + a socket restart re-derive the listener context from the now-correct binary label (the same
-sequence `install-selinux.sh` `_relabel_runtime` runs; see [handback-bridge](handback-bridge.rule.md)). Without it
-a session's `connectto` to the handback socket is denied under enforcing and every hook handback silently no-ops.
-On a fresh install the socket is not up yet — `ai-tools-base` `%posttrans` starts it later, already correctly labelled —
-so the refresh no-ops there. `%postun` on final erase unloads every loaded `ai_tools*` module, enumerated rather than
-named: a group's `.pp` is erased with the package while the compiled module persists in the store, and a group compiled
-from a source checkout was never in the rpm database at all. Ahead of the unload it drops **every local file-context
-rule naming an `ai_tools` type**, by type rather than by registry, since `semodule -r` refuses while one stands
-and a claimed project's rule is one; a later claim writes the rule again. Both store writes wait on the reading
-the `%post` makes of the sandbox account's sessions ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)), taken
-under the policy-store lock ([updater](updater.rule.md)) so a session started during the wait is read: a process
-of the account live at the unload would run on in a domain the policy no longer defines, so while the reading is
-anything but `none` the erase leaves the policy loaded and every rule in place and prints the stop and the re-run,
-the direction `install-selinux.sh remove` refuses in. A dropped rule shaped like a project's is named
-with the `restorecon -R` that returns its tree to the default type and not walked, since a scriptlet holds neither
+still completes — the remedy is a re-run, not a rollback. After the module load, `%post` also labels the trees
+that carry `ai_tools*` types — `restorecon` for the root-owned ones (the handback daemon among them), and the tree
+walker for `/opt/ai-tools` and the clone area, whatever process of the sandbox account runs
+([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) — then runs `ai-tools-relabel-agent` once it has released the lock
+that helper takes, since the walk does not write the hardlinked entrypoint; and, when the handback socket is already
+active — an upgrade — it refreshes the live listener: `restorecon` fixes the daemon binary's on-disk label,
+but the socket bound on tmpfs `/run/ai-tools` keeps its stale context and its per-connection handler keeps running
+`unconfined_service_t`, so `daemon-reexec` + a socket restart re-derive the listener context from the now-correct binary
+label (the same sequence `install-selinux.sh` `_relabel_runtime` runs; see [handback-bridge](handback-bridge.rule.md)).
+Without it a session's `connectto` to the handback socket is denied under enforcing and every hook handback silently
+no-ops. On a fresh install the socket is not up yet — `ai-tools-base` `%posttrans` starts it later, already correctly
+labelled — so the refresh no-ops there. `%postun` on final erase unloads every loaded `ai_tools*` module, enumerated
+rather than named: a group's `.pp` is erased with the package while the compiled module persists in the store,
+and a group compiled from a source checkout was never in the rpm database at all. Ahead of the unload it drops **every
+local file-context rule naming an `ai_tools` type**, by type rather than by registry, since `semodule -r` refuses while
+one stands and a claimed project's rule is one; a later claim writes the rule again. Both store writes wait on a reading
+of the sandbox account's sessions ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)), taken under the policy-store lock
+([updater](updater.rule.md)) so a session started during the wait is read: a process of the account live at the unload
+would run on in a domain the policy no longer defines, so while the reading is anything but `none` the erase leaves
+the policy loaded and every rule in place and prints the stop and the re-run, the direction `install-selinux.sh remove`
+refuses in. On a `none` reading it first reverts each installed agent's declared paths while the policy still defines
+their types (`ai_tools_relabel__unlabel_agent_paths`, as the installer's `remove` does), since the walk after the unload
+does not write a hardlinked file and an entrypoint can have a second name. A dropped rule shaped like a project's is
+named with the `restorecon -R` that returns its tree to the default type and not walked, since a scriptlet holds neither
 the protected-paths backstop nor the literal check the installer's `remove` walks a tree under; one an earlier release
 wrote raw is named for review instead. The unload is read back from the store rather than from `semodule`'s exit status,
 and a store that cannot be listed is reported as that and never read as an empty one, since an empty store is
-what `removed` rests on; once the read-back shows every `ai_tools` module gone, the trees the `%post` restores take one
-`restorecon` each, the account's under the same reading. A module left loaded, a rule semanage will not delete
+what `removed` rests on; once the read-back shows every `ai_tools` module gone, the trees the `%post` labels return
+to their default types — the root-owned ones through `restorecon`, the account's through the walker while it is still
+executable and through `restorecon` where the same transaction erased `ai-tools-base`. A walk that left hardlinked paths
+names each with the `find` that lists its inode's names. A module left loaded, a rule semanage will not delete
 and a tree the walk could not restore are each named with the command that completes the step.
 `install-selinux.sh remove` takes the same steps from a checkout, refuses at either read, and exits 1 over a module left
-loaded.
+loaded or a path the revert left on a type the policy no longer defines, an agent's config directory included.
 
 The `%selinux_*` rpm macros are not used. `%selinux_requires` records the build host's `selinux-policy` version
 as a `Requires`, which a `noarch` package cannot satisfy across both EL targets; `%selinux_modules_install`/`_uninstall`

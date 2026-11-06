@@ -89,6 +89,9 @@ GROUPS_LIB="${DIR}/../src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 source "${GROUPS_LIB}" || refuse_unsourced "${GROUPS_LIB}"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.npm .cache .local .config .gitconfig)
+# The control plane's shared asset directories, which ai_tools.fc types ai_tools_home_t. Root owns each one,
+# and the sandbox group writes inside integrations/, so each takes the walk.
+SHARED_TREES=(skills subagents orientation integrations)
 
 # A deliberate twin of install.sh's non-root refusal (messaging.rule.md): the code is defined there and printed here,
 # so an operator meets one token whichever installer refused.
@@ -557,9 +560,8 @@ prompt_groups() {
 #
 # The installed sandbox-exec.lib.sh is sourced first where it is readable: it carries the account name the installer
 # substituted, where the checkout's copy holds the token no account resolves, and its include guard makes the checkout
-# copy sessions.lib.sh sources a no-op, so the live-session reading (_sandbox_session_state) resolves the sandbox
-# account. A host with no base install has no installed copy, and its reading is `unreadable`: every account-writable
-# walk is left, and the warning names `sudo ./install.sh install` as what deploys the library.
+# copy sessions.lib.sh sources a no-op, so the live-session reading `remove` takes resolves the sandbox account. A host
+# with no base install has no installed copy, its reading is `unreadable`, and `remove` refuses.
 SANDBOX_EXEC_LIB="/usr/local/lib/ai-tools/sandbox-exec.lib.sh"
 if [[ -r "${SANDBOX_EXEC_LIB}" ]]; then
     # shellcheck source=/dev/null
@@ -577,34 +579,62 @@ SAFE_PATHS_LIB="${RELABEL_LIB%/*}/safe-paths.lib.sh"
 source "${SAFE_PATHS_LIB}" || refuse_unsourced "${SAFE_PATHS_LIB}"
 
 # The trees the sandbox account can write -- the toolchain, the home state, the clones, a claimed project -- are
-# restored only while no process of that account is live (cli.rule.md, ref-section-e6c6). One reading per run, taken
-# here; a session launched after it is the residual that rule states. The root-owned trees (the log and runtime
-# directories, the helpers) and the operators' config directories are restored whatever it reads.
-_sandbox_session_state="$(ai_tools_sessions__read_live_session_state)"
-_left_trees=()
-# _restore_account_tree_labels <path>: restorecon -FR <path> where the reading is `none`; otherwise record <path>
-# for the one warning the run closes with. A path that does not exist is neither.
+# restored through the descriptor-pinned walker, which labels the entry it holds open, so they are walked while
+# a process of that account runs (cli.rule.md, ref-section-e6c6). The root-owned trees (the log and runtime directories,
+# the helpers) and the operators' config directories keep restorecon.
+#
+# Each walk is over the canonical path realpath resolves: the walker reads its root back through /proc/self/fd
+# and refuses a root whose path is not the one it was given, which a symlinked ancestor (/opt a link) makes of every
+# fixed path here. _resolve_walk_root <path>: print that path where <path> exists; return 1 with no output where it
+# does not exist, and where realpath cannot resolve it, warned under MSG-X5F9 and not walked.
+_resolve_walk_root() {
+    [[ -e "$1" || -L "$1" ]] || return 1
+    realpath -e -- "$1" 2>/dev/null && return 0
+    warn MSG-X5F9 "could not resolve $1 to a canonical path, so it was not walked"
+    return 1
+}
+
+# _restore_account_tree_labels <dir> [agent-relabel]: the label direction. Walk <dir> where it exists through
+# ai_tools_relabel__relabel_tree (relabel.lib.sh) and report a walk that did not label every entry: hardlinked paths
+# left at their type as a note -- with `agent-relabel`, the toolchain's walk, which adds that an entrypoint among them
+# takes its type from the agent relabel that follows -- a walker that could not run under MSG-G6X4, and any other
+# failure as a warning carrying the walker's line. None of them stops the run.
 _restore_account_tree_labels() {
-    [[ -e "$1" || -L "$1" ]] || return 0
-    if [[ "${_sandbox_session_state}" == none ]]; then
-        restorecon -FR "$1" 2>/dev/null || true
-    else
-        _left_trees+=("$1")
-    fi
+    local dir rc=0
+    dir="$(_resolve_walk_root "$1")" || return 0
+    ai_tools_relabel__relabel_tree "${dir}" || rc=$?
+    case "${rc}" in
+        0) ;;
+        4) _report_skipped_walk_entries "${dir}" "${2:-}" ;;
+        6) _warn_walker_unavailable "${dir}" ;;
+        *) _warn_walk_incomplete "${dir}" ;;
+    esac
 }
-# _warn_left_trees: the run's EXIT trap, so a run that ends in a die still names what it left.
-_warn_left_trees() {
-    (( ${#_left_trees[@]} )) || return 0
-    local reason="an agent session, the toolchain update, or a step run as the sandbox account is live"
-    [[ "${_sandbox_session_state}" == live ]] \
-        || reason="this host's sessions could not be read (where ${SANDBOX_EXEC_LIB} is absent, sudo ./install.sh install deploys it)"
-    warn MSG-U8U4 "left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run:"
-    local tree
-    for tree in "${_left_trees[@]}"; do
-        warn "    sudo restorecon -FR $(printf '%q' "${tree}")"
-    done
+# _warn_walk_incomplete <dir>: the walk over <dir> could not label an entry, or the walker refused its root;
+# the walker's line says which.
+_warn_walk_incomplete() {
+    warn MSG-D6B7 "could not restore every label under $1 -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; re-run this command once the entry it names is fixed"
 }
-trap _warn_left_trees EXIT
+
+# _revert_account_tree_labels <dir>: the removal direction, the remove action's walk over a tree whose types the
+# unloaded policy no longer defines. A walk that left hardlinked paths at their type is a warning under MSG-Q6V5, since
+# a path left on a type the agent reads and writes is more access, with the find that lists an inode's names from
+# the tree's mount; a walker that could not run and any other failure keep their warnings. Each sets REMOVE_LEFT_PATHS,
+# which the action's close reads to exit non-zero.
+REMOVE_LEFT_PATHS=0
+_revert_account_tree_labels() {
+    local dir rc=0 mount
+    dir="$(_resolve_walk_root "$1")" || return 0
+    ai_tools_relabel__relabel_tree "${dir}" || rc=$?
+    case "${rc}" in
+        0) return 0 ;;
+        4) mount="$(stat -c '%m' -- "${dir}" 2>/dev/null || true)"
+           warn MSG-Q6V5 "these paths under ${dir} keep a type the policy no longer defines: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}; list an inode's names with: sudo find $(printf '%q' "${mount:-/}") -xdev -inum <inode> -ls" ;;
+        6) _warn_walker_unavailable "${dir}" ;;
+        *) _warn_walk_incomplete "${dir}" ;;
+    esac
+    REMOVE_LEFT_PATHS=1
+}
 
 # _locked <command...>: run one store-writing command under ai_tools_relabel__lock, released when it returns. semanage
 # and semodule report an error to whichever process finds the policy store held, and ai-tools-relabel.path fires
@@ -642,12 +672,19 @@ _labels_drop() {
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
         rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
+        # Statuses 4, 5 and 6 leave a path on a type the unload removes. The walk over /opt/ai-tools after the unload
+        # does not write a hardlinked entry either, and its outcome is not read per path, so each status sets
+        # REMOVE_LEFT_PATHS for the action's close.
         case "${rc}" in
             0) ;;
-            4) _report_skipped_walk_entries "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ;;
-            6) _warn_walker_unavailable "${agent}'s config directory" ;;
-            # The rules are dropped and the walk over the config directory could not label an entry.
-            5) warn MSG-B8Q9 "dropped the file-context rules for ${agent}; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
+            4) _report_skipped_walk_entries "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
+               REMOVE_LEFT_PATHS=1 ;;
+            6) _warn_walker_unavailable "${agent}'s config directory"
+               REMOVE_LEFT_PATHS=1 ;;
+            # The rules are dropped and a path they covered keeps its type: an entrypoint after its per-path revert,
+            # or an entry the walk over the config directory could not label; the diagnostic names which.
+            5) warn MSG-B8Q9 "dropped the file-context rules for ${agent}; a path they covered keeps its type -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"
+               REMOVE_LEFT_PATHS=1 ;;
             *) log "  ${agent}: no file-context rules to drop" ;;
         esac
     done
@@ -656,9 +693,9 @@ _labels_drop() {
 # _resolve_pattern_tree <pattern>: print the directory a project-shaped rule `<literal>(/.*)?` was written
 # for, unescaped, where it exists, is its own canonical path, and the protected-paths backstop allows it as a target;
 # fail without output for any other pattern, and for every pattern where the backstop did not load. The tree is walked
-# as root by `restorecon -FR`, so the literal must name it directly: one carrying a `..`, a symlinked component
-# or a link leaf resolves somewhere the rule did not name, and the backstop reads the string it is given, not
-# what the kernel resolves. The paths a raw rule's regex also matched are not its.
+# as root by the tree walker, so the literal must name it directly: one carrying a `..`, a symlinked component or a link
+# leaf resolves somewhere the rule did not name, and the backstop reads the string it is given, not what the kernel
+# resolves. The paths a raw rule's regex also matched are not its.
 _resolve_pattern_tree() {
     local literal="${1%(/.*)?}"
     [[ "${literal}" != "$1" && "${literal}" != *'(/.*)?'* ]] || return 1
@@ -672,7 +709,7 @@ _resolve_pattern_tree() {
 
 # _drop_remaining_policy_type_rules: delete the local rules the registry walks did not derive and the unload would still
 # refuse on (ai_tools_relabel__list_local_rules_naming_policy_types), naming each; a project tree one covers takes
-# the same gated restore as a registered project. Called under _locked.
+# the same walk as a registered project. Called under _locked.
 _drop_remaining_policy_type_rules() {
     local pattern letter type tree
     while IFS=$'\t' read -r pattern letter type; do
@@ -680,7 +717,7 @@ _drop_remaining_policy_type_rules() {
         if semanage fcontext -d -f "${letter}" -- "${pattern}" >/dev/null 2>&1; then
             log "  dropped ${pattern} (${type}): a rule outside this host's registries"
             if tree="$(_resolve_pattern_tree "${pattern}")"; then
-                _restore_account_tree_labels "${tree}"
+                _revert_account_tree_labels "${tree}"
             fi
         else
             warn MSG-N5W8 "could not drop the local file-context rule ${pattern} (${type}) -- the module unload refuses while it stands; remove it with: sudo semanage fcontext -d -f ${letter} -- $(printf '%q' "${pattern}")"
@@ -856,14 +893,55 @@ for_each_project() {
     done < "${ALLOWLIST}"
 }
 
-# _restore_home_state_labels: restore the labels under each of the account's own state trees (HOME_STATE), each behind
-# the live-session reading _restore_account_tree_labels makes.
+# _restore_home_state_labels: restore the labels on each of the account's own state entries (HOME_STATE). A directory
+# takes the walk _restore_account_tree_labels runs, since the account can write the entries inside it. A file,
+# .gitconfig, takes one `restorecon -F`: its parent is the home, root-owned and not writable by the account (its layout
+# row), so the account cannot put another inode at its name, and the walker refuses a root that is not a directory.
 _restore_home_state_labels() {
-    local p
+    local p path
     for p in "${HOME_STATE[@]}"; do
-        _restore_account_tree_labels "/opt/ai-tools/${p}"
+        path="/opt/ai-tools/${p}"
+        if [[ -d "${path}" && ! -L "${path}" ]]; then
+            _restore_account_tree_labels "${path}"
+        elif [[ -e "${path}" || -L "${path}" ]]; then
+            restorecon -F "${path}" 2>/dev/null || true
+        fi
     done
 }
+
+# _restore_shared_tree_labels: run _restore_account_tree_labels over each shared asset directory (SHARED_TREES) that is
+# a directory and not a symlink. A source install creates them in the layout reconcile, ahead of the policy load,
+# so each holds the base policy's type until this walk.
+_restore_shared_tree_labels() {
+    local name path
+    for name in "${SHARED_TREES[@]}"; do
+        path="/opt/ai-tools/${name}"
+        if [[ -d "${path}" && ! -L "${path}" ]]; then
+            _restore_account_tree_labels "${path}"
+        fi
+    done
+}
+
+# _revert_root_tree_labels: the remove action's revert of the root-owned trees ai_tools.fc types -- the operation logs,
+# the root helpers with the handback daemon, the handback runtime directory -- one `restorecon -FR` each, run
+# after the unload so each takes the base policy's type. A restorecon that fails is warned under MSG-A3F7 and sets
+# REMOVE_LEFT_PATHS.
+_revert_root_tree_labels() {
+    if [[ -d "${LOG_DIR}" ]] && ! restorecon -FR "${LOG_DIR}" 2>/dev/null; then
+        _warn_root_tree_left "${LOG_DIR}"
+    fi
+    if [[ -d /usr/local/libexec/ai-tools ]] && ! restorecon -FR /usr/local/libexec/ai-tools 2>/dev/null; then
+        _warn_root_tree_left /usr/local/libexec/ai-tools
+    fi
+    if [[ -d "${RUN_DIR}" ]] && ! restorecon -FR "${RUN_DIR}" 2>/dev/null; then
+        _warn_root_tree_left "${RUN_DIR}"
+    fi
+}
+_warn_root_tree_left() {
+    warn MSG-A3F7 "could not restore the default types under $1, which keeps a type the policy no longer defines; run: sudo restorecon -FR $1"
+    REMOVE_LEFT_PATHS=1
+}
+
 # _label_project/_unlabel_project: thin wrappers over the shared lib so this sweep and the ai-tools-relabel helper share
 # one implementation. Non-zero is swallowed (warn, don't die) so one bad project never aborts a whole relabel.
 # _unlabel_project already restorecons via the lib; the remove action's later project pass is a harmless
@@ -900,30 +978,25 @@ _unlabel_project() {
 # in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS at the type they carry, since through another name a path may be another tree's.
 _report_skipped_walk_entries() {
     log "  the walk over $1 left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}"
+    [[ "${2:-}" != agent-relabel ]] || log "  an agent entrypoint among them takes its type from the agent relabel that follows"
 }
-# _warn_walker_unavailable <dir>: the walk over <dir> did not start, because the tree walker or the selinux module it
-# imports is not installed.
+# _warn_walker_unavailable <dir>: the walk over <dir> did not start, because the tree walker is not installed
+# or libselinux.so.1, which it loads, did not load.
 _warn_walker_unavailable() {
     warn MSG-G6X4 "left the labels on $1 as they were: the tree walker /usr/local/libexec/ai-tools/ai-tools-relabel-tree could not run -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}; reinstall ai-tools-base, or install libselinux where the line names libselinux.so.1, then re-run this command"
 }
 # _label_sandbox_clones: apply the static ai_tools_project_t label (ai_tools.fc) to every existing sandbox clone, then
 # REPORT and VERIFY each one. The per-project loop skips sandbox paths (they carry no dynamic semanage rule --
 # the static rule covers them), so without this an operator is shown no evidence the clones were relabelled even though
-# they are the trees the agent runs in. The label is verified, not assumed: restorecon exits 0 even when it writes
-# the WRONG type -- e.g. a module loaded before the clone rule was carried under both /opt and /var/opt, on a host
-# whose file_contexts.subs_dist does not alias one to the other -- so each clone's achieved label is checked
-# and a mismatch warns rather than passing silently. Best-effort and SELinux-gated like the rest of the sweep: on a host
-# without SELinux the restorecon no-ops and the verify/report is skipped, and so it is where the live-session reading
-# left the walk.
+# they are the trees the agent runs in. The label is verified, not assumed: the walk writes the type the file-context
+# database maps, and exits 0 when that is the WRONG type -- e.g. a module loaded before the clone rule was carried
+# under both /opt and /var/opt, on a host whose file_contexts.subs_dist does not alias one to the other -- so each
+# clone's achieved label is checked and a mismatch warns rather than passing silently. Best-effort and SELinux-gated
+# like the rest of the sweep: on a host without SELinux the verify/report is skipped.
 _label_sandbox_clones() {
     [[ -d "${SANDBOX_PROJECTS}" ]] || return 0
     _restore_account_tree_labels "${SANDBOX_PROJECTS}"
     ai_tools_relabel__is_available || return 0
-    # A walk the reading left is not verified: a clone's type then says what an earlier walk gave it.
-    if [[ "${_sandbox_session_state}" != none ]]; then
-        log "sandbox clone labels were not re-applied this run -- the clone area is in the closing warning"
-        return 0
-    fi
     local clone
     for clone in "${SANDBOX_PROJECTS}"/*/; do
         [[ -d "${clone}" ]] || continue           # no clones: the glob stays literal, -d fails
@@ -1038,7 +1111,7 @@ case "${ACTION}" in
     stage_shipped_modules
 
     section "Labelling"
-    _restore_account_tree_labels "${NVM_DIR}"
+    _restore_account_tree_labels "${NVM_DIR}" agent-relabel
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
@@ -1049,6 +1122,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _restore_home_state_labels
+    _restore_shared_tree_labels
     _locked _labels_apply
 
     # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching here means the preceding
@@ -1119,7 +1193,7 @@ case "${ACTION}" in
 
   relabel)
     section "Re-applying labels"
-    _restore_account_tree_labels "${NVM_DIR}"
+    _restore_account_tree_labels "${NVM_DIR}" agent-relabel
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
@@ -1130,6 +1204,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _restore_home_state_labels
+    _restore_shared_tree_labels
     _locked _labels_apply
     ok "relabel done"
     ;;
@@ -1161,7 +1236,7 @@ case "${ACTION}" in
     stage_shipped_modules force
 
     section "Re-applying labels"
-    _restore_account_tree_labels "${NVM_DIR}"
+    _restore_account_tree_labels "${NVM_DIR}" agent-relabel
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
@@ -1171,6 +1246,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _restore_home_state_labels
+    _restore_shared_tree_labels
     _locked _labels_apply
     ok "rebuild done"
     ;;
@@ -1178,10 +1254,9 @@ case "${ACTION}" in
   remove)
     section "Removing SELinux confinement"
     # Refused before the first store write while the reading is not `none`: a process of the account live at the unload
-    # would run on in a domain the policy no longer defines, and the restores after it walk the account's trees by path.
-    # The unload refuses on any local rule naming a type it removes, so the sweep after the registry walks drops
-    # the rules they do not derive.
-    [[ "${_sandbox_session_state}" == none ]] \
+    # would run on in a domain the policy no longer defines. The unload refuses on any local rule naming a type it
+    # removes, so the sweep after the registry walks drops the rules they do not derive.
+    [[ "$(ai_tools_sessions__read_live_session_state)" == none ]] \
         || die MSG-H7Q2 "left the policy loaded: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re-run: sudo $0 remove"
     log "dropping project fcontext rules"
     _locked _labels_drop
@@ -1189,9 +1264,17 @@ case "${ACTION}" in
     _locked _drop_remaining_policy_type_rules
     _unload_modules
     log "reverting contexts to defaults"
-    _restore_account_tree_labels "${NVM_DIR}"
-    _restore_home_state_labels
-    for_each_project _restore_account_tree_labels
+    # The control plane is walked whole, as the selinux subpackage's %postun walks it: a path moved into it keeps
+    # the type it had, which no .fc row under it names -- an asset retired out of skills/. The clone area is typed
+    # by ai_tools.fc and listed in no registry.
+    _revert_account_tree_labels "${CP_HOME}"
+    _revert_account_tree_labels "${SANDBOX_PROJECTS}"
+    _revert_root_tree_labels
+    for_each_project _revert_account_tree_labels
+    if (( REMOVE_LEFT_PATHS )); then
+        sayx "  removed the policy; the paths named above keep a type it no longer defines"
+        exit 1
+    fi
     ok "removed"
     ;;
 
