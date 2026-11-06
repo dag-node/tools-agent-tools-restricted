@@ -3,7 +3,8 @@
 # tests/unit/spec-selinux-erase.sh
 # Hermetic check of the ai-tools-selinux %postun in packaging/ai-tools.spec: on final erase it does not write the policy
 # store while the sandbox account's sessions read `live` or `unreadable` (cli.rule.md, ref-section-e6c6),
-# and under `none` it drops every local rule naming a policy type, unloads the modules, names each project tree
+# and under `none` it reverts each installed agent's declared paths through the library's unlabel, once per manifest
+# and ahead of the rule sweep, drops every local rule naming a policy type, unloads the modules, names each project tree
 # a dropped rule covered with the restorecon that resets it, and restores the control-plane and sandbox trees once
 # the store shows every ai_tools module gone (confinement.rule.md, "How the policy ships"): the sandbox account's trees
 # through ai-tools-relabel-tree where it is executable, and through restorecon where an erase of base removed it.
@@ -65,6 +66,20 @@ project="${TESTDIR}/proj with spaces"; raw="${TESTDIR}/raw[0-9]+"; absent="${TES
 legacy="${TESTDIR}/legacy.v1"
 mkdir -p "${libexec}" "${lib}" "${home}/.nvm" "${clones}" "${project}" "${raw}" "${conf}" "${legacy}"
 
+# The installed agent manifests the revert loops over, and a relabel.lib.sh whose unlabel records each agent it is
+# called for and returns the status a marker names, with the diagnostic a walk would leave. The scriptlet's child
+# bash sources it from the rewritten library path, so the loop and its rendering are the scriptlet's own.
+mkdir -p "${lib}/agents.d"
+: > "${lib}/agents.d/acme.conf"; : > "${lib}/agents.d/beta.conf"
+cat > "${TESTDIR}/relabel.lib.fixture" <<EOF
+ai_tools_relabel__unlabel_agent_paths() {
+    printf 'unlabel %s\n' "\$1" >> "${TESTDIR}/recorder"
+    AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="fixture diagnostic"
+    [ -f "${TESTDIR}/unlabel_status" ] && return "\$(cat "${TESTDIR}/unlabel_status")"
+    return 0
+}
+EOF
+
 body="${body//\/var\/opt\/ai-tools\/sandbox-projects/${clones}}"
 body="${body//\/opt\/ai-tools/${home}}"
 body="${body//\/var\/log\/ai-tools/${log}}"
@@ -97,7 +112,12 @@ printf 'zebra\nai_tools\nai_tools_tmpmap\n' > "${TESTDIR}/modules.base"
 # shellcheck disable=SC2016  # the stubs expand these when the scriptlet runs, not this shell
 stubs='
 STUB="__STUB__"
-bash() { printf "read-session\n" >> "${STUB}/recorder"; cat "${STUB}/session"; }
+bash() {
+    case "$2" in
+        *ai_tools_relabel__unlabel_agent_paths*) command bash "$@"; return ;;
+    esac
+    printf "read-session\n" >> "${STUB}/recorder"; cat "${STUB}/session"
+}
 flock() {
     printf "flock %s\n" "$*" >> "${STUB}/recorder"
     [ -f "${STUB}/flock_flips" ] && printf "live\n" > "${STUB}/session"
@@ -137,19 +157,24 @@ printf '%s\n%s\n' "${stubs}" "${body}" > "${TESTDIR}/run.sh"
 
 # run_erase <state> [marker...]: run the scriptlet as a final erase under that reading, with each marker file placed
 # for the stubs -- walker_present makes the walker executable; restore_fails=<tree> and walk_fails=<tree> fail
-# that tree's call -- the recorder holding every store write, walk and restore, and out and err the two streams.
+# that tree's call; unlabel_status=<n> is the status the fixture unlabel returns, and no_unlabel_lib places a library
+# that does not define it -- the recorder holding every store
+# write, walk, restore and unlabel, and out and err the two streams. The fixture relabel.lib.sh is placed for each run.
 run_erase() {
     local state="$1"; shift
     printf '%s\n' "${state}" > "${TESTDIR}/session"
     cp "${TESTDIR}/rules.base" "${TESTDIR}/rules"; cp "${TESTDIR}/modules.base" "${TESTDIR}/modules"
+    cp "${TESTDIR}/relabel.lib.fixture" "${lib}/relabel.lib.sh"
     rm -f "${TESTDIR}/recorder" "${TESTDIR}/list_fails" "${TESTDIR}/unload_fails" "${TESTDIR}/delete_fails" \
           "${TESTDIR}/restore_fails" "${TESTDIR}/flock_flips" "${TESTDIR}/flock_fails" "${TESTDIR}/last_args" \
-          "${TESTDIR}/relabel.lock" "${TESTDIR}/walker_present" "${TESTDIR}/walk_fails"
+          "${TESTDIR}/relabel.lock" "${TESTDIR}/walker_present" "${TESTDIR}/walk_fails" "${TESTDIR}/unlabel_status"
     : > "${TESTDIR}/recorder"
     local marker
     for marker in "$@"; do
         case "${marker}" in
-            restore_fails=*|walk_fails=*) printf '%s' "${marker#*=}" > "${TESTDIR}/${marker%%=*}" ;;
+            restore_fails=*|walk_fails=*|unlabel_status=*) printf '%s' "${marker#*=}" > "${TESTDIR}/${marker%%=*}" ;;
+            # A library that loads and does not define the unlabel.
+            no_unlabel_lib) printf 'true\n' > "${lib}/relabel.lib.sh" ;;
             *) : > "${TESTDIR}/${marker}" ;;
         esac
     done
@@ -161,8 +186,8 @@ run_erase() {
 # ── A live or unreadable reading writes nothing and names the re-run ────────────────────────────
 for state in live unreadable; do
     run_erase "${state}" walker_present
-    if ! grep -qE '^(semanage|semodule|restorecon|walk) ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
-        pass "${state}: no store write, no restore, exit 0"
+    if ! grep -qE '^(semanage|semodule|restorecon|walk|unlabel) ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+        pass "${state}: no store write, no agent revert, no restore, exit 0"
     else
         fail "${state}: the scriptlet wrote or walked (exit ${status}): ${recorder//$'\n'/; }"
     fi
@@ -271,6 +296,50 @@ if [[ "$(run_pasted "${unquoted}" | head -n 1)" -gt 2 ]]; then
     pass "control: the same command without its quotes reaches restorecon as several arguments"
 else
     fail "control: the unquoted command '${unquoted}' did not split; the argument count does not tell the two apart"
+fi
+
+# ── Each installed agent's declared paths are reverted ahead of the rule sweep ─────────────────
+unlabels="$(grep -n '^unlabel ' <<< "${recorder}" || true)"
+last_unlabel="$(tail -n 1 <<< "${unlabels}")"; last_unlabel="${last_unlabel%%:*}"
+if [[ "$(cut -d: -f2- <<< "${unlabels}")" == "unlabel acme"$'\n'"unlabel beta" ]] \
+        && [[ -n "${read_line}" && -n "${first_write}" ]] && (( read_line < ${last_unlabel:-0} && ${last_unlabel:-0} < first_write )); then
+    pass "none: the unlabel runs once per installed manifest, after the reading (line ${read_line}) and ahead of the first store write (line ${first_write})"
+else
+    fail "none: the unlabels were not one per manifest between the reading and the first write: ${recorder//$'\n'/; }"
+fi
+if ! grep -q 'ai-tools-selinux: acme\|ai-tools-selinux: beta' <<< "${err}"; then
+    pass "none: an unlabel returning 0 prints no line"
+else
+    fail "none: an unlabel returning 0 printed: ${err//$'\n'/; }"
+fi
+# Each status the library returns, rendered under the agent's name; 1 is an agent declaring no usable value.
+for case_line in "2|the SELinux layer is inactive here" "4|left these entries at their type: fixture diagnostic" \
+        "5|could not label every entry -- fixture diagnostic" "6|the tree walker could not run over its config directory -- fixture diagnostic" \
+        "1|no file-context rules to drop"; do
+    rc="${case_line%%|*}"; expected="${case_line#*|}"
+    run_erase none "unlabel_status=${rc}"
+    if grep -qF "ai-tools-selinux: acme: " <<< "${err}" && grep -F "ai-tools-selinux: beta: " <<< "${err}" | grep -qF "${expected}" \
+            && grep -q '^semanage fcontext -d ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+        pass "none, unlabel status ${rc}: each agent's line names it ('${expected}'), the sweep follows, exit 0"
+    else
+        fail "none, unlabel status ${rc}: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
+    fi
+done
+# A library that does not define the function is one line, and the erase goes on; no manifest is no line and no call.
+run_erase none no_unlabel_lib
+if grep -qF 'relabel.lib.sh did not load, so the paths each agent declares keep their types' <<< "${err}" \
+        && ! grep -q '^unlabel ' <<< "${recorder}" && grep -q '^semanage fcontext -d ' <<< "${recorder}"; then
+    pass "none, the library does not define the unlabel: one line names it, the sweep follows"
+else
+    fail "none, the library does not define the unlabel: ${err//$'\n'/; }"
+fi
+mv "${lib}/agents.d" "${TESTDIR}/agents.d.aside"
+run_erase none
+mv "${TESTDIR}/agents.d.aside" "${lib}/agents.d"
+if ! grep -q '^unlabel ' <<< "${recorder}" && ! grep -qF 'did not load' <<< "${err}" && grep -q '^semanage fcontext -d ' <<< "${recorder}"; then
+    pass "none, no agent manifest installed: no unlabel and no line, the sweep follows"
+else
+    fail "none, no agent manifest installed: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
 fi
 
 # ── The walker restores the sandbox account's trees where it is executable ──────────────────────

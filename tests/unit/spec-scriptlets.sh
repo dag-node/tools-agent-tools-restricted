@@ -12,7 +12,8 @@
 #
 # Two further reads over the erase scriptlets, each a property a package host alone would otherwise show: no agent
 # %preun nulls the relabel helper's stderr, the stream its deferred-cleanup warning is on; and the selinux %postun reads
-# the sandbox account's sessions ahead of its first policy-store write, read as source order over its command lines.
+# the sandbox account's sessions ahead of its first policy-store write and reverts each agent's declared paths between
+# the two, read as source order over its command lines.
 # Source order does not show that the writes wait on the reading; unit/spec-selinux-erase.sh runs the scriptlet
 # under stubs for that. The selinux %post is read for its walks over the trees the sandbox account writes: each runs
 # ai-tools-relabel-tree with its exit status kept for the WARNING, and the section does not take a session reading
@@ -113,6 +114,17 @@ else
         pass "the selinux %postun reads the sessions (line ${read_line}) ahead of its first store write (line ${write_line})"
     else
         fail "the selinux %postun does not read the sessions ahead of its first store write (read: '${read_line}', write: '${write_line}')"
+    fi
+    # Each agent's declared paths are reverted while the policy still defines their types: the library's unlabel,
+    # behind its `declare -F` guard, after the reading and ahead of the rule sweep.
+    guard_hits="$(grep -nE 'declare -F ai_tools_relabel__unlabel_agent_paths .*\|\| .*exit 0' <<< "${postun_code}" || true)"
+    unlabel_hits="$(grep -nE 'ai_tools_relabel__unlabel_agent_paths "' <<< "${postun_code}" || true)"
+    guard_line="${guard_hits%%:*}"; unlabel_line="${unlabel_hits%%:*}"
+    if [[ -n "${guard_line}" && -n "${unlabel_line}" && -n "${read_line}" && -n "${write_line}" ]] \
+            && (( read_line < guard_line && guard_line < unlabel_line && unlabel_line < write_line )); then
+        pass "the selinux %postun reverts each agent's declared paths behind a declare -F guard (line ${guard_line}), between the reading and its first store write"
+    else
+        fail "the selinux %postun does not revert the agents' paths between the reading and the first store write (guard: '${guard_line}', unlabel: '${unlabel_line}', write: '${write_line}')"
     fi
 fi
 

@@ -1248,6 +1248,35 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
         echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
         exec 9>&-
     else
+    # Each installed agent's declared paths are reverted first, while the policy still defines their types, as
+    # install-selinux.sh's `remove` reverts them: ai_tools_relabel__unlabel_agent_paths (relabel.lib.sh) drops
+    # the agent's rules and returns each entrypoint path to its default type through a per-path restorecon -F.
+    # The walk over /opt/ai-tools after the unload does not write a hardlinked file whose label differs, so
+    # an entrypoint with a second name would be listed there and keep ai_tools_exec_t; reverted here, the inode is
+    # at its default type when that walk meets it. The function does not take the relabel lock, which this
+    # scriptlet holds; ai-tools-relabel-agent --remove takes it, so that helper is not the call. A launch between
+    # this revert and the unload meets the preflight's unverifiable refusal (the entrypoint rule is gone and the module
+    # is still loaded), and an erase that leaves the policy loaded
+    # does not reach this branch. Each agent's config directory is walked twice on this path: here, under the loaded
+    # policy, and by the walk over /opt/ai-tools after the unload.
+    bash -c '
+        set -- /usr/local/lib/ai-tools/agents.d/*.conf
+        [ -e "$1" ] || exit 0
+        . /usr/local/lib/ai-tools/relabel.lib.sh 2>/dev/null
+        declare -F ai_tools_relabel__unlabel_agent_paths >/dev/null 2>&1 || { echo "ai-tools-selinux: relabel.lib.sh did not load, so the paths each agent declares keep their types until the walk after the unload"; exit 0; }
+        for manifest in "$@"; do
+            agent=${manifest##*/}; agent=${agent%%.conf}
+            rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
+            case "${rc}" in
+                0) ;;
+                2) echo "ai-tools-selinux: ${agent}: the SELinux layer is inactive here, so no file-context rule was dropped" ;;
+                4) echo "ai-tools-selinux: ${agent}: the walk over its config directory left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}" ;;
+                5) echo "ai-tools-selinux: ${agent}: dropped its file-context rules; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
+                6) echo "ai-tools-selinux: ${agent}: dropped its file-context rules; the tree walker could not run over its config directory -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}" ;;
+                *) echo "ai-tools-selinux: ${agent}: no file-context rules to drop" ;;
+            esac
+        done
+    ' >&2 || :
     if command -v semanage >/dev/null 2>&1; then
         semanage fcontext -l -C -n 2>/dev/null | awk '
             {
