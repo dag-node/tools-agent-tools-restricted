@@ -1618,10 +1618,12 @@ do_install() {
     # under /opt/ai-tools/bin trigger ai-tools-relabel.service, and a run mid-install executes the helper of one release
     # against the libraries of another. Stopping the .path does not end a run in progress, and a run still active
     # at the end would absorb the closing start, so the service is stopped whether or not the watcher was up. The EXIT
-    # trap starts the watcher again whatever ends the run, after a daemon-reload for the unit files the run rewrote,
-    # so an install that stops early leaves the watcher as it found it; a completed run enables it at its service step
-    # and runs the relabel once at its end, which completes a run cut short here.
-    if systemctl is-active --quiet ai-tools-relabel.path 2>/dev/null; then
+    # trap starts the watcher again whatever ends the run, after a daemon-reload for the unit files the run rewrote.
+    # The trap is armed on the unit being enabled, not active: an earlier run that stopped early left an enabled watcher
+    # down, and arming on its state at this moment would leave it down after every later run that also stops early.
+    # A completed run enables the watcher at its service step and runs the relabel once at its end, which completes
+    # a run cut short here.
+    if systemctl is-enabled --quiet ai-tools-relabel.path 2>/dev/null; then
         trap 'systemctl daemon-reload 2>/dev/null || true; systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT
     fi
     systemctl stop ai-tools-relabel.path ai-tools-relabel.service 2>/dev/null || true

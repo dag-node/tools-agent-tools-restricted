@@ -934,6 +934,34 @@ else
     fail "ATR_NAMES does not list the five names: ${names_text//$'\n'/ | }"
 fi
 
+# ── The relabel watcher is restored whenever it is enabled ───────────────────────────────────
+# do_install stops ai-tools-relabel.path for its run and an EXIT trap starts it again. The trap is armed on the unit
+# being enabled: armed on its being active, a run that stopped early leaves an enabled watcher down, and every later run
+# that also stops early finds it down and does not arm the trap. watcher_trap_arm <file>: print the verb
+# of the systemctl test whose branch sets the trap that starts the watcher, or nothing where no such branch is found.
+section "install.sh: the relabel watcher's restore is armed on the unit being enabled (unit)"
+watcher_trap_arm() {
+    awk '
+        /^[[:space:]]*if systemctl is-[a-z]+ --quiet ai-tools-relabel\.path/ { match($0, /is-[a-z]+/); verb = substr($0, RSTART, RLENGTH); next }
+        verb != "" && /trap .*systemctl start ai-tools-relabel\.path.* EXIT/ { print verb; exit }
+        { verb = "" }
+    ' "$1"
+}
+# shellcheck disable=SC2016  # the control is install.sh text, written and not expanded
+printf '%s\n' '    if systemctl is-active --quiet ai-tools-relabel.path 2>/dev/null; then' \
+    "        trap 'systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT" '    fi' > "${TESTDIR}/watcher-control.sh"
+if [[ "$(watcher_trap_arm "${TESTDIR}/watcher-control.sh")" == is-active ]]; then
+    pass "the reader reads the verb an arm tests (control: is-active)"
+else
+    fail "control: the reader did not read is-active from the fixture, so the check below cannot fail"
+fi
+arm="$(watcher_trap_arm "${INSTALLER}")"
+if [[ "${arm}" == is-enabled ]]; then
+    pass "the EXIT trap that starts the watcher is armed on systemctl is-enabled"
+else
+    fail "the EXIT trap that starts the watcher is armed on '${arm:-no test found}', not is-enabled"
+fi
+
 # ── The registry a source install seeds and de-registers ─────────────────────────────────────────
 # do_install seeds the registry and do_uninstall de-registers the checkout from it; each takes the path
 # from ai_tools_conf__resolve_registry, so an operator whose `~/.config/ai-tools/allowed-projects` an earlier release

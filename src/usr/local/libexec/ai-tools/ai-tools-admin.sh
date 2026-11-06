@@ -2594,7 +2594,7 @@ status_services() {
                 && detail "sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager"
             detail "sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}"
         fi
-        remedy="$(ai_tools_services__get_field "${rec}" 6)"
+        remedy="$(ai_tools_services__read_remedy "${rec}")"
         [[ -n "${remedy}" ]] && detail "${remedy}"
     done < <(ai_tools_services__list_records)
     return 0

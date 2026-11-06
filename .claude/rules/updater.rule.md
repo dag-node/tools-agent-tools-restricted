@@ -760,12 +760,14 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   executes the helper of one release against the libraries of another. The service is stopped with it, because stopping
   a `.path` does not end a run it already started, and a oneshot still active at the closing start absorbs that start
   rather than running again. `install.sh` stops both the same way for its run, and an `EXIT` trap starts the watcher
-  again whatever ends that run. The service unit **wants** the path unit, so a start of the service — by hand,
-  by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once after its own relabel
-  so the unit's recorded result is that run's — brings the watcher up with it. Should it be down anyway,
-  `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled entrypoint:
-  proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry) and in `atr status` (see
-  [cli](cli.rule.md)).
+  again whatever ends that run wherever the unit is enabled, so a watcher an earlier run left down comes back too.
+  The service unit **wants** the path unit, so a start of the service — by hand, by the `%posttrans`, by the bootstrap
+  or by `install.sh`, each of which runs it once after its own relabel so the unit's recorded result is that run's —
+  brings the watcher up with it. Should it be down anyway, `services.lib.sh` surfaces it before the next Node bump would
+  fail-close a launch on a mislabelled entrypoint: proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block,
+  from the same registry) and in `atr status` (see [cli](cli.rule.md)), with a remedy that leads
+  with `systemctl daemon-reload` where the manager reports the unit file changed since it loaded it
+  (`ai_tools_services__read_remedy`).
 - **On demand**, through `atr admin system entrypoints relabel`, which runs the same helper as root. It is
   an administrator command rather than an operator one: it carries no `%ai-ops` NOPASSWD rule and is reached
   through the host's own general sudo grant, the axis [CLAUDE.md](../../CLAUDE.md) names (see

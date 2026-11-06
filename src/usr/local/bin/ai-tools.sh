@@ -6811,7 +6811,7 @@ status_services() {
             if [[ "${scope}" == sandbox-user ]]; then
                 status_sandbox_unit_commands "${unit}"
             fi
-            remedy="$(ai_tools_services__get_field "${rec}" 6)"
+            remedy="$(ai_tools_services__read_remedy "${rec}")"
             if [[ -n "${remedy}" ]]; then
                 say "      ${C_BOLD}${remedy}${C_RST}"
             fi

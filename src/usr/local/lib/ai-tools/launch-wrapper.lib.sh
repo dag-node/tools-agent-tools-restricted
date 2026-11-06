@@ -760,7 +760,7 @@ _ai_tools_launch_wrapper__print_notices() {
         for svc in "${AI_TOOLS_SERVICES__DOWN[@]}"; do
             ai_tools_msg__warn \
                 "${name}: $(ai_tools_services__get_field "${svc}" 1) is not running -- $(ai_tools_services__get_field "${svc}" 5)."
-            printf '       remedy: %s\n' "$(ai_tools_services__get_field "${svc}" 6)" >&2
+            printf '       remedy: %s\n' "$(ai_tools_services__read_remedy "${svc}")" >&2
         done
     fi
 
