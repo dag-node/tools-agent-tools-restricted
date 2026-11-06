@@ -9,8 +9,10 @@
 # The script loads policy and needs root and a whole host, so the functions are read out of the checkout as text
 # (extract_function) and run in a fresh bash per walk status, with the tree walk and restorecon stubbed as recorders
 # and the live-session reader stubbed to read `live` and record each call. _restore_home_state_labels names
-# /opt/ai-tools in its body, which the case rewrites to a fixture root, so no host path is read. The script's text is
-# then read for the properties a function cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel
+# /opt/ai-tools in its body, which the case rewrites to a fixture root, so no host path is read. The walks run
+# over fixture lists, so the script's own HOME_STATE and SHARED_TREES are held to the names under /opt/ai-tools
+# the policy's .fc files type, in both directions, beside a control list missing one name. The script's text is then
+# read for the properties a function cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel
 # library, every restorecon names a root-owned tree or one file in the root-owned home, held against a control line
 # the reader must flag, and the remove action reads the live-session state ahead of its first policy-store write. Each
 # label arm walks the shared asset trees, the remove arm walks the control plane whole and the clone area, and remove
@@ -147,6 +149,33 @@ for status in 6 1; do
         fail "status ${status}: the run stopped or skipped a walk: ${recorded//$'\n'/ | }"
     fi
 done
+
+# ── The walked names are the policy's ────────────────────────────────────────────────────────
+# The walks above run over fixture lists. What a host walks is the script's own HOME_STATE and SHARED_TREES, so those
+# declarations are held to the names under /opt/ai-tools that the policy's .fc files type, in both directions; the clone
+# area is walked through SANDBOX_PROJECTS and is left out. The comparison is first run over the policy with one name
+# taken off the list, as the control that it reports a name the walks would miss.
+fc_names="$(cat "${ROOT}"/selinux/policy/*.fc | sed -nE 's#^/opt/ai-tools/([^/([:space:]]+).*#\1#p' | sed 's#\\\.#.#g' \
+    | grep -vxF sandbox-projects | sort -u)"
+declared_text="$(grep -E '^(HOME_STATE|SHARED_TREES)=\(' "${INSTALLER}" || true)"
+declared_names="$(bash -c 'eval "$1"; printf "%s\n" "${HOME_STATE[@]}" "${SHARED_TREES[@]}"' _ "${declared_text}" | sort -u)"
+# compare_walked_names <declared>: print each name the policy types and <declared> lacks as `missing <name>`,
+#   and each name <declared> holds and the policy does not type as `untyped <name>`.
+compare_walked_names() {
+    comm -23 <(printf '%s\n' "${fc_names}") <(printf '%s\n' "$1") | sed 's/^/missing /'
+    comm -13 <(printf '%s\n' "${fc_names}") <(printf '%s\n' "$1") | sed 's/^/untyped /'
+}
+if grep -qxF skills <<<"${fc_names}" && [[ "$(compare_walked_names "$(grep -vxF subagents <<<"${fc_names}")")" == "missing subagents" ]]; then
+    pass "the policy's names under /opt/ai-tools are read, and a list without one of them is reported (the control)"
+else
+    fail "the .fc reader or the comparison does not report a missing name: read '${fc_names//$'\n'/ }'"
+fi
+walked_diff="$(compare_walked_names "${declared_names}")"
+if [[ "$(grep -c '' <<<"${declared_text}")" -eq 2 && -z "${walked_diff}" ]]; then
+    pass "HOME_STATE and SHARED_TREES name each tree the policy types under /opt/ai-tools, and no other"
+else
+    fail "the walked names and the policy's disagree: ${walked_diff//$'\n'/; } (declared: ${declared_names//$'\n'/ })"
+fi
 
 # ── verify_agent_labels ───────────────────────────────────────────────────────────────────────
 # The renderer reads the relabel library's lines, stubbed here to print them, with the manifest reader stubbed to name
@@ -319,8 +348,8 @@ for name in warn die _list _resolve_walk_root _restore_account_tree_labels _reve
     fi
     remove_text+="${body}"$'\n'
 done
-# Two trees a pattern can reach without naming them: `outside` through a `..` in the literal, `elsewhere/sub` through
-# a symlinked ancestor. Each exists and is a directory, so only the canonical-path test refuses it.
+# Two trees a pattern can reach without naming them: `outside` through a `..` in the literal, `elsewhere/sub`
+# through a symlinked ancestor. Each exists and is a directory, so only the canonical-path test refuses it.
 mkdir -p "${TESTDIR}/drop/gone" "${TESTDIR}/drop/app.v1" "${TESTDIR}/drop/climb" "${TESTDIR}/outside" "${TESTDIR}/elsewhere/sub"
 ln -s "${TESTDIR}/elsewhere" "${TESTDIR}/drop/link"
 # run_drop [nobackstop] : the sweep over the fixture rows; the recorder holds each semanage delete and each walk, one

@@ -846,16 +846,17 @@ root, `skip_required` where none is found. Each case runs beside its control; th
 
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, with the tree
 walk and `restorecon` recorded and the live-session reader reading `live`: each walk runs through the library's walk
-whatever the reading, and one that did not label every entry is reported without stopping the run. The script's text is
-read for the properties a function cannot show: every `restorecon` names a root-owned tree or one file in the root-owned
-home, `remove` reads the sessions ahead of its first policy-store write, each label arm walks the shared asset trees,
-and the remove arm walks the control plane whole and the clone area. The root-owned trees `remove` reverts
-after the unload are driven with `restorecon` recorded: one call each, and a failed one warned under its code
-and closing the action non-zero. The project walk every label and restore takes is driven through the checkout's
-`conf.lib.sh` over a registry holding each sign, and yields the `@` and `%` entries alone, since a path it yields takes
-the project type. Its remove section drives the sweep over the rules the registry walks do not derive and the unload
-over a stubbed `semodule`, each in its fail direction: a module the store still lists after the transaction is a refusal
-whatever the exit status said.
+whatever the reading, and one that did not label every entry is reported without stopping the run. The script's own
+lists of the trees under `/opt/ai-tools` it walks are held to the names the policy's `.fc` files type there, in both
+directions, so a tree the policy types cannot be left off the walks. The script's text is read for the properties
+a function cannot show: every `restorecon` names a root-owned tree or one file in the root-owned home, `remove` reads
+the sessions ahead of its first policy-store write, each label arm walks the shared asset trees, and the remove arm
+walks the control plane whole and the clone area. The root-owned trees `remove` reverts after the unload are driven
+with `restorecon` recorded: one call each, and a failed one warned under its code and closing the action non-zero.
+The project walk every label and restore takes is driven through the checkout's `conf.lib.sh` over a registry holding
+each sign, and yields the `@` and `%` entries alone, since a path it yields takes the project type. Its remove section
+drives the sweep over the rules the registry walks do not derive and the unload over a stubbed `semodule`, each in its
+fail direction: a module the store still lists after the transaction is a refusal whatever the exit status said.
 
 `spec-selinux-erase.sh` runs the `ai-tools-selinux` `%postun` the same way, its body read as RPM parses it (`rpmspec -P`
 where the host has it) and run under `/bin/sh` with the session reader and the store tools stubbed as recorders:
