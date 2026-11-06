@@ -553,10 +553,6 @@ the toolchain library (${TOOLCHAIN_LIB}) did not load its link readers \-\- the 
 WARNING.
 declined: ${cfg_home} was not created, so ${user}'s ai\-tools config cannot be seeded
 .TP
-.B MSG-B9C4
-WARNING.
-left the labels under ${clones} as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-FR ${clones}
-.TP
 .B MSG-C2H5
 WARNING.
 registry\-unmigrated
@@ -587,7 +583,7 @@ an operator must not be the sandbox account ${SANDBOX_USER}
 .TP
 .B MSG-C9W9
 WARNING.
-could not restore labels under ${clones}; run: sudo restorecon \-FR ${clones}
+could not restore labels under ${dir} \-\- ${kept:\-ai\-tools\-relabel\-tree exited ${rc}}; run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${dir}
 .TP
 .B MSG-D4S7
 ERROR.
@@ -892,6 +888,10 @@ compiled module ${pp} not found \-\- reinstall ai\-tools\-selinux, or from a che
 .B MSG-S5S2
 WARNING.
 the system clock reads $(date '+%Y\-%m\-%d %H:%M:%S'), earlier than the file(s) above \-\- the copy a file is compared with is the newest by date, so set the clock first (timedatectl set\-time, or chronyc makestep once a time source is reachable), then re\-run this command; no file was compared
+.TP
+.B MSG-S8K7
+WARNING.
+could not restore labels under ${clones} \-\- realpath cannot resolve it; once it resolves, run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- ${clones}
 .TP
 .B MSG-S9G3
 WARNING.
@@ -1946,6 +1946,10 @@ ERROR.
 This command must run as root: stopping a session means signalling ${SANDBOX_USER}'s cgroups
 .SS ai-tools-unclaim
 .TP
+.B MSG-B7A8
+WARNING.
+reset the SELinux label under ${canonical} except these hardlinked paths, which keep ai_tools_project_t: ${kept:\-the walker printed no detail}; list the hardlinked files the tree holds now with: find $(printf '%q' "${canonical}") \-xdev \-type f \-links +1
+.TP
 .B MSG-H9D4
 ERROR.
 \-\-unlisted: ${caller} is not a configured operator \-\- nothing changed
@@ -1976,15 +1980,11 @@ ERROR.
 .TP
 .B MSG-T4S2
 WARNING.
-could not reset the SELinux label \-\- run: sudo restorecon \-RF ${canonical}
+could not reset the SELinux label under ${canonical} \-\- ${kept:\-ai\-tools\-relabel\-tree exited ${rc}}; run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- $(printf '%q' "${canonical}")
 .TP
 .B MSG-T6H6
 WARNING.
 unknown option: ${_arg}
-.TP
-.B MSG-T6T2
-WARNING.
-left the SELinux label under ${canonical} as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-RF ${canonical}
 .TP
 .B MSG-V9Q6
 ERROR.

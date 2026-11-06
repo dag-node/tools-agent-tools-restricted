@@ -1033,23 +1033,25 @@ sel_disable() {
 # to ai_tools_project_build_t), so that is what is restored; a claimed project's build rule is a per-project local rule
 # written at claim time and is not the group's.
 #
-# A clone is a tree the sandbox account can write, so the walk runs only while no process of that account is live, read
-# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md,
-# ref-section-e6c6). The group change stands either way; the skip names the walk to run once the sessions end.
+# A clone is a tree the sandbox account can write, so the walk runs through ai-tools-relabel-tree, the descriptor-pinned
+# walker, which labels the entry it holds open and so walks whatever process of that account is live (cli.rule.md,
+# ref-section-e6c6), at the canonical path realpath resolves, since the walker refuses a root whose path is not the one
+# it reads back. The group change stands either way: a walk that left hardlinked paths at their type is a log line
+# naming them, and a path realpath cannot resolve or any other non-zero exit is a warning naming the walk to re-run.
 _restore_group_static_labels() {
-    local clones=/var/opt/ai-tools/sandbox-projects state=unreadable
-    [[ -d "${clones}" ]] && command -v restorecon >/dev/null 2>&1 || return 0
-    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/sessions.lib.sh
-    if source /usr/local/lib/ai-tools/sessions.lib.sh 2>/dev/null \
-            && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
-        state="$(ai_tools_sessions__read_live_session_state)"
-    fi
-    if [[ "${state}" != none ]]; then
-        warn MSG-B9C4 "left the labels under ${clones} as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${clones}"
+    local clones=/var/opt/ai-tools/sandbox-projects dir lines rc=0 kept
+    [[ -d "${clones}" ]] || return 0
+    if ! dir="$(realpath -e -- "${clones}" 2>/dev/null)"; then
+        warn MSG-S8K7 "could not restore labels under ${clones} -- realpath cannot resolve it; once it resolves, run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${clones}"
         return 0
     fi
-    restorecon -FR "${clones}" >/dev/null 2>&1 \
-        || warn MSG-C9W9 "could not restore labels under ${clones}; run: sudo restorecon -FR ${clones}"
+    lines="$(/usr/local/libexec/ai-tools/ai-tools-relabel-tree -- "${dir}" 2>&1 >/dev/null)" || rc=$?
+    kept="$(grep -v '^summary ' <<<"${lines}" | tr '\n' ';' | sed 's/;$//')"
+    case "${rc}" in
+        0) ;;
+        4) log "the walk over ${dir} left these hardlinked entries at their type: ${kept:-the walker printed no detail}" ;;
+        *) warn MSG-C9W9 "could not restore labels under ${dir} -- ${kept:-ai-tools-relabel-tree exited ${rc}}; run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${dir}" ;;
+    esac
     return 0
 }
 
