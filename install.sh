@@ -2703,11 +2703,12 @@ do_install() {
     # and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group ai-tools. The DIRECTORIES
     # are created here, from the manifests (the base names none of them), so the agent layer can install into its own;
     # modes are re-asserted at section end.
-    local agent_config_dir _agent
+    local agent_config_dir _agent listed_config_dirs=$'\n'
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -n "${agent_config_dir}" ]] || continue
         log "${agent_config_dir}/"
         ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${agent_config_dir}"
+        listed_config_dirs+="${agent_config_dir}"$'\n'
     done < <(ai_tools_control_plane__list_agent_config_dirs)
 
     # The claude-code agent layer: its hooks and settings, into the directory its own manifest declares. This
@@ -2766,13 +2767,15 @@ do_install() {
         seed_result "${settings}" "${settings_existed}" 0
     fi
 
-    # The codex agent layer: its two hook adapters, into the directory its manifest declares. The directory is created
-    # here rather than by the walk over ai_tools_control_plane__list_agent_config_dirs, which covers ENABLED agents
-    # only, and codex ships disabled; its hook declarations live in /etc/codex/requirements.toml, deployed
-    # with the configuration, and it has no settings file.
+    # The codex agent layer: its two hook adapters, into the directory its manifest declares. The walk
+    # over ai_tools_control_plane__list_agent_config_dirs covers ENABLED agents only, and codex ships disabled,
+    # so the directory is created here where that walk did not list it; its hook declarations live
+    # in /etc/codex/requirements.toml, deployed with the configuration, and it has no settings file.
     local codex_config_dir="/opt/ai-tools/.codex"
-    log "${codex_config_dir}/"
-    ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${codex_config_dir}"
+    if [[ "${listed_config_dirs}" != *$'\n'"${codex_config_dir}"$'\n'* ]]; then
+        log "${codex_config_dir}/"
+        ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${codex_config_dir}"
+    fi
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/agents/codex/post-tool-hook.sh" \
         "${codex_config_dir}/post-tool-hook.sh"
@@ -2919,16 +2922,20 @@ do_install() {
     # The orientation text is one file rather than a directory of assets, and it lands under the filename each agent
     # reads as user-scope instructions -- so it is linked by name from the manifest instead of by iterating a shared
     # root.
-    local _memory_target
+    local _memory_target linked_memory_targets=$'\n'
     while IFS=$'\t' read -r _agent _memory_target; do
         log "linking the shared orientation into ${_memory_target}"
         ai_tools_managed_assets__link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
             "${_memory_target%/*}" "${_memory_target##*/}" "${SANDBOX_GROUP}"
+        linked_memory_targets+="${_memory_target}"$'\n'
     done < <(ai_tools_control_plane__list_agent_memory_targets)
-    # The walk covers enabled agents; codex ships disabled and its manifest names AGENTS.md at the root of CODEX_HOME.
-    log "linking the shared orientation into ${codex_config_dir}/AGENTS.md"
-    ai_tools_managed_assets__link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
-        "${codex_config_dir}" AGENTS.md "${SANDBOX_GROUP}"
+    # The walk covers enabled agents; codex ships disabled and its manifest names AGENTS.md at the root of CODEX_HOME,
+    # so it is linked here where the walk did not link it.
+    if [[ "${linked_memory_targets}" != *$'\n'"${codex_config_dir}/AGENTS.md"$'\n'* ]]; then
+        log "linking the shared orientation into ${codex_config_dir}/AGENTS.md"
+        ai_tools_managed_assets__link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
+            "${codex_config_dir}" AGENTS.md "${SANDBOX_GROUP}"
+    fi
 
     section "Configuration (allowlist & secret patterns)"
 
