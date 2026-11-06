@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/install-selinux-walks.sh
-# Hermetic check of selinux/install-selinux.sh's walks over the trees the sandbox account can write: each runs only
-# while the live-session reading is `none` (cli.rule.md, ref-section-e6c6), and a walk it leaves is named in one warning
-# with the restorecon to run.
+# Hermetic check of selinux/install-selinux.sh's walks over the trees the sandbox account can write: each runs
+# through the library's descriptor-pinned tree walk (ai_tools_relabel__relabel_tree) whatever a session of that account
+# is doing (cli.rule.md, ref-section-e6c6), and a walk that did not label every entry is reported without stopping
+# the run.
 #
 # The script loads policy and needs root and a whole host, so the functions are read out of the checkout as text
-# (extract_function) and run in a fresh bash per reading, with restorecon stubbed as a recorder and the reading set
-# to each of `live`, `unreadable` and `none`. _restore_home_state_labels names /opt/ai-tools in its body, which the case
-# rewrites to a fixture root, so no host path is read. The script's text is then read for the two properties a function
-# cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel library, and every restorecon outside
-# the gate names a root-owned tree, held against a control line the reader must flag, and the remove action reads
-# the live-session state ahead of its first policy-store write. verify_agent_labels is driven over stubbed library lines
-# for an agent closed as failed, which fails the install, and a config directory walk that left hardlinked files;
-# _label_project and _unlabel_project over the library's partial-walk and walker-missing statuses, and _unlabel_project
-# over its absent-tree status. for_each_project is driven through the checkout's conf.lib.sh over a registry holding
-# each sign, and does not yield an excluded path.
+# (extract_function) and run in a fresh bash per walk status, with the tree walk and restorecon stubbed as recorders
+# and the live-session reader stubbed to read `live` and record each call. _restore_home_state_labels names
+# /opt/ai-tools in its body, which the case rewrites to a fixture root, so no host path is read. The script's text is
+# then read for the properties a function cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel
+# library, every restorecon names a root-owned tree or one file in the root-owned home, held against a control line
+# the reader must flag, and the remove action reads the live-session state ahead of its first policy-store write.
+# verify_agent_labels is driven over stubbed library lines for an agent closed as failed, which fails the install,
+# and a config directory walk that left hardlinked files; _label_project and _unlabel_project over the library's
+# partial-walk and walker-missing statuses, and _unlabel_project over its absent-tree status. for_each_project is driven
+# through the checkout's conf.lib.sh over a registry holding each sign, and does not yield an excluded path.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -24,7 +25,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly INSTALLER="${ROOT}/selinux/install-selinux.sh"
-section "install-selinux.sh: the account-writable walks wait for no live session (unit)"
+section "install-selinux.sh: the account-writable walks run through the tree walker (unit)"
 
 if [[ ! -r "${INSTALLER}" ]]; then
     skip "install-selinux.sh walks" "not a source checkout (no ${INSTALLER})"
@@ -33,7 +34,8 @@ fi
 mktestdir
 
 functions_text=""
-for name in warn _restore_account_tree_labels _warn_left_trees _restore_home_state_labels _label_sandbox_clones; do
+for name in warn _restore_account_tree_labels _report_skipped_walk_entries _warn_walker_unavailable \
+        _restore_home_state_labels _label_sandbox_clones; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -46,75 +48,97 @@ functions_text="${functions_text//\/opt\/ai-tools\//${TESTDIR}/home/}"
 mkdir -p "${TESTDIR}/home/.npm" "${TESTDIR}/nvm" "${TESTDIR}/clones/acme-clone"
 : > "${TESTDIR}/home/.gitconfig"
 
-# run_walks <state>: run the walks under that reading; the recorder holds each restorecon call, one per line,
-# and verified holds each clone the verify loop read. stderr is the warnings.
+# run_walks <status>: run the walks with the tree walk returning <status> and setting a diagnostic naming its tree.
+#   The recorder holds each walk and each restorecon, one per line; verified holds each clone the verify loop read,
+#   and readings each call of the live-session reader. stderr is the warnings and the log lines, closed by END
+#   when the run reached its last walk.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 run_walks() {
-    : > "${TESTDIR}/recorder"; : > "${TESTDIR}/verified"
+    : > "${TESTDIR}/recorder"; : > "${TESTDIR}/verified"; : > "${TESTDIR}/readings"
     bash -c '
         set -euo pipefail
         eval "$1"
         C_YEL="" C_RST="" C_GRN=""
-        restorecon() { printf "%s\n" "$*" >> "${stub_testdir}/recorder"; }
-        ok() { :; }; log() { :; }
+        stub_testdir="$2" walk_status="$3"
+        ai_tools_relabel__relabel_tree() {
+            printf "walk %s\n" "$1" >> "${stub_testdir}/recorder"
+            AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="walker line for $1"
+            return "${walk_status}"
+        }
+        restorecon() { printf "restorecon %s\n" "$*" >> "${stub_testdir}/recorder"; }
+        ai_tools_sessions__read_live_session_state() { printf "read\n" >> "${stub_testdir}/readings"; printf "live\n"; }
+        ok() { :; }; log() { printf "LOG %s\n" "$*" >&2; }
         ai_tools_relabel__is_available() { return 0; }
         ai_tools_relabel__is_project_labelled() { printf "%s\n" "$1" >> "${stub_testdir}/verified"; }
-        stub_testdir="$2"
-        _sandbox_session_state="$3"; _left_trees=()
-        SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
         HOME_STATE=(.npm .gitconfig .absent)
         SANDBOX_PROJECTS="$2/clones"
-        trap _warn_left_trees EXIT
         _restore_home_state_labels
         _label_sandbox_clones
         _restore_account_tree_labels "$2/nvm"
-    ' _ "${functions_text}" "${TESTDIR}" "$1" 2>"${TESTDIR}/warnings"
+        echo END >&2
+    ' _ "${functions_text}" "${TESTDIR}" "$1" 2>"${TESTDIR}/warnings" || true
 }
 
-walked_trees=("${TESTDIR}/home/.npm" "${TESTDIR}/home/.gitconfig" "${TESTDIR}/clones" "${TESTDIR}/nvm")
+walked_trees=("${TESTDIR}/home/.npm" "${TESTDIR}/clones" "${TESTDIR}/nvm")
 
-# `none` first: it is the control that the recorder records, so an empty recorder in the live and unreadable cases is
-# a walk not made.
-run_walks none
+# Status 0 first: it is the control that the recorder records each walk, so the statuses after it are read against a run
+# whose walks are known to happen.
+run_walks 0
+recorded="$(<"${TESTDIR}/recorder")"
 missing=""
 for tree in "${walked_trees[@]}"; do
-    grep -qxF -- "-FR ${tree}" "${TESTDIR}/recorder" || missing+=" ${tree}"
+    grep -qxF -- "walk ${tree}" <<<"${recorded}" || missing+=" ${tree}"
 done
-[[ -z "${missing}" ]] && pass "none: each account-writable tree is walked with restorecon -FR (the recorder control for the cases after it)" \
-    || fail "none: not walked:${missing} (recorded: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
-grep -q '^MSG-U8U4$' "${TESTDIR}/warnings" && fail "none: the left-trees warning was printed" \
-    || pass "none: no tree is reported left"
+[[ -z "${missing}" ]] && pass "each account-writable tree goes through the tree walk (the recorder control for the cases after it)" \
+    || fail "not walked:${missing} (recorded: ${recorded//$'\n'/ | })"
+if grep -qxF -- "restorecon -F ${TESTDIR}/home/.gitconfig" <<<"${recorded}" \
+        && ! grep -qF -- "walk ${TESTDIR}/home/.gitconfig" <<<"${recorded}"; then
+    pass "a file in the home takes one restorecon -F, not the walk"
+else
+    fail "the home's file was not restored as one path: ${recorded//$'\n'/ | }"
+fi
+if grep -E '^restorecon ' <<<"${recorded}" | grep -vqxF -- "restorecon -F ${TESTDIR}/home/.gitconfig"; then
+    fail "a tree was restored by restorecon: $(grep '^restorecon ' <<<"${recorded}" | tr '\n' ';')"
+else
+    pass "no account-writable tree is restored by restorecon"
+fi
+grep -qF -- "${TESTDIR}/home/.absent" <<<"${recorded}" && fail "a path that does not exist was walked" \
+    || pass "a path that does not exist is not walked"
+[[ -s "${TESTDIR}/readings" ]] && fail "a walk read the live-session state ($(wc -l <"${TESTDIR}/readings") call(s))" \
+    || pass "no walk reads the live-session state, which the stub reads as live"
 grep -qxF "${TESTDIR}/clones/acme-clone" "${TESTDIR}/verified" \
-    && pass "none: the clone verify loop reads each clone (the control for the cases after it)" \
-    || fail "none: the clone verify loop did not run"
+    && pass "the clone verify loop reads each clone" \
+    || fail "the clone verify loop did not run"
+warnings="$(<"${TESTDIR}/warnings")"
+grep -q '^MSG-' <<<"${warnings}" && fail "status 0: a warning was printed: ${warnings//$'\n'/ | }" \
+    || pass "status 0: no warning is printed"
 
-for state in live unreadable; do
-    run_walks "${state}"
-    if [[ -s "${TESTDIR}/recorder" ]]; then
-        fail "${state}: a walk ran: $(tr '\n' ';' <"${TESTDIR}/recorder")"
-    else
-        pass "${state}: no account-writable tree is walked"
-    fi
+run_walks 4
+warnings="$(<"${TESTDIR}/warnings")"
+if grep -qxF "LOG   the walk over ${TESTDIR}/nvm left these entries at their type: walker line for ${TESTDIR}/nvm" \
+        <<<"${warnings}" && ! grep -q '^MSG-' <<<"${warnings}"; then
+    pass "status 4: the walk's hardlinked entries are a note naming the tree, not a warning"
+else
+    fail "status 4 printed: ${warnings//$'\n'/ | }"
+fi
+
+for status in 6 1; do
+    run_walks "${status}"
     warnings="$(<"${TESTDIR}/warnings")"
-    assert_msg MSG-U8U4 "${warnings}" "${state}: the trees left are named under one warning"
-    missing=""
-    for tree in "${walked_trees[@]}"; do
-        grep -qF "sudo restorecon -FR ${tree}" <<<"${warnings}" || missing+=" ${tree}"
-    done
-    [[ -z "${missing}" ]] && pass "${state}: the warning gives the restorecon for each tree left" \
-        || fail "${state}: the warning does not name:${missing}"
-    grep -qF "${TESTDIR}/home/.absent" <<<"${warnings}" \
-        && fail "${state}: the warning names a path that does not exist" \
-        || pass "${state}: a path that does not exist is not named"
-    if [[ -s "${TESTDIR}/verified" ]]; then
-        fail "${state}: the clone verify loop reported a walk it left: $(tr '\n' ';' <"${TESTDIR}/verified")"
+    case "${status}" in
+        6) assert_msg MSG-G6X4 "${warnings}" "status 6: a walker that could not run is warned under its code" ;;
+        1) assert_msg MSG-D6B7 "${warnings}" "status 1: a walk that could not label an entry is warned under its code" ;;
+    esac
+    grep -qF "walker line for ${TESTDIR}/nvm" <<<"${warnings}" \
+        && pass "status ${status}: the warning carries the walker's line" \
+        || fail "status ${status}: the warning does not carry the walker's line: ${warnings//$'\n'/ | }"
+    recorded="$(<"${TESTDIR}/recorder")"
+    if grep -qxF END <<<"${warnings}" && [[ "$(grep -c '^walk ' <<<"${recorded}")" -eq "${#walked_trees[@]}" ]]; then
+        pass "status ${status}: the warning does not stop the run, and every tree is still walked"
     else
-        pass "${state}: the clone verify loop does not run over a walk it left"
+        fail "status ${status}: the run stopped or skipped a walk: ${recorded//$'\n'/ | }"
     fi
 done
-grep -qF 'sudo ./install.sh install' <<<"${warnings}" \
-    && pass "unreadable: the warning names the install that deploys the library the reading needs" \
-    || fail "unreadable: the warning does not name sudo ./install.sh install: ${warnings}"
 
 # ── verify_agent_labels ───────────────────────────────────────────────────────────────────────
 # The renderer reads the relabel library's lines, stubbed here to print them, with the manifest reader stubbed to name
@@ -145,7 +169,7 @@ verdict_run() {
         stub_lines="$3"
         ai_tools_relabel__label_agent_paths() { printf "%s\n" "${stub_lines}"; }
         ai_tools_providers__read_agent_manifest_field() { [[ "$2" == config_dir ]] && printf ".acme\n"; }
-        CP_HOME="$2"; _sandbox_session_state=none; _left_trees=()
+        CP_HOME="$2"
         SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
         verify_agent_labels
     ' _ "${agent_text}" "${TESTDIR}/home" "$1" 2>&1 || true
@@ -257,11 +281,12 @@ fi
 
 # ── remove: the rules outside the registries, and an unload that reads the store back ────────
 # A local rule naming an ai_tools type that no registry walk dropped keeps every module loaded, and the unload's exit
-# status once reported `removed` over three. semanage, semodule and restorecon are recorders; the listing is fixture
+# status once reported `removed` over three. semanage, semodule and the tree walk are recorders; the listing is fixture
 # rows.
 section "install-selinux.sh: remove drops every rule naming a policy type and reports an unload that left a module (unit)"
 remove_text=""
-for name in warn die _list _restore_account_tree_labels _warn_left_trees _resolve_pattern_tree _drop_remaining_policy_type_rules _read_loaded_policy_modules _unload_modules; do
+for name in warn die _list _restore_account_tree_labels _report_skipped_walk_entries _warn_walker_unavailable \
+        _resolve_pattern_tree _drop_remaining_policy_type_rules _read_loaded_policy_modules _unload_modules; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -273,9 +298,9 @@ done
 # a symlinked ancestor. Each exists and is a directory, so only the canonical-path test refuses it.
 mkdir -p "${TESTDIR}/drop/gone" "${TESTDIR}/drop/app.v1" "${TESTDIR}/drop/climb" "${TESTDIR}/outside" "${TESTDIR}/elsewhere/sub"
 ln -s "${TESTDIR}/elsewhere" "${TESTDIR}/drop/link"
-# run_drop <state> [nobackstop] : the sweep under that reading over the fixture rows; the recorder holds each semanage
-#   delete and each restorecon, one per line, and both streams of the run are printed. The backstop is a stub refusing
-#   `/` and a home root, or absent under `nobackstop`.
+# run_drop [nobackstop] : the sweep over the fixture rows; the recorder holds each semanage delete and each walk, one
+#   per line, and both streams of the run are printed. The backstop is a stub refusing `/` and a home root, or absent
+#   under `nobackstop`.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 run_drop() {
     : > "${TESTDIR}/recorder"
@@ -284,12 +309,12 @@ run_drop() {
         eval "$1"
         C_YEL="" C_RST="" C_GRN="" C_RED="" C_DIM=""
         ok() { printf "ok %s\n" "$*"; }; log() { printf "+ %s\n" "$*"; }
-        stub_testdir="$2"; _sandbox_session_state="$3"; _left_trees=()
-        SANDBOX_EXEC_LIB=/usr/local/lib/ai-tools/sandbox-exec.lib.sh
+        stub_testdir="$2"
+        ai_tools_relabel__relabel_tree() { printf "walk %s\n" "$1" >> "${stub_testdir}/recorder"; }
         restorecon() { printf "restorecon %s\n" "$*" >> "${stub_testdir}/recorder"; }
         semanage() { [[ "$*" == *"/stuck("* ]] && return 1; printf "semanage %s\n" "$*" >> "${stub_testdir}/recorder"; }
         _locked() { "$@"; }
-        [[ "$4" == nobackstop ]] || ai_tools_safe_paths__match_protected_path() { [[ "$1" == / || "$1" =~ ^/home/[^/]+$ ]]; }
+        [[ "$3" == nobackstop ]] || ai_tools_safe_paths__match_protected_path() { [[ "$1" == / || "$1" =~ ^/home/[^/]+$ ]]; }
         ai_tools_relabel__list_local_rules_naming_policy_types() {
             printf "%s\t%s\t%s\n" \
                 "${stub_testdir}/drop/gone(/.*)?" a ai_tools_project_t \
@@ -302,54 +327,47 @@ run_drop() {
                 "/(/.*)?" a ai_tools_project_t \
                 "/stuck(/.*)?" a ai_tools_conf_t
         }
-        trap _warn_left_trees EXIT
         _drop_remaining_policy_type_rules
-    ' _ "${remove_text}" "${TESTDIR}" "$1" "${2:-}" 2>&1 || true
+    ' _ "${remove_text}" "${TESTDIR}" "${1:-}" 2>&1 || true
 }
-drop_out="$(run_drop none)"
+drop_out="$(run_drop)"
 recorded="$(<"${TESTDIR}/recorder")"
 for want in "semanage fcontext -d -f a -- ${TESTDIR}/drop/gone(/.*)?" \
             "semanage fcontext -d -f a -- ${TESTDIR}/drop/gone(/.*)?/(bin|obj)(/.*)?" \
             'semanage fcontext -d -f f -- /opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@acme/cli/bin/acme\.exe' \
             "semanage fcontext -d -f a -- ${TESTDIR}/drop/absent(/.*)?"; do
-    grep -qxF -- "${want}" <<<"${recorded}" && pass "none: dropped under its file-type letter: ${want#semanage fcontext -d -f }" \
-        || fail "none: not dropped: ${want} (recorded: ${recorded//$'\n'/ | })"
+    grep -qxF -- "${want}" <<<"${recorded}" && pass "dropped under its file-type letter: ${want#semanage fcontext -d -f }" \
+        || fail "not dropped: ${want} (recorded: ${recorded//$'\n'/ | })"
 done
-if [[ "$(grep -c '^restorecon ' <<<"${recorded}")" -eq 2 ]] \
-        && grep -qxF -- "restorecon -FR ${TESTDIR}/drop/gone" <<<"${recorded}" \
-        && grep -qxF -- "restorecon -FR ${TESTDIR}/drop/app.v1" <<<"${recorded}"; then
-    pass "none: the tree a project-shaped rule covers is restored, its escaping removed, and a build rule, an entrypoint rule, a tree that is gone and a protected path are not walked"
+if [[ "$(grep -c '^walk ' <<<"${recorded}")" -eq 2 ]] \
+        && grep -qxF -- "walk ${TESTDIR}/drop/gone" <<<"${recorded}" \
+        && grep -qxF -- "walk ${TESTDIR}/drop/app.v1" <<<"${recorded}" \
+        && ! grep -q '^restorecon ' <<<"${recorded}"; then
+    pass "the tree a project-shaped rule covers goes through the tree walk, its escaping removed, and a build rule, an entrypoint rule, a tree that is gone and a protected path are not walked"
 else
-    fail "none: restorecon calls: $(grep '^restorecon ' <<<"${recorded}" | tr '\n' ';')"
+    fail "walks: $(grep -E '^(walk|restorecon) ' <<<"${recorded}" | tr '\n' ';')"
 fi
 # A literal that exists and resolves elsewhere is dropped and not walked: the rule names a string, the walk a tree.
 for climbing in "${TESTDIR}/drop/climb/\\.\\./\\.\\./outside(/.*)?" "${TESTDIR}/drop/link/sub(/.*)?"; do
     grep -qxF -- "semanage fcontext -d -f a -- ${climbing}" <<<"${recorded}" \
-        && ! grep -qE -- "^restorecon .*(outside|elsewhere|/drop/link|/drop/climb)" <<<"${recorded}" \
-        && pass "none: a pattern reaching a tree it does not name is dropped and its tree not walked: ${climbing##*/drop/}" \
-        || fail "none: pattern ${climbing}: recorded ${recorded//$'\n'/ | }"
+        && ! grep -qE -- "^(walk|restorecon) .*(outside|elsewhere|/drop/link|/drop/climb)" <<<"${recorded}" \
+        && pass "a pattern reaching a tree it does not name is dropped and its tree not walked: ${climbing##*/drop/}" \
+        || fail "pattern ${climbing}: recorded ${recorded//$'\n'/ | }"
 done
 # The backstop guards the walk, not the drop: a local rule mapping / to the policy's own type is what the unload refuses
 # on, and removing the mapping relabels nothing.
 grep -qxF -- "semanage fcontext -d -f a -- /(/.*)?" <<<"${recorded}" \
-    && pass "none: a local rule mapping a protected path to the policy's type is dropped (the unload refuses on it) while its tree is not walked" \
-    || fail "none: the local ai_tools_project_t rule on / was not dropped"
-run_drop none nobackstop >/dev/null
-grep -q '^restorecon ' "${TESTDIR}/recorder" && fail "nobackstop: a tree was walked with the backstop absent: $(grep '^restorecon ' "${TESTDIR}/recorder" | tr '\n' ';')" \
-    || pass "none, backstop absent: no tree is walked (the backstop fails closed)"
-assert_msg MSG-N5W8 "${drop_out}" "none: a rule semanage will not delete is named"
+    && pass "a local rule mapping a protected path to the policy's type is dropped (the unload refuses on it) while its tree is not walked" \
+    || fail "the local ai_tools_project_t rule on / was not dropped"
+run_drop nobackstop >/dev/null
+grep -qE '^(walk|restorecon) ' "${TESTDIR}/recorder" && fail "nobackstop: a tree was walked with the backstop absent: $(grep -E '^(walk|restorecon) ' "${TESTDIR}/recorder" | tr '\n' ';')" \
+    || pass "backstop absent: no tree is walked (the backstop fails closed)"
+assert_msg MSG-N5W8 "${drop_out}" "a rule semanage will not delete is named"
 grep -qF -- "semanage fcontext -d -f a -- /stuck" <<<"${drop_out}" \
-    && pass "none: the warning gives the delete to run for the rule left" \
-    || fail "none: the warning does not give the delete: ${drop_out//$'\n'/ | }"
-grep -qF -- "${TESTDIR}/drop/absent" <<<"${drop_out}" && pass "none: each dropped rule is named in the transcript" \
-    || fail "none: the dropped rule is not named: ${drop_out//$'\n'/ | }"
-drop_out="$(run_drop live)"
-recorded="$(<"${TESTDIR}/recorder")"
-grep -q '^restorecon ' <<<"${recorded}" && fail "live: a dropped rule's tree was walked: ${recorded//$'\n'/ | }" \
-    || pass "live: no tree is walked under a live reading"
-assert_msg MSG-U8U4 "${drop_out}" "live: the trees left are named under the closing warning"
-grep -qF -- "sudo restorecon -FR ${TESTDIR}/drop/gone" <<<"${drop_out}" && pass "live: the closing warning names a dropped rule's tree" \
-    || fail "live: the closing warning does not name ${TESTDIR}/drop/gone: ${drop_out//$'\n'/ | }"
+    && pass "the warning gives the delete to run for the rule left" \
+    || fail "the warning does not give the delete: ${drop_out//$'\n'/ | }"
+grep -qF -- "${TESTDIR}/drop/absent" <<<"${drop_out}" && pass "each dropped rule is named in the transcript" \
+    || fail "the dropped rule is not named: ${drop_out//$'\n'/ | }"
 
 # run_unload <loaded...> : _unload_modules over a store listing the given modules; the stub's `-r` prints libsemanage's
 #   progress on stdout, refuses with the content of the refuse file on stderr where one is set, and otherwise clears
@@ -364,7 +382,7 @@ run_unload() {
         eval "$1"
         C_YEL="" C_RST="" C_GRN="" C_RED="" C_DIM=""
         ok() { printf "ok %s\n" "$*"; }; log() { printf "+ %s\n" "$*"; }
-        stub_testdir="$2"; _sandbox_session_state=none; _left_trees=()
+        stub_testdir="$2"
         _locked() { "$@"; }
         : > "${stub_testdir}/list_calls"
         semodule() {
@@ -463,7 +481,7 @@ for excluded in proj/carved outside globbed-1; do
 done
 
 # ── the script's text ─────────────────────────────────────────────────────────────────────────
-section "the installed library is read first, and no other walk crosses an account-writable tree"
+section "the installed library is read first, and no restorecon crosses an account-writable tree"
 
 read_line_number() { grep -n -m1 -F -- "$1" "${INSTALLER}" | cut -d: -f1; }
 exec_lib_line="$(read_line_number 'source "${SANDBOX_EXEC_LIB}"')"
@@ -479,25 +497,26 @@ fi
     && pass "sessions.lib.sh is sourced beside the relabel library, after it" \
     || fail "sessions.lib.sh is not sourced after RELABEL_LIB (line ${sessions_lib_line:-none})"
 
-# find_ungated_walks <file>: print each code line calling restorecon that is neither the gate's own call nor a walk
-# of a root-owned tree, nor a command a warning prints.
+# find_account_tree_restorecons <file>: print each code line calling restorecon that is neither a walk of a root-owned
+# tree, nor the one-path restore of a file in the root-owned home (_restore_home_state_labels), nor a command a warning
+# prints.
 # shellcheck disable=SC2016  # the patterns match the literal ${...} text
-find_ungated_walks() {
+find_account_tree_restorecons() {
     grep -nE '(^|[^[:alnum:]_-])restorecon[[:space:]]' "$1" \
         | grep -vE '^[0-9]+:[[:space:]]*#' \
-        | grep -vE 'warn |restorecon -FR "\$1" 2>/dev/null' \
+        | grep -vE 'warn |restorecon -F "\$\{path\}" 2>/dev/null' \
         | grep -vE '"\$\{(LOG_DIR|RUN_DIR)\}"|/usr/local/libexec/ai-tools' || true
 }
 printf '%s\n' '_restore_one() { restorecon -FR "$1"; }' '    restorecon -FR "${NVM_DIR}"  2>/dev/null || true' \
-    > "${TESTDIR}/control.sh"
-if [[ "$(find_ungated_walks "${TESTDIR}/control.sh" | grep -c .)" -eq 2 ]]; then
-    pass "the reader flags a restorecon of an account-writable tree (control)"
+    '            restorecon -FR "${path}" 2>/dev/null || true' > "${TESTDIR}/control.sh"
+if [[ "$(find_account_tree_restorecons "${TESTDIR}/control.sh" | grep -c .)" -eq 3 ]]; then
+    pass "the reader flags a restorecon of an account-writable tree, the home's path recursive among them (control)"
 else
-    fail "control: the reader does not flag an ungated restorecon, so the check below cannot fail"
+    fail "control: the reader does not flag a restorecon of an account-writable tree, so the check below cannot fail"
 fi
-found="$(find_ungated_walks "${INSTALLER}")"
-[[ -z "${found}" ]] && pass "every restorecon outside the gate names a root-owned tree" \
-    || fail "a restorecon crosses a tree the gate does not cover: ${found//$'\n'/ | }"
+found="$(find_account_tree_restorecons "${INSTALLER}")"
+[[ -z "${found}" ]] && pass "every restorecon names a root-owned tree or one file in the root-owned home" \
+    || fail "a restorecon crosses a tree the sandbox account can write: ${found//$'\n'/ | }"
 
 # remove_guard_order <file>: print `guarded` when the remove action reads the live-session state ahead of its first
 # store write (_labels_drop), and `unguarded` otherwise. The action is read from its `remove)` arm to the next `;;`.
@@ -505,11 +524,11 @@ remove_guard_order() {
     awk '
         /^  remove\)/ { inside = 1; next }
         inside && /^    ;;/ { exit }
-        inside && /_sandbox_session_state/ && /== none/ && !dropped { guard = 1 }
+        inside && /ai_tools_sessions__read_live_session_state/ && /== none/ && !dropped { guard = 1 }
         inside && /_labels_drop/ { dropped = 1; print (guard ? "guarded" : "unguarded"); exit }
     ' "$1"
 }
-printf '%s\n' '  remove)' '    _locked _labels_drop' '    [[ "${_sandbox_session_state}" == none ]] || die x' '    ;;' \
+printf '%s\n' '  remove)' '    _locked _labels_drop' '    [[ "$(ai_tools_sessions__read_live_session_state)" == none ]] || die x' '    ;;' \
     > "${TESTDIR}/remove-control.sh"
 if [[ "$(remove_guard_order "${TESTDIR}/remove-control.sh")" == unguarded ]]; then
     pass "the reader flags a remove whose guard follows its first store write (control)"

@@ -2156,6 +2156,10 @@ dropped the file\-context rules for ${agent}; the walk over its config directory
 WARNING.
 could not load layout module ${module}; build output is typed at relabel time only
 .TP
+.B MSG-D6B7
+WARNING.
+could not restore every label under $1 \-\- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}; re\-run this command once the entry it names is fixed
+.TP
 .B MSG-E2A4
 ERROR.
 could not derive the shipped module set (policy/shipped\-modules.sh)
@@ -2256,10 +2260,6 @@ labelling skipped for ${subject} \-\- ${detail} ${wanted}
 ERROR.
 an agent path is not correctly labelled (see above) \-\- the session would be refused, or run UNCONFINED
 .TP
-.B MSG-U8U4
-WARNING.
-left the labels on these trees as they were: ${reason}; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run:
-.TP
 .B MSG-V8U7
 WARNING.
 policy\-store writes are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
@@ -2309,10 +2309,6 @@ no home directory on this host for ${name} (${home:\-none})
 ERROR.
 no account named
 .TP
-.B MSG-D6A5
-WARNING.
-left the labels on /opt/ai\-tools/.config and the agents' config directories as they were: an agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon \-R /opt/ai\-tools/.config/ && sudo systemctl start ai\-tools\-relabel.service
-.TP
 .B MSG-D7C6
 ERROR.
 the operator must be a normal login user, not root
@@ -2352,6 +2348,10 @@ the asset reconcile reported a finding \-\- atr admin status names each one and 
 .B MSG-G3P2
 WARNING.
 could not write the timer stamp in /opt/ai\-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update \-\- see: atr admin system layout
+.TP
+.B MSG-G4W5
+WARNING.
+could not restore every label under ${dir} \-\- ai\-tools\-relabel\-tree exited ${rc}: ${kept:\-no detail}; once that is fixed, run: sudo /usr/local/libexec/ai\-tools/ai\-tools\-relabel\-tree \-\- $(printf '%q' "${dir}")
 .TP
 .B MSG-G6H3
 WARNING.

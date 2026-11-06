@@ -822,6 +822,24 @@ bootstrap_launcher_symlinks() {
     done
 }
 
+# walk_account_tree <dir>: label <dir> and every entry under it through the installed ai-tools-relabel-tree. Its stderr
+# is the walker's own, every path escaped, and its `summary` line is dropped. A walk that left hardlinked paths at their
+# type is a note naming them; any other non-zero exit warns naming <dir> and the command to re-run. Returns 0 either
+# way, since a label left is reported and does not stop the install.
+walk_account_tree() {
+    local dir="$1" rc=0 diagnostics line kept=""
+    diagnostics="$(/usr/local/libexec/ai-tools/ai-tools-relabel-tree -- "${dir}" 2>&1 >/dev/null)" || rc=$?
+    while IFS= read -r line; do
+        if [[ -n "${line}" && ! "${line}" =~ ^summary\ hardlinks-left= ]]; then kept+="${kept:+; }${line}"; fi
+    done <<< "${diagnostics}"
+    case "${rc}" in
+        0) log "SELinux: labelled ${dir}" ;;
+        4) log "SELinux: labelled ${dir}; the walk left these hardlinked entries at their type: ${kept}" ;;
+        *) warn MSG-G4W5 "could not restore every label under ${dir} -- ai-tools-relabel-tree exited ${rc}: ${kept:-no detail}; once that is fixed, run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- $(printf '%q' "${dir}")" ;;
+    esac
+    return 0
+}
+
 # Restore SELinux file contexts for every path this script deploys. No-op when SELinux is disabled or restorecon is not
 # installed.
 do_selinux_restore() {
@@ -844,23 +862,15 @@ do_selinux_restore() {
         /var/log/ai-tools/
     # Each agent's config directory is labelled from the rule its own manifest declares, applied
     # by ai-tools-relabel-agent after this; restore what is already mapped. The sandbox account writes inside each one,
-    # so the walk runs only while no process of that account is live (cli.rule.md, ref-section-e6c6); the state is read
-    # in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config takes the same
-    # gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant an older install
-    # left sandbox-owned is a tree the account can write.
-    local _cfg _sandbox_session_state
-    # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals
-    _sandbox_session_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" "$(id -u "${SANDBOX_USER}" 2>/dev/null)" \
-        2>/dev/null || true)"
-    if [[ "${_sandbox_session_state}" == none ]]; then
-        [[ -d /opt/ai-tools/.config ]] && restorecon -R /opt/ai-tools/.config/
-        while IFS=$'\t' read -r _ _cfg; do
-            [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
-        done < <(ai_tools_control_plane__list_agent_config_dirs)
-    else
-        warn MSG-D6A5 "left the labels on /opt/ai-tools/.config and the agents' config directories as they were: an agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -R /opt/ai-tools/.config/ && sudo systemctl start ai-tools-relabel.service"
-    fi
+    # so each goes through the descriptor-pinned walker this install deployed, which labels the entry it holds open
+    # while a session of that account runs (cli.rule.md, ref-section-e6c6). /opt/ai-tools/.config takes the same walk:
+    # it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant an older install left
+    # sandbox-owned is a tree the account can write.
+    local _cfg
+    [[ -d /opt/ai-tools/.config ]] && walk_account_tree /opt/ai-tools/.config
+    while IFS=$'\t' read -r _ _cfg; do
+        [[ -d "${_cfg}" ]] && walk_account_tree "${_cfg}"
+    done < <(ai_tools_control_plane__list_agent_config_dirs)
     restorecon \
         /usr/local/bin/ai-tools-launch \
         /usr/local/bin/claude \
@@ -1850,8 +1860,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh" \
         /usr/local/lib/ai-tools/sandbox-exec.lib.sh
 
-    # The live-session reader the recursive relabels gate on (sessions.lib.sh): 644 root:root, shipped logic alone,
-    # sourced by the relabel helpers and this installer as root and by the CLI as the operator.
+    # The live-session reader the policy unload reads (sessions.lib.sh), since a process of the sandbox account live
+    # at the unload would run on in a domain the policy no longer defines: 644 root:root, shipped logic alone, sourced
+    # as root by install-selinux.sh's remove and the ai-tools-selinux %postun.
     log "/usr/local/lib/ai-tools/sessions.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" \
