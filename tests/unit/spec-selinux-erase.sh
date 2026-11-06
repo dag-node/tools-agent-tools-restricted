@@ -5,13 +5,16 @@
 # store while the sandbox account's sessions read `live` or `unreadable` (cli.rule.md, ref-section-e6c6),
 # and under `none` it drops every local rule naming a policy type, unloads the modules, names each project tree
 # a dropped rule covered with the restorecon that resets it, and restores the control-plane and sandbox trees once
-# the store shows every ai_tools module gone (confinement.rule.md, "How the policy ships").
+# the store shows every ai_tools module gone (confinement.rule.md, "How the policy ships"): the sandbox account's trees
+# through ai-tools-relabel-tree where it is executable, and through restorecon where an erase of base removed it.
 #
 # A scriptlet runs inside an rpm transaction as root, so its body is read out of the spec as RPM parses it, its host
 # paths rewritten to fixture trees, and run under /bin/sh with the session reader, semanage, semodule, restorecon
 # and flock defined as shell functions ahead of it: each records its call, and a file in the fixture makes one of them
-# fail. The printed restore command is run through the same stub and its argument read back, so a path carrying a space
-# is held to reach restorecon as one argument. The gate itself is shown by a mutation: with its test rewritten, a live
+# fail. The walker runs at an absolute path behind an executable test, which no shell function can stand
+# in for, so the body's test reads a marker file and its call runs a stub; the rewrite is asserted before a case reads
+# it. The printed restore command is run through the same stub and its argument read back, so a path carrying a space is
+# held to reach restorecon as one argument. The gate itself is shown by a mutation: with its test rewritten, a live
 # reading writes the store, which the live and unreadable cases refuse.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
@@ -68,6 +71,16 @@ body="${body//\/var\/log\/ai-tools/${log}}"
 body="${body//\/usr\/local\/libexec\/ai-tools/${libexec}}"
 body="${body//\/usr\/local\/lib\/ai-tools/${lib}}"
 body="${body//\/run\/lock\/ai-tools-relabel.lock/${TESTDIR}/relabel.lock}"
+walker_test="[ -x ${libexec}/ai-tools-relabel-tree ]"
+walker_call="${libexec}/ai-tools-relabel-tree -- \"\${tree}\" >/dev/null"
+if [[ "${body}" != *"${walker_test}"* || "${body}" != *"${walker_call}"* ]]; then
+    fail "the %postun does not test and run the walker in the form this file rewrites"
+    finish; exit
+fi
+# shellcheck disable=SC2016  # the replacements are scriptlet text, expanded when it runs
+walker_test_stub='[ -e "${STUB}/walker_present" ]' walker_call_stub='relabel_tree_stub -- "${tree}" >/dev/null'
+body="${body//"${walker_test}"/"${walker_test_stub}"}"
+body="${body//"${walker_call}"/"${walker_call_stub}"}"
 
 # The store the stubs serve: a rule per shape the sweep meets. The raw rule holds a metacharacter no label writes,
 # over a directory that exists under that name, so the literal check and not the directory test decides its line.
@@ -107,6 +120,11 @@ semodule() {
             mv "${STUB}/modules.next" "${STUB}/modules"; return 0 ;;
     esac
 }
+relabel_tree_stub() {
+    printf "walk %s\n" "$*" >> "${STUB}/recorder"
+    [ -f "${STUB}/walk_fails" ] && [ "$2" = "$(cat "${STUB}/walk_fails")" ] && return 1
+    return 0
+}
 restorecon() {
     printf "restorecon %s\n" "$*" >> "${STUB}/recorder"
     printf "%s\n" "$#" "$@" > "${STUB}/last_args"
@@ -117,17 +135,24 @@ restorecon() {
 stubs="${stubs//__STUB__/${TESTDIR}}"
 printf '%s\n%s\n' "${stubs}" "${body}" > "${TESTDIR}/run.sh"
 
-# run_erase <state> [fail-marker...]: run the scriptlet as a final erase under that reading, with each marker file
-# placed for the stubs; the recorder holds every store write and restore, out and err the two streams.
+# run_erase <state> [marker...]: run the scriptlet as a final erase under that reading, with each marker file placed
+# for the stubs -- walker_present makes the walker executable; restore_fails=<tree> and walk_fails=<tree> fail
+# that tree's call -- the recorder holding every store write, walk and restore, and out and err the two streams.
 run_erase() {
     local state="$1"; shift
     printf '%s\n' "${state}" > "${TESTDIR}/session"
     cp "${TESTDIR}/rules.base" "${TESTDIR}/rules"; cp "${TESTDIR}/modules.base" "${TESTDIR}/modules"
     rm -f "${TESTDIR}/recorder" "${TESTDIR}/list_fails" "${TESTDIR}/unload_fails" "${TESTDIR}/delete_fails" \
           "${TESTDIR}/restore_fails" "${TESTDIR}/flock_flips" "${TESTDIR}/flock_fails" "${TESTDIR}/last_args" \
-          "${TESTDIR}/relabel.lock"
+          "${TESTDIR}/relabel.lock" "${TESTDIR}/walker_present" "${TESTDIR}/walk_fails"
     : > "${TESTDIR}/recorder"
-    local marker; for marker in "$@"; do case "${marker}" in restore_fails=*) printf '%s' "${marker#*=}" > "${TESTDIR}/restore_fails" ;; *) : > "${TESTDIR}/${marker}" ;; esac; done
+    local marker
+    for marker in "$@"; do
+        case "${marker}" in
+            restore_fails=*|walk_fails=*) printf '%s' "${marker#*=}" > "${TESTDIR}/${marker%%=*}" ;;
+            *) : > "${TESTDIR}/${marker}" ;;
+        esac
+    done
     status=0
     sh "${TESTDIR}/run.sh" 0 > "${TESTDIR}/out" 2> "${TESTDIR}/err" || status=$?
     recorder="$(cat "${TESTDIR}/recorder")"; err="$(cat "${TESTDIR}/err")"
@@ -135,8 +160,8 @@ run_erase() {
 
 # ── A live or unreadable reading writes nothing and names the re-run ────────────────────────────
 for state in live unreadable; do
-    run_erase "${state}"
-    if ! grep -qE '^(semanage|semodule|restorecon) ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+    run_erase "${state}" walker_present
+    if ! grep -qE '^(semanage|semodule|restorecon|walk) ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
         pass "${state}: no store write, no restore, exit 0"
     else
         fail "${state}: the scriptlet wrote or walked (exit ${status}): ${recorder//$'\n'/; }"
@@ -196,11 +221,11 @@ if grep -qF 'semodule -r ai_tools -r ai_tools_tmpmap' <<< "${recorder}"; then
 else
     fail "none: the unload is missing or partial: ${recorder//$'\n'/; }"
 fi
-restores="$(grep '^restorecon ' <<< "${recorder}" || true)"
+restores="$(grep -E '^(restorecon|walk) ' <<< "${recorder}" || true)"
 if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"restorecon -R ${home}"$'\n'"restorecon -R ${clones}" ]]; then
-    pass "none: the four present trees are restored one call each after the unload, the absent one skipped"
+    pass "none, walker absent: the four present trees are restored by restorecon, one call each after the unload, the absent one skipped"
 else
-    fail "none: the trees were not restored as four calls over the present trees: ${restores//$'\n'/; }"
+    fail "none, walker absent: the trees were not restored as four restorecon calls over the present trees: ${restores//$'\n'/; }"
 fi
 if [[ "${status}" -eq 0 ]]; then pass "none: exit 0"; else fail "none: exit ${status}"; fi
 
@@ -246,6 +271,29 @@ if [[ "$(run_pasted "${unquoted}" | head -n 1)" -gt 2 ]]; then
     pass "control: the same command without its quotes reaches restorecon as several arguments"
 else
     fail "control: the unquoted command '${unquoted}' did not split; the argument count does not tell the two apart"
+fi
+
+# ── The walker restores the sandbox account's trees where it is executable ──────────────────────
+run_erase none walker_present
+restores="$(grep -E '^(restorecon|walk) ' <<< "${recorder}" || true)"
+if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"walk -- ${home}"$'\n'"walk -- ${clones}" ]] \
+        && [[ "${status}" -eq 0 ]]; then
+    pass "none, walker present: the root-owned trees take restorecon and the account's trees the walker, after the unload"
+else
+    fail "none, walker present: the restores were: ${restores//$'\n'/; } (exit ${status})"
+fi
+run_erase none walker_present "walk_fails=${home}"
+if grep -qF "could not restore the default types under ${home}; run: sudo ${libexec}/ai-tools-relabel-tree -- ${home}" <<< "${err}" \
+        && grep -qx -- "walk -- ${clones}" <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
+    pass "none, a walk fails: the tree is named with the walk to re-run, the later tree is walked, exit 0"
+else
+    fail "none, a walk fails: ${err//$'\n'/; } / ${recorder//$'\n'/; }"
+fi
+run_erase none walker_present unload_fails
+if ! grep -qE '^(restorecon|walk) ' <<< "${recorder}" && grep -q 'left loaded: ' <<< "${err}"; then
+    pass "none, walker present, unload refused: no tree is walked or restored"
+else
+    fail "none, walker present, unload refused: ${recorder//$'\n'/; }"
 fi
 
 # ── The restore waits for a read-back listing no module ─────────────────────────────────────────

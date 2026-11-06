@@ -14,7 +14,9 @@
 # %preun nulls the relabel helper's stderr, the stream its deferred-cleanup warning is on; and the selinux %postun reads
 # the sandbox account's sessions ahead of its first policy-store write, read as source order over its command lines.
 # Source order does not show that the writes wait on the reading; unit/spec-selinux-erase.sh runs the scriptlet
-# under stubs for that.
+# under stubs for that. The selinux %post is read for its walks over the trees the sandbox account writes: each runs
+# ai-tools-relabel-tree with its exit status kept for the WARNING, and the section does not take a session reading
+# or run restorecon over those trees.
 #
 # Its last section reads the spec through RPM's macro expansion, which every scriptlet body passes
 # through before the shell does (the spec's preamble states the escaping rule): no scriptlet carries a percent run
@@ -111,6 +113,47 @@ else
         pass "the selinux %postun reads the sessions (line ${read_line}) ahead of its first store write (line ${write_line})"
     else
         fail "the selinux %postun does not read the sessions ahead of its first store write (read: '${read_line}', write: '${write_line}')"
+    fi
+fi
+
+section "the selinux %post labels the sandbox account's trees through the walker (unit)"
+
+# list_post_walk_findings <section>: print each way the section departs from the walk the selinux %post makes
+# over /opt/ai-tools and the clone area -- a tree without its walker call, a walker call whose status `|| :` discards,
+# a session reading, a restorecon over one of those trees -- one per line, over its code lines.
+# shellcheck disable=SC2016  # the patterns match the spec's literal %{...} text
+list_post_walk_findings() {
+    local code tree
+    code="$(grep -vE '^[[:space:]]*(#|echo |printf )' <<< "$1" || true)"
+    for tree in /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
+        grep -qxE "[[:space:]]*if ! %\{ai_libexecdir\}/ai-tools-relabel-tree -- ${tree} >/dev/null 2>&1; then" <<< "${code}" \
+            || printf 'no walker call over %s\n' "${tree}"
+    done
+    grep -E 'ai-tools-relabel-tree -- .*\|\| :' <<< "${code}" | sed 's/^/the status is discarded: /' || true
+    grep -E '_sandbox_session_state' <<< "${code}" | sed 's/^/a session reading: /' || true
+    grep -E 'restorecon[[:space:]]+-[A-Za-z]+[[:space:]][^;|&]*(/opt/ai-tools([[:space:]/]|$)|sandbox-projects)' <<< "${code}" \
+        | sed 's/^/a restorecon: /' || true
+}
+# shellcheck disable=SC2016  # the control lines are spec text, read and not expanded
+post_control="$(printf '%s\n' '%post -n ai-tools-selinux' \
+    '    if ! %{ai_libexecdir}/ai-tools-relabel-tree -- /opt/ai-tools >/dev/null 2>&1; then' \
+    '    %{ai_libexecdir}/ai-tools-relabel-tree -- /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :' \
+    '    _sandbox_session_state=$(read)' '    restorecon -R /opt/ai-tools >/dev/null 2>&1 || :')"
+post_section=""
+for sec in "${sections[@]}"; do
+    [[ "${sec%%$'\n'*}" == "%post -n ai-tools-selinux" ]] && post_section="${sec}"
+done
+if [[ "$(list_post_walk_findings "${post_control}" | grep -c .)" -ne 4 ]]; then
+    fail "control: the reader does not flag a missing walk, a discarded status, a session reading and a restorecon, so the check below cannot fail"
+elif [[ -z "${post_section}" ]]; then
+    fail "the selinux %post section was not found; the parser or the spec changed shape"
+else
+    pass "the reader flags a missing walk, a discarded status, a session reading and a restorecon (control)"
+    post_findings="$(list_post_walk_findings "${post_section}")"
+    if [[ -z "${post_findings}" ]]; then
+        pass "the selinux %post walks /opt/ai-tools and the clone area through ai-tools-relabel-tree, its status kept, with no session reading"
+    else
+        fail "the selinux %post: ${post_findings//$'\n'/; }"
     fi
 fi
 
