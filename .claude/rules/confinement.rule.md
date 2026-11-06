@@ -590,7 +590,7 @@ executable and through `restorecon` where the same transaction erased `ai-tools-
 names each with the `find` that lists its inode's names. A module left loaded, a rule semanage will not delete
 and a tree the walk could not restore are each named with the command that completes the step.
 `install-selinux.sh remove` takes the same steps from a checkout, refuses at either read, and exits 1 over a module left
-loaded.
+loaded or a path the revert left on a type the policy no longer defines, an agent's config directory included.
 
 The `%selinux_*` rpm macros are not used. `%selinux_requires` records the build host's `selinux-policy` version
 as a `Requires`, which a `noarch` package cannot satisfy across both EL targets; `%selinux_modules_install`/`_uninstall`

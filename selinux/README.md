@@ -412,8 +412,9 @@ local fcontext rule naming an `ai_tools` type (the unload refuses while one
 stands), unloads every `ai_tools*` module, and returns the nvm tree,
 the sandbox account's home state and each project to default contexts. A module
 left loaded ends the run with exit 1 and semanage's reason, and a file
-the restore left at a removed type, one with a second name, ends it with exit 1
-and the `find` that lists its names. DAC hardening
+the restore left at a removed type ends it with exit 1: one with a second name
+with the `find` that lists its names, and an entry of an agent's config
+directory with the line the walk printed for it. DAC hardening
 (ownership/permissions/sticky `.claude`/locked `bin`) is untouched. While
 an agent session, the toolchain update, or a step run as the sandbox account is
 live, the command refuses before it changes anything: let each session end

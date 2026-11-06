@@ -278,6 +278,22 @@ if grep -E '^ +5\) warn ' <<<"${drop_text}" | grep -qF 'MSG-B8Q9' && ! grep -q '
 else
     fail "the agent unlabel loop does not read status 5, or still reads the walker's lines for it"
 fi
+# The loop runs only in remove, and no later walk revisits an agent's config directory, so each status that leaves
+# a path on a removed type sets the flag the action exits 1 on. arm_sets_flag <status>: 0 when that status's arm,
+# from its label to its `;;`, assigns REMOVE_LEFT_PATHS=1.
+arm_sets_flag() {
+    awk -v s="$1" '$0 ~ "^ +" s "\\) " { a = 1 } a { print } a && /;;/ { exit }' <<<"${drop_text}" \
+        | grep -qF 'REMOVE_LEFT_PATHS=1'
+}
+if ! arm_sets_flag 0 && ! arm_sets_flag '\\*'; then
+    if arm_sets_flag 4 && arm_sets_flag 5 && arm_sets_flag 6; then
+        pass "the agent unlabel loop counts statuses 4, 5 and 6 toward remove's exit 1, and 0 and no rules not"
+    else
+        fail "an agent unlabel status that leaves a path on a removed type does not set REMOVE_LEFT_PATHS"
+    fi
+else
+    fail "control: status 0 or the no-rules arm sets REMOVE_LEFT_PATHS, so the reader cannot tell the arms apart"
+fi
 
 # ── remove: the rules outside the registries, and an unload that reads the store back ────────
 # A local rule naming an ai_tools type that no registry walk dropped keeps every module loaded, and the unload's exit

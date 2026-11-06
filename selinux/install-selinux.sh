@@ -669,13 +669,18 @@ _labels_drop() {
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
         rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
+        # Statuses 4, 5 and 6 leave a path on a type the unload removes, and no later walk revisits the config
+        # directory, so each sets REMOVE_LEFT_PATHS for the action's close.
         case "${rc}" in
             0) ;;
-            4) _report_skipped_walk_entries "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ;;
-            6) _warn_walker_unavailable "${agent}'s config directory" ;;
+            4) _report_skipped_walk_entries "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
+               REMOVE_LEFT_PATHS=1 ;;
+            6) _warn_walker_unavailable "${agent}'s config directory"
+               REMOVE_LEFT_PATHS=1 ;;
             # The rules are dropped and a path they covered keeps its type: an entrypoint after its per-path revert,
             # or an entry the walk over the config directory could not label; the diagnostic names which.
-            5) warn MSG-B8Q9 "dropped the file-context rules for ${agent}; a path they covered keeps its type -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
+            5) warn MSG-B8Q9 "dropped the file-context rules for ${agent}; a path they covered keeps its type -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"
+               REMOVE_LEFT_PATHS=1 ;;
             *) log "  ${agent}: no file-context rules to drop" ;;
         esac
     done
