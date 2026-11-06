@@ -461,10 +461,46 @@ if declare -F ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_to
         else
             fail "control: an agent unlabel whose config walk labelled every entry returned ${status}"
         fi
+        # The entrypoint half of the erase: restorecon's status is swallowed, so the outcome is a read-back
+        # of the path's type. A path still at the entrypoint type, or one whose type cannot be read, returns 5
+        # with the path named ahead of the walk's own lines; a path at its default returns the walk's status.
+        entrypoint_saved="$(declare -f ai_tools_providers__is_entrypoint_fcontext_valid _ai_tools_relabel__find_entrypoint_paths \
+                                restorecon 2>/dev/null || true)"
+        ai_tools_providers__read_agent_manifest_field() {
+            case "$2" in config_dir) printf 'bin' ;; entrypoint_fcontext) printf '/fixture/claude\\.exe' ;; *) : ;; esac
+        }
+        ai_tools_providers__is_entrypoint_fcontext_valid() { return 0; }
+        _ai_tools_relabel__find_entrypoint_paths() { printf '%s\n' "${TESTDIR}/claude.exe"; }
+        restorecon() { return 0; }
+        _ai_tools_relabel__read_live_type() { printf '%s\n' "${stub_live_type}"; }
+        # entrypoint_is <live-type> <walk-status> <expected-status> <diagnostic-glob> <why>
+        entrypoint_is() {
+            local status=0
+            stub_live_type="$1"; stub_walk_status="$2"
+            ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || status=$?
+            # shellcheck disable=SC2053  # the fourth argument is a glob the diagnostic is matched against
+            if [[ "${status}" -eq "$3" && "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == $4 ]]; then
+                pass "$5: status $3"
+            else
+                fail "$5: status ${status}, diagnostic '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
+            fi
+        }
+        # The stubbed walk sets its lines whatever its status, so each glob ends on them.
+        entrypoint_is lib_t 0 0 "skipped hardlinked path *" "control: an entrypoint read back at its default type after its revert"
+        entrypoint_is "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" 0 5 "${TESTDIR}/claude.exe keeps ${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE} after its revert; skipped *" \
+            "an entrypoint still at its type after its revert returns 5 naming the path"
+        entrypoint_is "" 0 5 "the type of ${TESTDIR}/claude.exe could not be read back after its revert; skipped *" \
+            "an entrypoint whose type cannot be read back returns 5 naming the path"
+        entrypoint_is "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" 4 5 "${TESTDIR}/claude.exe keeps *; skipped hardlinked path *" \
+            "an entrypoint left at its type outranks a walk that left hardlinked files, and the diagnostic carries both"
+        entrypoint_is lib_t 4 4 "skipped hardlinked path *" "an entrypoint at its default leaves a walk's 4 as the status"
         unset -f ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
                  _ai_tools_relabel__register_fcontext _ai_tools_relabel__read_live_type \
                  _ai_tools_relabel__is_entrypoint_policy_active ai_tools_providers__list_enabled_agents \
-                 _ai_tools_relabel__label_agent_entrypoint
+                 _ai_tools_relabel__label_agent_entrypoint ai_tools_providers__is_entrypoint_fcontext_valid \
+                 _ai_tools_relabel__find_entrypoint_paths restorecon
+        eval "${entrypoint_saved}"
+        unset entrypoint_saved stub_live_type
         eval "${walk_saved}"
         unset walk_saved
     else

@@ -314,7 +314,7 @@ else
 fi
 # Each status the library returns, rendered under the agent's name; 1 is an agent declaring no usable value.
 for case_line in "2|the SELinux layer is inactive here" "4|left these entries at their type: fixture diagnostic" \
-        "5|could not label every entry -- fixture diagnostic" "6|the tree walker could not run over its config directory -- fixture diagnostic" \
+        "5|a path they covered keeps its type -- fixture diagnostic" "6|the tree walker could not run over its config directory -- fixture diagnostic" \
         "1|no file-context rules to drop"; do
     rc="${case_line%%|*}"; expected="${case_line#*|}"
     run_erase none "unlabel_status=${rc}"

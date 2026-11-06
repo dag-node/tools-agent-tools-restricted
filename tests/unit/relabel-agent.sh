@@ -145,7 +145,20 @@ if [[ "${RC}" -eq 1 ]]; then pass "status 1 exits 1"; else fail "status 1 exits 
 unlabel_run 1 "failed to restore the file context of /opt/ai-tools/.acme/x: Permission denied; 1 entries not labelled"
 assert_msg MSG-S6C5 "${OUT}" "status 1 refuses as no usable rule whatever the diagnostics hold"
 unlabel_run 5 "failed to restore the file context of /opt/ai-tools/.acme/x: Permission denied; 1 entries not labelled"
-assert_msg MSG-V4H3 "${OUT}" "status 5 warns that the config directory's walk failed after the rules were dropped"
+assert_msg MSG-V4H3 "${OUT}" "status 5 warns that a path the dropped rules covered keeps its type"
+if command grep -qF 'ai-tools-relabel-tree -- /opt/ai-tools/.acme' <<< "${OUT}"; then
+    pass "status 5 names the config directory's walk as the remedy for an entry it left"
+else
+    fail "status 5 does not name the config directory's walk: ${OUT//$'\n'/ | }"
+fi
+# The same status from the entrypoint half: the diagnostic names the path left at its type.
+unlabel_run 5 "/opt/ai-tools/.nvm/versions/node/v22.0.0/lib/node_modules/@acme/cli/bin/claude.exe keeps ai_tools_exec_t after its revert"
+assert_msg MSG-V4H3 "${OUT}" "status 5 from an entrypoint left at its type warns under the same code"
+if command grep -qF 'bin/claude.exe keeps ai_tools_exec_t after its revert' <<< "${OUT}"; then
+    pass "status 5 carries the entrypoint path the revert left"
+else
+    fail "status 5 does not carry the entrypoint path: ${OUT//$'\n'/ | }"
+fi
 if command grep -qxF MSG-S6C5 <<< "${OUT}"; then
     fail "status 5 is reported as no usable rule"
 else

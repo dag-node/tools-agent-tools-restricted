@@ -748,13 +748,17 @@ ai_tools_relabel__label_agent_paths() {
 #   default labels on what they matched -- the erase-time counterpart, so a removed agent package
 #   leaves behind no rule for types its host may stop defining. Reads the manifest, so it runs
 #   while that package's files are still present (rpm %preun). Returns 2 when the SELinux layer is
-#   inactive, 1 when the agent does not declare a usable value, 5 when the rules were dropped and the walk over its
-#   config directory could not label an entry, 4 when the rules were dropped and that walk completed leaving hardlinked
-#   paths at their type, 6 when the rules were dropped and the walker could not run, and 0 otherwise. A walk's own
-#   lines are in AI_TOOLS_RELABEL__TREE_DIAGNOSTICS, and each status after the drop is its own, so a reader does not
-#   tell them apart by whether the walker printed.
+#   inactive, 1 when the agent does not declare a usable value, 5 when the rules were dropped and a path they covered
+#   keeps its type -- an entrypoint path still carrying ai_tools_exec_t after its per-path `restorecon -F`, or one whose
+#   type could not be read back, or an entry the walk over its config directory could not label -- 4 when the rules
+#   were dropped and that walk completed leaving hardlinked paths at their type, 6 when the rules were dropped and
+#   the walker could not run, and 0 otherwise. AI_TOOLS_RELABEL__TREE_DIAGNOSTICS names each entrypoint path left,
+#   then carries the walk's own lines, and each status after the drop is its own, so a reader does not tell them apart
+#   by whether the walker printed. The entrypoint's outcome is a read-back of its type and not restorecon's status,
+#   which is swallowed: this is the removal direction, where a path left at the type is more access, and the one
+#   the tree walk after the policy's unload does not write, since the entrypoint is hardlinked.
 ai_tools_relabel__unlabel_agent_paths() {
-    local agent="$1" pattern config_dir path dropped=1 walk_status=0
+    local agent="$1" pattern config_dir path live_type dropped=1 walk_status=0 kept=""
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
     _ai_tools_relabel__is_entrypoint_policy_active || return 2
     declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || return 2
@@ -764,6 +768,12 @@ ai_tools_relabel__unlabel_agent_paths() {
         _ai_tools_relabel__register_fcontext delete f "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" "${pattern}"
         while IFS= read -r path; do
             restorecon -F "${path}" 2>/dev/null || true
+            live_type="$(_ai_tools_relabel__read_live_type "${path}")"
+            if [[ -z "${live_type}" ]]; then
+                kept+="${kept:+; }the type of ${path} could not be read back after its revert"
+            elif [[ "${live_type}" == "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ]]; then
+                kept+="${kept:+; }${path} keeps ${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE} after its revert"
+            fi
         done < <(_ai_tools_relabel__find_entrypoint_paths "${pattern}")
         dropped=0
     fi
@@ -778,15 +788,17 @@ ai_tools_relabel__unlabel_agent_paths() {
         path="${CP_HOME}/${config_dir}"
         if [[ -d "${path}" ]]; then
             ai_tools_relabel__relabel_tree "${path}" || walk_status=$?
-            case "${walk_status}" in
-                0)   ;;
-                4|6) return "${walk_status}" ;;
-                *)   return 5 ;;
-            esac
         fi
         dropped=0
     fi
-    return "${dropped}"
+    # The walk reset the diagnostics to its own lines; the entrypoint paths left go ahead of them.
+    AI_TOOLS_RELABEL__TREE_DIAGNOSTICS="${kept}${kept:+${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:+; }}${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}"
+    [[ -z "${kept}" ]] || return 5
+    case "${walk_status}" in
+        0)   return "${dropped}" ;;
+        4|6) return "${walk_status}" ;;
+        *)   return 5 ;;
+    esac
 }
 
 # ai_tools_relabel__list_agent_labels: PRINT the type each enabled agent's own paths carry RIGHT NOW --

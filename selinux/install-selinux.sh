@@ -635,8 +635,9 @@ _labels_drop() {
             0) ;;
             4) _report_skipped_walk_entries "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)" ;;
             6) _warn_walker_unavailable "${agent}'s config directory" ;;
-            # The rules are dropped and the walk over the config directory could not label an entry.
-            5) warn MSG-B8Q9 "dropped the file-context rules for ${agent}; the walk over its config directory could not label every entry -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
+            # The rules are dropped and a path they covered keeps its type: an entrypoint after its per-path revert,
+            # or an entry the walk over the config directory could not label; the diagnostic names which.
+            5) warn MSG-B8Q9 "dropped the file-context rules for ${agent}; a path they covered keeps its type -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
             *) log "  ${agent}: no file-context rules to drop" ;;
         esac
     done
