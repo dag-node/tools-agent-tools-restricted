@@ -1271,7 +1271,7 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
         loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
         echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then re-run this step:" >&2
         echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
-        echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
+        echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /run/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
         exec 9>&-
     else
     # Each installed agent's declared paths are reverted first, while the policy still defines their types, as
@@ -1373,7 +1373,7 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     # that lists the inode's names from the tree's mount. No restorecon of a path inside the toolchain is printed:
     # a root write by a path the account owns. The root-owned trees take restorecon.
     if [ "${unloaded}" = 1 ]; then
-        for tree in %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
+        for tree in %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /run/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
             [ -e "${tree}" ] || continue
             case "${tree}" in
                 /opt/ai-tools|/var/opt/ai-tools/sandbox-projects) account_tree=1 ;;

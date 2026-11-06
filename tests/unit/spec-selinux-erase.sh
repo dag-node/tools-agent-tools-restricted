@@ -59,12 +59,13 @@ if [[ -z "${escaper}" ]]; then
 fi
 eval "${escaper}"
 
-# The fixture trees, standing in for the five the scriptlet restores (the log directory is left absent, the case a host
+# The fixture trees, standing in for the ones the scriptlet restores (the log directory is left absent, the case a host
 # erased it on) and for the trees local rules name.
 libexec="${TESTDIR}/libexec"; lib="${TESTDIR}/lib"; log="${TESTDIR}/log"; home="${TESTDIR}/home"; clones="${TESTDIR}/clones"
+rundir="${TESTDIR}/run"
 project="${TESTDIR}/proj with spaces"; raw="${TESTDIR}/raw[0-9]+"; absent="${TESTDIR}/absent"; conf="${TESTDIR}/conf"
 legacy="${TESTDIR}/legacy.v1"
-mkdir -p "${libexec}" "${lib}" "${home}/.nvm" "${clones}" "${project}" "${raw}" "${conf}" "${legacy}"
+mkdir -p "${libexec}" "${lib}" "${rundir}" "${home}/.nvm" "${clones}" "${project}" "${raw}" "${conf}" "${legacy}"
 
 # The installed agent manifests the revert loops over, and a relabel.lib.sh whose unlabel records each agent it is
 # called for and returns the status a marker names, with the diagnostic a walk would leave. The scriptlet's child
@@ -83,6 +84,7 @@ EOF
 body="${body//\/var\/opt\/ai-tools\/sandbox-projects/${clones}}"
 body="${body//\/opt\/ai-tools/${home}}"
 body="${body//\/var\/log\/ai-tools/${log}}"
+body="${body//\/run\/ai-tools/${rundir}}"
 body="${body//\/usr\/local\/libexec\/ai-tools/${libexec}}"
 body="${body//\/usr\/local\/lib\/ai-tools/${lib}}"
 body="${body//\/run\/lock\/ai-tools-relabel.lock/${TESTDIR}/relabel.lock}"
@@ -198,7 +200,7 @@ for state in live unreadable; do
     fi
     if grep -q 'WARNING left the policy loaded' <<< "${err}" \
             && grep -qF 'sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux' <<< "${err}" \
-            && grep -qF "then restore the labels: sudo restorecon -R ${libexec} ${lib} ${log} ${home} ${clones}" <<< "${err}" \
+            && grep -qF "then restore the labels: sudo restorecon -R ${libexec} ${lib} ${log} ${rundir} ${home} ${clones}" <<< "${err}" \
             && grep -qF 'sudo semodule -r ai_tools ai_tools_tmpmap' <<< "${err}"; then
         pass "${state}: the warning names the stop, the package re-run, and the by-hand steps through the label restore"
     else
@@ -252,10 +254,10 @@ else
     fail "none: the unload is missing or partial: ${recorder//$'\n'/; }"
 fi
 restores="$(grep -E '^(restorecon|walk) ' <<< "${recorder}" || true)"
-if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"restorecon -R ${home}"$'\n'"restorecon -R ${clones}" ]]; then
-    pass "none, walker absent: the four present trees are restored by restorecon, one call each after the unload, the absent one skipped"
+if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"restorecon -R ${rundir}"$'\n'"restorecon -R ${home}"$'\n'"restorecon -R ${clones}" ]]; then
+    pass "none, walker absent: each present tree, the runtime directory among them, is restored by restorecon, one call each after the unload, the absent one skipped"
 else
-    fail "none, walker absent: the trees were not restored as four restorecon calls over the present trees: ${restores//$'\n'/; }"
+    fail "none, walker absent: the trees were not restored as one restorecon call per present tree: ${restores//$'\n'/; }"
 fi
 if [[ "${status}" -eq 0 ]]; then pass "none: exit 0"; else fail "none: exit ${status}"; fi
 
@@ -350,7 +352,7 @@ fi
 # ── The walker restores the sandbox account's trees where it is executable ──────────────────────
 run_erase none walker_present
 restores="$(grep -E '^(restorecon|walk) ' <<< "${recorder}" || true)"
-if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"walk -- ${home}"$'\n'"walk -- ${clones}" ]] \
+if [[ "${restores}" == "restorecon -R ${libexec}"$'\n'"restorecon -R ${lib}"$'\n'"restorecon -R ${rundir}"$'\n'"walk -- ${home}"$'\n'"walk -- ${clones}" ]] \
         && [[ "${status}" -eq 0 ]]; then
     pass "none, walker present: the root-owned trees take restorecon and the account's trees the walker, after the unload"
 else
