@@ -897,26 +897,26 @@ for_each_project() {
 # .gitconfig, takes one `restorecon -F`: its parent is the home, root-owned and not writable by the account (its layout
 # row), so the account cannot put another inode at its name, and the walker refuses a root that is not a directory.
 _restore_home_state_labels() {
-    local walk="${1:-_restore_account_tree_labels}" p path
+    local p path
     for p in "${HOME_STATE[@]}"; do
         path="/opt/ai-tools/${p}"
         if [[ -d "${path}" && ! -L "${path}" ]]; then
-            "${walk}" "${path}"
+            _restore_account_tree_labels "${path}"
         elif [[ -e "${path}" || -L "${path}" ]]; then
             restorecon -F "${path}" 2>/dev/null || true
         fi
     done
 }
 
-# _restore_shared_tree_labels [walk]: run <walk>, _restore_account_tree_labels by default, over each shared asset
-# directory (SHARED_TREES) that is a directory and not a symlink. A source install creates them in the layout reconcile,
-# ahead of the policy load, so each holds the base policy's type until this walk.
+# _restore_shared_tree_labels: run _restore_account_tree_labels over each shared asset directory (SHARED_TREES) that is
+# a directory and not a symlink. A source install creates them in the layout reconcile, ahead of the policy load,
+# so each holds the base policy's type until this walk.
 _restore_shared_tree_labels() {
-    local walk="${1:-_restore_account_tree_labels}" name path
+    local name path
     for name in "${SHARED_TREES[@]}"; do
         path="/opt/ai-tools/${name}"
         if [[ -d "${path}" && ! -L "${path}" ]]; then
-            "${walk}" "${path}"
+            _restore_account_tree_labels "${path}"
         fi
     done
 }
@@ -1263,9 +1263,11 @@ case "${ACTION}" in
     _locked _drop_remaining_policy_type_rules
     _unload_modules
     log "reverting contexts to defaults"
-    _revert_account_tree_labels "${NVM_DIR}"
-    _restore_home_state_labels _revert_account_tree_labels
-    _restore_shared_tree_labels _revert_account_tree_labels
+    # The control plane is walked whole, as the selinux subpackage's %postun walks it: a path moved into it keeps
+    # the type it had, which no .fc row under it names -- an asset retired out of skills/. The clone area is typed
+    # by ai_tools.fc and listed in no registry.
+    _revert_account_tree_labels "${CP_HOME}"
+    _revert_account_tree_labels "${SANDBOX_PROJECTS}"
     _revert_root_tree_labels
     for_each_project _revert_account_tree_labels
     if (( REMOVE_LEFT_PATHS )); then

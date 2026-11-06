@@ -13,12 +13,13 @@
 # then read for the properties a function cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel
 # library, every restorecon names a root-owned tree or one file in the root-owned home, held against a control line
 # the reader must flag, and the remove action reads the live-session state ahead of its first policy-store write. Each
-# label arm and the remove arm walk the shared asset trees, and remove reverts the root-owned trees with one restorecon
-# each after the unload, a failed one warned and closing the action non-zero. verify_agent_labels is driven over stubbed
-# library lines for an agent closed as failed, which fails the install, and a config directory walk that left hardlinked
-# files; _label_project and _unlabel_project over the library's partial-walk and walker-missing statuses,
-# and _unlabel_project over its absent-tree status. for_each_project is driven through the checkout's conf.lib.sh
-# over a registry holding each sign, and does not yield an excluded path.
+# label arm walks the shared asset trees, the remove arm walks the control plane whole and the clone area, and remove
+# reverts the root-owned trees with one restorecon each after the unload, a failed one warned and closing the action
+# non-zero. verify_agent_labels is driven over stubbed library lines for an agent closed as failed, which fails
+# the install, and a config directory walk that left hardlinked files; _label_project and _unlabel_project
+# over the library's partial-walk and walker-missing statuses, and _unlabel_project over its absent-tree status.
+# for_each_project is driven through the checkout's conf.lib.sh over a registry holding each sign, and does not yield
+# an excluded path.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -556,12 +557,12 @@ for pair in 1:MSG-D6B7 6:MSG-G6X4; do
         fail "remove at status ${pair%%:*} did not set the close: ${out//$'\n'/ | }"
     fi
 done
-# The remove arm, read as text: every tree takes the removal direction's walk, and the close reads what they left.
+# The remove arm, read as text: the control plane whole, the clone area and each project take the removal direction's
+# walk, and the close reads what they left.
 remove_arm="$(awk '/^  remove\)/ { inside = 1; next } inside && /^    ;;/ { exit } inside' "${INSTALLER}")"
-if grep -qF '_revert_account_tree_labels "${NVM_DIR}"' <<<"${remove_arm}" \
-        && grep -qF '_restore_home_state_labels _revert_account_tree_labels' <<<"${remove_arm}" \
+if grep -qF '_revert_account_tree_labels "${CP_HOME}"' <<<"${remove_arm}" \
+        && grep -qF '_revert_account_tree_labels "${SANDBOX_PROJECTS}"' <<<"${remove_arm}" \
         && grep -qF 'for_each_project _revert_account_tree_labels' <<<"${remove_arm}" \
-        && grep -qF '_restore_shared_tree_labels _revert_account_tree_labels' <<<"${remove_arm}" \
         && grep -qxE '[[:space:]]+_revert_root_tree_labels' <<<"${remove_arm}" \
         && ! grep -qF ' _restore_account_tree_labels ' <<<"${remove_arm}" \
         && grep -qF 'REMOVE_LEFT_PATHS' <<<"${remove_arm}" && grep -qE '^[[:space:]]+exit 1$' <<<"${remove_arm}"; then
