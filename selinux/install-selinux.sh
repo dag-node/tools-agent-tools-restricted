@@ -672,8 +672,9 @@ _labels_drop() {
         [[ -e "${manifest}" ]] || continue
         agent="${manifest##*/}"; agent="${agent%.conf}"
         rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
-        # Statuses 4, 5 and 6 leave a path on a type the unload removes, and no later walk revisits the config
-        # directory, so each sets REMOVE_LEFT_PATHS for the action's close.
+        # Statuses 4, 5 and 6 leave a path on a type the unload removes. The walk over /opt/ai-tools after the unload
+        # does not write a hardlinked entry either, and its outcome is not read per path, so each status sets
+        # REMOVE_LEFT_PATHS for the action's close.
         case "${rc}" in
             0) ;;
             4) _report_skipped_walk_entries "${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir 2>/dev/null || true)"
