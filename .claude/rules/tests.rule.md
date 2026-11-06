@@ -848,9 +848,11 @@ root, `skip_required` where none is found. Each case runs beside its control; th
 walk and `restorecon` recorded and the live-session reader reading `live`: each walk runs through the library's walk
 whatever the reading, and one that did not label every entry is reported without stopping the run. The script's text is
 read for the properties a function cannot show: every `restorecon` names a root-owned tree or one file in the root-owned
-home, and `remove` reads the sessions ahead of its first policy-store write. The project walk every label and restore
-takes is driven through the checkout's `conf.lib.sh` over a registry holding each sign, and yields the `@` and `%`
-entries alone, since a path it yields takes the project type. Its remove section drives the sweep over the rules
+home, `remove` reads the sessions ahead of its first policy-store write, and each label arm and the remove arm walk
+the shared asset trees. The root-owned trees `remove` reverts after the unload are driven with `restorecon` recorded:
+one call each, and a failed one warned under its code and closing the action non-zero. The project walk every label
+and restore takes is driven through the checkout's `conf.lib.sh` over a registry holding each sign, and yields the `@`
+and `%` entries alone, since a path it yields takes the project type. Its remove section drives the sweep over the rules
 the registry walks do not derive and the unload over a stubbed `semodule`, each in its fail direction: a module
 the store still lists after the transaction is a refusal whatever the exit status said.
 

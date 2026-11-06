@@ -2136,6 +2136,10 @@ WARNING.
 ignoring every contributed command: ${dir} is a symlink, is not root\-owned, or is writable by group/other
 .SS install-selinux.sh
 .TP
+.B MSG-A3F7
+WARNING.
+could not restore the default types under $1, which keeps a type the policy no longer defines; run: sudo restorecon \-FR $1
+.TP
 .B MSG-A3V5
 ERROR.
 could not read the module store \-\- ${listing//$'\en'/; }; $1; re\-run once semodule answers: sudo $0 remove

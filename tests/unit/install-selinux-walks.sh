@@ -12,11 +12,13 @@
 # /opt/ai-tools in its body, which the case rewrites to a fixture root, so no host path is read. The script's text is
 # then read for the properties a function cannot show: the installed sandbox-exec.lib.sh is sourced ahead of the relabel
 # library, every restorecon names a root-owned tree or one file in the root-owned home, held against a control line
-# the reader must flag, and the remove action reads the live-session state ahead of its first policy-store write.
-# verify_agent_labels is driven over stubbed library lines for an agent closed as failed, which fails the install,
-# and a config directory walk that left hardlinked files; _label_project and _unlabel_project over the library's
-# partial-walk and walker-missing statuses, and _unlabel_project over its absent-tree status. for_each_project is driven
-# through the checkout's conf.lib.sh over a registry holding each sign, and does not yield an excluded path.
+# the reader must flag, and the remove action reads the live-session state ahead of its first policy-store write. Each
+# label arm and the remove arm walk the shared asset trees, and remove reverts the root-owned trees with one restorecon
+# each after the unload, a failed one warned and closing the action non-zero. verify_agent_labels is driven over stubbed
+# library lines for an agent closed as failed, which fails the install, and a config directory walk that left hardlinked
+# files; _label_project and _unlabel_project over the library's partial-walk and walker-missing statuses,
+# and _unlabel_project over its absent-tree status. for_each_project is driven through the checkout's conf.lib.sh
+# over a registry holding each sign, and does not yield an excluded path.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -35,7 +37,8 @@ mktestdir
 
 functions_text=""
 for name in warn _resolve_walk_root _restore_account_tree_labels _revert_account_tree_labels _warn_walk_incomplete _report_skipped_walk_entries \
-        _warn_walker_unavailable _restore_home_state_labels _label_sandbox_clones; do
+        _warn_walker_unavailable _restore_home_state_labels _restore_shared_tree_labels _revert_root_tree_labels \
+        _warn_root_tree_left _label_sandbox_clones; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -45,7 +48,8 @@ for name in warn _resolve_walk_root _restore_account_tree_labels _revert_account
 done
 functions_text="${functions_text//\/opt\/ai-tools\//${TESTDIR}/home/}"
 
-mkdir -p "${TESTDIR}/home/.npm" "${TESTDIR}/nvm" "${TESTDIR}/clones/acme-clone"
+mkdir -p "${TESTDIR}/home/.npm" "${TESTDIR}/nvm" "${TESTDIR}/clones/acme-clone" "${TESTDIR}/home/skills" \
+    "${TESTDIR}/home/integrations"
 : > "${TESTDIR}/home/.gitconfig"
 
 # run_walks <status>: run the walks with the tree walk returning <status> and setting a diagnostic naming its tree.
@@ -71,15 +75,18 @@ run_walks() {
         ai_tools_relabel__is_available() { return 0; }
         ai_tools_relabel__is_project_labelled() { printf "%s\n" "$1" >> "${stub_testdir}/verified"; }
         HOME_STATE=(.npm .gitconfig .absent)
+        SHARED_TREES=(skills integrations .absent-shared)
         SANDBOX_PROJECTS="$2/clones"
         _restore_home_state_labels
+        _restore_shared_tree_labels
         _label_sandbox_clones
         _restore_account_tree_labels "$2/nvm"
         echo END >&2
     ' _ "${functions_text}" "${TESTDIR}" "$1" 2>"${TESTDIR}/warnings" || true
 }
 
-walked_trees=("${TESTDIR}/home/.npm" "${TESTDIR}/clones" "${TESTDIR}/nvm")
+walked_trees=("${TESTDIR}/home/.npm" "${TESTDIR}/home/skills" "${TESTDIR}/home/integrations" "${TESTDIR}/clones"
+    "${TESTDIR}/nvm")
 
 # Status 0 first: it is the control that the recorder records each walk, so the statuses after it are read against a run
 # whose walks are known to happen.
@@ -554,11 +561,67 @@ remove_arm="$(awk '/^  remove\)/ { inside = 1; next } inside && /^    ;;/ { exit
 if grep -qF '_revert_account_tree_labels "${NVM_DIR}"' <<<"${remove_arm}" \
         && grep -qF '_restore_home_state_labels _revert_account_tree_labels' <<<"${remove_arm}" \
         && grep -qF 'for_each_project _revert_account_tree_labels' <<<"${remove_arm}" \
+        && grep -qF '_restore_shared_tree_labels _revert_account_tree_labels' <<<"${remove_arm}" \
+        && grep -qxE '[[:space:]]+_revert_root_tree_labels' <<<"${remove_arm}" \
         && ! grep -qF ' _restore_account_tree_labels ' <<<"${remove_arm}" \
         && grep -qF 'REMOVE_LEFT_PATHS' <<<"${remove_arm}" && grep -qE '^[[:space:]]+exit 1$' <<<"${remove_arm}"; then
     pass "the remove arm walks every tree in the removal direction and exits 1 over a walk left"
 else
     fail "the remove arm: ${remove_arm//$'\n'/ | }"
+fi
+
+# Each label arm walks the shared asset trees after the policy load, which a source install's layout reconcile created
+# ahead of it at the base policy's type.
+for arm in install relabel rebuild; do
+    arm_text="$(awk -v arm="${arm}" '$0 == "  " arm ")" { inside = 1; next } inside && /^    ;;/ { exit } inside' \
+        "${INSTALLER}")"
+    if [[ -z "${arm_text}" ]]; then
+        fail "install-selinux.sh has no ${arm}) arm in the form this file reads"
+    elif grep -qxE '[[:space:]]+_restore_shared_tree_labels' <<<"${arm_text}"; then
+        pass "the ${arm} arm walks the shared asset trees in the label direction"
+    else
+        fail "the ${arm} arm does not walk the shared asset trees"
+    fi
+done
+
+# The root-owned trees the policy types take one restorecon each after the unload; one that fails is warned and closes
+# the action non-zero. run_root_revert <failing-dir|->: drive _revert_root_tree_labels with restorecon recorded
+# and failing for <failing-dir>; prints both streams, then `left=<REMOVE_LEFT_PATHS>`.
+mkdir -p "${TESTDIR}/root/log" "${TESTDIR}/root/libexec" "${TESTDIR}/root/run"
+root_text="${functions_text//\/usr\/local\/libexec\/ai-tools/${TESTDIR}/root/libexec}"
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+run_root_revert() {
+    : > "${TESTDIR}/recorder"
+    bash -c '
+        set -euo pipefail
+        eval "$1"
+        C_YEL="" C_RST=""
+        stub_testdir="$2" failing="$3"
+        restorecon() {
+            printf "restorecon %s\n" "$*" >> "${stub_testdir}/recorder"
+            [[ "${!#}" != "${failing}" ]]
+        }
+        LOG_DIR="$2/root/log" RUN_DIR="$2/root/run" REMOVE_LEFT_PATHS=0
+        _revert_root_tree_labels
+        printf "left=%s\n" "${REMOVE_LEFT_PATHS}" >&2
+    ' _ "${root_text}" "${TESTDIR}" "$1" 2>&1 || true
+}
+out="$(run_root_revert -)"
+expected="restorecon -FR ${TESTDIR}/root/log
+restorecon -FR ${TESTDIR}/root/libexec
+restorecon -FR ${TESTDIR}/root/run"
+if [[ "$(<"${TESTDIR}/recorder")" == "${expected}" ]] && grep -qx 'left=0' <<<"${out}" && ! grep -q 'MSG-' <<<"${out}"; then
+    pass "remove reverts the log, helper and runtime directories with one restorecon each, and closes clean"
+else
+    fail "remove's root-tree revert: $(tr '\n' ';' <"${TESTDIR}/recorder") / ${out//$'\n'/ | }"
+fi
+out="$(run_root_revert "${TESTDIR}/root/libexec")"
+assert_msg MSG-A3F7 "${out}" "remove: a root-owned tree restorecon could not revert is warned"
+if grep -qF "sudo restorecon -FR ${TESTDIR}/root/libexec" <<<"${out}" && grep -qx 'left=1' <<<"${out}" \
+        && grep -qxF "restorecon -FR ${TESTDIR}/root/run" "${TESTDIR}/recorder"; then
+    pass "remove: the warning names the tree and its restorecon, the later trees still run, and the action closes non-zero"
+else
+    fail "remove with a failing restorecon: ${out//$'\n'/ | }"
 fi
 
 section "install-selinux.sh: the project walk yields @ and % entries and no excluded path (unit)"

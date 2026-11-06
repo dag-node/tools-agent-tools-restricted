@@ -89,6 +89,9 @@ GROUPS_LIB="${DIR}/../src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 source "${GROUPS_LIB}" || refuse_unsourced "${GROUPS_LIB}"
 readonly NVM_DIR="/opt/ai-tools/.nvm"
 HOME_STATE=(.npm .cache .local .config .gitconfig)
+# The control plane's shared asset directories, which ai_tools.fc types ai_tools_home_t. Root owns each one,
+# and the sandbox group writes inside integrations/, so each takes the walk.
+SHARED_TREES=(skills subagents orientation integrations)
 
 # A deliberate twin of install.sh's non-root refusal (messaging.rule.md): the code is defined there and printed here,
 # so an operator meets one token whichever installer refused.
@@ -904,6 +907,40 @@ _restore_home_state_labels() {
         fi
     done
 }
+
+# _restore_shared_tree_labels [walk]: run <walk>, _restore_account_tree_labels by default, over each shared asset
+# directory (SHARED_TREES) that is a directory and not a symlink. A source install creates them in the layout reconcile,
+# ahead of the policy load, so each holds the base policy's type until this walk.
+_restore_shared_tree_labels() {
+    local walk="${1:-_restore_account_tree_labels}" name path
+    for name in "${SHARED_TREES[@]}"; do
+        path="/opt/ai-tools/${name}"
+        if [[ -d "${path}" && ! -L "${path}" ]]; then
+            "${walk}" "${path}"
+        fi
+    done
+}
+
+# _revert_root_tree_labels: the remove action's revert of the root-owned trees ai_tools.fc types -- the operation logs,
+# the root helpers with the handback daemon, the handback runtime directory -- one `restorecon -FR` each, run
+# after the unload so each takes the base policy's type. A restorecon that fails is warned under MSG-A3F7 and sets
+# REMOVE_LEFT_PATHS.
+_revert_root_tree_labels() {
+    if [[ -d "${LOG_DIR}" ]] && ! restorecon -FR "${LOG_DIR}" 2>/dev/null; then
+        _warn_root_tree_left "${LOG_DIR}"
+    fi
+    if [[ -d /usr/local/libexec/ai-tools ]] && ! restorecon -FR /usr/local/libexec/ai-tools 2>/dev/null; then
+        _warn_root_tree_left /usr/local/libexec/ai-tools
+    fi
+    if [[ -d "${RUN_DIR}" ]] && ! restorecon -FR "${RUN_DIR}" 2>/dev/null; then
+        _warn_root_tree_left "${RUN_DIR}"
+    fi
+}
+_warn_root_tree_left() {
+    warn MSG-A3F7 "could not restore the default types under $1, which keeps a type the policy no longer defines; run: sudo restorecon -FR $1"
+    REMOVE_LEFT_PATHS=1
+}
+
 # _label_project/_unlabel_project: thin wrappers over the shared lib so this sweep and the ai-tools-relabel helper share
 # one implementation. Non-zero is swallowed (warn, don't die) so one bad project never aborts a whole relabel.
 # _unlabel_project already restorecons via the lib; the remove action's later project pass is a harmless
@@ -1084,6 +1121,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _restore_home_state_labels
+    _restore_shared_tree_labels
     _locked _labels_apply
 
     # Core is loaded and labelled -- a clear checkpoint before the optional groups. Reaching here means the preceding
@@ -1165,6 +1203,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _restore_home_state_labels
+    _restore_shared_tree_labels
     _locked _labels_apply
     ok "relabel done"
     ;;
@@ -1206,6 +1245,7 @@ case "${ACTION}" in
     # Fix ai_tools_run_t on the tmpfs handback socket dir (see _relabel_runtime).
     _relabel_runtime
     _restore_home_state_labels
+    _restore_shared_tree_labels
     _locked _labels_apply
     ok "rebuild done"
     ;;
@@ -1225,6 +1265,8 @@ case "${ACTION}" in
     log "reverting contexts to defaults"
     _revert_account_tree_labels "${NVM_DIR}"
     _restore_home_state_labels _revert_account_tree_labels
+    _restore_shared_tree_labels _revert_account_tree_labels
+    _revert_root_tree_labels
     for_each_project _revert_account_tree_labels
     if (( REMOVE_LEFT_PATHS )); then
         sayx "  removed the policy; the paths named above keep a type it no longer defines"
