@@ -99,8 +99,9 @@ out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" bash -c 'source "
 out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" id -un 2>/dev/null)"
 [[ "${out}" == "${SANDBOX_USER}" ]] && pass "the command runs as ${SANDBOX_USER}" || fail "ran as '${out}'"
 
-# The run's place: a child of the account's own slice, the tree ai-tools-stop sweeps and the relabel gate reads.
-# The control is a plain runuser child, which stays in the suite's own cgroup and so is not under that slice's scopes.
+# The run's place: a child of the account's own slice, the tree ai-tools-stop sweeps and the policy unload's session
+# reading reads. The control is a plain runuser child, which stays in the suite's own cgroup and so is not
+# under that slice's scopes.
 sandbox_scope_prefix="/user.slice/user-${sandbox_uid}.slice/ai-tools-sandbox-exec-"
 control="$(runuser -u "${SANDBOX_USER}" -- sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"
 out="$(ai_tools_sandbox_exec__run_as_sandbox "${SANDBOX_USER}" sed -n 's/^0:://p' /proc/self/cgroup 2>/dev/null || true)"

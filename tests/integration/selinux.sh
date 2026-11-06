@@ -284,10 +284,10 @@ else
     fi
 fi
 
-# (7d) The confined domain cannot write a cgroup file or create a cgroup. The relabel gate exempts the account's
-# user-manager plumbing by unit name (sessions.lib.sh), which holds only while a session can neither move a task
-# into a cgroup it names nor make one; both are writes on cgroup_t. Read-only, as (7b): the loaded policy is asked,
-# and selinux/avc/avc-denials.sh section Y makes the same writes from inside a session.
+# (7d) The confined domain cannot write a cgroup file or create a cgroup. The policy unload's session reading exempts
+# the account's user-manager plumbing by unit name (sessions.lib.sh), which holds only while a session can neither move
+# a task into a cgroup it names nor make one; both are writes on cgroup_t. Read-only, as (7b): the loaded policy is
+# asked, and selinux/avc/avc-denials.sh section Y makes the same writes from inside a session.
 section "SELinux: the confined domain cannot write a cgroup file or create a cgroup"
 
 if ! command -v sesearch >/dev/null 2>&1; then
@@ -304,7 +304,7 @@ else
             && "$(grep -c '^allow ' <<<"${cgroup_dir_rules}")" -eq 0 ]]; then
         pass "ai_tools_t holds no write on a cgroup_t file and no create in a cgroup_t directory (control: it writes ai_tools_project_t)"
     else
-        fail "ai_tools_t can write cgroup_t: $(grep -m1 '^allow ' <<<"${cgroup_file_rules}${cgroup_dir_rules}") -- the relabel gate's plumbing exemption no longer holds"
+        fail "ai_tools_t can write cgroup_t: $(grep -m1 '^allow ' <<<"${cgroup_file_rules}${cgroup_dir_rules}") -- the session reading's plumbing exemption no longer holds"
     fi
 fi
 

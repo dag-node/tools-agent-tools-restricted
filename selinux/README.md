@@ -407,15 +407,18 @@ cd selinux && sudo ./install-selinux.sh rebuild
 cd selinux && sudo ./install-selinux.sh remove
 ```
 
-Deletes every local fcontext rule naming an `ai_tools` type (the unload refuses
-while one stands), unloads every `ai_tools*` module, and `restorecon`s each
-agent's config directory, the nvm tree, and each project back to default
-contexts. A module left loaded ends the run with exit 1 and semanage's reason.
-DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is
-untouched. While an agent session, the toolchain update, or a step run
-as the sandbox account is live, the command refuses before it changes anything:
-let each session end (`/exit` inside it) and the update finish, or end them all
-with `atr stop`, then run it again.
+Returns each agent's declared paths to their default contexts, deletes every
+local fcontext rule naming an `ai_tools` type (the unload refuses while one
+stands), unloads every `ai_tools*` module, and returns the nvm tree,
+the sandbox account's home state and each project to default contexts. A module
+left loaded ends the run with exit 1 and semanage's reason, and a file
+the restore left at a removed type, one with a second name, ends it with exit 1
+and the `find` that lists its names. DAC hardening
+(ownership/permissions/sticky `.claude`/locked `bin`) is untouched. While
+an agent session, the toolchain update, or a step run as the sandbox account is
+live, the command refuses before it changes anything: let each session end
+(`/exit` inside it) and the update finish, or end them all with `atr stop`,
+then run it again.
 
 ## Notes
 

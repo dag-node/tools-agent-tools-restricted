@@ -1280,12 +1280,9 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
     # The walk over /opt/ai-tools after the unload does not write a hardlinked file whose label differs, so
     # an entrypoint with a second name would be listed there and keep ai_tools_exec_t; reverted here, the inode is
     # at its default type when that walk meets it. The function does not take the relabel lock, which this
-    # scriptlet holds; ai-tools-relabel-agent --remove takes it, so that helper is not the call. A launch between
-    # this revert and the unload meets the preflight's unverifiable refusal (the entrypoint rule is gone and the module
-    # is still loaded). A launch whose preflight read the entrypoint ahead of the revert and whose exec follows it runs
-    # without the transition, as every launch after the unload does; ai-tools-run does not take the relabel lock,
-    # and the launch gate stop.rule.md defers is what would order the two. An erase that leaves the policy loaded
-    # does not reach this branch. Each agent's config directory is walked twice on this path: here, under the loaded
+    # scriptlet holds; `ai-tools-relabel-agent --remove` takes it, so that helper is not the call. A launch started
+    # while this erase runs may start without the transition, as every launch after it does (cli.rule.md,
+    # ref-section-e6c6). An erase that leaves the policy loaded does not reach this branch. Each agent's config directory is walked twice on this path: here, under the loaded
     # policy, and by the walk over /opt/ai-tools after the unload.
     bash -c '
         set -- /usr/local/lib/ai-tools/agents.d/*.conf

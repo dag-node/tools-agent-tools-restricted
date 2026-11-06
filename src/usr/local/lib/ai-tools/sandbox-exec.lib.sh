@@ -8,8 +8,8 @@
 #
 # ai_tools_sandbox_exec__run_as_sandbox runs a command as the sandbox account with no controlling terminal, no inherited
 # descriptor above 2, a clean environment, a bound on its run, and each of its streams through the log allowlist.
-# The run is placed in the account's own slice, which ai-tools-stop sweeps and sessions.lib.sh reads for the relabel
-# gate. ai_tools_sandbox_exec__is_sandbox_account answers whether this process is that account, which is
+# The run is placed in the account's own slice, which ai-tools-stop sweeps and sessions.lib.sh reads for the policy
+# unload. ai_tools_sandbox_exec__is_sandbox_account answers whether this process is that account, which is
 # what the updater and the toolchain writers require before they source nvm.sh or run npm: a process of any other
 # account that ran them would execute the tree with that account's authority.
 #
@@ -150,8 +150,8 @@ _ai_tools_sandbox_exec__end_scope() {
 #       a transient systemd scope, the boundary a descendant cannot leave whatever session it opens; where the system
 #       manager does not answer, the run is refused under MSG-Q2K6 rather than made with a weaker boundary;
 #     - a place in the account's own slice, user-<uid>.slice, beside the account's user manager: the one tree
-#       ai-tools-stop sweeps and the relabel gate (sessions.lib.sh) reads. A run the manager will not place there is
-#       refused under MSG-Q2K6, since one in system.slice is outside both.
+#       ai-tools-stop sweeps and the policy unload's session reading (sessions.lib.sh) reads. A run the manager will
+#       not place there is refused under MSG-Q2K6, since one in system.slice is outside both.
 #   Every host tool -- setsid, runuser, env, bash, and the sleep and getent beside them -- comes from the system
 #   binary directories, never from the caller's PATH. Returns the command's own status; returns 1 without running
 #   anything when the caller is not root (runuser needs root), <account> is not the sandbox account, a host tool is
