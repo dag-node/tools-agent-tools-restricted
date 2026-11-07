@@ -308,6 +308,151 @@ else
     fi
 fi
 
+# (7e) The character devices the confined domain reaches, terminals among them (confinement.rule.md, Terminals). Each
+# chr_file type an allow rule for ai_tools_t names is held to a reviewed table, matched on the target and the rule's
+# condition: the device type is what decides what a session reaches, and the base policy grants several through
+# attributes. A type outside the table fails, so a new terminal type reaches review before a session holds it. Three
+# properties follow: the login terminal types carry no `open`, every terminal type the domain ioctls carries
+# an allowxperm set that excludes TIOCSTI and TIOCLINUX and keeps TIOCGWINSZ, and the session's own pty type is there
+# at all. The classifier and the xperm reader each run over synthetic rules first. Read-only, as (7b);
+# selinux/avc/avc-testsuite.sh section 10 and avc-denials.sh section TTY make the attempts from inside a session.
+section "SELinux: the character devices and terminals the confined domain reaches"
+# target|condition, the condition `<boolean>:<branch>` as sesearch prints it, or `-`.
+TTY_REVIEWED=(
+    'ai_tools_devpts_t|-'   # the ptys the session allocates (term_create_pty)
+    'ptmx_t|-'              # /dev/ptmx, which allocates them
+    'user_devpts_t|-'       # the session's own terminal, on inherited descriptors
+    'user_tty_device_t|-'   # the same interface's console terminal, on inherited descriptors
+    'devtty_t|-'            # /dev/tty, every domain's controlling terminal (base policy)
+    'null_device_t|-'       # /dev/null (base policy)
+    'zero_device_t|-'       # /dev/zero (base policy)
+    'urandom_device_t|-'    # /dev/urandom (dev_read_urand)
+)
+TTY_TERMINAL_TYPES=" ai_tools_devpts_t ptmx_t user_devpts_t user_tty_device_t devtty_t "
+TTY_LOGIN_TYPES=" user_devpts_t user_tty_device_t "
+
+# tty_classify <sesearch-line>: print `reviewed|unexpected <target> <condition> <permissions>`, or `unparsed <line>`.
+tty_classify() {
+    local line="$1" target perms condition kind=unexpected entry
+    local rule_pattern='^allow ([^ ]+) ([^ :]+):chr_file (\{ ([^}]*) \}|([^ ;{]+));( \[ (.*) \]:(True|False))?$'
+    [[ -n "${line}" ]] || return 0
+    if [[ ! "${line}" =~ ${rule_pattern} ]]; then
+        printf 'unparsed %s\n' "${line}"
+        return 0
+    fi
+    target="${BASH_REMATCH[2]}"
+    perms="${BASH_REMATCH[4]:-${BASH_REMATCH[5]}}"
+    condition="-"
+    [[ -n "${BASH_REMATCH[7]}" ]] && condition="${BASH_REMATCH[7]// /}:${BASH_REMATCH[8]}"
+    for entry in "${TTY_REVIEWED[@]}"; do
+        [[ "${entry}" == "${target}|${condition}" ]] && kind=reviewed
+    done
+    printf '%s %s %s %s\n' "${kind}" "${target}" "${condition}" "${perms// /,}"
+}
+tty_classify_all() {
+    local rule
+    while IFS= read -r rule; do tty_classify "${rule}"; done <<<"$1"
+}
+# tty_xperm_holds <set> <command>: succeed when the ioctl command set sesearch printed (`{ 0x0-0x5411 0x5413 }`
+# or a bare `0x5413`) holds <command>.
+tty_xperm_holds() {
+    local token low high command=$(( $2 ))
+    for token in ${1//[\{\}]/ }; do
+        [[ "${token}" =~ ^0x[0-9a-fA-F]+(-0x[0-9a-fA-F]+)?$ ]] || continue
+        low="${token%%-*}"; high="${token##*-}"
+        (( command >= low && command <= high )) && return 0
+    done
+    return 1
+}
+# tty_xperm_sets <sesearch-allowxperm-output> <target>: print the ioctl command set of each allowxperm rule
+# on <target>, one per line.
+tty_xperm_sets() {
+    sed -nE "s/^allowxperm [^ ]+ ${2}:chr_file ioctl (\{ [^}]* \}|0x[0-9a-fA-F-]+);.*/\1/p" <<<"$1"
+}
+
+tty_control="$(tty_classify_all 'allow ai_tools_t ai_tools_devpts_t:chr_file { append getattr ioctl lock open read write };
+allow domain null_device_t:chr_file { getattr open read write };
+allow ai_tools_t user_devpts_t:chr_file { getattr ioctl read write };
+allow ai_tools_t ptynode:chr_file { getattr ioctl read write };
+allow ai_tools_t ptmx_t:chr_file { ioctl open }; [ some_boolean ]:True')"
+tty_control_expected='reviewed ai_tools_devpts_t - append,getattr,ioctl,lock,open,read,write
+reviewed null_device_t - getattr,open,read,write
+reviewed user_devpts_t - getattr,ioctl,read,write
+unexpected ptynode - getattr,ioctl,read,write
+unexpected ptmx_t some_boolean:True ioctl,open'
+tty_xperm_control="$(tty_xperm_sets 'allowxperm ai_tools_t ai_tools_devpts_t:chr_file ioctl { 0x0-0x5411 0x5413-0x541b 0x541d-0xffff };
+allowxperm ai_tools_t devtty_t:chr_file ioctl 0x5412;' ai_tools_devpts_t)"
+if [[ "${tty_control}" != "${tty_control_expected}" ]]; then
+    fail "terminal control: the classifier over synthetic rules: ${tty_control//$'\n'/ | }"
+elif [[ "${tty_xperm_control}" != '{ 0x0-0x5411 0x5413-0x541b 0x541d-0xffff }' ]] \
+        || tty_xperm_holds "${tty_xperm_control}" 0x5412 || tty_xperm_holds "${tty_xperm_control}" 0x541c \
+        || ! tty_xperm_holds "${tty_xperm_control}" 0x5413 || ! tty_xperm_holds '0x5412' 0x5412; then
+    fail "terminal control: the xperm reader over a synthetic set read '${tty_xperm_control}' wrongly"
+else
+    pass "terminal control: the classifier reads a type or a condition outside the table as unexpected, and the xperm reader finds 0x5412 in a set only where the set holds it"
+fi
+
+if ! command -v sesearch >/dev/null 2>&1; then
+    skip "the terminal and device types" "sesearch (setools-console) not installed"
+else
+    tty_status=0
+    tty_rules="$(sesearch -A -s ai_tools_t -c chr_file 2>&1)" || tty_status=$?
+    tty_tuples="$(tty_classify_all "${tty_rules}")"
+    if [[ "${tty_status}" -ne 0 ]] || ! grep -q '^reviewed ai_tools_devpts_t ' <<<"${tty_tuples}"; then
+        fail "sesearch did not list an ai_tools_devpts_t rule (exit ${tty_status}): the loaded core module predates the pty grant, or the listing was not read: $(head -c 200 <<<"${tty_rules}" | tr '\n' '|')"
+    else
+        while read -r _ tty_target tty_condition tty_perms; do
+            tty_when=""
+            [[ "${tty_condition}" != - ]] && tty_when=", when ${tty_condition}"
+            pass "chr_file ${tty_target} (${tty_perms//,/ }${tty_when}) -- reviewed"
+        done < <(grep '^reviewed ' <<<"${tty_tuples}" || true)
+        tty_unexpected="$(grep -E '^(unexpected|unparsed) ' <<<"${tty_tuples}" || true)"
+        if [[ -n "${tty_unexpected}" ]]; then
+            while IFS= read -r tty_line; do
+                fail "a chr_file grant outside the reviewed table: ${tty_line#* }"
+            done <<<"${tty_unexpected}"
+        else
+            pass "no chr_file grant outside the reviewed table"
+        fi
+
+        tty_login_open="$(grep '^reviewed ' <<<"${tty_tuples}" | while read -r _ target _ perms; do
+            [[ "${TTY_LOGIN_TYPES}" == *" ${target} "* && ",${perms}," == *",open,"* ]] && printf '%s ' "${target}"
+        done)"
+        if [[ -n "${tty_login_open}" ]]; then
+            fail "ai_tools_t holds open on ${tty_login_open}-- a session can open a login terminal by path"
+        else
+            pass "ai_tools_t holds no open on a login terminal type (control: it opens ai_tools_devpts_t)"
+        fi
+    fi
+
+    tty_xperm_status=0
+    tty_xperms="$(sesearch --allowxperm -s ai_tools_t -c chr_file 2>&1)" || tty_xperm_status=$?
+    if [[ "${tty_xperm_status}" -ne 0 ]]; then
+        fail "sesearch --allowxperm exited ${tty_xperm_status}: $(head -c 200 <<<"${tty_xperms}" | tr '\n' '|')"
+    else
+        for tty_target in ${TTY_TERMINAL_TYPES}; do
+            tty_sets="$(tty_xperm_sets "${tty_xperms}" "${tty_target}")"
+            if [[ -z "${tty_sets}" ]]; then
+                fail "no allowxperm rule on ${tty_target}, so every ioctl, TIOCSTI included, is permitted there"
+                continue
+            fi
+            tty_bad="" tty_keeps=no
+            while IFS= read -r tty_set; do
+                tty_xperm_holds "${tty_set}" 0x5412 && tty_bad+="TIOCSTI "
+                tty_xperm_holds "${tty_set}" 0x541c && tty_bad+="TIOCLINUX "
+                tty_xperm_holds "${tty_set}" 0x5413 && tty_keeps=yes
+            done <<<"${tty_sets}"
+            if [[ -n "${tty_bad}" ]]; then
+                fail "an allowxperm rule on ${tty_target} permits ${tty_bad}"
+            elif [[ "${tty_keeps}" != yes ]]; then
+                fail "the allowxperm rules on ${tty_target} do not permit TIOCGWINSZ (0x5413), so a TUI cannot read its window size"
+            else
+                pass "${tty_target}: the ioctl set excludes TIOCSTI and TIOCLINUX and keeps TIOCGWINSZ"
+            fi
+        done
+    fi
+fi
+
 # (8) The build-output type, where the dotnet layout module is loaded. Its static rule must win over the clone rule
 # for a path under one of the named directories and lose everywhere else -- the precedence the narrowing rests
 # on, decided by libselinux from the two rules' stems, which no unit test can read. matchpathcon reads the loaded file

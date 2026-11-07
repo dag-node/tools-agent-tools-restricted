@@ -421,6 +421,105 @@ else
 fi
 
 ########################################
+# 10. PSEUDO-TERMINALS -- a pty the session allocates (a background task's terminal, codex's `script`) takes
+#     ai_tools_devpts_t and works whole: traffic both ways, termios, a resize, a controlling terminal for a child,
+#     and its removal on close. TIOCSTI is the one command the policy refuses on it, and the child makes the attempt
+#     from the one position the kernel would allow it in -- the pty is its controlling terminal and the attempt is
+#     on that terminal -- so EACCES is the policy's refusal, and EPERM or EIO would mean the policy allowed it. /dev/tty
+#     reaches the same terminal under devtty_t, the label the kernel checks the ioctl against there. TIOCLINUX is
+#     a console command a pty does not implement, so its exclusion is read from the policy (tests/integration/selinux.sh)
+#     rather than attempted.
+########################################
+step "pseudo-terminals (allocate, use, refuse TIOCSTI, close)"
+if command -v python3 >/dev/null 2>&1; then
+    while IFS='|' read -r verdict text; do
+        case "${verdict}" in
+            pass) pass "pty: ${text}" ;;
+            fail) fail "pty: ${text}" ;;
+            *)    fail "pty: unexpected probe output: ${verdict}${text:+|${text}}" ;;
+        esac
+    done < <(python3 -I - <<'PY' 2>&1
+import errno, fcntl, os, struct, termios, tty
+
+TIOCSTI, TIOCSCTTY = 0x5412, 0x540E
+
+def say(ok, text):
+    print("%s|%s" % ("pass" if ok else "fail", text), flush=True)
+
+def tiocsti(fd):
+    """Return 'allowed', or the errno name the ioctl failed with."""
+    try:
+        fcntl.ioctl(fd, TIOCSTI, b"x")
+        return "allowed"
+    except OSError as e:
+        return errno.errorcode.get(e.errno, str(e.errno))
+
+try:
+    master, slave = os.openpty()
+except OSError as e:
+    say(False, "openpty failed (%s) -- the ptmx_t grant is not loaded" % errno.errorcode.get(e.errno, e.errno))
+    raise SystemExit(0)
+path = os.ttyname(slave)
+label = os.getxattr(slave, "security.selinux").rstrip(b"\0").decode()
+say(label.split(":")[2] == "ai_tools_devpts_t", "%s carries %s" % (path, label.split(":")[2]))
+
+tty.setraw(slave)
+os.write(master, b"ping")
+got_slave = os.read(slave, 16)
+os.write(slave, b"pong")
+got_master = os.read(master, 16)
+say(got_slave == b"ping" and got_master == b"pong", "bytes pass both ways (%r, %r)" % (got_slave, got_master))
+
+attrs = termios.tcgetattr(slave)
+attrs[3] |= termios.ECHO
+termios.tcsetattr(slave, termios.TCSANOW, attrs)
+say(termios.tcgetattr(slave)[3] & termios.ECHO != 0, "termios read and set on the slave")
+
+fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 41, 132, 0, 0))
+rows, cols = struct.unpack("HHHH", fcntl.ioctl(slave, termios.TIOCGWINSZ, b"\0" * 8))[:2]
+say((rows, cols) == (41, 132), "a resize on the master reads back on the slave (%dx%d)" % (rows, cols))
+
+reason = tiocsti(master)
+say(reason == "EACCES", "TIOCSTI on the master: %s (EACCES expected)" % reason)
+
+# The child takes the slave as its controlling terminal, then tries TIOCSTI on it directly and through /dev/tty,
+# with a window-size read through /dev/tty as the control that the descriptor works.
+read_end, write_end = os.pipe()
+child = os.fork()
+if child == 0:
+    os.close(read_end)
+    out = os.fdopen(write_end, "w")
+    try:
+        os.setsid()
+        fcntl.ioctl(slave, TIOCSCTTY, 0)
+        out.write("pass|the slave is the controlling terminal of a child in a new session\n")
+        reason = tiocsti(slave)
+        out.write("%s|TIOCSTI on the controlling terminal: %s (EACCES expected)\n"
+                  % ("pass" if reason == "EACCES" else "fail", reason))
+        devtty = os.open("/dev/tty", os.O_RDWR)
+        struct.unpack("HHHH", fcntl.ioctl(devtty, termios.TIOCGWINSZ, b"\0" * 8))
+        out.write("pass|/dev/tty opens and answers TIOCGWINSZ\n")
+        reason = tiocsti(devtty)
+        out.write("%s|TIOCSTI through /dev/tty: %s (EACCES expected)\n"
+                  % ("pass" if reason == "EACCES" else "fail", reason))
+    except OSError as e:
+        out.write("fail|the child stopped at %s: %s\n" % (errno.errorcode.get(e.errno, e.errno), e))
+    out.close()
+    os._exit(0)
+os.close(write_end)
+print(os.fdopen(read_end).read(), end="", flush=True)
+os.waitpid(child, 0)
+
+os.close(slave)
+os.close(master)
+say(not os.path.exists(path), "%s is gone once both ends are closed" % path)
+PY
+)
+else
+    fail "pty: python3 is not installed, so the pty path was not exercised"
+fi
+
+########################################
 # Cleanup + next step
 ########################################
 echo
@@ -435,7 +534,7 @@ else
     printf '\033[1;32m[avc] ASSERTIONS: %d passed, 0 failed\033[0m\n' "${ASSERT_PASS}"
 fi
 echo
-note "DONE. Exercised: create, modify, temp(+assert/detect), git(+mv), secret-quarantine, net allow/deny, user-manager bus."
+note "DONE. Exercised: create, modify, temp(+assert/detect), git(+mv), secret-quarantine, net allow/deny, user-manager bus, ptys."
 cat <<EOF
 
 Next -- as <you> (root), turn the logged denials into policy:
