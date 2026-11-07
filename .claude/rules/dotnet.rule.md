@@ -281,8 +281,9 @@ not a .NET group ([confinement](confinement.rule.md)).
   over a socket enables `localipc` without any .NET at all. What is .NET's — the output layout and the list of groups —
   is the integration's manifest and its layout module, so a second toolchain adds a manifest and a layout module
   and touches neither the base nor a group.
-- **Base stays Claude-Code-minimal.** Even the benign IPC is kept out of the core domain, because the agent itself needs
-  none of it; it is toolchain-driven and loads with the groups.
+- **Base stays minimal.** Even the benign IPC is kept out of the core domain. A foreground agent session runs without
+  it, and the agent features that use it — Claude Code's background sessions, codex's app-server — load it as a group,
+  as a toolchain does, so the connect reach it carries is an operator's choice ([confinement](confinement.rule.md)).
 - **A group graduates to `stable`** — the registry field in `selinux-groups.lib.sh` that decides how it ships
   and which front door enables it — after an enforcing `selinux/avc` bring-up trims its rule to the observed minimum.
   `localipc` and `buildexec` are stable: the IPC rules were brought up against `dotnet test` and multi-node MSBuild,

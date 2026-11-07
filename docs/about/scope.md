@@ -49,16 +49,23 @@ of adopting what is there.
 
 A session uses its own terminal, the one its launch allocates and connects
 to yours, and the pseudo-terminals it allocates for itself, such as the one
-a background task runs in. Where the SELinux layer is loaded, those are all it
-reaches: the policy refuses the session an open of your login terminals,
-another account's terminal, or a console or serial device, whatever their
-permissions. On each terminal it holds, the call that pushes keystrokes
-into the terminal's input is refused, so a command the agent runs cannot type
-into the agent's prompt.
+a background session runs in. Where the SELinux layer is loaded, those are all
+it reaches: the policy refuses the session an open of your login terminals,
+another account's terminal, or a serial or virtual-console device, whatever
+their permissions, and `/dev/console` is refused by its mode. On each terminal
+it holds, the call that pushes keystrokes into the terminal's input is refused,
+so a command the agent runs cannot type into the agent's prompt.
 
 The pseudo-terminals sessions allocate share one type and one account, so one
 session can open another session's
 ([confinement](../../.claude/rules/confinement.rule.md)).
+
+## A session's network reach
+
+Where the SELinux layer is loaded, a session connects to the web ports, 443
+and 8443 among them, on any address, so a service you run on one of them
+answers it, on loopback too. Enabling the `localipc` group adds connections
+to unreserved and high ports on any address.
 
 ## Out of scope by design
 

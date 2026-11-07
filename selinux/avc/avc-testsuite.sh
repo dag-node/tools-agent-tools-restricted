@@ -421,7 +421,7 @@ else
 fi
 
 ########################################
-# 10. PSEUDO-TERMINALS -- a pty the session allocates (a background task's terminal, codex's `script`) takes
+# 10. PSEUDO-TERMINALS -- a pty the session allocates (a background session's terminal, codex's `script`) takes
 #     ai_tools_devpts_t and works whole: traffic both ways, termios, a resize, a controlling terminal for a child,
 #     and its removal on close. TIOCSTI is the one command the policy refuses on it, and the child makes the attempt
 #     from the one position the kernel would allow it in -- the pty is its controlling terminal and the attempt is
