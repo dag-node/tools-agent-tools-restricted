@@ -49,7 +49,7 @@ of adopting what is there.
 
 A session uses its own terminal, the one its launch allocates and connects
 to yours, and the pseudo-terminals it allocates for itself, such as the one
-a background session runs in. Where the SELinux layer is loaded, those are all
+a background session runs in. Where SELinux enforces the policy, those are all
 it reaches: the policy refuses the session an open of your login terminals,
 another account's terminal, or a serial or virtual-console device, whatever
 their permissions, and `/dev/console` is refused by its mode. On each terminal
@@ -62,7 +62,7 @@ session can open another session's
 
 ## A session's network reach
 
-Where the SELinux layer is loaded, a session connects to the web ports, 443
+Where SELinux enforces the policy, a session connects to the web ports, 443
 and 8443 among them, on any address, so a service you run on one of them
 answers it, on loopback too. Enabling the `localipc` group adds connections
 to unreserved and high ports on any address.
