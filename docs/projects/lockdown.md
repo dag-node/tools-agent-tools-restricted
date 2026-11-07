@@ -98,6 +98,28 @@ to the set it named then. Each launch records the difference to journald,
 naming the baseline patterns your file drops. The file's grammar and the full
 baseline are in `man 5 ai-tools-secret-patterns`.
 
+## A matched file the agent must read
+
+```bash
+cat ~/src/api/appsettings.Development.json   # read what the agent would read
+chgrp ai-tools ~/src/api/appsettings.Development.json
+chmod 660 ~/src/api/appsettings.Development.json
+```
+
+A pattern also matches some files a build or a run reads. A web project's
+`appsettings.Development.json` is one: `dotnet build` copies it into `bin/`,
+and the app reads it when it starts in Development, so with the file locked
+both fail inside a session with `Access to the path … is denied`. A build you
+run yourself works, and its copy in `bin/` keeps the file's mode, so it stays
+yours.
+
+Unlock such a file only after reading it. What the agent reads can reach
+the model provider with its requests, so the file should hold only settings you
+are content to send there; keep a password or a key in user secrets
+or an environment variable instead. The `chgrp` and `chmod` pair unlocks
+the file so the sandboxed agent can access it. The next claim, clone
+or `projects lockdown` over the project locks it again.
+
 ## Git history is a separate exposure
 
 A credential committed years ago and since removed is invisible in the working

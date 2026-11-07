@@ -250,7 +250,9 @@ ai_tools_sandbox_exec__run_as_sandbox() {
                     leftover_held_output=1
                     _ai_tools_sandbox_exec__end_scope "${scope_unit}"
                 fi
-                kill -0 "${sanitizer_pid}" 2>/dev/null && kill -TERM "${sanitizer_pid}" 2>/dev/null
+                # A sanitizer reaching EOF exits, and is reaped, at any point here, so the kill is allowed to find no
+                # process: a caller under `set -e` would otherwise end on its status before the report below.
+                kill -TERM "${sanitizer_pid}" 2>/dev/null || true
                 break
             fi
             sleep 0.2
