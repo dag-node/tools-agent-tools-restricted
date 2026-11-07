@@ -1190,7 +1190,7 @@ do_run() {
   # or a failed or malformed query leaves it unconfirmed, and the probe then warns before running.
   local enforcing_confirmed=0 permissive=unknown seinfo_out seinfo_rc
   if command -v seinfo >/dev/null 2>&1; then
-    seinfo_out="$(seinfo --permissive -x 2>&1)"; seinfo_rc=$?
+    seinfo_out="$(seinfo --permissive 2>&1)"; seinfo_rc=$?
     permissive="$(avc_permissive_state "${seinfo_rc}" "${seinfo_out}")"
     [[ "${permissive}" == unknown ]] \
       && err "seinfo --permissive exited ${seinfo_rc} or printed an unexpected listing; ${SUBJ}'s mode is unknown."
@@ -1226,10 +1226,10 @@ do_run() {
   [[ -e /dev/tty ]] || { err "run mode needs a terminal (it waits for the probe). Re-run interactively."; exit 1; }
 
   # Disable dontaudit for the window; ALWAYS restore on exit (trap covers Ctrl-C). The same trap stops the login-pty
-  # fixture, which closes its pty.
-  local pty_fixture_pid=""
+  # fixture, which closes its pty. The fixture's PID is a global, since the EXIT trap runs after this function returns.
+  PTY_FIXTURE_PID=""
   restore_dontaudit() {
-    [[ -n "${pty_fixture_pid}" ]] && kill "${pty_fixture_pid}" 2>/dev/null
+    [[ -n "${PTY_FIXTURE_PID:-}" ]] && kill "${PTY_FIXTURE_PID}" 2>/dev/null
     note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."
   }
   trap restore_dontaudit EXIT INT TERM
@@ -1259,7 +1259,7 @@ path = os.ttyname(slave)
 os.chmod(path, 0o666)
 print(path, flush=True)
 signal.pause()' >"${pty_fixture_file}" 2>/dev/null &
-  pty_fixture_pid=$!
+  PTY_FIXTURE_PID=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "${pty_fixture_file}" ]] && break; sleep 0.2; done
   login_pty="$(head -n1 "${pty_fixture_file}")"; rm -f "${pty_fixture_file}"
   if [[ "${login_pty}" =~ ^/dev/pts/[0-9]+$ ]]; then
