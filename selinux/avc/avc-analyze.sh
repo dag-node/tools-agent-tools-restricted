@@ -33,11 +33,18 @@ command -v ausearch    >/dev/null || { echo "avc-analyze: ausearch not found (au
 command -v audit2allow >/dev/null || { echo "avc-analyze: audit2allow not found (policycoreutils-devel)" >&2; exit 1; }
 
 # Flags: `--suggest` appends the (verbose) `audit2allow -R` policy proposal; off by default so the report stays short.
+# `--login-pty /dev/pts/<n>` names avc-denials.sh's login-pty fixture, whose open denial then files as the expected
+# boundary (category 5); avc-denials.sh passes it, and a value of any other shape is refused.
 SUGGEST=0
+LOGIN_PTY_NUMBER=""
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --suggest)  SUGGEST=1; shift ;;
-    -h|--help)  echo "usage: $0 [--suggest] [-ts <when>] [-te <when>]"; exit 0 ;;
+    --login-pty)
+      [[ "${2:-}" =~ ^/dev/pts/([0-9]+)$ ]] \
+        || { echo "avc-analyze: --login-pty takes /dev/pts/<n>, not '${2:-}'" >&2; exit 1; }
+      LOGIN_PTY_NUMBER="${BASH_REMATCH[1]}"; shift 2 ;;
+    -h|--help)  echo "usage: $0 [--suggest] [--login-pty /dev/pts/<n>] [-ts <when>] [-te <when>]"; exit 0 ;;
     *)          echo "avc-analyze: unknown flag '$1'" >&2; exit 1 ;;
   esac
 done
@@ -202,13 +209,19 @@ _b4="$(printf '%s\n' "${LINES}" | grep -E 'name="\.avc-denials-ownfifo-[0-9]+"' 
   | grep -E 'denied  \{ create \} .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=fifo_file|denied  \{ associate \} .*scontext=[^ ]*:ai_tools_t:[^ ]* .*tclass=filesystem' || true)"
 
 # Category 5: the terminal boundary (the terminal block of ai_tools.te), matched on the permission and the type: TIOCSTI
-# or TIOCLINUX on a character device, which the allowxperm rules exclude on every terminal type the domain uses,
-# and the probes' own open of a login terminal, which the domain holds on inherited descriptors alone. avc-testsuite.sh
-# and avc-denials.sh make both attempts, the open through python3. Claude Code's reopen of its own terminal
-# on an interactive start is the same refusal, which the terminal block dontaudits and a `semodule -DB` window shows,
-# so it files here too, matched on the command, the permission, the type and the class together. Any other agent's open
-# of a login terminal keeps the NEW bucket, as does any other denial on a terminal type.
-_b5="$(printf '%s\n' "${LINES}" | grep -E 'denied  \{ ioctl \} .* ioctlcmd=0x(5412|541c) .*tclass=chr_file|denied  \{ open \} .* comm="python3" .*tcontext=[^ ]*:(user_devpts_t|user_tty_device_t):[^ ]* tclass=chr_file|denied  \{ open \} .* comm="claude\.exe" .*tcontext=[^ ]*:user_devpts_t:[^ ]* tclass=chr_file' || true)"
+# or TIOCLINUX on a character device, which the allowxperm rules exclude on every terminal type the domain uses
+# (avc-testsuite.sh and avc-denials.sh both attempt them); avc-denials.sh's open of its login-pty fixture,
+# which the domain holds on inherited descriptors alone, matched on python3 and the fixture's pty named by --login-pty;
+# and Claude Code's reopen of its own terminal on an interactive start, the same refusal, which the terminal block
+# dontaudits and a `semodule -DB` window shows, matched on the command, the permission, the type and the class together.
+# Any other open of a login terminal keeps the NEW bucket, a python3 one outside the fixture included, as does any other
+# denial on a terminal type.
+_b5_re='denied  \{ ioctl \} .* ioctlcmd=0x(5412|541c) .*tclass=chr_file'
+_b5_re+='|denied  \{ open \} .* comm="claude\.exe" .*tcontext=[^ ]*:user_devpts_t:[^ ]* tclass=chr_file'
+if [[ -n "${LOGIN_PTY_NUMBER}" ]]; then
+  _b5_re+="|denied  \\{ open \\} .* comm=\"python3\" (path=\"/dev/pts/${LOGIN_PTY_NUMBER}\"|name=\"${LOGIN_PTY_NUMBER}\") dev=\"devpts\" .*tcontext=[^ ]*:user_devpts_t:[^ ]* tclass=chr_file"
+fi
+_b5="$(printf '%s\n' "${LINES}" | grep -E "${_b5_re}" || true)"
 
 boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" "${_b5}" | sort -u | grep -v '^$' || true)"
 
