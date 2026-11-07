@@ -310,12 +310,13 @@ fi
 
 # (7e) The character devices the confined domain reaches, terminals among them (confinement.rule.md, Terminals). Each
 # chr_file type an allow rule for ai_tools_t names is held to a reviewed table, matched on the target and the rule's
-# condition: the device type is what decides what a session reaches, and the base policy grants several through
-# attributes. A type outside the table fails, so a new terminal type reaches review before a session holds it. Three
-# properties follow: the login terminal types carry no `open`, every terminal type the domain ioctls carries
-# an allowxperm set that excludes TIOCSTI and TIOCLINUX and keeps TIOCGWINSZ, and the session's own pty type is there
-# at all. The classifier and the xperm reader each run over synthetic rules first. Read-only, as (7b);
-# selinux/avc/avc-testsuite.sh section 10 and avc-denials.sh section TTY make the attempts from inside a session.
+# condition: the device type is what decides what a session reaches, and the base policy grants several
+# through attributes. A type outside the table fails, so a new terminal type reaches review before a session holds it.
+# The properties that follow: the login terminal types carry no `open` and the refused open on user_devpts_t is
+# dontaudit'd, every terminal type the domain ioctls carries an allowxperm set that excludes TIOCSTI and TIOCLINUX
+# and keeps TIOCGWINSZ, and the session's own pty type is there at all. The classifier and the xperm reader each run
+# over synthetic rules first. Read-only, as (7b); selinux/avc/avc-testsuite.sh section 10 and avc-denials.sh section TTY
+# make the attempts from inside a session.
 section "SELinux: the character devices and terminals the confined domain reaches"
 # target|condition, the condition `<boolean>:<branch>` as sesearch prints it, or `-`.
 TTY_REVIEWED=(
@@ -431,6 +432,23 @@ else
         else
             pass "ai_tools_t holds no open on a login terminal type (control: it opens ai_tools_devpts_t)"
         fi
+    fi
+
+    # The refused open on user_devpts_t is dontaudit'd, since Claude Code makes it on every interactive start.
+    # The control is the core module's own dontaudit on tty_device_t getattr, so a listing that was not read does not
+    # pass.
+    tty_dontaudit_status=0
+    tty_dontaudits="$(sesearch --dontaudit -s ai_tools_t -c chr_file 2>&1)" || tty_dontaudit_status=$?
+    tty_dontaudit_rule_re() {
+        printf '^dontaudit ai_tools_t %s:chr_file (\\{ ([^}]* )?%s( [^}]*)? \\}|%s);' "$1" "$2" "$2"
+    }
+    if [[ "${tty_dontaudit_status}" -ne 0 ]] \
+            || ! grep -qE "$(tty_dontaudit_rule_re tty_device_t getattr)" <<<"${tty_dontaudits}"; then
+        fail "sesearch --dontaudit did not list the core module's tty_device_t getattr rule (exit ${tty_dontaudit_status}), so the listing was not read: $(head -c 200 <<<"${tty_dontaudits}" | tr '\n' '|')"
+    elif ! grep -qE "$(tty_dontaudit_rule_re user_devpts_t open)" <<<"${tty_dontaudits}"; then
+        fail "no dontaudit on ai_tools_t user_devpts_t:chr_file open, so an agent that reopens its terminal at start writes a denial on every start"
+    else
+        pass "ai_tools_t's refused open on user_devpts_t is dontaudit'd (control: the tty_device_t getattr dontaudit is listed)"
     fi
 
     tty_xperm_status=0

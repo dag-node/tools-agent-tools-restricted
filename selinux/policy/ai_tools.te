@@ -110,8 +110,8 @@ files_type(ai_tools_systemd_data_t)
 type ai_tools_tmp_t;
 files_tmp_file(ai_tools_tmp_t)
 
-# The pseudo-terminals a session allocates through /dev/ptmx: a background task's terminal, a `script` run. The terminal
-# block grants the domain these and no other pty type (confinement.rule.md).
+# The pseudo-terminals a session allocates through /dev/ptmx: a background session's terminal, a `script` run.
+# The terminal block grants the domain these and no other pty type (confinement.rule.md).
 type ai_tools_devpts_t;
 term_pty(ai_tools_devpts_t)
 
@@ -377,6 +377,11 @@ allow ai_tools_t fs_t:filesystem getattr;                  # find -xdev: statfs(
 # ioctls it without opening it. The grant does not include open, so a session cannot open a login terminal
 # (user_devpts_t, user_tty_device_t) by path, whatever its mode.
 userdom_use_inherited_user_terminals(ai_tools_t)
+# Claude Code reopens its own terminal by path on an interactive start (O_RDONLY|O_NOCTTY|O_NONBLOCK on the session's
+# /dev/pts/N), is refused, and runs on the inherited descriptors. The open stays refused: every session's terminal is
+# the account's own 0620 node, so DAC lets one session open another's. The dontaudit keeps that start-up refusal
+# out of the audit log; `semodule -DB` shows it again.
+dontaudit ai_tools_t user_devpts_t:chr_file open;
 
 # A pty the session allocates. term_create_pty grants read and write on /dev/ptmx (ptmx_t), the listing of /dev/pts,
 # and the type_transition that gives the slave the session's own type, which the domain then uses. It does not grant any
