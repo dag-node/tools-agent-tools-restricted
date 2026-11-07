@@ -424,8 +424,12 @@ else
             pass "no chr_file grant outside the reviewed table"
         fi
 
+        # An if, not `[[ ]] && printf`: the loop's status is its last body's, which on a policy without the grant is 1,
+        # and under set -e that status ends the file at the assignment.
         tty_login_open="$(grep '^reviewed ' <<<"${tty_tuples}" | while read -r _ target _ perms; do
-            [[ "${TTY_LOGIN_TYPES}" == *" ${target} "* && ",${perms}," == *",open,"* ]] && printf '%s ' "${target}"
+            if [[ "${TTY_LOGIN_TYPES}" == *" ${target} "* && ",${perms}," == *",open,"* ]]; then
+                printf '%s ' "${target}"
+            fi
         done)"
         if [[ -n "${tty_login_open}" ]]; then
             fail "ai_tools_t holds open on ${tty_login_open}-- a session can open a login terminal by path"
