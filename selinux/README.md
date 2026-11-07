@@ -304,22 +304,24 @@ the log, the agent triggers the denials:
 sudo selinux/avc/avc-denials.sh           # -DB, prints the probe cmd, then WAITS
 
 # 2. AS THE AGENT, in a confined claude (approved project), the command
-#    step 1 printed -- it carries --run-id, --groups and, once root has
-#    verified enforcement, --enforcing-confirmed:
-bash selinux/avc/avc-denials.sh probe --run-id 3f9c0a1b2d4e5f60 --groups tmpmap,localipc --enforcing-confirmed
+#    step 1 printed -- it carries --run-id, --groups, --login-pty and, once
+#    root has verified enforcement, --enforcing-confirmed:
+bash selinux/avc/avc-denials.sh probe --run-id 3f9c0a1b2d4e5f60 --groups tmpmap,localipc --login-pty /dev/pts/7 --enforcing-confirmed
 
 # 3. back in terminal 1: press Enter   # ausearch + classify, run result,
 #                                      # then -B restores
 ```
 
 The root half exits 0 only when it confirmed enforcement, searched the window,
-and found the probe trail carrying its run id, started inside the window
-and finished with exit 0. Enforcement counts as confirmed when `getenforce`
-reads `Enforcing` and `seinfo --permissive` (setools-console) succeeds and does
-not list `ai_tools_t`; without `seinfo`, or when it fails, the probe command
-omits `--enforcing-confirmed` and the probe asks before it runs.
-A `semodule -l` that fails stops the run, since the probe would otherwise judge
-every group check against an empty group list.
+found the denial of the probe's open of the pty it allocated for the window
+(the record that shows audit collection worked), and found the probe trail
+carrying its run id, started inside the window and finished with exit 0.
+Enforcement counts as confirmed when `getenforce` reads `Enforcing`
+and `seinfo --permissive` (setools-console) succeeds and does not list
+`ai_tools_t`; without `seinfo`, or when it fails, the probe command omits
+`--enforcing-confirmed` and the probe asks before it runs. A `semodule -l`
+that fails stops the run, since the probe would otherwise judge every group
+check against an empty group list.
 
 The probe prints a summary line and exits non-zero when a check fails (1)
 or could not run its access (3). Each check reads the errno of its attempt:
@@ -427,10 +429,13 @@ then run it again.
   declares for its own trees — project, project build output, home,
   and private-tmp — and one entrypoint transition. What it reaches beyond those
   is read-only or execute-only: the nvm tree, `/etc`, shared libraries,
-  the controlling pty, DNS and outbound HTTPS, the handback socket,
-  and a process baseline. The accesses the agent *probed but does not need*
-  (other domains' `/proc`, the user's home listing, container storage) are
-  additionally `dontaudit`'d, so they stay denied and quiet.
+  the controlling pty on the descriptors it inherits, DNS and outbound HTTPS,
+  the handback socket, and a process baseline. The ptys a session allocates
+  take a type of their own, `ai_tools_devpts_t`, and TIOCSTI is refused
+  on every terminal type the domain uses. The accesses the agent *probed
+  but does not need* (other domains' `/proc`, the user's home listing,
+  container storage) are additionally `dontaudit`'d, so they stay denied
+  and quiet.
 - **git is covered:** `ai_tools_project_t` manage rights include the dir
   create/rename/unlink that git needs (`index.lock`, refs, objects); `git`
   itself runs from `corecmd_exec_bin`. No git permission from the main install

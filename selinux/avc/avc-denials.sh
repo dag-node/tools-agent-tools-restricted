@@ -1247,8 +1247,9 @@ do_run() {
   note "dontaudit disabled."
 
   # The login-pty fixture for section TTY: a pty this process allocates, which an unconfined root login creates
-  # as user_devpts_t, at mode 0666 so DAC permits the probe's open. Its master stays open, and nothing reads it, until
-  # the trap stops the process. The path is passed only once its type and mode read back as the section needs them.
+  # as user_devpts_t, at mode 0666 so DAC permits the probe's open. Its master stays open, and no process reads it,
+  # until the trap stops the process. The path is passed only once its type and mode read back as the section needs
+  # them.
   local login_pty="" pty_fixture_file pty_context pty_mode
   pty_fixture_file="$(mktemp)"
   python3 -I -c '
@@ -1319,7 +1320,7 @@ signal.pause()' >"${pty_fixture_file}" 2>/dev/null &
     err "analysis: avc-analyze.sh exited ${analyze_rc}"
   fi
   # The fixture's denial is the one record this run knows must be in the window, so it is the control that audit
-  # collection and the window worked: without it, an empty bucket above says nothing about the policy.
+  # collection and the window worked: without it, an empty bucket in the analysis says nothing about the policy.
   local collection_confirmed=0
   if [[ -n "${login_pty}" ]]; then
     if ausearch -m AVC -ts "${START_DATE}" "${START_TIME}" 2>/dev/null \

@@ -414,6 +414,44 @@ policy does not have reads as unread and refuses the same way. `sesearch -A -s a
 with its expression, `[ nis_enabled ]:True` for the true branch, which is not the Boolean's current value; `getsebool`
 reads that.
 
+## Terminals
+
+A session reaches two kinds of terminal, and the policy types them apart. **Its own terminal** is the pty
+`systemd-run --pty` allocates on the launch side, a `user_devpts_t` node the sandbox account owns, which the user
+manager opens for the unit's standard streams. `ai_tools_t` holds it through `userdom_use_inherited_user_terminals`:
+read, write and ioctl on `user_devpts_t` and `user_tty_device_t`, without `open`, so the domain uses the descriptors it
+inherits and cannot open a login terminal by its `/dev/pts` path whatever the terminal's mode. The grant holds while
+each agent reaches its terminal through those descriptors and `/dev/tty`; `claude.exe` also holds it on descriptors 5
+and 6, and an agent that reopened it by path would meet an `open` denial on `user_devpts_t`, which `avc-analyze.sh`
+files under NEW.
+
+**The ptys it allocates** — a Claude Code background task's terminal, codex's `script` — take `ai_tools_devpts_t`.
+`term_create_pty` grants read and write on `/dev/ptmx` (`ptmx_t`), the listing of `/dev/pts`, and the `type_transition`
+that types the new slave, and the domain holds `rw_term_perms` on that type and on no other pty type: no
+`term_use_all_ptys` and no further user-terminal interface. The grant does not include `setattr`, since glibc's
+`grantpt` on devpts does not change the slave's owner or mode. `term_pty` puts the type in `ptynode`, so a domain
+that uses every pty, `unconfined_t` among them, reaches these as well.
+
+**TIOCSTI** pushes a byte into a terminal's input queue as though typed. The kernel allows it on the caller's
+controlling terminal while `dev.tty.legacy_tiocsti` is `1`, the EL10 build default, so a process holding the agent's
+terminal could type into its prompt. An `allowxperm` complement excludes TIOCSTI (`0x5412`) and TIOCLINUX (`0x541c`,
+whose console subcommands paste a selection) on each terminal type the domain ioctls — `ai_tools_devpts_t`, `ptmx_t`,
+`user_devpts_t`, `user_tty_device_t`, and `devtty_t`, the label of `/dev/tty`, which is what the kernel checks an ioctl
+made through that node against — and permits every other command. The LSM check runs ahead of the tty driver,
+so a refused attempt returns `EACCES` whatever the kernel would have answered, and that errno is what tells the policy's
+refusal from the kernel's `EPERM` or `EIO`. A Claude Code tool command runs without a controlling terminal,
+which the kernel refuses TIOCSTI from in any case.
+
+**The ptys of one domain are not isolated from one another.** Every session runs as the one account in the one domain,
+and a pty is `<owner>:tty 0620`, so one session can open a pty another session allocated: the shared-account boundary
+of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9).
+
+`tests/integration/selinux.sh` holds the `chr_file` types an allow rule gives the domain to a reviewed table and reads
+the `open` and `allowxperm` properties back from the loaded policy; `avc-testsuite.sh` section 10 drives a pty
+the session allocates through its lifecycle and makes the TIOCSTI attempts from a child whose controlling terminal it
+is, and `avc-denials.sh` section TTY opens a `user_devpts_t` pty the root half allocates at `0666`, so DAC permits
+the open and its refusal is the policy's.
+
 ## Bring-up and enforce-verification (`selinux/avc/`)
 
 The rule set is arrived at by observation: load permissive (`permissive ai_tools_t;` in `ai_tools.te`), exercise

@@ -45,6 +45,21 @@ permissions. The trees the sweeps skip (`.git`, `node_modules`, `.venv`) do not
 carry an ownership signal worth trusting either: regenerate them instead
 of adopting what is there.
 
+## A session's terminals
+
+A session uses its own terminal, the one its launch allocates and connects
+to yours, and the pseudo-terminals it allocates for itself, such as the one
+a background task runs in. Where the SELinux layer is loaded, those are all it
+reaches: the policy refuses the session an open of your login terminals,
+another account's terminal, or a console or serial device, whatever their
+permissions. On each terminal it holds, the call that pushes keystrokes
+into the terminal's input is refused, so a command the agent runs cannot type
+into the agent's prompt.
+
+The pseudo-terminals sessions allocate share one type and one account, so one
+session can open another session's
+([confinement](../../.claude/rules/confinement.rule.md)).
+
 ## Out of scope by design
 
 These are scope decisions rather than gaps, so a reader can tell bounded design
