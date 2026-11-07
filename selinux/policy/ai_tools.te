@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-policy_module(ai_tools, 0.10.0)
+policy_module(ai_tools, 0.11.0)
 
 ########################################
 #
@@ -104,6 +104,11 @@ files_type(ai_tools_systemd_data_t)
 # gets its own scratch space and cannot read or clobber other domains' tmp_t/user_tmp_t files once enforcing.
 type ai_tools_tmp_t;
 files_tmp_file(ai_tools_tmp_t)
+
+# The pseudo-terminals a session allocates through /dev/ptmx: a background task's terminal, a `script` run. The terminal
+# block grants the domain these and no other pty type (confinement.rule.md).
+type ai_tools_devpts_t;
+term_pty(ai_tools_devpts_t)
 
 # The user-owned ai-tools config the ROOT helpers must read on the agent's behalf:
 # ~/.config/ai-tools/{project-registry,secret-patterns}. Those paths are normally config_home_t, which the THE BOUNDARY
@@ -363,6 +368,20 @@ allow ai_tools_t fs_t:filesystem getattr;                  # find -xdev: statfs(
 ########################################
 
 userdom_use_user_terminals(ai_tools_t)   # the controlling pty (user_devpts_t)
+
+# A pty the session allocates. term_create_pty grants read and write on /dev/ptmx (ptmx_t), the listing of /dev/pts,
+# and the type_transition that gives the slave the session's own type, which the domain then uses. It does not grant any
+# other pty type: an operator's login pty stays user_devpts_t, reached only through the grant above, where its
+# <owner>:tty 0620 mode keeps the session out. term_pty adds the type to ptynode, so a domain that already uses every
+# pty reaches these too.
+term_create_pty(ai_tools_t, ai_tools_devpts_t)
+allow ai_tools_t ai_tools_devpts_t:chr_file rw_term_perms;
+# Every ioctl on those two types except TIOCSTI (0x5412), which pushes a byte into a terminal's input queue as though
+# typed, and TIOCLINUX (0x541c), whose console subcommands paste a selection the same way. The kernel's own TIOCSTI check
+# lets a process inject into its controlling terminal while dev.tty.legacy_tiocsti is 1, so a process the session runs
+# on one of its ptys would otherwise type into whatever reads the other end. Once a rule names ioctl commands
+# for a (source, target, class), the kernel permits on it the commands listed and refuses every other.
+allowxperm ai_tools_t { ai_tools_devpts_t ptmx_t }:chr_file ioctl ~{ 0x5412 0x541c };
 
 ########################################
 # Outbound HTTPS to the Anthropic API
