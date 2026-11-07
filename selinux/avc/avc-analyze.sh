@@ -265,9 +265,13 @@ groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
 #   hostname_exec_t -- stock /etc/profile resolves HOSTNAME as hostnamectl, then /usr/bin/hostname, then `uname -n`.
 #                      The login shell every agent's shell tool opens runs it, and the third form answers. Not
 #                      agent-specific: it fires identically for every agent.
-#   usr_t + watch   -- codex arms an inotify watch on the account's home root at startup. Refused; the session
+#   usr_t + watch   -- codex adds an inotify watch on the account's home root at startup. Refused; the session
 #                      is unaffected. Matched on the PERMISSION, since usr_t reads are core-granted and a usr_t denial
 #                      of any other permission is a real finding.
+#   etc_t + watch   -- Claude Code adds an inotify watch on /etc/claude-code and its managed-settings.json at startup.
+#                      Refused; the session reads the file at start, so an edit applies from the next session start.
+#                      Matched on the TYPE, the PERMISSION and the PATH, since etc_t reads are core-granted and a watch
+#                      anywhere else in /etc is a finding.
 #   install(1)      -- `install` sets the context of the file it just created. The type_transition already gave it
 #                      ai_tools_project_t, so the relabel is refused and `install` still exits 0 with the file
 #                      correctly labelled (verified for -m, a plain copy, and -D). Matched on the COMMAND as well as
@@ -294,7 +298,9 @@ _p4a="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*
         | grep -E 'tcontext=[^ ]*:ssh_exec_t:' | grep -E 'tclass=file\b' || true)"
 _p4b="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*\bread\b' \
         | grep -E 'tcontext=[^ ]*:mail_spool_t:' | grep -E 'tclass=lnk_file\b' || true)"
-probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" | sort -u | grep -v '^$' || true)"
+_p5="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:etc_t:' | grep -E 'denied[^}]*\bwatch\b' \
+        | grep -E 'path="/etc/claude-code(/managed-settings\.json)?"' || true)"
+probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" "${_p5}" | sort -u | grep -v '^$' || true)"
 
 # Everything intentionally denied (boundary + group-disabled + benign probe), to subtract from NEW.
 excluded="$(printf '%s\n' "${boundary}" "${groupdis}" "${probe}" | sort -u | grep -v '^$' || true)"
