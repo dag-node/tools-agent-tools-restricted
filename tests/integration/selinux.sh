@@ -439,20 +439,21 @@ else
     fi
 
     # The refused open on user_devpts_t is dontaudit'd, since Claude Code makes it on every interactive start.
-    # The control is the core module's own dontaudit on tty_device_t getattr, so a listing that was not read does not
-    # pass.
+    # The control is the device_node getattr dontaudit the core module's dev_dontaudit_getattr_all_chr_files call
+    # writes, so a listing that was not read does not pass. The module's explicit tty_device_t getattr rule is covered
+    # by that attribute rule and is not listed on its own.
     tty_dontaudit_status=0
     tty_dontaudits="$(sesearch --dontaudit -s ai_tools_t -c chr_file 2>&1)" || tty_dontaudit_status=$?
     tty_dontaudit_rule_re() {
         printf '^dontaudit ai_tools_t %s:chr_file (\\{ ([^}]* )?%s( [^}]*)? \\}|%s);' "$1" "$2" "$2"
     }
     if [[ "${tty_dontaudit_status}" -ne 0 ]] \
-            || ! grep -qE "$(tty_dontaudit_rule_re tty_device_t getattr)" <<<"${tty_dontaudits}"; then
-        fail "sesearch --dontaudit did not list the core module's tty_device_t getattr rule (exit ${tty_dontaudit_status}), so the listing was not read: $(head -c 200 <<<"${tty_dontaudits}" | tr '\n' '|')"
+            || ! grep -qE "$(tty_dontaudit_rule_re device_node getattr)" <<<"${tty_dontaudits}"; then
+        fail "sesearch --dontaudit did not list the core module's device_node getattr rule (exit ${tty_dontaudit_status}), so the listing was not read: $(head -c 200 <<<"${tty_dontaudits}" | tr '\n' '|')"
     elif ! grep -qE "$(tty_dontaudit_rule_re user_devpts_t open)" <<<"${tty_dontaudits}"; then
         fail "no dontaudit on ai_tools_t user_devpts_t:chr_file open, so an agent that reopens its terminal at start writes a denial on every start"
     else
-        pass "ai_tools_t's refused open on user_devpts_t is dontaudit'd (control: the tty_device_t getattr dontaudit is listed)"
+        pass "ai_tools_t's refused open on user_devpts_t is dontaudit'd (control: the device_node getattr dontaudit is listed)"
     fi
 
     tty_xperm_status=0
