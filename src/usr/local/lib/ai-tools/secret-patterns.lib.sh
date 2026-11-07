@@ -37,6 +37,12 @@ readonly _AI_TOOLS_SECRET_PATTERNS__LOADED=1
 # innocuous files); matching is case-insensitive, so one stem covers its case variants. The .NET entries are anchored
 # to a name (appsettings/web/connectionstrings/…) or an environment segment rather than to an extension --
 # secret-handling.rule.md states what a broad '*.*.json' catch-all would quarantine.
+#
+# An environment-segment pattern ends in this tail, so it leaves a script, a stylesheet and a source map alone:
+# a vendored bundle is named for its build (react.production.min.js), and one locked 600 fails the build or test
+# that loads it. The tail is an extended glob, which `[[ == ]]` matches whether or not the extglob option is set: `!(…)`
+# matches the rest of the name unless it is one of the extensions or ends in `.` and one of them.
+readonly _AI_TOOLS_SECRET_PATTERNS__NON_SCRIPT_TAIL='!(?(*.)@(js|mjs|cjs|css|map))'
 readonly -a _AI_TOOLS_SECRET_PATTERNS__DEFAULTS=(
     '.env' '.env.*' '*.env' 'env' '.envrc' '.environment' '.environment.*' 'environment'
     'secret' 'secrets' 'usersecrets' 'private' 'secret.*' 'secrets.*' '*.secret'
@@ -58,8 +64,11 @@ readonly -a _AI_TOOLS_SECRET_PATTERNS__DEFAULTS=(
     'connectionstrings.*.json' 'ConnectionString.*.config'
     'commonsettings.*.json' 'CommonSettings.*.config'
     'appsettings.*.json' 'AppSettings.*.config' 'web.*.config' 'App.*.config'
-    '*.DEV.*' '*.STAGE.*' '*.PROD.*'
-    '*.Development.*' '*.Staging.*' '*.Production.*'
+    "*.DEV.${_AI_TOOLS_SECRET_PATTERNS__NON_SCRIPT_TAIL}" "*.STAGE.${_AI_TOOLS_SECRET_PATTERNS__NON_SCRIPT_TAIL}"
+    "*.PROD.${_AI_TOOLS_SECRET_PATTERNS__NON_SCRIPT_TAIL}"
+    "*.Development.${_AI_TOOLS_SECRET_PATTERNS__NON_SCRIPT_TAIL}"
+    "*.Staging.${_AI_TOOLS_SECRET_PATTERNS__NON_SCRIPT_TAIL}"
+    "*.Production.${_AI_TOOLS_SECRET_PATTERNS__NON_SCRIPT_TAIL}"
 )
 
 # _ai_tools_secret_patterns__error <code> <message>: print the code on its own line, then the message under this
