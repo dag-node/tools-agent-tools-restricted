@@ -45,6 +45,11 @@ require {
     type tmpfs_t;
     type tty_device_t;
     type usb_device_t;
+
+    # the terminal types the TIOCSTI exclusion names (the terminal block)
+    type user_devpts_t;
+    type user_tty_device_t;
+    type devtty_t;
     type kernel_t;
     type init_t;
 
@@ -382,6 +387,12 @@ allow ai_tools_t ai_tools_devpts_t:chr_file rw_term_perms;
 # on one of its ptys would otherwise type into whatever reads the other end. Once a rule names ioctl commands
 # for a (source, target, class), the kernel permits on it the commands listed and refuses every other.
 allowxperm ai_tools_t { ai_tools_devpts_t ptmx_t }:chr_file ioctl ~{ 0x5412 0x541c };
+
+# The same two commands, refused on the terminal the session inherits. Its own terminal is the user_devpts_t pty
+# `systemd-run --pty` hands the unit, which claude and codex hold as their controlling terminal, so a process sharing it
+# could type into the agent's prompt. /dev/tty (devtty_t) reaches the same tty under the label of its own node, which
+# the kernel checks the ioctl against, so it carries the exclusion as well.
+allowxperm ai_tools_t { user_devpts_t user_tty_device_t devtty_t }:chr_file ioctl ~{ 0x5412 0x541c };
 
 ########################################
 # Outbound HTTPS to the Anthropic API
