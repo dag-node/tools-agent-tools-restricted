@@ -1291,7 +1291,9 @@ signal.pause()' >"${pty_fixture_file}" 2>/dev/null &
 
   step "analyzing ai_tools_t denials since ${START_DATE} ${START_TIME}"
   local analyze_rc probe_status probe_logs
-  "${DIR}/avc-analyze.sh" ${login_pty:+--login-pty "${login_pty}"} -ts "${START_DATE}" "${START_TIME}"
+  local -a analyze_flags=()
+  [[ -n "${login_pty}" ]] && analyze_flags+=(--login-pty "${login_pty}")
+  "${DIR}/avc-analyze.sh" "${analyze_flags[@]}" -ts "${START_DATE}" "${START_TIME}"
   analyze_rc=$?
 
   # The run passes only when the analysis searched the window and the probe bound to this run finished clean.
