@@ -372,13 +372,16 @@ allow ai_tools_t fs_t:filesystem getattr;                  # find -xdev: statfs(
 # Interactive terminal (claude is a TUI)
 ########################################
 
-userdom_use_user_terminals(ai_tools_t)   # the controlling pty (user_devpts_t)
+# The controlling pty (user_devpts_t), on the descriptors the unit inherits: the user manager opens the pty
+# `systemd-run --pty` names and hands it to the service as stdin, stdout and stderr, so the domain reads, writes and
+# ioctls it without opening it. The grant does not include open, so a session cannot open a login terminal
+# (user_devpts_t, user_tty_device_t) by path, whatever its mode.
+userdom_use_inherited_user_terminals(ai_tools_t)
 
 # A pty the session allocates. term_create_pty grants read and write on /dev/ptmx (ptmx_t), the listing of /dev/pts,
 # and the type_transition that gives the slave the session's own type, which the domain then uses. It does not grant any
-# other pty type: an operator's login pty stays user_devpts_t, reached only through the grant above, where its
-# <owner>:tty 0620 mode keeps the session out. term_pty adds the type to ptynode, so a domain that already uses every
-# pty reaches these too.
+# other pty type, so an operator's login pty stays user_devpts_t. term_pty adds the type to ptynode, so a domain that
+# already uses every pty reaches these too.
 term_create_pty(ai_tools_t, ai_tools_devpts_t)
 allow ai_tools_t ai_tools_devpts_t:chr_file rw_term_perms;
 # Every ioctl on those two types except TIOCSTI (0x5412), which pushes a byte into a terminal's input queue as though
