@@ -326,16 +326,23 @@ TTY_REVIEWED=(
     'devtty_t|-'            # /dev/tty, every domain's controlling terminal (base policy)
     'null_device_t|-'       # /dev/null (base policy)
     'zero_device_t|-'       # /dev/zero (base policy)
-    'urandom_device_t|-'    # /dev/urandom (dev_read_urand)
+    'urandom_device_t|-'    # /dev/urandom (dev_read_urand, and every domain in the base policy)
+    'crypt_device_t|-'      # /dev/crypto (base policy, every domain)
+    'console_device_t|-'    # /dev/console, write only (base policy, syslog_client_type)
+    # Each opened by a Boolean, which the confinement registry reads at launch.
+    'kmsg_device_t|domain_can_write_kmsg:True'         # /dev/kmsg, write only
+    'random_device_t|authlogin_nsswitch_use_ldap:True' # /dev/random, read only (nsswitch_domain)
+    'file_type|domain_can_mmap_files:True'             # map on every type, terminals included
 )
 TTY_TERMINAL_TYPES=" ai_tools_devpts_t ptmx_t user_devpts_t user_tty_device_t devtty_t "
 TTY_LOGIN_TYPES=" user_devpts_t user_tty_device_t "
 
 # tty_classify <sesearch-line>: print `reviewed|unexpected <target> <condition> <permissions>`, or `unparsed <line>`.
+# `sesearch -A` lists the allowxperm rules beside the allow rules; those are tty_xperm_sets' to read.
 tty_classify() {
     local line="$1" target perms condition kind=unexpected entry
     local rule_pattern='^allow ([^ ]+) ([^ :]+):chr_file (\{ ([^}]*) \}|([^ ;{]+));( \[ (.*) \]:(True|False))?$'
-    [[ -n "${line}" ]] || return 0
+    [[ -n "${line}" && "${line}" != allowxperm\ * ]] || return 0
     if [[ ! "${line}" =~ ${rule_pattern} ]]; then
         printf 'unparsed %s\n' "${line}"
         return 0
@@ -374,7 +381,8 @@ tty_control="$(tty_classify_all 'allow ai_tools_t ai_tools_devpts_t:chr_file { a
 allow domain null_device_t:chr_file { getattr open read write };
 allow ai_tools_t user_devpts_t:chr_file { getattr ioctl read write };
 allow ai_tools_t ptynode:chr_file { getattr ioctl read write };
-allow ai_tools_t ptmx_t:chr_file { ioctl open }; [ some_boolean ]:True')"
+allow ai_tools_t ptmx_t:chr_file { ioctl open }; [ some_boolean ]:True
+allowxperm ai_tools_t ptmx_t:chr_file ioctl { 0x5400-0x5411 };')"
 tty_control_expected='reviewed ai_tools_devpts_t - append,getattr,ioctl,lock,open,read,write
 reviewed null_device_t - getattr,open,read,write
 reviewed user_devpts_t - getattr,ioctl,read,write
