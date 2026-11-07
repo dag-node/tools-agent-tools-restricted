@@ -202,10 +202,11 @@ _b4="$(printf '%s\n' "${LINES}" | grep -E 'name="\.avc-denials-ownfifo-[0-9]+"' 
   | grep -E 'denied  \{ create \} .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=fifo_file|denied  \{ associate \} .*scontext=[^ ]*:ai_tools_t:[^ ]* .*tclass=filesystem' || true)"
 
 # Category 5: the terminal boundary (the terminal block of ai_tools.te), matched on the permission and the type: TIOCSTI
-# or TIOCLINUX on a character device, which the allowxperm rules exclude on every terminal type the domain uses, and an
-# open of a login terminal, which the domain holds on inherited descriptors alone. avc-testsuite.sh and avc-denials.sh
-# make both attempts. Any other denial on a terminal type keeps its own bucket.
-_b5="$(printf '%s\n' "${LINES}" | grep -E 'denied  \{ ioctl \} .* ioctlcmd=0x(5412|541c) .*tclass=chr_file|denied  \{ open \} .*tcontext=[^ ]*:(user_devpts_t|user_tty_device_t):[^ ]* tclass=chr_file' || true)"
+# or TIOCLINUX on a character device, which the allowxperm rules exclude on every terminal type the domain uses, and
+# the probes' own open of a login terminal, which the domain holds on inherited descriptors alone. avc-testsuite.sh
+# and avc-denials.sh make both attempts, the open through python3. An agent's own open of its login terminal is
+# the inherited-only grant breaking its TUI, so it keeps the NEW bucket, as does any other denial on a terminal type.
+_b5="$(printf '%s\n' "${LINES}" | grep -E 'denied  \{ ioctl \} .* ioctlcmd=0x(5412|541c) .*tclass=chr_file|denied  \{ open \} .* comm="python3" .*tcontext=[^ ]*:(user_devpts_t|user_tty_device_t):[^ ]* tclass=chr_file' || true)"
 
 boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" "${_b5}" | sort -u | grep -v '^$' || true)"
 
