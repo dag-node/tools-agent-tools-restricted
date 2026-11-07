@@ -65,16 +65,19 @@ ${build_ok} && pass "plain configs and build artifacts are NOT quarantined"
 
 # (4b) The environment-segment patterns leave a script, a stylesheet and a source map alone: a vendored bundle is named
 #      for its build, and a locked one fails the build that loads it. Every other extension after a segment stays
-#      locked, so the controls beside the bundles are a config, a JSX and a TypeScript file carrying the same segments.
+#      locked, so the controls beside the bundles are a config, a JSX and a TypeScript file carrying the same segments,
+#      and the exclusion belongs to the segment patterns alone: a credential-named script matches its own pattern.
 bundle_ok=true
 for n in react.production.min.js react-dom.production.min.js REACT.PRODUCTION.MIN.JS vue.runtime.prod.js \
-         app.development.mjs lib.dev.cjs theme.Production.css main.production.js.map site.STAGE.min.css; do
+         app.development.mjs lib.dev.cjs theme.Production.css main.production.js.map site.STAGE.min.css \
+         webpack.prod.js webpack.DEV.js config.production.js config.production.js.map; do
     if ai_tools_secret_patterns__is_secret_basename "${n}"; then
         fail "script, stylesheet or source map after an environment segment wrongly quarantined: ${n}"; bundle_ok=false
     fi
 done
 for n in appsettings.Production.json Web.Release.config settings.Production.yaml db.PROD.ini \
-         config.production.js.json app.production.jsx deploy.staging.ts; do
+         config.production.js.json app.production.jsx deploy.staging.ts environment.prod.ts \
+         secrets.production.min.js SECRETS.PRODUCTION.MIN.JS credentials.dev.js; do
     ai_tools_secret_patterns__is_secret_basename "${n}" \
         || { fail "a non-script file after an environment segment should match: ${n}"; bundle_ok=false; }
 done
