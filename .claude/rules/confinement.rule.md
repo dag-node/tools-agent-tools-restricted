@@ -386,6 +386,11 @@ reaches the system bus with the `systemd` and `netadmin` groups off, and what it
 by the D-Bus policy and polkit, not by this module. `syslog_client_type` and the module's own logging interface let it
 write to the journal, where journald stamps the trusted fields from the sender's credentials.
 
+The module's own HTTPS grant reaches past its purpose the same way. `corenet_tcp_connect_http_port`, which the module
+calls for the agent's API endpoint, is keyed on the port type and not on the address, so a session connects to every
+`http_port_t` port on any address the network allows — 443 and 8443 among them, a service the operator runs on loopback
+included (`semanage port -l` lists the set).
+
 Some of those rules are conditional on a Boolean the host sets: `nis_enabled` (`name_bind` and `name_connect` on most
 port types), `domain_can_mmap_files` (`map` on every file type), `authlogin_nsswitch_use_ldap` and `kerberos_enabled`
 (directory-service ports and sockets). A Boolean switched on widens the domain without any module change, and disabling
@@ -414,6 +419,49 @@ policy does not have reads as unread and refuses the same way. `sesearch -A -s a
 with its expression, `[ nis_enabled ]:True` for the true branch, which is not the Boolean's current value; `getsebool`
 reads that.
 
+## Terminals
+
+A session reaches two kinds of terminal, and the policy types them apart. **Its own terminal** is the pty
+`systemd-run --pty` allocates on the launch side, a `user_devpts_t` node the sandbox account owns, which the user
+manager opens for the unit's standard streams. `ai_tools_t` holds it through `userdom_use_inherited_user_terminals`:
+read, write and ioctl on `user_devpts_t` and `user_tty_device_t`, without `open`, so the domain uses the descriptors it
+inherits and cannot open a login terminal by its `/dev/pts` path whatever the terminal's mode. Claude Code reopens its
+terminal by path on an interactive start (`O_RDONLY|O_NOCTTY|O_NONBLOCK` on the session's own `/dev/pts/N`), is refused,
+and runs on the inherited descriptors. The open stays refused: every session's terminal is the account's own `0620`
+node, so DAC lets one session open another's and read its input or write its output. A `dontaudit` on that `open` keeps
+the start-up refusal out of the audit log, a `semodule -DB` window shows it, and `avc-analyze.sh` files Claude Code's
+with the terminal boundary; another agent's open by path stays under NEW.
+
+**The ptys it allocates** — a Claude Code background session's terminal, codex's `script` — take `ai_tools_devpts_t`.
+`term_create_pty` grants read and write on `/dev/ptmx` (`ptmx_t`), the listing of `/dev/pts`, and the `type_transition`
+that types the new slave, and the domain holds `rw_term_perms` on that type and on no other pty type: no
+`term_use_all_ptys` and no further user-terminal interface. The grant does not include `setattr`, since glibc's
+`grantpt` on devpts does not change the slave's owner or mode. `term_pty` puts the type in `ptynode`, so a domain
+that uses every pty, `unconfined_t` among them, reaches these as well. A background session's daemon and its pty hosts
+talk over unix sockets under `/tmp`, which the `localipc` group grants, so the pty grant alone does not start one:
+without the group the daemon's bind of its `control.sock` is refused, `/fork` and `claude --bg` print that `EACCES`,
+and a foreground session runs as before.
+
+**TIOCSTI** pushes a byte into a terminal's input queue as though typed. The kernel allows it on the caller's
+controlling terminal while `dev.tty.legacy_tiocsti` is `1`, the EL10 build default, so a process holding the agent's
+terminal could type into its prompt. An `allowxperm` complement excludes TIOCSTI (`0x5412`) and TIOCLINUX (`0x541c`,
+whose console subcommands paste a selection) on each terminal type the domain ioctls — `ai_tools_devpts_t`, `ptmx_t`,
+`user_devpts_t`, `user_tty_device_t`, and `devtty_t`, the label of `/dev/tty`, which is what the kernel checks an ioctl
+made through that node against — and permits every other command. The LSM check runs ahead of the tty driver,
+so a refused attempt returns `EACCES` whatever the kernel would have answered, and that errno is what tells the policy's
+refusal from the kernel's `EPERM` or `EIO`. A Claude Code tool command runs without a controlling terminal,
+which the kernel refuses TIOCSTI from in any case.
+
+**The ptys of one domain are not isolated from one another.** Every session runs as the one account in the one domain,
+and a pty is `<owner>:tty 0620`, so one session can open a pty another session allocated: the shared-account boundary
+of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9).
+
+`tests/integration/selinux.sh` holds the `chr_file` types an allow rule gives the domain to a reviewed table and reads
+the `open`, `dontaudit` and `allowxperm` properties back from the loaded policy; `avc-testsuite.sh` section 10 drives
+a pty the session allocates through its lifecycle and makes the TIOCSTI attempts from a child whose controlling terminal
+it is, and `avc-denials.sh` section TTY opens a `user_devpts_t` pty the root half allocates at `0666`, so DAC permits
+the open and its refusal is the policy's.
+
 ## Bring-up and enforce-verification (`selinux/avc/`)
 
 The rule set is arrived at by observation: load permissive (`permissive ai_tools_t;` in `ai_tools.te`), exercise
@@ -428,27 +476,30 @@ attempt), **EXPECTED GROUP-DISABLED** (one only an optional group would allow), 
 a candidate to fold in.
 
 A benign probe is an access whose refusal does not change what the caller does next, and it is classified and **left
-audited** rather than `dontaudit`'d. Four are classified: the login shell's `hostname_exec_t` lookup,
+audited** rather than `dontaudit`'d. The classified probes are the login shell's `hostname_exec_t` lookup,
 which `/etc/profile` answers from `uname -n` and which every agent raises; `install`(1)'s relabel of the file it just
 created, which the `type_transition` has already given the type it asks for, so the copy exits 0; codex's inotify
-`watch` on the account's home root (`usr_t`); and `emacs`(1)'s two startup existence probes — one for `ssh`
-(`access(X_OK)`, which the kernel checks as `ssh_exec_t:file execute` without the binary being run) and a read
-of the mail-spool symlink (`mail_spool_t:lnk_file`) — which this repository's own comment filler raises once per file it
-formats. The first three are measured at three to four records per session start and none per command afterwards,
-which is what decides the treatment: section (4) silences a **flood**, and a `dontaudit` would equally hide a later
-agent release making the same call in a loop. The emacs pair scales with files formatted rather than with sessions,
-and neither probe is reachable from this repository's side — `tramp` is not loaded during a fill run and `$MAIL` is
-unset, and both fire regardless — so there is no invocation to change and the classification is the remedy.
+`watch` on the account's home root (`usr_t`); Claude Code's inotify `watch` on `/etc/claude-code` and its
+`managed-settings.json` (`etc_t`), which leaves an edit to managed settings to the next session start; and `emacs`(1)'s
+two startup existence probes — one for `ssh` (`access(X_OK)`, which the kernel checks as `ssh_exec_t:file execute`
+without the binary being run) and a read of the mail-spool symlink (`mail_spool_t:lnk_file`) — which this repository's
+own comment filler raises once per file it formats. All but the emacs pair are measured at two to four records
+per session start and none per command afterwards, which is what decides the treatment: section (4) silences
+a **flood**, and a `dontaudit` would equally hide a later agent release making the same call in a loop. The emacs pair
+scales with files formatted rather than with sessions, and neither probe is reachable from this repository's side —
+`tramp` is not loaded during a fill run and `$MAIL` is unset, and both fire regardless — so there is no invocation
+to change and the classification is the remedy.
 
 **Neither is `dontaudit`'d, and the ssh one must not be.** A `dontaudit` names a type and a permission and cannot be
 scoped to a command, so silencing this probe would silence *every* `ssh_exec_t:file execute` the domain ever makes —
 the same lateral-movement signal `sudo_exec_t` and `semanage_exec_t` are deliberately left visible for. It would also
 ship that silence to every host to quiet a condition only a development host can reach: `emacs` is a dependency
 of the formatter, not of the product, and a host that only runs sessions does not have it installed. All but the first
-are matched on the permission, and `install`'s and `emacs`'s on the command as well. **NEW is the default bucket** — it
-holds every denial no classifier claims — so how narrowly a probe is matched is the whole of what keeps a real signal
-out of it: a `chcon` of a project file, a `usr_t` denial of anything but `watch`, and, `ssh_exec_t` being a type no
-other classifier names, an `execute` of it by any command other than emacs.
+are matched on the permission, `install`'s and `emacs`'s on the command as well, and Claude Code's on the path. **NEW is
+the default bucket** — it holds every denial no classifier claims — so how narrowly a probe is matched is the whole
+of what keeps a real signal out of it: a `chcon` of a project file, a `usr_t` denial of anything but `watch`, a `watch`
+on `etc_t` outside `/etc/claude-code`, and, `ssh_exec_t` being a type no other classifier names, an `execute` of it
+by any command other than emacs.
 
 **The window is the analyst's to state, because the marker is the exerciser's start** — one turn into the session,
 after the agent's own startup probes. Sweeping a whole session means passing `-ts` from before the launch and `-te`

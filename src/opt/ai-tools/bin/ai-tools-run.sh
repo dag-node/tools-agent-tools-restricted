@@ -840,9 +840,13 @@ systemd-run --user --pty --quiet --wait \
 
 if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
     audit warning "session unit ${session_unit_name} exited with status ${session_exit_status} at startup"
-    # The agent's own output went to the pty, so this shim cannot read which of the two it was and the warning names
-    # both, each with its step. The re-login step is the agent's: a manifest declaring `login_command` has it named
-    # as a command (codex, whose login is a subcommand); one declaring none takes its login inside a session.
+    # The agent's own output went to the PTY, so this shim cannot tell which cause triggered the warning; the warning
+    # therefore names each cause and its step. Re-login is agent-driven: a manifest that declares `login_command` treats
+    # login as a named command (e.g. Codex, whose login is a subcommand); a manifest that declares none performs login
+    # inside a session. On a confined host a third cause is possible: refused access (EACCES) when an optional
+    # group-granted feature is missing -- for example a Claude Code background session's control socket when localipc is
+    # not loaded -- and the agent's start ends on that refusal. A mode or an ACL refuses with the same errno,
+    # so the line names both and leaves the reading to the operator.
     agent_login_command="$(ai_tools_providers__read_agent_manifest_field "${agent_name}" login_command 2>/dev/null || true)"
     if [[ -n "${agent_login_command}" ]]; then
         early_exit_login_lines=(
@@ -852,9 +856,16 @@ if (( session_exit_status != 0 && SECONDS - session_start_seconds < 5 )); then
         early_exit_login_lines=(
             "If it printed an error of its own, the agent refused to start: 'unauthorized' or '401' means its stored login was revoked or has expired -- log in again from a session." )
     fi
+    early_exit_policy_lines=()
+    if [[ "${selinux_mode}" == Enforcing && "${module_present}" == yes ]]; then
+        early_exit_policy_lines=(
+            "'EACCES' or 'permission denied' on a path is a refused access: the path's mode or ACL, or SELinux, where an optional policy group may grant it -- list the groups:"
+            '  atr admin selinux groups' )
+    fi
     ai_tools_msg__warn \
         "ai-tools-run: the session exited with status ${session_exit_status} almost immediately." \
         "${early_exit_login_lines[@]}" \
+        "${early_exit_policy_lines[@]}" \
         "If it ended with no output, the sandbox toolchain may be incompletely installed -- reprovision it as root, then relaunch:" \
         '  atr admin system bootstrap'
 fi

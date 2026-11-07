@@ -33,11 +33,18 @@ command -v ausearch    >/dev/null || { echo "avc-analyze: ausearch not found (au
 command -v audit2allow >/dev/null || { echo "avc-analyze: audit2allow not found (policycoreutils-devel)" >&2; exit 1; }
 
 # Flags: `--suggest` appends the (verbose) `audit2allow -R` policy proposal; off by default so the report stays short.
+# `--login-pty /dev/pts/<n>` names avc-denials.sh's login-pty fixture, whose open denial then files as the expected
+# boundary (category 5); avc-denials.sh passes it, and a value of any other shape is refused.
 SUGGEST=0
+LOGIN_PTY_NUMBER=""
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --suggest)  SUGGEST=1; shift ;;
-    -h|--help)  echo "usage: $0 [--suggest] [-ts <when>] [-te <when>]"; exit 0 ;;
+    --login-pty)
+      [[ "${2:-}" =~ ^/dev/pts/([0-9]+)$ ]] \
+        || { echo "avc-analyze: --login-pty takes /dev/pts/<n>, not '${2:-}'" >&2; exit 1; }
+      LOGIN_PTY_NUMBER="${BASH_REMATCH[1]}"; shift 2 ;;
+    -h|--help)  echo "usage: $0 [--suggest] [--login-pty /dev/pts/<n>] [-ts <when>] [-te <when>]"; exit 0 ;;
     *)          echo "avc-analyze: unknown flag '$1'" >&2; exit 1 ;;
   esac
 done
@@ -201,7 +208,22 @@ _b3="$(printf '%s\n' "${LINES}" | grep -E 'dev="proc"' | grep -Ev 'tcontext=[^ ]
 _b4="$(printf '%s\n' "${LINES}" | grep -E 'name="\.avc-denials-ownfifo-[0-9]+"' \
   | grep -E 'denied  \{ create \} .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=fifo_file|denied  \{ associate \} .*scontext=[^ ]*:ai_tools_t:[^ ]* .*tclass=filesystem' || true)"
 
-boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" | sort -u | grep -v '^$' || true)"
+# Category 5: the terminal boundary (the terminal block of ai_tools.te), matched on the permission and the type: TIOCSTI
+# or TIOCLINUX on a character device, which the allowxperm rules exclude on every terminal type the domain uses
+# (avc-testsuite.sh and avc-denials.sh both attempt them); avc-denials.sh's open of its login-pty fixture,
+# which the domain holds on inherited descriptors alone, matched on python3 and the fixture's pty named by --login-pty;
+# and Claude Code's reopen of its own terminal on an interactive start, the same refusal, which the terminal block
+# dontaudits and a `semodule -DB` window shows, matched on the command, the permission, the type and the class together.
+# Any other open of a login terminal keeps the NEW bucket, a python3 one outside the fixture included, as does any other
+# denial on a terminal type.
+_b5_re='denied  \{ ioctl \} .* ioctlcmd=0x(5412|541c) .*tclass=chr_file'
+_b5_re+='|denied  \{ open \} .* comm="claude\.exe" .*tcontext=[^ ]*:user_devpts_t:[^ ]* tclass=chr_file'
+if [[ -n "${LOGIN_PTY_NUMBER}" ]]; then
+  _b5_re+="|denied  \\{ open \\} .* comm=\"python3\" (path=\"/dev/pts/${LOGIN_PTY_NUMBER}\"|name=\"${LOGIN_PTY_NUMBER}\") dev=\"devpts\" .*tcontext=[^ ]*:user_devpts_t:[^ ]* tclass=chr_file"
+fi
+_b5="$(printf '%s\n' "${LINES}" | grep -E "${_b5_re}" || true)"
+
+boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" "${_b5}" | sort -u | grep -v '^$' || true)"
 
 # Group-disabled set: lines hitting a GROUP_DISABLED_RE type, MINUS anything already claimed by boundary (boundary wins,
 # so each line lands in one bucket -- e.g. a /proc read of NetworkManager_t stays boundary, its D-Bus chat is group).
@@ -243,9 +265,13 @@ groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
 #   hostname_exec_t -- stock /etc/profile resolves HOSTNAME as hostnamectl, then /usr/bin/hostname, then `uname -n`.
 #                      The login shell every agent's shell tool opens runs it, and the third form answers. Not
 #                      agent-specific: it fires identically for every agent.
-#   usr_t + watch   -- codex arms an inotify watch on the account's home root at startup. Refused; the session
+#   usr_t + watch   -- codex adds an inotify watch on the account's home root at startup. Refused; the session
 #                      is unaffected. Matched on the PERMISSION, since usr_t reads are core-granted and a usr_t denial
 #                      of any other permission is a real finding.
+#   etc_t + watch   -- Claude Code adds an inotify watch on /etc/claude-code and its managed-settings.json at startup.
+#                      Refused; the session reads the file at start, so an edit applies from the next session start.
+#                      Matched on the TYPE, the PERMISSION and the PATH, since etc_t reads are core-granted and a watch
+#                      anywhere else in /etc is a finding.
 #   install(1)      -- `install` sets the context of the file it just created. The type_transition already gave it
 #                      ai_tools_project_t, so the relabel is refused and `install` still exits 0 with the file
 #                      correctly labelled (verified for -m, a plain copy, and -D). Matched on the COMMAND as well as
@@ -272,7 +298,9 @@ _p4a="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*
         | grep -E 'tcontext=[^ ]*:ssh_exec_t:' | grep -E 'tclass=file\b' || true)"
 _p4b="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*\bread\b' \
         | grep -E 'tcontext=[^ ]*:mail_spool_t:' | grep -E 'tclass=lnk_file\b' || true)"
-probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" | sort -u | grep -v '^$' || true)"
+_p5="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:etc_t:' | grep -E 'denied[^}]*\bwatch\b' \
+        | grep -E 'path="/etc/claude-code(/managed-settings\.json)?"' || true)"
+probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" "${_p5}" | sort -u | grep -v '^$' || true)"
 
 # Everything intentionally denied (boundary + group-disabled + benign probe), to subtract from NEW.
 excluded="$(printf '%s\n' "${boundary}" "${groupdis}" "${probe}" | sort -u | grep -v '^$' || true)"

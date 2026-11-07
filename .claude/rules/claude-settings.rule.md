@@ -265,7 +265,9 @@ and that layer lives in the agent-writable project tree. The layers compose diff
   and an output cap are not one, the observability keys only change how much is displayed, and `disableAutoMode` only
   removes confirmation prompts; the session's confinement is unchanged either way), so a lock is unneeded. The one
   unoverridable layer, managed policy (`/etc/claude-code/managed-settings.json`), is machine-wide — it applies to every
-  Claude Code user on the host — so the sandbox does not ship it.
+  Claude Code user on the host — so the sandbox does not ship it. A session reads it at start and is refused `watch`
+  on `/etc/claude-code` (`etc_t`, which the core grants read and not `watch` on), so an edit applies from the next
+  session start.
 
 ### An upgrade keeps host tuning and still lands this version's hooks
 

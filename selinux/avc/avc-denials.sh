@@ -27,6 +27,8 @@
 #   W    Lateral: raw IP socket, /dev/shm                  (goal 4)
 #   X    Network: privileged port bind (<1024)             (goal 5)
 #   Y    The account's own cgroups and user manager        (goals 2, 4)
+#   Z    A named FIFO of the domain's own type              (goal 2)
+#   TTY  A login terminal opened by path                    (goals 1, 4)
 #
 # Two modes, split by privilege like avc-testsuite.sh / avc-analyze.sh:
 #
@@ -58,9 +60,10 @@
 # on the directory -- which SELinux does not audit by default, so its outcome is read from the errno alone.
 #   3. (back in terminal 1)                     press Enter
 #        -> ausearch + classify, then the run result, then dontaudit is restored. The run exits 0 only when
-#           enforcement was confirmed, the window was searched, and the one trail carrying the run id started inside
-#           the window and records exit 0: the audit log alone does not show a probe that never ran or an access that
-#           succeeded.
+#           enforcement was confirmed, the window was searched, the denial of section TTY's open of the root half's
+#           pty is in it (the record that shows collection worked), and the one trail carrying the run id started
+#           inside the window and records exit 0: the audit log alone does not show a probe that never ran or an access
+#           that succeeded.
 #
 # NB: `semodule -DB` is SYSTEM-WIDE -- it unsilences every domain's dontaudit'd denials for the window, not just
 # ai_tools_t. That is fine for a short controlled run (avc-analyze.sh filters to `-su ai_tools_t` anyway); the trap puts
@@ -81,13 +84,15 @@ usage() {
 usage:
   sudo ${BASH_SOURCE[0]##*/}                  # ROOT: -DB bracket + analyze (default)
   bash ${BASH_SOURCE[0]##*/} probe            # AGENT: trigger denials; output -> audits/
-  bash ${BASH_SOURCE[0]##*/} probe --run-id <id> --groups <a,b|none> [--fips-mode on|off] [--enforcing-confirmed]
+  bash ${BASH_SOURCE[0]##*/} probe --run-id <id> --groups <a,b|none> [--fips-mode on|off] [--login-pty <path>]
+                                   [--enforcing-confirmed]
                                              # AGENT: as printed by the root half -- its run, the
-                                             # loaded groups, fips_mode and the enforcement it verified
+                                             # loaded groups, fips_mode, the login-pty fixture and
+                                             # the enforcement it verified
   bash ${BASH_SOURCE[0]##*/} probe --force    # skip the enforcing+module safety check
 exit status (probe): 0 clean, 1 a check FAILED, 2 aborted before any check, 3 a check was INCONCLUSIVE
-exit status (run):   0 when enforcement was confirmed, the window was searched, and the probe bound to the run
-                     exited 0; 1 otherwise
+exit status (run):   0 when enforcement was confirmed, the window was searched, the login-pty fixture's denial
+                     is in it, and the probe bound to the run exited 0; 1 otherwise
   bash ${BASH_SOURCE[0]##*/} --check-results  # display the latest probe audit trail
 EOF
 }
@@ -355,6 +360,8 @@ do_probe() {
   #   tcp <port>                  connect(2) to 127.0.0.1:<port>; closed at once
   #   write <path>                open(2) O_WRONLY|O_APPEND without O_CREAT, closed without a write -- the write check
   #                               on an existing file, which neither truncates nor creates it
+  #   tty <path>                  open(2) O_RDWR|O_NOCTTY of a terminal, closed at once, so the terminal does not become
+  #                               the process's controlling terminal
   #   dirwrite <dir>              access(2) W_OK on a directory -- the write check a create would meet, with no entry
   #                               created
   #   ownfifo <dir>               mkfifo(3) in <dir> under an fscreate context of the process's own domain type,
@@ -379,6 +386,8 @@ try:
         finally: s.close()
     elif op == "write":
         os.close(os.open(args[0], os.O_WRONLY | os.O_APPEND))
+    elif op == "tty":
+        os.close(os.open(args[0], os.O_RDWR | os.O_NOCTTY))
     elif op == "ownfifo":
         current = open("/proc/thread-self/attr/current").read().rstrip("\0\n")
         user, _role, domain, level = current.split(":", 3)
@@ -1080,6 +1089,28 @@ the project's filesystem needs that filesystem's associate permission as well."
     skip_check WLK-001 SELinux "create a named FIFO labelled ai_tools_t" "python3 not available to attempt it"
   fi
 
+  section "SECTION TTY: A LOGIN TERMINAL OPENED BY PATH  [goals 1, 4]" \
+"The domain holds a login terminal (user_devpts_t, user_tty_device_t) on the
+descriptors it inherits and does not hold open on either type, so a session
+cannot open an operator's terminal by its /dev/pts path. The root half
+allocates a pty of its own for the window, user_devpts_t at mode 0666, so DAC
+permits the open and a refusal is the policy's. TIOCSTI on the session's own
+terminal is read from the policy (tests/integration/selinux.sh): no process
+the probe runs holds that terminal."
+
+  _type="user_devpts_t:chr_file open (not granted)"
+  _why="An open of another account's login pty gives its reader the keystrokes typed there and its writer the screen; the pty's 0620 mode is the DAC half, and this is the type half, which holds whatever mode the pty carries."
+  if [[ -z "${LOGIN_PTY:-}" ]]; then
+    _header TTY-001 SELinux "open a login pty by path (no fixture)"
+    _result INCONCLUSIVE "not exercised: the root half did not pass --login-pty"
+    _why="" _type=""
+  elif command -v python3 >/dev/null 2>&1; then
+    check TTY-001 SELinux "open the root half's user_devpts_t pty ${LOGIN_PTY} at mode 0666 (closed at once)" \
+      _py tty "${LOGIN_PTY}"
+  else
+    skip_check TTY-001 SELinux "open a login pty by path" "python3 not available to attempt it"
+  fi
+
   # ── Audit footer ──────────────────────────────────────────────────────────
   printf '\n\n================================================================\n'
   printf 'END OF PROBE AUDIT TRAIL\n'
@@ -1159,7 +1190,7 @@ do_run() {
   # or a failed or malformed query leaves it unconfirmed, and the probe then warns before running.
   local enforcing_confirmed=0 permissive=unknown seinfo_out seinfo_rc
   if command -v seinfo >/dev/null 2>&1; then
-    seinfo_out="$(seinfo --permissive -x 2>&1)"; seinfo_rc=$?
+    seinfo_out="$(seinfo --permissive 2>&1)"; seinfo_rc=$?
     permissive="$(avc_permissive_state "${seinfo_rc}" "${seinfo_out}")"
     [[ "${permissive}" == unknown ]] \
       && err "seinfo --permissive exited ${seinfo_rc} or printed an unexpected listing; ${SUBJ}'s mode is unknown."
@@ -1194,8 +1225,13 @@ do_run() {
   # dontaudit before the probe runs.
   [[ -e /dev/tty ]] || { err "run mode needs a terminal (it waits for the probe). Re-run interactively."; exit 1; }
 
-  # Disable dontaudit for the window; ALWAYS restore on exit (trap covers Ctrl-C).
-  restore_dontaudit() { note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."; }
+  # Disable dontaudit for the window; ALWAYS restore on exit (trap covers Ctrl-C). The same trap stops the login-pty
+  # fixture, which closes its pty. The fixture's PID is a global, since the EXIT trap runs after this function returns.
+  PTY_FIXTURE_PID=""
+  restore_dontaudit() {
+    [[ -n "${PTY_FIXTURE_PID:-}" ]] && kill "${PTY_FIXTURE_PID}" 2>/dev/null
+    note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."
+  }
   trap restore_dontaudit EXIT INT TERM
   # Capture START before `semodule -DB`: the policy reload can trigger a log rotation at the exact same second, causing
   # `ausearch -ts <START>` to miss the new log file. Date and time are kept as two words, the form ausearch takes,
@@ -1209,10 +1245,41 @@ do_run() {
   step "disabling dontaudit system-wide (semodule -DB) so boundary denials are logged"
   semodule -DB >/dev/null 2>&1 || { err "semodule -DB failed"; exit 1; }
   note "dontaudit disabled."
+
+  # The login-pty fixture for section TTY: a pty this process allocates, which an unconfined root login creates
+  # as user_devpts_t, at mode 0666 so DAC permits the probe's open. Its master stays open, and no process reads it,
+  # until the trap stops the process. The path is passed only once its type and mode read back as the section needs
+  # them.
+  local login_pty="" pty_fixture_file pty_context pty_mode
+  pty_fixture_file="$(mktemp)"
+  python3 -I -c '
+import os, signal, sys
+master, slave = os.openpty()
+path = os.ttyname(slave)
+os.chmod(path, 0o666)
+print(path, flush=True)
+signal.pause()' >"${pty_fixture_file}" 2>/dev/null &
+  PTY_FIXTURE_PID=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "${pty_fixture_file}" ]] && break; sleep 0.2; done
+  login_pty="$(head -n1 "${pty_fixture_file}")"; rm -f "${pty_fixture_file}"
+  if [[ "${login_pty}" =~ ^/dev/pts/[0-9]+$ ]]; then
+    pty_context="$(stat -c %C "${login_pty}" 2>/dev/null)"; pty_mode="$(stat -c %a "${login_pty}" 2>/dev/null)"
+    if [[ "${pty_context}" == *:user_devpts_t:* && "${pty_mode}" == 666 ]]; then
+      note "login-pty fixture: ${login_pty} (${pty_context}, mode ${pty_mode})"
+    else
+      err "login-pty fixture ${login_pty} reads '${pty_context:-unread}' mode ${pty_mode:-unread}, not user_devpts_t 0666;" \
+        "section TTY will report INCONCLUSIVE"
+      login_pty=""
+    fi
+  else
+    err "could not allocate the login-pty fixture; section TTY will report INCONCLUSIVE"
+    login_pty=""
+  fi
   echo
   step "ACTION REQUIRED -- in a CONFINED claude (approved project), run:"
   local probe_flags=" --run-id ${run_id} --groups ${groups:-none}"
   [[ "${fips_mode}" == on || "${fips_mode}" == off ]] && probe_flags+=" --fips-mode ${fips_mode}"
+  [[ -n "${login_pty}" ]] && probe_flags+=" --login-pty ${login_pty}"
   (( enforcing_confirmed )) && probe_flags+=" --enforcing-confirmed"
   printf '\n      bash %s/avc-denials.sh probe%s\n\n' "${DIR}" "${probe_flags}"
   note "Let the claude turn finish (so any Stop-sweep AVCs land too)."
@@ -1224,7 +1291,9 @@ do_run() {
 
   step "analyzing ai_tools_t denials since ${START_DATE} ${START_TIME}"
   local analyze_rc probe_status probe_logs
-  "${DIR}/avc-analyze.sh" -ts "${START_DATE}" "${START_TIME}"
+  local -a analyze_flags=()
+  [[ -n "${login_pty}" ]] && analyze_flags+=(--login-pty "${login_pty}")
+  "${DIR}/avc-analyze.sh" "${analyze_flags[@]}" -ts "${START_DATE}" "${START_TIME}"
   analyze_rc=$?
 
   # The run passes only when the analysis searched the window and the probe bound to this run finished clean.
@@ -1252,9 +1321,25 @@ do_run() {
   else
     err "analysis: avc-analyze.sh exited ${analyze_rc}"
   fi
+  # The fixture's denial is the one record this run knows must be in the window, so it is the control that audit
+  # collection and the window worked: without it, an empty bucket in the analysis says nothing about the policy.
+  local collection_confirmed=0
+  if [[ -n "${login_pty}" ]]; then
+    if ausearch -m AVC -ts "${START_DATE}" "${START_TIME}" 2>/dev/null \
+        | grep -E 'avc:[[:space:]]*denied  \{ open \} ' \
+        | grep -E "path=\"${login_pty}\"|name=\"${login_pty##*/}\" dev=\"devpts\"" \
+        | grep -qE 'scontext=[^ ]*:ai_tools_t:[^ ]* tcontext=[^ ]*:user_devpts_t:'; then
+      collection_confirmed=1
+      note "collection: the login-pty fixture's open denial is in the window"
+    else
+      err "collection: no open denial on ${login_pty} in the window -- the audit trail of this run is not evidence"
+    fi
+  else
+    err "collection: no login-pty fixture, so the window has no control record"
+  fi
   (( enforcing_confirmed )) || err "enforcement: not confirmed by this run"
   # The EXIT trap restores dontaudit after the return.
-  [[ "${probe_status}" == 0 && "${analyze_rc}" -eq 0 ]] && (( enforcing_confirmed )) && return 0
+  [[ "${probe_status}" == 0 && "${analyze_rc}" -eq 0 ]] && (( enforcing_confirmed && collection_confirmed )) && return 0
   return 1
 }
 
@@ -1269,8 +1354,10 @@ case "${1:-}" in
     shift || true
     FORCE=0
     ENFORCING_CONFIRMED=0
-    # Set from `--fips-mode` alone; an inherited value would stand in for a reading the root half did not make.
+    # Set from `--fips-mode` and `--login-pty` alone; an inherited value would stand in for a reading the root half did
+    # not make.
     FIPS_MODE=""
+    LOGIN_PTY=""
     while [[ "${1:-}" == --* ]]; do
       case "$1" in
         --force) FORCE=1; shift ;;
@@ -1282,6 +1369,10 @@ case "${1:-}" in
         --fips-mode)
           [[ "${2:-}" == on || "${2:-}" == off ]] || { err "--fips-mode takes on or off"; exit 1; }
           FIPS_MODE="$2"
+          shift 2 ;;
+        --login-pty)
+          [[ "${2:-}" =~ ^/dev/pts/[0-9]+$ ]] || { err "--login-pty takes the /dev/pts/<n> path the root half printed"; exit 1; }
+          LOGIN_PTY="$2"
           shift 2 ;;
         --groups)
           [[ "${2:-}" =~ ^[a-z0-9_,]+$ ]] || { err "--groups takes a comma-separated list of group names (or 'none')"; exit 1; }
