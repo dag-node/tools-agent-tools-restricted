@@ -427,8 +427,8 @@ fi
 #     from the one position the kernel would allow it in -- the pty is its controlling terminal and the attempt is
 #     on that terminal -- so EACCES is the policy's refusal, and EPERM or EIO would mean the policy allowed it. /dev/tty
 #     reaches the same terminal under devtty_t, the label the kernel checks the ioctl against there. TIOCLINUX is
-#     a console command a pty does not implement, so its exclusion is read from the policy (tests/integration/selinux.sh)
-#     rather than attempted.
+#     a console command a pty does not implement, so its exclusion is read from the policy
+#     (tests/integration/selinux.sh) rather than attempted.
 ########################################
 step "pseudo-terminals (allocate, use, refuse TIOCSTI, close)"
 if command -v python3 >/dev/null 2>&1; then

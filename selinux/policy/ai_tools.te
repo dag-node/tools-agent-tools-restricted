@@ -390,9 +390,9 @@ dontaudit ai_tools_t user_devpts_t:chr_file open;
 term_create_pty(ai_tools_t, ai_tools_devpts_t)
 allow ai_tools_t ai_tools_devpts_t:chr_file rw_term_perms;
 # Every ioctl on those two types except TIOCSTI (0x5412), which pushes a byte into a terminal's input queue as though
-# typed, and TIOCLINUX (0x541c), whose console subcommands paste a selection the same way. The kernel's own TIOCSTI check
-# lets a process inject into its controlling terminal while dev.tty.legacy_tiocsti is 1, so a process the session runs
-# on one of its ptys would otherwise type into whatever reads the other end. Once a rule names ioctl commands
+# typed, and TIOCLINUX (0x541c), whose console subcommands paste a selection the same way. The kernel's own TIOCSTI
+# check lets a process inject into its controlling terminal while dev.tty.legacy_tiocsti is 1, so a process the session
+# runs on one of its ptys would otherwise type into whatever reads the other end. Once a rule names ioctl commands
 # for a (source, target, class), the kernel permits on it the commands listed and refuses every other.
 allowxperm ai_tools_t { ai_tools_devpts_t ptmx_t }:chr_file ioctl ~{ 0x5412 0x541c };
 
