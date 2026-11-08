@@ -918,13 +918,53 @@ confirm_stop() {
 # with rows that are always there. Order is presentation only; every selected cgroup is ended by the loop in main()
 # in its own order, and no cgroup is dropped from either pass.
 print_session_table() {
-    local index child class
+    local index child class name dir i j moving
+    # Bytewise comparison for the sort, and byte widths for the columns; sanitize reduces every printed value to ASCII.
+    local LC_ALL=C
+    local -a agents=()
+    local -A sort_key=() first_path_for_name=() shared_name=()
     printf '  %-42s %7s %6s  %-10s %s\n' "SESSION" "PID" "PROCS" "BY" "PROJECT"
+    # Agent sessions in project order, then unit order, compared bytewise so the order does not depend on the locale,
+    # with the sessions whose project could not be read last. An insertion sort over the handful of rows a host runs
+    # keeps an external `sort` off this file's paths.
     for index in "${!selected_cgroups[@]}"; do
         [[ "${selected_classes[index]}" == agent ]] || continue
-        print_session_row "${index}" ""
+        agents+=("${index}")
+        if [[ -n "${selected_dirs[index]}" ]]; then
+            sort_key["${index}"]="1${selected_dirs[index]}"$'\t'"${selected_units[index]}"
+        else
+            sort_key["${index}"]="2"$'\t'"${selected_units[index]}"
+        fi
+    done
+    for (( i = 1; i < ${#agents[@]}; i++ )); do
+        moving="${agents[i]}"; j=$(( i - 1 ))
+        while (( j >= 0 )) && [[ "${sort_key[${agents[j]}]}" > "${sort_key[${moving}]}" ]]; do
+            agents[j + 1]="${agents[j]}"; j=$(( j - 1 ))
+        done
+        agents[j + 1]="${moving}"
+    done
+    # A project is shown by its directory's name, and by its full path where another listed project has the same name,
+    # so two `api` checkouts are not read as one.
+    for index in "${agents[@]}"; do
+        dir="${selected_dirs[index]}"
+        [[ -n "${dir}" ]] || continue
+        name="${dir##*/}"; name="${name:-${dir}}"
+        if [[ -z "${first_path_for_name[${name}]+set}" ]]; then
+            first_path_for_name["${name}"]="${dir}"
+        elif [[ "${first_path_for_name[${name}]}" != "${dir}" ]]; then
+            shared_name["${name}"]=1
+        fi
+    done
+    for index in "${agents[@]}"; do
+        dir="${selected_dirs[index]}"; name="${dir##*/}"; name="${name:-${dir}}"
+        if [[ -z "${dir}" ]]; then
+            name="unknown"
+        elif [[ -n "${shared_name[${name}]:-}" ]]; then
+            name="${dir}"
+        fi
+        print_session_row "${index}" "" "$(sanitize "${name}")"
         for child in "${!selected_cgroups[@]}"; do
-            [[ "${selected_parents[child]}" == "${index}" ]] && print_session_row "${child}" '  + '
+            [[ "${selected_parents[child]}" == "${index}" ]] && print_session_row "${child}" ' \_ '
         done
     done
     for class in step plumbing; do
@@ -938,17 +978,17 @@ print_session_table() {
     return 0
 }
 
-# print_session_row <index> <prefix> -- one table row, the session name after <prefix>: `  + ` places a launch scope
-# under the session it belongs to. The marker is not `ps --forest`'s `\_`, since neither row's processes are the other's
-# children: the user manager starts the session unit, and the launch only asks it to. PROJECT is an agent session's
-# alone: a launch row reads `(launch)`, since the session row it sits under names the unit, and a step or a unit
-# of plumbing reads `-` and its note, since it has no project (the dbus broker's working directory is the control
-# plane). The result lines keep the full note, since they print without the table beside them.
+# print_session_row <index> <prefix> [<project>] -- one table row, the session name after <prefix>: ` \_ ` places
+# a launch scope under the session it belongs to, drawn as `ps --forest` draws a child. The link is the unit's name, not
+# process parentage: the user manager starts the session unit, and the launch only asks it to. <project> is an agent
+# session's label, its project's name or path; a launch row reads `(launch)`, since the session row it sits under names
+# the unit, and a step or a unit of plumbing reads `-` and its note, since it has no project (the dbus broker's working
+# directory is the control plane). The result lines keep the full note, since they print without the table beside them.
 print_session_row() {
-    local index="$1" prefix="$2" project note
+    local index="$1" prefix="$2" project="${3:-}" note
     note="${selected_notes[index]}"
     case "${selected_classes[index]}" in
-        agent)  project="$(sanitize "${selected_dirs[index]:-unknown}")" ;;
+        agent)  project="${project:-unknown}" ;;
         launch) project="(launch)"; note="" ;;
         *)      project="-" ;;
     esac

@@ -76,8 +76,8 @@ the stop a target.
 
 **Agent sessions, steps run as the account and the account's own plumbing are
 counted separately.** The slice holds more than sessions. Each agent session
-has a launch scope: the `sudo` the launch ran through, placed under its session
-with a `+`, marked `(launch)` and counted with its session. `PID` is the first
+has a launch scope: the `sudo` the launch ran through, drawn under its session
+with `\_`, marked `(launch)` and counted with its session. `PID` is the first
 process of each row, and for a launch row the `ai-tools-run` whose pid names
 the session's unit. `BY` is the account that started the launch, read
 from the kernel, so it holds even where the session reports the wrong project.
@@ -87,10 +87,13 @@ such as the npm install of `atr admin system bootstrap`, are steps run
 as the account: each row names the program its first process runs, without its
 arguments. The account's `systemd --user`, its `init.scope` and a dbus broker
 are the account's own plumbing, marked `(account plumbing)`. Only an agent
-session has a project; every other row reads `-` there. All of them are
-terminated — no cgroup is exempt — and they are listed after the agent
-sessions, steps first. The headline counts the agent sessions, and the two
-lines under the table say what the stop does beyond them:
+session has a project, shown by its directory's name, or its full path
+where two listed projects share a name, and the sessions come in project order;
+every other row reads `-` there. The handback lines printed after the stop name
+each project by its full path. All of them are terminated — no cgroup is exempt
+— and they are listed after the agent sessions, steps first. The headline
+counts the agent sessions, and the two lines under the table say what the stop
+does beyond them:
 
 ```
 #-- Terminate agent sessions ---------------------------------------------#
@@ -98,8 +101,8 @@ lines under the table say what the stop does beyond them:
 # is killed.                                                             #
 #------------------------------------------------------------------------#
   SESSION                                        PID  PROCS  BY         PROJECT
-  ai-tools-claude-code-4711.service             4790      1  you        /home/<you>/projects/api
-    + session-c26.scope                         4711      4  you        (launch)
+  ai-tools-claude-code-4711.service             4790      1  you        api
+   \_ session-c26.scope                         4711      4  you        (launch)
   session-c27.scope                             5120      4  you        -  (a step run as ai-tools: bash)
   init.scope                                    1802      2  -          -  (account plumbing)
   dbus-broker.service                           1850      2  -          -  (account plumbing)

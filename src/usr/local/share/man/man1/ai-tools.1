@@ -665,7 +665,7 @@ it does not mean none can start afterwards, and it does not describe the manager
 .IP
 The report lists each agent session's launch scope, the
 .BR sudo (8)
-the launch ran through, under its session and counts it with them. Each row names its first process id and, under
+the launch ran through, under its session and counts it with them. Sessions are listed in project order, each project by its directory's name, or its full path where two listed projects share a name. Each row names its first process id and, under
 .BR BY ,
 the account that started the launch or the step, read from the kernel; the table closes with the
 .BR systemd-cgls (1)

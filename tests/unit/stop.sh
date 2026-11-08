@@ -504,6 +504,27 @@ else
 fi
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/dir"
 
+# AGENT ROWS ARE IN PROJECT ORDER, EACH PROJECT BY ITS DIRECTORY'S NAME. The order compares the paths bytewise,
+# so proj/alpha, proj/alpha-extra and proj/alpha/sub/dir come in that order whatever order the walk found them
+# in, and each row shows the last component alone. Two projects sharing that name in different directories each show
+# the full path, so they are not read as one; a third with a name of its own keeps its name.
+run_main true
+agent_rows="$(awk '/^  ai-tools-claude-code-2[123]\.service / { print $1 " " $NF }' <<< "${MAIN_OUTPUT}" | tr '\n' '|')"
+if [[ "${agent_rows}" == "ai-tools-claude-code-21.service alpha|ai-tools-claude-code-23.service alpha-extra|ai-tools-claude-code-22.service dir|" ]]; then
+    pass "agent rows are in project order, each project shown by its directory's name"
+else
+    fail "agent rows in project order by name: '${agent_rows}'"
+fi
+FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/other/alpha"
+run_main true
+agent_rows="$(awk '/^  ai-tools-claude-code-2[123]\.service / { print $1 " " $NF }' <<< "${MAIN_OUTPUT}" | tr '\n' '|')"
+if [[ "${agent_rows}" == "ai-tools-claude-code-22.service ${TESTDIR}/other/alpha|ai-tools-claude-code-21.service ${TESTDIR}/proj/alpha|ai-tools-claude-code-23.service alpha-extra|" ]]; then
+    pass "two projects sharing a directory name each show the full path, and a project with a name of its own its name"
+else
+    fail "projects sharing a name: '${agent_rows}'"
+fi
+FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/dir"
+
 # A WORKING DIRECTORY THAT IS NOT AN ABSOLUTE PATH YIELDS AN EMPTY VALUE. systemd renders the "missing is ok" flag
 # as a `!` prefix over d-bus (`WorkingDirectory=!/opt/ai-tools`), and an unstripped one reached the operator inside
 # an ai-tools.projects.handback command that will not run -- and that, pasted into an interactive bash, is not even
@@ -570,14 +591,14 @@ mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-9${near_pid}.servi
 mkcg "${CG3}/session-c151.scope" 170
 sync_events "${TESTDIR}/cgroup2d"
 run_main true
-table_classes="$(awk '/^  SESSION / { rows = 1; next } /^  the processes in each:/ { rows = 0 } rows { print ($1 == "+" ? $2 : $1) }' <<< "${MAIN_OUTPUT}" \
+table_classes="$(awk '/^  SESSION / { rows = 1; next } /^  the processes in each:/ { rows = 0 } rows { print ($1 == "\\_" ? $2 : $1) }' <<< "${MAIN_OUTPUT}" \
     | sed -e 's/^ai-tools-claude-code-.*/A/' -e 's/^session-c150\.scope$/L/' -e 's/^session-c1.*/S/' -e 's/^init\.scope$/P/' \
     | tr '\n' ' ')"
 if (( MAIN_STATUS == 0 )) \
         && grep -q "^3 agent session(s) would be terminated. Nothing was changed.$" <<< "${MAIN_OUTPUT}" \
         && [[ "${table_classes}" == "A A L A S S P " ]] \
         && grep -A1 "^  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}" \
-            | grep -qE "^    \\+ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
+            | grep -qE "^   \\\\_ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
         && grep -qF "the processes in each: systemd-cgls --no-pager -u user-4242.slice" <<< "${MAIN_OUTPUT}"; then
     pass "a scope holding the pid an agent unit is named for is that session's launch scope, placed under it with that pid, and the table names the process view"
 else

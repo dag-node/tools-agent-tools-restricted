@@ -121,20 +121,23 @@ its first process runs, its `argv[0]` alone since a command line can carry a cre
 and reduced to printable ASCII, and the words are the ones the policy unload's refusal uses for that process,
 so a headline that counts zero agent sessions still names the steps it lists. A step scope holding a pid that is
 the complete numeric suffix of a listed agent unit's name is that session's launch scope instead: the launch wrapper's
-`sudo -u` opens it, and `ai-tools-run`, inside it, names the unit for its own pid. It is placed under that session's row
-with a `+` marker, not `ps --forest`'s `\_`, since neither row's processes are the other's children (the user manager
-starts the session unit), and counted with its session, and a scope no listed unit pairs with stays a step. Each row
-carries the first pid its cgroup lists, a launch row the `ai-tools-run` pid that named the unit, and a `BY` column:
+`sudo -u` opens it, and `ai-tools-run`, inside it, names the unit for its own pid. It is drawn under that session's row
+with `\_`, as `ps --forest` draws a child, though the link is the unit's name and not process parentage (the user
+manager starts the session unit), and counted with its session, and a scope no listed unit pairs with stays a step. Each
+row carries the first pid its cgroup lists, a launch row the `ai-tools-run` pid that named the unit, and a `BY` column:
 the real uid of the parent of a scope's entry process, the one listed process whose parent is outside the scope, read
 as root from `/proc` and named from `/etc/passwd`. That uid is a kernel credential, the one attribution in the table
 the account cannot write; a session takes its launch scope's. The table closes with the `systemd-cgls` command
 that shows the same cgroups with every process in each, a launch scope's root-owned `sudo` among them. Only an agent row
-carries a project; every other row reads `-`. The headline counts the agent sessions, or the steps where none is listed,
-and the two lines under the table and the question state the rest: a stopped session does not run its session-end
-handback, and the stop ends every process in the account's slice and restarts its user manager. The split orders
-the table, separates the counts, and decides which rows carry a `projects handback` line; every class is enumerated,
-listed and killed identically. Only an agent session gets a `projects handback` line: the account's dbus broker reports
-`/opt/ai-tools` as its working directory, the control plane, which the protected-paths backstop refuses.
+carries a project, shown by its directory's name, or its full path where another listed project has the same name; every
+other row reads `-`. Agent rows are in project order, bytewise, those whose project could not be read last, each
+with its launch scope under it, then the steps and the plumbing; the handback lines after a stop name each project
+by its full path. The headline counts the agent sessions, or the steps where none is listed, and the two lines
+under the table and the question state the rest: a stopped session does not run its session-end handback, and the stop
+ends every process in the account's slice and restarts its user manager. The split orders the table, separates
+the counts, and decides which rows carry a `projects handback` line; every class is enumerated, listed and killed
+identically. Only an agent session gets a `projects handback` line: the account's dbus broker reports `/opt/ai-tools`
+as its working directory, the control plane, which the protected-paths backstop refuses.
 
 ## Residual failure modes
 
