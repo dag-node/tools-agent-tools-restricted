@@ -121,9 +121,11 @@ under `selinux/avc/` (`run.sh` does not dispatch it). `unit/avc-denials.sh` is t
 `avc-denials.sh` judges a run by, which it sources from the checkout: each is driven in the direction that would pass
 a run it should not — an unexercised attempt read as denied, a failed `seinfo` read as enforcing, a trail from another
 run or one without an exit status read as clean. A tool bash's PATH search did not find reads as denied from a fixture
-`PATH` directory that refuses the `stat`, and as absent from one that does not hold the name. A copy of `avc-analyze.sh`
-runs over one fixture record at a time: each of the probe's deliberate attempts files as a probe under `--probe-run`
-and as NEW without it, and a record differing in its command or its permission stays NEW under the flag.
+`PATH` directory that refuses the `stat`, and as absent from one that does not hold the name. A connect with no listener
+reads as permitted from the reader's own output, and a failed D-Bus call as denied, or absent, from the bus name's
+owner, with `busctl` a shell function serving each reply shape. A copy of `avc-analyze.sh` runs over one fixture record
+at a time: each of the probe's deliberate attempts files as a probe under `--probe-run` and as NEW without it,
+and a record differing in its command or its permission stays NEW under the flag.
 
 ## What a test asserts about a message
 

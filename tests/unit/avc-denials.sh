@@ -24,7 +24,7 @@ _ifs="${IFS}"
 source "${SCRIPT}"
 IFS="${_ifs}"
 set -e
-for fn in avc_attempt_reason avc_tcp_reason avc_permissive_state avc_loaded_groups avc_probe_status; do
+for fn in avc_attempt_reason avc_tcp_reason avc_dbus_reason avc_bus_name_owner avc_permissive_state avc_loaded_groups avc_probe_status; do
     declare -F "${fn}" >/dev/null || { fail "${SCRIPT} does not define ${fn}"; finish; exit; }
 done
 
@@ -90,6 +90,24 @@ expect "timed-out connection is permitted" allowed "$(avc_tcp_reason "$(avc_atte
 expect "EACCES stays denied" denied "$(avc_tcp_reason "$(avc_attempt_reason 1 "EACCES: Permission denied")")"
 expect "another errno stays not exercised" "exit 1: EHOSTUNREACH: No route to host" \
     "$(avc_tcp_reason "$(avc_attempt_reason 1 "EHOSTUNREACH: No route to host")")"
+
+section "D-Bus call reasons"
+not_running="exit 8: Error: NetworkManager is not running."
+expect "a failed call while the name has an owner" denied "$(avc_dbus_reason "${not_running}" true)"
+expect "a failed call while the name has no owner" absent "$(avc_dbus_reason "${not_running}" false)"
+expect "an owner that could not be read keeps the reason" "${not_running}" "$(avc_dbus_reason "${not_running}" "")"
+expect "a call that succeeded stays allowed" allowed "$(avc_dbus_reason allowed true)"
+expect "an errno denial stays denied with no owner" denied "$(avc_dbus_reason denied false)"
+expect "a missing path stays absent with an owner" absent "$(avc_dbus_reason absent true)"
+# busctl is a shell function serving each reply shape; the reader is driven through it in a subshell.
+owner_with() { (busctl() { [[ "$1" == fail ]] && return 1; printf '%s\n' "${BUSCTL_REPLY}"; }
+                BUSCTL_REPLY="$1"; avc_bus_name_owner org.example.Service); }
+expect "busctl replies b true" true "$(owner_with "b true")"
+expect "busctl replies b false" false "$(owner_with "b false")"
+expect "busctl replies another shape" "" "$(owner_with "s \"yes\"")"
+expect "busctl replies two lines" "" "$(owner_with "b true
+b true")"
+expect "busctl fails" "" "$( (busctl() { return 1; }; avc_bus_name_owner org.example.Service) )"
 
 section "permissive state from seinfo"
 nl=$'\n'

@@ -57,9 +57,11 @@
 # A check reads the errno of its attempt: EACCES/EPERM is a denial, a missing path a SKIP, and any other failure (a
 # refused connection, malformed input) INCONCLUSIVE, since the access was not exercised. A tool bash's PATH search did
 # not find is read from a stat of its name in each PATH directory: EACCES on one is the policy refusing getattr on its
-# exec type, and ENOENT on every one an absent tool, a SKIP. No probe writes to the host: a write check opens
-# an existing file for append without writing, and a create check is access(2) W_OK on the directory -- which SELinux
-# does not audit by default, so its outcome is read from the errno alone.
+# exec type, and ENOENT on every one an absent tool, a SKIP. A call to a D-Bus service that failed without an errno is
+# read from the bus: a refusal while the service's name has an owner, and an absent service, a SKIP, while it has none.
+# No probe writes to the host: a write check opens an existing file for append without writing, and a create check is
+# access(2) W_OK on the directory -- which SELinux does not audit by default, so its outcome is read from the errno
+# alone.
 #   3. (back in terminal 1)                     press Enter
 #        -> ausearch + classify, then the run result, then dontaudit is restored. The run exits 0 only when
 #           enforcement was confirmed, the window was searched, the denial of section TTY's open of the root half's
@@ -151,6 +153,32 @@ PY
 # otherwise.
 avc_tcp_reason() {
   if [[ "$1" =~ ^exit\ [0-9]+:\ (ECONNREFUSED|ETIMEDOUT): ]]; then echo allowed; else echo "$1"; fi
+}
+
+# avc_bus_name_owner <name>: print `true` or `false` for whether <name> has an owner on the system bus, read
+# through busctl's NameHasOwner call to the bus daemon, and no line when the call fails or prints another shape.
+avc_bus_name_owner() {
+  local reply
+  reply="$(busctl --system call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus NameHasOwner s "$1" \
+    2>/dev/null)" || return 0
+  case "${reply}" in
+    "b true")  echo true ;;
+    "b false") echo false ;;
+  esac
+}
+
+# avc_dbus_reason <reason> <owner>: read a failed call to a D-Bus service. The bus broker enforces the policy's send_msg
+# check and logs a refusal as USER_AVC, and the tool reports it in its own words (nmcli prints that NetworkManager is
+# not running), so a <reason> other than `allowed`, `denied` or `absent` reads `denied` when <owner>,
+# avc_bus_name_owner's reading of the service's name, is `true`, `absent` when it is `false`, and stays <reason>
+# otherwise. The reading does not tell the policy's refusal from the D-Bus policy's or polkit's.
+avc_dbus_reason() {
+  case "$1" in allowed|denied|absent) echo "$1"; return 0 ;; esac
+  case "$2" in
+    true)  echo denied ;;
+    false) echo absent ;;
+    *)     echo "$1" ;;
+  esac
 }
 
 # avc_permissive_state <seinfo-status> <seinfo-output>: read `seinfo --permissive` output and print `yes` when it lists
@@ -300,7 +328,7 @@ do_probe() {
     [[ -n "${_uid:-}"  ]] && _s="${_s//${_uid}/[UID]}"
     printf '%s' "${_s}"
   }
-  _why="" _type="" _floor="" _group=""
+  _why="" _type="" _floor="" _group="" _bus_name=""
   N_PASS=0 N_FAIL=0 N_INCONCLUSIVE=0 N_SKIP=0 N_FLOOR=0 N_REPORTED=0
 
   # _attempt <cmd...>: run one access attempt with its output discarded and its stderr kept. Sets _rc to the attempt's
@@ -340,11 +368,22 @@ do_probe() {
   }
 
   # check: execute one access attempt that the policy must refuse. Set _group first for an access an optional group
-  # grants: the expected outcome then follows the loaded set the root half passed with `--groups`.
+  # grants: the expected outcome then follows the loaded set the root half passed with `--groups`. Set _bus_name
+  # for a call to a D-Bus service: a failure the tool reports without an errno is then read through avc_dbus_reason,
+  # with a `Read:` line naming the bus reading.
   check() {
-    local _c="$1" _tag="$2" _desc="$3"; shift 3
+    local _c="$1" _tag="$2" _desc="$3" _raw; shift 3
     _header "${_c}" "${_tag}" "${_desc}"
     _attempt "$@"
+    if [[ -n "${_bus_name}" ]]; then
+      _raw="${_reason}"
+      _reason="$(avc_dbus_reason "${_reason}" "$(avc_bus_name_owner "${_bus_name}")")"
+      case "${_reason}" in
+        "${_raw}") ;;
+        denied) printf '  Read:   %s -- the call failed while %s has an owner on the bus\n' "${_raw}" "${_bus_name}" ;;
+        absent) printf '  Read:   %s -- %s has no owner on the bus\n' "${_raw}" "${_bus_name}" ;;
+      esac
+    fi
     if [[ -n "${_group}" ]]; then
       local _exp=0; _group_expected || _exp=$?
       case "${_exp}:${_reason}" in
@@ -365,7 +404,7 @@ do_probe() {
         *)       _result INCONCLUSIVE "not exercised: ${_reason}" ;;
       esac
     fi
-    _why="" _type="" _floor="" _group=""
+    _why="" _type="" _floor="" _group="" _bus_name=""
   }
 
   # skip_check: record a skipped check (path/tool absent on this system).
@@ -564,12 +603,12 @@ boundary has a gap. These are plain deny (not dontaudit'd); AVCs log without -DB
 
   _type="bin_t (exec allowed); firewalld_t D-Bus (denied)"
   _why="Listing firewall zones reveals which ports and services are network-exposed. This is the first step in planning lateral movement, identifying targets for exploitation, and determining whether outbound exfiltration routes exist."
-  _group=netadmin
+  _group=netadmin _bus_name=org.fedoraproject.FirewallD1
   check GRP-004 SELinux "exec firewall-cmd --get-zones" firewall-cmd --get-zones
 
   _type="NetworkManager_t D-Bus (denied)"
   _why="nmcli exposes all interfaces, IP addresses, active VPN tunnels, and DNS config -- mapping the full network topology from the agent's vantage point for lateral movement and exfiltration route planning."
-  _group=netadmin
+  _group=netadmin _bus_name=org.freedesktop.NetworkManager
   check GRP-005 SELinux "exec nmcli general status" nmcli -t general status
 
   _type="container_runtime_exec_t (exec)"
