@@ -14,8 +14,9 @@ reftags tool and its formatters to, verifies each against its pin and its
 signature, and unpacks it into your own cache. Run it once per checkout
 and again after a pin changes. `format.sh` fills the paragraphs a diff touched,
 each at its own column, and `ref-index.sh check` reports every reference
-finding in the tree. `CONTRIBUTING.md` states where each one belongs
-in a change, and each file's own header states what that file does.
+finding in the tree and an index that is not current. `CONTRIBUTING.md` states
+where each one belongs in a change, and each file's own header states
+what that file does.
 
 ## The pinned tools
 

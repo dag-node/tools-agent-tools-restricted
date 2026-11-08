@@ -8,7 +8,8 @@
 #     bash tools/generators/ref-index.sh generate          retire what the tree dropped, then rewrite
 #                                               .claude/references.md from the tree
 #     bash tools/generators/ref-index.sh check             report every reference finding in the tree,
-#                                               and every message string carrying a link
+#                                               an index that is not current, and every
+#                                               message string carrying a link
 #     bash tools/generators/ref-index.sh messages          report a message string carrying a URL, a Markdown
 #                              [<file>...]      link, or an HTML anchor; the tree, or the files given
 #     bash tools/generators/ref-index.sh stale             exit 1 when the committed index differs from the tree
@@ -114,7 +115,7 @@ case "${command}" in
         # Both halves run, and the status is the worse of the two: a reference finding must not hide a message carrying
         # a link, or either one fixed alone would read as a clean tree.
         status=0
-        files | xargs python3 "${TOOL}" check --retired "${RETIRED}" || status=$?
+        files | xargs python3 "${TOOL}" check --retired "${RETIRED}" --index "${INDEX}" || status=$?
         message_links || status=$?
         exit "${status}" ;;
     messages) message_links "$@" ;;
