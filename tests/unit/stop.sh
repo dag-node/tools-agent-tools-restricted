@@ -643,9 +643,9 @@ fi
 # The program a step's first process runs is the account's data: argv[0] alone, read from /proc as root, reduced
 # to printable ASCII and capped. Real processes stand in: one whose argv[0] carries an escape byte and runs past
 # the cap, and one whose arguments must not be printed, since a command line can carry a credential. A cgroup with no
-# process is the control that reads `unknown`. The stand-in is bash, which is an ELF binary on every host, so /proc shows
-# the argv[0] `exec -a` gives it; a coreutils program can be a script whose interpreter replaces argv[0], as the multi-call
-# coreutils of an EL10 container image is. It reads a FIFO it holds open both ways, which never ends, until the timeout.
+# process is the control that reads `unknown`. The stand-in is bash, an ELF binary on every host, so /proc shows
+# the argv[0] `exec -a` gives it. A coreutils program can be a script whose interpreter replaces argv[0]: the multi-call
+# coreutils of an EL10 container image is one. Bash blocks reading a FIFO it holds open both ways until the timeout.
 step_fifo="${TESTDIR}/step-fifo"; mkfifo "${step_fifo}"
 ( exec -a step-short bash -c 'read -r -t 30 line <> "$1"' _ "${step_fifo}" 31 ) &
 step_pid=$!
