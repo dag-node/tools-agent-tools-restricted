@@ -665,7 +665,11 @@ it does not mean none can start afterwards, and it does not describe the manager
 .IP
 The report lists each agent session's launch scope, the
 .BR sudo (8)
-the launch ran through, after the sessions and counts it with them. It counts agent sessions apart from the steps run as the account \(em a login session
+the launch ran through, under its session and counts it with them. Each row names its first process id and, under
+.BR BY ,
+the account that started the launch or the step, read from the kernel; the table closes with the
+.BR ps (1)
+command that shows the processes inside each. It counts agent sessions apart from the steps run as the account \(em a login session
 scope per
 .BR sudo (8)
 or

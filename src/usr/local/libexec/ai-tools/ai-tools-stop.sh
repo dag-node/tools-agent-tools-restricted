@@ -496,17 +496,70 @@ cgroup_is_step() {
     [[ "${1%/*}" == "${SANDBOX_SLICE}" && "${1##*/}" == *.scope ]]
 }
 
+# cgroup_first_pid <cgroup-dir> -- PRINT the first pid listed in the cgroup's own cgroup.procs, or an empty string
+# where none is listed. The table's PID column, and the process cgroup_first_command names.
+cgroup_first_pid() {
+    local pid=""
+    # `2>/dev/null` precedes the input redirect: see the note in cgroup_pids.
+    read -r pid 2>/dev/null < "$1/cgroup.procs" || true
+    [[ "${pid}" =~ ^[0-9]+$ ]] && printf '%s' "${pid}"
+    return 0
+}
+
+# proc_status_value <pid> <field> -- PRINT the first value /proc/<pid>/status gives for <field> (`PPid`, `Uid`,
+# whose first value is the real uid), or an empty string where the process or the field cannot be read.
+proc_status_value() {
+    local key value rest
+    [[ -r "/proc/$1/status" ]] || return 0
+    while read -r key value rest; do
+        if [[ "${key}" == "$2:" ]]; then printf '%s' "${value}"; return 0; fi
+    done 2>/dev/null < "/proc/$1/status"
+    return 0
+}
+
+# scope_launcher_uid <cgroup-dir> -- PRINT the real uid of the process that started the scope, or an empty string
+# where it cannot be read. The scope's entry process is the listed pid whose parent is outside the scope -- the launch
+# wrapper's `sudo`, which the launcher's own process exec'd -- and its parent is what ran the launcher: the operator's
+# shell for a launch, whoever typed `sudo -u` or `runuser` for a step. Its real uid is the kernel's credential and not
+# the account's word, which makes the BY column the one attribution here the sandbox account cannot write. A parent
+# that is pid 1 means the starter has exited and the entry process was re-parented, so the function prints an empty
+# string rather than init's uid.
+scope_launcher_uid() {
+    local pid ppid
+    local -A in_scope=()
+    local -a pids=()
+    mapfile -t pids < <(cgroup_pids "$1")
+    for pid in "${pids[@]}"; do in_scope["${pid}"]=1; done
+    for pid in "${pids[@]}"; do
+        ppid="$(proc_status_value "${pid}" PPid)"
+        [[ "${ppid}" =~ ^[0-9]+$ && -z "${in_scope[${ppid}]:-}" ]] || continue
+        (( ppid > 1 )) || return 0
+        proc_status_value "${ppid}" Uid
+        return 0
+    done
+    return 0
+}
+
+# account_name <uid> -- PRINT the account /etc/passwd names for <uid>, read as data, or the uid itself where the file
+# does not list it (an account from a directory service).
+account_name() {
+    local name uid
+    while IFS=: read -r name _ uid _; do
+        if [[ "${uid}" == "$1" ]]; then printf '%s' "${name}"; return 0; fi
+    done 2>/dev/null < /etc/passwd
+    printf '%s' "$1"
+}
+
 # cgroup_first_command <cgroup-dir> -- PRINT the program the first process listed in the cgroup runs, its argv[0] alone,
 # reduced by sanitize and capped at 80 characters, or `unknown` where no process or argv can be read. Read as root
 # from /proc. The arguments are left out: a command line can carry a credential (`--token <value>`), and this line
 # reaches every operator who runs the stop, on a host whose /proc hides other accounts' processes from them too. argv[0]
 # is the account's own data, so it is a label, read once at selection and never consulted for what is stopped.
 cgroup_first_command() {
-    local pid="" command=""
+    local pid command=""
     local -a argv=()
-    # `2>/dev/null` precedes the input redirect: see the note in cgroup_pids.
-    read -r pid 2>/dev/null < "$1/cgroup.procs" || true
-    if [[ "${pid}" =~ ^[0-9]+$ && -r "/proc/${pid}/cmdline" ]]; then
+    pid="$(cgroup_first_pid "$1")"
+    if [[ -n "${pid}" && -r "/proc/${pid}/cmdline" ]]; then
         mapfile -d '' -t argv 2>/dev/null < "/proc/${pid}/cmdline" || argv=()
     fi
     (( ${#argv[@]} )) && command="${argv[0]}"
@@ -870,17 +923,43 @@ confirm_stop() {
 # with rows that are always there. Order is presentation only; every selected cgroup is ended by the loop in main()
 # in its own order, and no cgroup is dropped from either pass.
 print_session_table() {
-    local verb="$1" index class
-    printf '  %-11s %-40s %6s  %s\n' "" "SESSION" "PROCS" "PROJECT"
-    for class in agent launch step plumbing; do
-        for index in "${!selected_cgroups[@]}"; do
-            [[ "${selected_classes[index]}" == "${class}" ]] || continue
-            printf '  %-11s %-40s %6s  %s%s\n' "${verb}" \
-                "$(sanitize "${selected_units[index]:-unattributed cgroup}")" \
-                "${selected_counts[index]}" \
-                "$(sanitize "${selected_dirs[index]:-unknown}")" "${selected_notes[index]:+  ${selected_notes[index]}}"
+    local verb="$1" index child class
+    printf '  %-11s %-40s %7s %6s  %-10s %s\n' "" "SESSION" "PID" "PROCS" "BY" "PROJECT"
+    for index in "${!selected_cgroups[@]}"; do
+        [[ "${selected_classes[index]}" == agent ]] || continue
+        print_session_row "${verb}" "${index}" ""
+        for child in "${!selected_cgroups[@]}"; do
+            [[ "${selected_parents[child]}" == "${index}" ]] && print_session_row "${verb}" "${child}" '  + '
         done
     done
+    for class in step plumbing; do
+        for index in "${!selected_cgroups[@]}"; do
+            [[ "${selected_classes[index]}" == "${class}" ]] && print_session_row "${verb}" "${index}" ""
+        done
+    done
+    # The rows are cgroups, which is what a stop ends; the process tree inside them is the kernel's other view, and `ps`
+    # gives it unfiltered.
+    printf '  %s\n' "the processes in each: sudo ps -o pid,ppid,user,stat,cmd --forest -u ${SANDBOX_USER}"
+    return 0
+}
+
+# print_session_row <verb> <index> <prefix> -- one table row, the session name after <prefix>: `  + ` places a launch
+# scope under the session it belongs to. The marker is not `ps --forest`'s `\_`, since neither row's processes are
+# the other's children: the user manager starts the session unit, and the launch only asks it to. A launch row's own
+# note is `(launch)`, since the session row it sits under names the unit; the result lines keep the full note, since
+# they print without the table beside them.
+print_session_row() {
+    local verb="$1" index="$2" prefix="$3" project note
+    note="${selected_notes[index]}"
+    if [[ "${selected_classes[index]}" == launch ]]; then
+        project=""; note="(launch)"
+    else
+        project="$(sanitize "${selected_dirs[index]:-unknown}")"
+    fi
+    printf '  %-11s %-40s %7s %6s  %-10s %s\n' "${verb}" \
+        "${prefix}$(sanitize "${selected_units[index]:-unattributed cgroup}")" \
+        "${selected_pids[index]:--}" "${selected_counts[index]}" "$(sanitize "${selected_by[index]:--}")" \
+        "${project}${project:+${note:+  }}${note}"
 }
 
 # print_reclaim_guidance <dir>... -- name the reclaim per project actually stopped. A stop cannot run the agent's
@@ -924,9 +1003,10 @@ main() {
         "AI_TOOLS_FORCE=${FORCE_KILL}" "AI_TOOLS_DRYRUN=${DRY_RUN}"
 
     local -a selected_cgroups=() selected_units=() selected_dirs=() selected_counts=() \
-             selected_is_agent=() selected_classes=() selected_notes=()
+             selected_is_agent=() selected_classes=() selected_notes=() selected_pids=() selected_by=() \
+             selected_parents=()
     local agent_count=0 step_count=0 plumbing_count=0
-    local cgroup_directory unit working_directory pid_count
+    local cgroup_directory unit working_directory pid_count first_pid launcher_uid
     local -a session_pids
     while read -r cgroup_directory; do
         [[ -n "${cgroup_directory}" ]] || continue
@@ -946,8 +1026,16 @@ main() {
         selected_units+=("${unit}")
         selected_dirs+=("${working_directory}")
         selected_counts+=("${pid_count}")
-        # The note is read here, once: a step's first process is gone by the time its result line is printed.
+        # The note, the pid and the launcher are read here, once: a step's first process is gone by the time its result
+        # line is printed. The launcher is read for a scope directly under the slice alone; an agent unit takes its
+        # launch scope's in the pairing pass.
         selected_notes+=("$(session_class_note "${cgroup_directory}" "${unit}")")
+        first_pid="$(cgroup_first_pid "${cgroup_directory}")"
+        selected_pids+=("${first_pid:-${session_pids[0]}}")
+        launcher_uid=""
+        cgroup_is_step "${cgroup_directory}" && launcher_uid="$(scope_launcher_uid "${cgroup_directory}")"
+        selected_by+=("${launcher_uid:+$(account_name "${launcher_uid}")}")
+        selected_parents+=("")
         if session_is_agent "${unit}"; then
             selected_is_agent+=(true);  selected_classes+=(agent); agent_count=$(( agent_count + 1 ))
         elif cgroup_is_step "${cgroup_directory}"; then
@@ -963,20 +1051,26 @@ main() {
     # suffix of a selected agent unit's name is therefore that session's launch scope: listed after the agent rows,
     # counted with its session, and not as a step. A scope whose pids name no selected unit stays a step. The unit name
     # is the account's word, so this pairing is a label like the agent class, and does not decide what is stopped.
-    local -A agent_unit_by_pid=()
-    local index unit_pid scope_pid launch_count=0
+    # The pairing also nests the launch row under its session in the table, sets its PID to the ai-tools-run pid
+    # that named the unit, and gives the session the BY its launch scope read.
+    local -A agent_index_by_pid=()
+    local index unit_pid scope_pid agent_index launch_count=0
     for index in "${!selected_cgroups[@]}"; do
         [[ "${selected_classes[index]}" == agent ]] || continue
         unit_pid="${selected_units[index]%.service}"
         unit_pid="${unit_pid##*-}"
-        [[ "${unit_pid}" =~ ^[0-9]+$ ]] && agent_unit_by_pid["${unit_pid}"]="${selected_units[index]}"
+        [[ "${unit_pid}" =~ ^[0-9]+$ ]] && agent_index_by_pid["${unit_pid}"]="${index}"
     done
     for index in "${!selected_cgroups[@]}"; do
         [[ "${selected_classes[index]}" == step ]] || continue
         while read -r scope_pid; do
-            [[ -n "${scope_pid}" && -n "${agent_unit_by_pid[${scope_pid}]:-}" ]] || continue
+            [[ -n "${scope_pid}" && -n "${agent_index_by_pid[${scope_pid}]:-}" ]] || continue
+            agent_index="${agent_index_by_pid[${scope_pid}]}"
             selected_classes[index]=launch
-            selected_notes[index]="(launch of $(sanitize "${agent_unit_by_pid[${scope_pid}]}"))"
+            selected_parents[index]="${agent_index}"
+            selected_pids[index]="${scope_pid}"
+            selected_notes[index]="(launch of $(sanitize "${selected_units[agent_index]}"))"
+            selected_by[agent_index]="${selected_by[index]}"
             step_count=$(( step_count - 1 )); launch_count=$(( launch_count + 1 ))
             break
         done < <(cgroup_pids "${selected_cgroups[index]}")

@@ -569,14 +569,16 @@ mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-9${near_pid}.servi
 mkcg "${CG3}/session-c151.scope" 170
 sync_events "${TESTDIR}/cgroup2d"
 run_main true
-table_classes="$(awk '/^  would stop / { print $3 }' <<< "${MAIN_OUTPUT}" \
+table_classes="$(awk '/^  would stop / { print ($3 == "+" ? $4 : $3) }' <<< "${MAIN_OUTPUT}" \
     | sed -e 's/^ai-tools-claude-code-.*/A/' -e 's/^session-c150\.scope$/L/' -e 's/^session-c1.*/S/' -e 's/^init\.scope$/P/' \
     | tr '\n' ' ')"
 if (( MAIN_STATUS == 0 )) \
-        && grep -q "session-c150.scope.*(launch of ai-tools-claude-code-${launch_pid}.service)" <<< "${MAIN_OUTPUT}" \
         && grep -q "3 agent session(s) would be terminated. 1 launch scope(s) (marked below)" <<< "${MAIN_OUTPUT}" \
-        && [[ "${table_classes}" == "A A A L S S P " ]]; then
-    pass "a scope holding the pid an agent unit is named for is that session's launch scope, listed after the agent rows"
+        && [[ "${table_classes}" == "A A L A S S P " ]] \
+        && grep -A1 "^  would stop  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}" \
+            | grep -qE "^  would stop    \\+ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
+        && grep -qF "the processes in each: sudo ps -o pid,ppid,user,stat,cmd --forest -u ${SANDBOX_USER}" <<< "${MAIN_OUTPUT}"; then
+    pass "a scope holding the pid an agent unit is named for is that session's launch scope, placed under it with that pid, and the table names the process view"
 else
     fail "the launch scope: status ${MAIN_STATUS}, classes '${table_classes}', output: ${MAIN_OUTPUT}"
 fi
@@ -585,6 +587,37 @@ if grep -q "session-c151.scope.*(a step run as ${SANDBOX_USER}: unknown)" <<< "$
     pass "a scope whose pid is only the tail of an agent unit's number stays a step, counted with the unpaired one"
 else
     fail "the near-match scope: output: ${MAIN_OUTPUT}"
+fi
+# BY IS THE KERNEL'S CREDENTIAL FOR WHOEVER STARTED THE SCOPE. The scope's entry process is the listed pid whose parent
+# is outside it, and BY is that parent's real uid, named from /etc/passwd. A shell the projects user runs stands
+# in for the operator's shell: with its child alone in the scope, BY names the projects user; with the shell
+# in the scope too, the entry moves up to the shell, whose parent is runuser, run by root -- the control that the walk
+# finds the entry and does not read the first pid listed.
+if can_drop_privilege; then
+    by_pid_file="${TESTDIR}/by-pid"; : > "${by_pid_file}"; chmod 0666 "${by_pid_file}"
+    # shellcheck disable=SC2016  # the $! and $1 are for the inner bash, not this shell
+    runuser -u "${PROJECTS_USER}" -- bash -c 'sleep 30 & printf "%s %s\n" "$$" "$!" > "$1"; wait' _ "${by_pid_file}" &
+    by_runner=$!
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "${by_pid_file}" ]] && break; sleep 0.2; done
+    read -r by_shell by_child < "${by_pid_file}"
+    by_cg="${TESTDIR}/by-scope"; mkdir -p "${by_cg}"
+    printf '%s\n' "${by_child}" > "${by_cg}/cgroup.procs"
+    by_alone="$(account_name "$(scope_launcher_uid "${by_cg}")")"
+    printf '%s\n' "${by_shell}" "${by_child}" > "${by_cg}/cgroup.procs"
+    by_with_shell="$(account_name "$(scope_launcher_uid "${by_cg}")")"
+    kill "${by_child}" "${by_shell}" 2>/dev/null || true; wait "${by_runner}" 2>/dev/null || true
+    if [[ "${by_alone}" == "${PROJECTS_USER}" && "${by_with_shell}" == root ]]; then
+        pass "BY names the real uid of the process that started the scope, found by walking to the scope's entry"
+    else
+        fail "BY read '${by_alone}' with the child alone and '${by_with_shell}' with its shell in the scope"
+    fi
+else
+    skip "BY over a real process" "needs root and runuser to start a process as the projects user"
+fi
+if [[ "$(account_name 2147483646)" == 2147483646 && "$(account_name 0)" == root ]]; then
+    pass "account_name names an account /etc/passwd lists and prints the uid of one it does not"
+else
+    fail "account_name read '$(account_name 0)' for 0 and '$(account_name 2147483646)' for 2147483646"
 fi
 # The program a step's first process runs is the account's data: argv[0] alone, read from /proc as root, reduced
 # to printable ASCII and capped. Real processes stand in: one whose argv[0] carries an escape byte and runs past
