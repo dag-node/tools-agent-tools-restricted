@@ -616,6 +616,30 @@ boundary has a gap. These are plain deny (not dontaudit'd); AVCs log without -DB
   _group=podman
   check GRP-006 SELinux "exec podman info" podman info
 
+  _type="container_runtime_exec_t (exec)"
+  _why="podman ps lists the containers the session could start, stop or exec into under the sandbox account's own rootless store; with the podman group off the exec itself is refused."
+  _group=podman
+  check GRP-010 SELinux "exec podman ps --all (rootless, the sandbox account's store)" podman ps --all
+
+  # The two remote checks are not group checks: the podman group grants the exec, and the socket behind it stays refused
+  # either way -- the root service's by /run/podman's 0700 root mode, the operator's by /run/user/<uid>'s mode
+  # and user_tmp_t -- so a listing reads as FAIL whatever the loaded set. LAT-006 makes the operator socket's connect
+  # without the podman CLI.
+  _type="container_runtime_exec_t (exec), then /run/podman/podman.sock (connectto)"
+  _why="podman --remote against the root service's socket lists every root container, and the same API creates privileged containers that mount the host root filesystem."
+  check GRP-011 SELinux "exec podman --remote ps --all (root service socket)" \
+    podman --remote --url unix:///run/podman/podman.sock ps --all
+
+  if [[ -n "${_uid}" ]]; then
+    _type="container_runtime_exec_t (exec), then /run/user/[UID]/podman/podman.sock (connectto)"
+    _why="The operator's rootless podman socket controls every container the operator runs, with the operator's identity inside them."
+    check GRP-012 SELinux "$(_R "exec podman --remote ps --all (the operator's rootless socket)")" \
+      podman --remote --url "unix:///run/user/${_uid}/podman/podman.sock" ps --all
+  else
+    skip_check GRP-012 SELinux "exec podman --remote ps --all (the operator's rootless socket)" \
+      "could not determine invoking-user uid"
+  fi
+
   # tmpmap is a map grant, not an exec: create a /tmp file (born ai_tools_tmp_t) and mmap it. With the group off the map
   # is denied; a success means tmpmap is on.
   _type="ai_tools_tmp_t (file map)"
@@ -1033,6 +1057,16 @@ the container_runtime_exec_t deny."
   check LAT-002 SELinux \
     "connect /run/podman/podman.sock (container_var_run_t; AVC if socket exists+labelled)" \
     _py unix /run/podman/podman.sock stream
+
+  if [[ -n "${_uid}" ]]; then
+    _type="user_tmp_t:dir search, then the socket's connectto"
+    _why="The operator's rootless podman socket answers the same container API for every container the operator runs. A connect needs no podman binary, so this holds even where the podman group grants the exec."
+    check LAT-006 SELinux \
+      "$(_R "connect /run/user/${_uid}/podman/podman.sock (the operator's rootless podman socket)")" \
+      _py unix "/run/user/${_uid}/podman/podman.sock" stream
+  else
+    skip_check LAT-006 SELinux "connect /run/user/[UID]/podman/podman.sock" "could not determine invoking-user uid"
+  fi
 
   section "SECTION V: SYSTEMD JOURNAL SOCKET  [goal 4]" \
 "The journal socket accepts structured log messages. Writing to it lets an agent
