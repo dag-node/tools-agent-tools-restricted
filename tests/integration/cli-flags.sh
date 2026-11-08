@@ -368,6 +368,8 @@ err_has() { grep -qF -- "$1" "${R}/.stderr"; }
 # out_has_text <text>: the row's captured output holds <text>.
 out_has_text() { grep -qF -- "$1" <<< "${out}"; }
 out_lacks_text() { ! out_has_text "$1"; }
+# out_has_line <line>: one line of the row's captured output is <line> whole -- a message code, a printed command.
+out_has_line() { grep -qxF -- "$1" <<< "${out}"; }
 # out_line_has_text <a> <b>: one line of the output carries both texts.
 out_line_has_text() { grep -F -- "$1" <<< "${out}" | grep -qF -- "$2"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
@@ -528,6 +530,46 @@ drive_rows() {
     expect "claim refuses --format without a value with exit 2"       quiet_rc 2
     expect "the refused --format writes nothing to stdout"            out_is_empty
 
+    # mode_owner_is <path> <mode> <owner> : the fixture reads back at <mode> and <owner>, a control line of its own.
+    mode_owner_is() { [[ "$(stat -c '%a %U' "$1" 2>/dev/null)" == "$2 $3" ]]; }
+    # An owner-only project root: the claim helpers leave that mode as it is, so a first claim is refused ahead of its
+    # first registry write and does not call a helper, beside a 750 control that claims; a listed project whose root is
+    # then set to 700 is refused with its line kept, and the listing annotates its row without a cleanup entry for it.
+    # Each chmod is read back, mode and owner, before the probe that follows it.
+    mkdir -p "${R}/po"; printf '# po\n' > "${R}/po/README.md"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/po"; chmod 0700 "${R}/po"
+    expect "control: the root is 700, held by ${PROJECTS_USER}"       mode_owner_is "${R}/po" 700 "${PROJECTS_USER}"
+    cli_stub_reset; drive cli_stdout ai-tools.projects.claim "$(f format)" tsv "$(f yes)" "${R}/po"
+    expect "a first claim of a 700 root exits 1"                      rc_is 1
+    expect "the refusal is read by its code"                          err_has MSG-H6J3
+    expect "the refused claim registers nothing"                      st_is "${R}/po" absent
+    expect "the refused claim reaches no helper"                      cli_log_empty
+    expect "the refused claim writes nothing to stdout"               out_is_empty
+    chmod 0750 "${R}/po"
+    expect "control: the root is 750, held by ${PROJECTS_USER}"       mode_owner_is "${R}/po" 750 "${PROJECTS_USER}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/po"
+    expect "control: the same root at 750 is claimed"                 rc_is 0
+    expect "control: and registered"                                  st_is "${R}/po" enabled
+    chmod 0700 "${R}/po"
+    expect "control: the root is 700, held by ${PROJECTS_USER}"       mode_owner_is "${R}/po" 700 "${PROJECTS_USER}"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/po"
+    expect "a re-claim of a listed project whose root is now 700 exits 1" rc_is 1
+    expect "that refusal is read by its own code"                     out_has_text MSG-B5D2
+    expect "the refused re-claim keeps the registry line"             st_is "${R}/po" enabled
+    expect "the refused re-claim reaches no helper"                   cli_log_empty
+    cli_stub_reset; drive cli ai-tools.projects.list
+    expect "the listing over a 700 root exits 0"                      rc_is 0
+    expect "the listing annotates the 700 root's row"                 out_line_has_text "${R}/po " "owner-only"
+    AI_TOOLS_CLI_SPELLING=collection cli_cmd ai-tools.projects.claim || return 2
+    expect "the listing offers no claim for the 700 root"             out_lacks_text "${CLI_ARGV[*]} ${R}/po"
+    # At 750 the stubbed helpers left the group as it was, so the listing offers the claim: the control that the 700
+    # row's missing claim is the cleanup the listing would otherwise print.
+    chmod 0750 "${R}/po"
+    expect "control: the root is 750, held by ${PROJECTS_USER}"       mode_owner_is "${R}/po" 750 "${PROJECTS_USER}"
+    cli_stub_reset; drive cli ai-tools.projects.list
+    expect "control: the listing does not annotate the row at 750"    test "$(grep -F "${R}/po " <<<"${out}" | grep -c 'owner-only')" -eq 0
+    expect "control: the listing offers the claim for it at 750"      out_has_text "${CLI_ARGV[*]} ${R}/po"
+
     # ── B2. Claim: drift rows and exits ──────────────────────────────────────────────
     # A re-claim over a project already carrying the claim's group, setgid and default ACL, with one file moved in (the
     # projects user's own group, 640): the group scan finds it, no terminal declines the repair, and the per-path check
@@ -550,8 +592,36 @@ drive_rows() {
     expect "the page went to stderr"                                  err_has "Claim project"
     cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/ph"
     expect "the same claim on the page exits 4"                       rc_is 4
+    # The label step's statuses. A getenforce reporting SELinux enforcing makes the label a pending step on a claimed
+    # tree with no other step pending; the stubbed relabel helper exits with each status the CLI reads. 0 applies it,
+    # 5 is a host with no label to apply and leaves the claim clean, and 1 and 6 leave the step pending at exit 1.
+    local claim_selinux_on="${R}/selinux-on-bin"
+    mkdir -p "${claim_selinux_on}"
+    printf '#!/bin/sh\necho Enforcing\n' > "${claim_selinux_on}/getenforce"
+    chmod 0755 "${claim_selinux_on}" "${claim_selinux_on}/getenforce"
+    claimed_fixture "${R}/pl"; rm -f "${R}/pl/moved-in.txt"
+    RUN_EXTRA_ENV=(PATH="${claim_selinux_on}:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
+    seed "@ ${R}/pl"; seed_gc "${R}/pl"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+    expect "control: the label step reaches the relabel helper"       cli_called ai-tools-relabel "${R}/pl$"
+    expect "control: the relabel helper exiting 0 leaves the claim at 0" rc_is 0
+    cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
+    drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+    expect "the relabel helper exiting 5 leaves the claim at 0"       rc_is 0
+    expect "the claim names the label not applicable on this host"    out_has_text "SELinux label: not applicable on this host"
+    local claim_status
+    for claim_status in 1 6; do
+        cli_stub_reset; cli_stub_fail_status ai-tools-relabel "${claim_status}"
+        drive cli ai-tools.projects.claim "$(f yes)" "${R}/pl"
+        expect "the relabel helper exiting ${claim_status} leaves the label pending, exit 1" rc_is 1
+        expect "the relabel helper exiting ${claim_status} is not read as not applicable" \
+            out_lacks_text "not applicable on this host"
+    done
+    RUN_EXTRA_ENV=()
     # A secret-named path in a drift list is marked, read with the operator's patterns -- here a fixture set
-    # through the classifier's own file override -- and a plain path beside it is not.
+    # through the classifier's own file override -- and a plain path beside it is not. A drift list is a re-claim's,
+    # and the label rows above seeded the registry with pl alone, so ph is listed again first.
+    seed "@ ${R}/ph"; seed_gc "${R}/ph"
     printf '*.pem\n' > "${R}/secret-patterns"; chmod 0644 "${R}/secret-patterns"
     : > "${R}/ph/deploy.pem"; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/ph/deploy.pem"; chmod 0640 "${R}/ph/deploy.pem"
     RUN_EXTRA_ENV=(AI_TOOLS_SECRET_PATTERNS_FILE="${R}/secret-patterns")
@@ -887,10 +957,9 @@ drive_rows() {
     cli_stub_reset; drive cli ai-tools.projects.unclaim "$(f yes)" "$(f full)" "${R}/pd"
     expect "unclaim --full asks the helper for the skipped trees"     cli_called ai-tools-unclaim "^${R}/pd${T}[^${T}]+${T}$(f full)$"
 
-    # A label reversal the live-session gate refused: the hand-back and the registry reversal still apply,
-    # and the unclaim ends non-zero without its ✓. The rows run with a getenforce that reports SELinux enforcing,
-    # so the CLI reaches the relabel step, and the stubbed helper exits with the gate's status; the same unclaim
-    # with the helper succeeding is the control.
+    # The label reversal's statuses. The rows run with a getenforce that reports SELinux enforcing, so the CLI reaches
+    # the relabel step, and the stubbed helper exits with each status the CLI reads; the same unclaim with the helper
+    # succeeding is the control.
     local selinux_on="${R}/selinux-on-bin"
     mkdir -p "${selinux_on}" "${R}/pe"
     printf '#!/bin/sh\necho Enforcing\n' > "${selinux_on}/getenforce"
@@ -900,9 +969,28 @@ drive_rows() {
     seed "@ ${R}/pe"; drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
     expect "control: with SELinux on, unclaim reverts the label and exits 0" rc_is 0
     expect "the label reversal reaches the relabel helper"            cli_called ai-tools-relabel "^--remove${T}${R}/pe$"
-    seed "@ ${R}/pe"; cli_stub_fail_status ai-tools-relabel 4
+    # 5: no label to apply on this host, so the unclaim is complete; 4: the revert left hardlinked paths,
+    # which the helper lists; 6: the tree walker could not run, so no path was reverted and the helper's re-run is
+    # printed. Each of 4 and 6 ends the unclaim non-zero after the hand-back and the registry reversal.
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
     drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
-    expect "an unclaim whose label reversal the gate refused exits non-zero" rc_not0
+    expect "an unclaim whose relabel helper exits 5 exits 0"          rc_is 0
+    expect "that unclaim names the label not applicable on this host" out_has_text "SELinux label: not applicable on this host"
+    expect "that unclaim hands the tree back"                         cli_called ai-tools-unclaim "^${R}/pe${T}"
+    expect "that unclaim drops the entry"                             st_is "${R}/pe" absent
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "an unclaim whose revert left hardlinked paths exits non-zero" rc_not0
+    expect "that unclaim says the label was not reverted on every path" out_has_text "was not reverted on every path"
+    expect "that unclaim does not print a revert to run"              out_lacks_text "ai-tools-relabel --remove"
+    expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
+    expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
+    seed "@ ${R}/pe"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
+    drive cli ai-tools.projects.unclaim "$(f yes)" "${R}/pe"
+    expect "an unclaim whose tree walker could not run exits non-zero" rc_not0
+    expect "that unclaim says the walker could not run"               out_has_text "the tree walker could not run"
+    expect "that unclaim prints the helper's re-run"                  out_has_text "ai-tools-relabel --remove ${R}/pe"
+    expect "that unclaim does not read as a partial revert"           out_lacks_text "was not reverted on every path"
     expect "that unclaim still hands the tree back"                   cli_called ai-tools-unclaim "^${R}/pe${T}"
     expect "that unclaim still drops the entry"                       st_is "${R}/pe" absent
     RUN_EXTRA_ENV=()
@@ -962,9 +1050,10 @@ drive_rows() {
 
     # ── E. Remove ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.remove.inplace"
-    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp/nested"
-    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rm4" "${R}/rmp"
-    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rm4" "@ ${R}/rmp" "@ ${R}/rmp/nested"
+    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested" "${R}/rmcd/sub" "${R}/rmcd2"
+    ln -s "${R}/rmcd2" "${R}/rmcd-link"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp" "${R}/rmcd" "${R}/rmcd2"
+    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rmp" "@ ${R}/rmp/nested" "@ ${R}/rmcd" "@ ${R}/rmcd2"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -982,6 +1071,7 @@ drive_rows() {
     expect "remove --yes drops the entry"                             st_is "${R}/rm1" absent
     expect "remove --yes drops safe.directory"                        cli_called ai-tools-safedir "^--remove${T}${R}/rm1$"
     expect "remove does not run the filesystem hand-back"             not_called ai-tools-unclaim
+    expect "a removal run from outside the tree does not name cd"     out_lacks_text "cd somewhere else"
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm2"
     expect "a disabled entry authorizes its removal"                  test ! -e "${R}/rm2"
     expect "the disabled line goes with the tree"                     st_is "${R}/rm2" absent
@@ -996,15 +1086,76 @@ drive_rows() {
     expect "remove refuses an entry containing another claimed project" rc_not0
     expect "the containing tree stands"                               test -d "${R}/rmp/nested"
     expect "that refusal reaches no helper"                           cli_log_empty
-    # The live-session gate's refusal of the label reversal stops the removal before either registry changes, since
-    # the helper cannot revert a path the removal deleted. SELinux reported enforcing, as in the unclaim rows.
+    # The CLI cannot change its parent shell's directory, so a removal run from inside the tree names `cd`:
+    # from a subdirectory, and from the tree reached through a symlink, which the canonical current directory resolves.
+    # The rm1 removal, run from outside, is the control.
+    cli_stub_reset; drive cli_in "${R}/rmcd/sub" ai-tools.projects.remove.inplace "$(f yes)" "${R}/rmcd"
+    expect "a removal run from inside the tree deletes it"            test ! -e "${R}/rmcd"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
+    cli_stub_reset; drive cli_in "${R}/rmcd-link" ai-tools.projects.remove.inplace "$(f yes)" "${R}/rmcd2"
+    expect "a removal run from the tree through a symlink deletes it" test ! -e "${R}/rmcd2"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
+    # The label reversal's statuses, with SELinux reported enforcing as in the unclaim rows.
     RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
-    cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    # 5: no label to apply on this host, so the removal completes; 4: the revert left hardlinked paths, 6: the tree
+    # walker could not run, and 1: the revert failed, each a cleanup step the removal counts while it deletes the tree.
+    # The trees for 4, 6 and 1 each hold a file with a second name outside them, which the removal reads
+    # before the deletion and names after it by inode and mount; rm4n, status 4 over a tree with no hardlink, is
+    # the control.
+    mkdir -p "${R}/rm5" "${R}/rm4" "${R}/rm6" "${R}/rm1h" "${R}/rm4n" "${R}/rm-outside"
+    local tree_kind
+    local -A expected_inventory_find=()
+    for tree_kind in rm4 rm6 rm1h; do
+        printf 'linked\n' > "${R}/${tree_kind}/linked"
+        ln "${R}/${tree_kind}/linked" "${R}/rm-outside/${tree_kind}-linked"
+        expected_inventory_find[${tree_kind}]="      sudo find $(LC_ALL=C printf '%q' "$(stat -c %m -- "${R}/${tree_kind}")") -xdev -inum $(stat -c %i -- "${R}/${tree_kind}/linked") -ls"
+    done
+    printf 'plain\n' > "${R}/rm4n/plain"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm5" "${R}/rm4" "${R}/rm6" "${R}/rm1h" "${R}/rm4n" "${R}/rm-outside"
+    expect "setup: the trees for 4, 6 and 1 each hold a file whose second name is outside them" \
+        test "$(stat -c %h -- "${R}/rm4/linked")" -eq 2 -a "$(stat -c %h -- "${R}/rm6/linked")" -eq 2 \
+             -a "$(stat -c %h -- "${R}/rm1h/linked")" -eq 2 -a "$(stat -c %h -- "${R}/rm4n/plain")" -eq 1
+    seed "@ ${R}/rm5"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 5
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm5"
+    expect "a removal whose relabel helper exits 5 exits 0"           rc_is 0
+    expect "that removal names the label not applicable on this host" out_has_text "SELinux label: not applicable on this host"
+    expect "that removal deletes the tree"                            test ! -e "${R}/rm5"
+    expect "that removal drops the entry"                             st_is "${R}/rm5" absent
+    seed "@ ${R}/rm4"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
     drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4"
-    expect "a removal whose label reversal the gate refused exits non-zero" rc_not0
-    expect "that removal leaves the tree"                             test -d "${R}/rm4"
-    expect "that removal leaves the entry"                            st_is "${R}/rm4" enabled
-    expect "that removal leaves safe.directory alone"                 not_called ai-tools-safedir
+    expect "a removal whose revert left hardlinked paths exits non-zero" rc_not0
+    expect "that removal names the paths' other names"                out_has_text "a hardlinked path's other names outside it keep its current type"
+    expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
+    expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm4]}"
+    expect "that removal does not print a revert to re-run"           out_lacks_text "ai-tools-relabel --remove"
+    expect "that removal still deletes the tree"                      test ! -e "${R}/rm4"
+    expect "that removal drops the entry"                             st_is "${R}/rm4" absent
+    expect "the file's name outside the tree stands"                  test -f "${R}/rm-outside/rm4-linked"
+    seed "@ ${R}/rm4n"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 4
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm4n"
+    expect "control: a removal at 4 over a tree with no hardlink exits non-zero" rc_not0
+    expect "control: that removal prints no inventory"                out_lacks_text "MSG-S6J8"
+    expect "control: that removal prints no find by inode"            out_lacks_text "-xdev -inum"
+    expect "control: that removal deletes the tree"                   test ! -e "${R}/rm4n"
+    seed "@ ${R}/rm6"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 6
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm6"
+    expect "a removal whose tree walker could not run exits non-zero" rc_not0
+    expect "that removal says the walker could not run"               out_has_text "the tree walker could not run"
+    expect "that removal does not print a revert to re-run"           out_lacks_text "ai-tools-relabel --remove"
+    expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
+    expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm6]}"
+    expect "that removal still deletes the tree"                      test ! -e "${R}/rm6"
+    expect "that removal drops the entry"                             st_is "${R}/rm6" absent
+    # A walk that skipped a hardlink and also failed on an entry exits 1, and a removal reads the failure as a revert
+    # that did not complete: the inventory names the file, beside the re-run the failed step prints.
+    seed "@ ${R}/rm1h"; cli_stub_reset; cli_stub_fail_status ai-tools-relabel 1
+    drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm1h"
+    expect "a removal whose revert failed exits non-zero"             rc_not0
+    expect "that removal names the file's inventory"                  out_has_line MSG-S6J8
+    expect "that removal prints the find over the file's mount and inode" out_has_line "${expected_inventory_find[rm1h]}"
+    expect "that removal still prints the re-run for the rules the step left" out_has_text "ai-tools-relabel --remove ${R}/rm1h"
+    expect "that removal still deletes the tree"                      test ! -e "${R}/rm1h"
+    expect "that removal drops the entry"                             st_is "${R}/rm1h" absent
     RUN_EXTRA_ENV=()
 
     # ── F. Enable and disable ─────────────────────────────────────────────────────────
@@ -1111,6 +1262,47 @@ drive_rows() {
     expect "control: a project with its own repository takes the core.filemode pin" \
         test "$(git config --file "${encl}/sub-own/.git/config" --get core.filemode)" = true
     expect "and the enclosing .git/config stays byte-identical"      test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    # GIT_DIR in the invoker's environment, naming another repository the projects user can write: the claim pins
+    # core.filemode in the project's own repository and leaves that one byte-identical. The setup check reads
+    # the decoy's marker key through the variable as the projects user, so the variable does redirect that account's
+    # git; the sub-own claim is the run without it.
+    local decoy="${R}/gitdir-decoy" decoy_sha
+    git init -q "${decoy}"; git -C "${decoy}" config core.filemode false; git -C "${decoy}" config test.marker decoy
+    git init -q "${encl}/sub-gitdir"; git -C "${encl}/sub-gitdir" config core.filemode false
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${decoy}" "${encl}/sub-gitdir"
+    decoy_sha="$(sha "${decoy}/.git/config")"
+    expect "setup: GIT_DIR redirects the projects user's git to the decoy" \
+        test "$(runuser -u "${PROJECTS_USER}" -- env GIT_DIR="${decoy}/.git" git -C "${encl}/sub-gitdir" config --local --get test.marker)" = decoy
+    RUN_EXTRA_ENV=(GIT_DIR="${decoy}/.git")
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-gitdir"
+    RUN_EXTRA_ENV=()
+    expect "a claim under GIT_DIR exits 0"                           rc_is 0
+    expect "and pins core.filemode in the project's own repository" \
+        test "$(git config --file "${encl}/sub-gitdir/.git/config" --get core.filemode)" = true
+    expect "and leaves the repository GIT_DIR names byte-identical"  test "$(sha "${decoy}/.git/config")" = "${decoy_sha}"
+    # GIT_CONFIG makes `git config --local` refuse, so a claim under it would not pin core.filemode; the CLI clears it.
+    git init -q "${encl}/sub-gitconfig"; git -C "${encl}/sub-gitconfig" config core.filemode false
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${encl}/sub-gitconfig"
+    RUN_EXTRA_ENV=(GIT_CONFIG="${decoy}/.git/config")
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-gitconfig"
+    RUN_EXTRA_ENV=()
+    expect "a claim under GIT_CONFIG pins core.filemode in the project's own repository" \
+        test "$(git config --file "${encl}/sub-gitconfig/.git/config" --get core.filemode)" = true
+    expect "and leaves the file GIT_CONFIG names byte-identical"     test "$(sha "${decoy}/.git/config")" = "${decoy_sha}"
+    # The .git question's headline follows the owner-side read's pristine reading: a claim of a repository with no
+    # commits takes the no-history headline, and one with a commit, the control, the history-exposure headline.
+    git init -q "${R}/git-fresh"
+    git init -q "${R}/git-committed"
+    git -C "${R}/git-committed" -c user.name=cli-flags -c user.email=cli-flags@example.invalid -c commit.gpgsign=false \
+        commit -q --allow-empty -m "history"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${R}/git-fresh" "${R}/git-committed"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/git-fresh"
+    expect "a claim of a repository with no commits asks under the no-history headline" \
+        out_has_text "Git history: a new repository"
+    expect "and not under the history-exposure headline"             out_lacks_text "git history exposure"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/git-committed"
+    expect "control: a claim of a repository with a commit asks under the history-exposure headline" \
+        out_has_text "git history exposure"
     # The reading a 0700 root refuses one account and allows its owner, made by the owner-side read itself: run as the
     # target over its own tree, and as the projects user over the same tree. Each run does not read a registry or reach
     # a helper, so it is the installed command alone, with a copy of the fixture operator.conf naming both accounts.
@@ -1444,6 +1636,21 @@ EOF
     expect "create --for over an existing path is refused before the snapshot" quiet_rc 1
     expect "under its code, naming the claim with --for"              out_has_text MSG-T4B9
     expect "and the claim it names carries --for" out_has_text "atr projects claim --for ${FOR_USER} ${R}/for1"
+    # A command path no dispatch arm holds is refused as an unknown command under `--for`, exit 2 with no helper, ahead
+    # of the `--for` refusal: a word, an unknown verb of a collection, and `admin`, which atr reads as its own first
+    # word. A dispatched command outside FOR_ALLOWED_VERBS is the control, refused under the `--for` refusal at exit 1.
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" bogus
+    expect "--for before an unknown command exits 2 with no helper"   quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before an unknown command is the unknown-command refusal"
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" projects bogus
+    expect "--for before an unknown projects verb exits 2 with no helper" quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before an unknown projects verb is the unknown-command refusal"
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" admin status
+    expect "--for before admin exits 2 with no helper"                quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before admin is the unknown-command refusal"
+    cli_stub_reset; drive cli_for_first ai-tools.status
+    expect "control: --for before a command it does not apply to exits 1 with no helper" quiet_rc 1
+    assert_msg MSG-U7R7 "${out}" "control: --for before ai-tools.status is the --for refusal"
 
     # ── H. Clone ──────────────────────────────────────────────────────────────────────
     # The clone rows run only against an installed CLI that honours the clone-area override; an older deployment would
@@ -1472,6 +1679,15 @@ EOF
     expect "clone scans the clone for secrets before opening it"      cli_called ai-tools-lockdown "^--gate${T}--${T}"
     expect "the scan is given the clone's path"                       cli_called ai-tools-lockdown "${T}--${T}${SBROOT}/${N_SRC}$"
     expect "clone registers safe.directory for the clone"             cli_called ai-tools-safedir "^${SBROOT}/${N_SRC}$"
+    # The operator is outside the sandbox group, so its group and setgid bit come from root (tests/unit/sandbox.sh
+    # measures the tree an operator outside the group leaves).
+    expect "clone sets the group and setgid through ai-tools-setgid"  cli_called ai-tools-setgid "^${SBROOT}/${N_SRC}$"
+    expect "clone applies the ACL, .git included, through ai-tools-setfacl" \
+        cli_called ai-tools-setfacl "^--with-git${T}${SBROOT}/${N_SRC}$"
+    expect "the root steps follow the secret scan" \
+        before ai-tools-lockdown "^--gate${T}" ai-tools-setgid "^${SBROOT}/${N_SRC}$"
+    expect "the ACL step follows the setgid step" \
+        before ai-tools-setgid "^${SBROOT}/${N_SRC}$" ai-tools-setfacl "^--with-git${T}"
     expect "the clone is shallow"                                     test "$(gitr -C "${SBROOT}/${N_SRC}" rev-list --count HEAD)" -eq 1
 
     cli_stub_reset; drive cli ai-tools.projects.clone "$(f branch)" "feature/x" "$(f dir)" "${N_C2}" "${SRC}"
@@ -1498,6 +1714,8 @@ EOF
     expect "the resume is given that clone's path"                    cli_called ai-tools-lockdown "${T}--${T}${SBROOT}/${N_C4}$"
     expect "the resume makes no second clone"                         test "$(find "${SBROOT}" -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 4
     expect "the resumed clone stays registered"                       st_is "${SBROOT}/${N_C4}" enabled
+    expect "a resume over an opened clone runs neither root step"     not_called ai-tools-setgid
+    expect "nor the ACL step"                                         not_called ai-tools-setfacl
     # A resume on a clone already opened leaves the tree as it is: a directory the operator sealed inside it since keeps
     # its mode, where a normalize re-run over the tree would open it to the group.
     sealed="${SBROOT}/${N_C4}/private"
@@ -1554,6 +1772,10 @@ EOF
     expect "the clone removal --yes drops the entry"                  st_is "${SBROOT}/${N_C2}" absent
     expect "the clone removal --yes drops safe.directory"             cli_called ai-tools-safedir "^--remove${T}${SBROOT}/${N_C2}$"
     expect "the clone removal runs no typed-name challenge and no hand-back" not_called ai-tools-unclaim
+    expect "a clone removal run from outside the clone does not name cd" out_lacks_text "cd somewhere else"
+    cli_stub_reset; drive cli_in "${SBROOT}/${N_C3}" ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_C3}"
+    expect "a clone removal run from inside the clone deletes it"     test ! -e "${SBROOT}/${N_C3}"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f yes)" "${R}/pa"
     expect "the clone kind is decided by the path: a project in place takes the registry gate" rc_not0
     expect "that refusal leaves the tree"                             test -d "${R}/pa"

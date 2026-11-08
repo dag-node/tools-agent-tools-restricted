@@ -8,9 +8,10 @@
 # in-place write of a KEY=value file (ai_tools_conf__set_key for a scalar, ai_tools_conf__set_list for a list),
 # and every read AND write of the project registry. The settings.json hook-declaration merge, which writes
 # through the sidecars, is settings-merge.lib.sh. Sourced (never executed) by operator.lib.sh, skip-dirs.lib.sh,
-# providers.lib.sh, the launch wrapper, the CLI and the root helpers, so a key and an allowlist line read the same
-# whichever component reads them. The grammar, the present/absent distinction the provider gating turns
-# on, and what the trust predicate requires are in providers.rule.md; the allowlist state model is in cli.rule.md.
+# providers.lib.sh, help.lib.sh, layout.lib.sh, the launch wrapper, the CLI, the root helpers and the installers,
+# so a key and a registry line read the same whichever component reads them. The grammar, the present/absent distinction
+# the provider gating turns on, and what the trust predicate requires are in providers.rule.md; the registry state model
+# is cli.rule.md's (ref-section-v2n3).
 #
 # Config files are PARSED, never sourced: a malformed or tampered file yields a bad value, never executed code
 # in a privileged script. List splitting pins IFS locally, because the sourcing scripts run under the strict-mode
@@ -800,7 +801,7 @@ _ai_tools_conf__write_line() {
 # a reader that skipped it would read the rest of the file as the operator's intent, and a mistyped exclusion would then
 # allow the subtree it was written to exclude. A refused file does not allow or cover any path, which is the direction
 # every reader of this file fails in. A relative path is one such line: resolved against the reader's working directory,
-# it named a different directory for each reader. Text after a closing quote, other than a comment, is another:
+# it would name a different directory for each reader. Text after a closing quote, other than a comment, is another:
 # the parser drops it, so `! "/home/op/p/private"x` would read as an exclusion of a path the operator did not write.
 # A control byte in a path is a third: the classifier's record is tab-separated, so a tab in a path would shift
 # the fields a verb decides from. A bare path is a fourth, in the current grammar: it does not carry a sign, and only
@@ -1120,12 +1121,15 @@ _ai_tools_conf__open_registry() {
 # and the classifier do, and validates and loads from that one inode, so a file renamed over the name in between is not
 # read; what the pin does not close is a write into the same inode, which only the operator or root can make, since
 # the file is the operator's at 0600 in a 0700 directory (layout.rule.md's boundary rows), and which no writer of this
-# project makes, since each writes beside the file and renames. An allow entry is kept resolved
-# (`realpath -e`) and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory.
-# An exclusion -- a `!` or a `%` line, which the gate treats alike -- is kept AS WRITTEN and, for a line without
-# a glob character, its resolved form beside it, so the match is the UNION of the written and the resolved form:
-# a reader matching the resolved form alone stops covering the written path the moment a component of it becomes
-# a symlink, and one matching the written form alone misses an exclusion the operator spelled through one.
+# project makes, since each writes beside the file and renames. An allow entry is kept resolved (`realpath -e`)
+# and dropped when it does not resolve, so a symlinked spelling or a trailing slash names the directory.
+#
+# NOTE-F9X8: why an exclusion spelled through a link the sandbox account can change refuses the whole read
+#
+# An exclusion -- a `!` or a `%` line, which the gate treats alike -- is kept AS WRITTEN and, for a line without a glob
+# character, its resolved form beside it, so the match is the UNION of the written and the resolved form: a reader
+# matching the resolved form alone stops covering the written path the moment a component of it becomes a symlink,
+# and one matching the written form alone misses an exclusion the operator spelled through one.
 #
 # The resolution follows a symlink only where the sandbox account can neither remove, replace nor move it: the link
 # and every directory on the way to it are held by root or the file's owner, and no directory on the way has a group
@@ -1792,9 +1796,11 @@ ai_tools_conf__allowlist_remove() {
 }
 
 # _ai_tools_conf__change_registry_entry_kind <registry-file> <path> <disable|enable> : the shared line rewrite behind
-#   the two verbs -- every `@` line naming <path> takes `%`, or every `%` line takes `@` -- written through
-#   the canonical writer, so each line keeps its comment and the file its order. Return 2 when no line of the kind
-#   the direction reads names <path>. An excluded line is not among the lines either direction reads.
+#   the two verbs -- every `@` line naming <path> takes `%`, or every `%` line takes `@` -- written
+#   through the canonical writer, so each line keeps its comment and the file takes the canonical order, a canonical
+#   file coming back byte-identical. Return 1 when <registry-file> cannot be read, 2 when no line of the kind
+#   the direction reads names <path>, and the writer's own 1 or 4 where the rewrite does not land. An excluded line is
+#   not among the lines either direction reads.
 _ai_tools_conf__change_registry_entry_kind() {
     local file="$1" path="$2" direction="$3" from_kind=project to_kind=disabled resolved_path i changed=0
     # shellcheck disable=SC2034  # filled through their names by _ai_tools_conf__read_registry_lines
@@ -2053,16 +2059,20 @@ ai_tools_conf__list_registry_entries_under() {
 }
 
 # ── The migration from allowed-projects ────────────────────────────────────────────────────────
+# NOTE-Q2D8: what the migration of a legacy registry keeps, drops, names and leaves
+#
 # `atr admin system post-upgrade` alone migrates, unattended: it writes `~/.config/ai-tools/project-registry` beside
-# the legacy file in canonical form -- the marker, then each entry with its sign, `@` for a bare path and `!` for an
-# exclusion, through the canonical writer -- verifies the new file, and renames the old one to a dated `.bak`, which
-# is the backup. Each entry keeps its kind and its written path, which is what makes the migration safe to run without
-# the operator: every allow and `!` line means in format 1.0 what the launch gate already made of it, a `!` being
-# an exclusion either way. Whole-line comments are dropped, since format 1.0 carries a note at the end of an entry.
-# What changes meaning is the CLI's reading of a `!` that disabled a project, which format 1.0 reads as an excluded
-# path; the plan names each such line with the `%` spelling, and the operator changes it by hand. Until the rename
-# the legacy file is the truth: a run that stops part-way leaves `allowed-projects` under its active name, the resolver
-# keeps reading it, and the next run replaces whatever `~/.config/ai-tools/project-registry` it finds.
+# the legacy file in canonical form -- the marker, then each entry with its sign, `@` for a bare path and `!`
+# for an exclusion, through the canonical writer -- verifies the new file, and renames the old one to a dated `.bak`,
+# which is the backup. Each entry keeps its kind and its written path, which is what makes the migration safe to run
+# without the operator: every allow and `!` line means in format 1.0 what the launch gate already made of it, a `!`
+# being an exclusion either way. Whole-line comments are dropped, since format 1.0 carries a note at the end
+# of an entry. What changes meaning is the CLI's reading of a `!` that disabled a project, which format 1.0 reads
+# as an excluded path; the plan names each plain `!` line no project line encloses with the `%` spelling,
+# and the operator changes it by hand. A `!` nested in a project is not named, since it reads as an exclusion there,
+# and stays one, the direction that gives less access. Until the rename the legacy file is the truth: a run that stops
+# part-way leaves `allowed-projects` under its active name, the resolver keeps reading it, and the next run replaces
+# whatever `~/.config/ai-tools/project-registry` it finds.
 
 # ai_tools_conf__plan_registry_migration <legacy-file> : print one TSV row per line of <legacy-file> by its line
 #   number, after a `marker` row carrying the marker line: `keep\t<n>\t<line>` for an entry, with the line it becomes

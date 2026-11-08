@@ -53,6 +53,27 @@ individually. It does not touch essential Anthropic API traffic or the WebFetch
 domain safety check. There is no `DISABLE_FEEDBACK` variable (the `/feedback`
 opt-out is `DISABLE_FEEDBACK_COMMAND`).
 
+## Background sessions
+
+```bash
+atr admin selinux groups enable localipc
+```
+
+On a host where SELinux is enforcing, background sessions (`/fork`,
+`/background`, `claude --bg`) and messaging between local Claude Code sessions
+need the `localipc` policy group, which the command loads. Without it, `/fork`
+and `/background` print
+`bg manager failed to start: [EACCES] listen … control.sock` and the session
+that asked keeps working in the foreground; `claude --bg` from a shell exits
+with the same error.
+
+That group widens what every session may do, for every agent on the host: it
+also lets a session connect to TCP listeners on unreserved and high ports,
+on any address. `atr admin selinux groups` lists what each group grants.
+Disable the group with no background session running, so run `atr stop` first:
+a background session started while the group was loaded is ended by the next
+background request made without it.
+
 ## Options an operator MAY add
 
 Set these in a project's `.claude/settings.json` (the `env` block
@@ -139,4 +160,5 @@ To make a setting unoverridable by any project or session, place it in managed
 policy at `/etc/claude-code/managed-settings.json` (root-owned,
 world-readable). This is host-global — it governs every Claude Code user
 on the machine, not just the sandbox account — so the sandbox leaves it
-to the host administrator rather than shipping it.
+to the host administrator rather than shipping it. A session reads the file
+when it starts, so an edit applies to the sessions started after it.

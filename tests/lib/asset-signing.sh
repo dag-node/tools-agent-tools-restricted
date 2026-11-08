@@ -12,15 +12,17 @@
 
 # asset_signing_gen_key <var> <name> [expiry] [faked-time] : make a throwaway key <name> in its own GNUPGHOME, write its
 # armored public key and the binary keyring gpgv reads as <name>.asc and <name>.gpg, and assign its primary fingerprint
-# to <var>. <expiry> is gpg's (`never` by default, `1d` for a day). <faked-time>, an ISO time such as 20200101T000000,
-# goes into the key's gpg.conf as faked-system-time, so the key is made, and every later signature by it is made,
-# at that time: a one-day key made in 2020 has expired by the time gpgv reads its signature.
+# to <var>. <expiry> is gpg's (`never` by default, `1d` for a day). <faked-time>, an ISO time such as 20190101T000000,
+# goes into the key's gpg.conf as faked-system-time, frozen with gpg's `!` suffix, so the key is made, and every later
+# signature by it is made, at that one second: a one-day key made in 2019 has expired by the time gpgv reads its
+# signature. Without the suffix each gpg process starts its clock at that time and lets it run, so a key generation
+# that takes a second stamps a key the next process reads as created in the future, and refuses to sign with.
 asset_signing_gen_key() {
     local -n _asset_signing_fpr="$1"
     local name="$2" expiry="${3:-never}" faked_time="${4:-}" home="${ASSET_KEYS_DIR}/gnupg-$2"
     mkdir -p "${home}"; chmod 0700 "${home}"
     if [[ -n "${faked_time}" ]]; then
-        printf 'faked-system-time %s\n' "${faked_time}" > "${home}/gpg.conf"
+        printf 'faked-system-time %s!\n' "${faked_time}" > "${home}/gpg.conf"
     fi
     GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-gen-key "ai-tools test ${name} <${name}@acme.example>" \
         default default "${expiry}" 2>/dev/null

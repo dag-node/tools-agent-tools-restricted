@@ -22,8 +22,8 @@
 # which refuses a verb whose root helper this caller does not hold a sudo grant for, before sudo prompts for a password
 # it will then reject; require_runas_target, which refuses a --for run whose filesystem steps sudo will not run
 # as the target; and require_for_target, which validates a --for run and re-points the registry at its target. A help
-# request is answered ahead of all of them, after the sourced-guard, from help.lib.sh; `--version`, `projects list`
-# and `providers list` stay open to any user.
+# request is answered after the principal guards and ahead of all of them, from help.lib.sh; `--version`,
+# `projects list` and `providers list` stay open to any user.
 #
 # The principal guard refuses the sandbox account outright and allows root only the verbs that write no operator state
 # (ROOT_ALLOWED_VERBS): the reports -- `audit` needs root by construction, since the trail it reads is 700 root:root --
@@ -38,6 +38,18 @@
 
 set -euo pipefail
 IFS=$'\n\t'
+
+# git's repository-selection variables, and GIT_CONFIG, cleared before the first git call. The CLI runs
+# in the operator's own shell, where `GIT_DIR` makes `git -C <project> rev-parse --show-toplevel` name the project while
+# `config --local` writes the repository the variable names, so a claim's core.filemode pin would land there,
+# and a create's `git init` would initialise that repository. GIT_CONFIG makes `config --local` refuse ("only one config
+# file at a time"), so the pin would not be written. Every git call here names its repository by path (`-C`, `--file`,
+# or the directory `init` and `clone` take); AI_TOOLS_GITCONFIG is this CLI's own hook and stays. The configuration
+# variables -- GIT_CONFIG_GLOBAL, _SYSTEM, _NOSYSTEM, _COUNT with its KEY/VALUE pairs, _PARAMETERS -- pass through: they
+# do not select a repository, and `projects clone` and `projects push` run with the credential helper or URL rewrite
+# they set.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    GIT_NAMESPACE GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
@@ -142,7 +154,7 @@ readonly BOOTSTRAP_EXEMPT_VERBS=("status" "audit" "stop" "--help" "--version")
 readonly OPERATOR_VERBS=("projects create" "projects claim" "projects unclaim" "projects remove"
                          "projects enable" "projects disable" "projects clone" "projects push"
                          "projects lockdown" "projects handback" "projects inspect")
-# FOR_ALLOWED_VERBS -- what --for accepts: the verbs whose whole effect is decided by WHICH operator's allowlist covers
+# FOR_ALLOWED_VERBS -- what --for accepts: the verbs whose whole effect is decided by WHICH operator's registry covers
 # the path. Elsewhere the flag is REFUSED rather than ignored (see
 # require_for_target).
 readonly FOR_ALLOWED_VERBS=("projects claim" "projects create" "projects unclaim" "projects remove"
@@ -150,14 +162,13 @@ readonly FOR_ALLOWED_VERBS=("projects claim" "projects create" "projects unclaim
                             "projects list")
 # COLLECTIONS -- the plural nouns a verb follows. A bare one is its `list`, the grammar's zero-argument default.
 readonly COLLECTIONS=(projects providers)
-# OPTION_SPELLINGS -- the option spelling of each command, from the releases before the resource grammar, and the two
-# short options that went with them, each mapped to what it runs: a command path, or for `-g` the long option it stands
-# for. Every key is kept for compatibility, since the typed command surface is the one interface an operator's own
-# scripts bind to, and the collection form is the preferred one: rewrite_option_spelling applies the table ahead
-# of every gate, so every verb table and the dispatch see the command path alone and no key sits in a dispatch arm
-# or in the help, and note_option_spellings names the preferred form. One row per line:
-# tools/generators/option-spellings.sh reads the rows by text to generate docs/option-spellings.md,
-# and tests/unit/cli-verbs.sh holds every value to a dispatched
+# OPTION_SPELLINGS -- the option spelling the CLI still accepts for each command, and the two short options beside them,
+# each mapped to what it runs: a command path, or for `-g` the long option it stands for. Every key is kept
+# for compatibility, since the typed command surface is the one interface an operator's own scripts bind
+# to, and the collection form is the preferred one: rewrite_option_spelling applies the table ahead of every gate,
+# so every verb table and the dispatch see the command path alone and no key sits in a dispatch arm or in the help,
+# and note_option_spellings names the preferred form. One row per line: tools/generators/option-spellings.sh reads
+# the rows by text to generate docs/option-spellings.md, and tests/unit/cli-verbs.sh holds every value to a dispatched
 # path.
 declare -rA OPTION_SPELLINGS=(
     [--list]="projects list"
@@ -296,12 +307,13 @@ unset _forless_args _forless_arg _for_value_refused
 # published, so the unknown-command line a stranger gets would read as a typo. It is a pointer and not an alias:
 # the command reconciles a root-owned pin and a file context, so it runs as root, which this CLI refuses.
 #
-# It answers ahead of every gate on purpose. The bootstrap gate would otherwise send an unprovisioned host
-# to the provisioning command, and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs
-# printed -- with a list of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented
-# code for a rejected command line (ai-tools(1)).
+# It answers after the sandbox-account refusal and the `--for` value check, and ahead of the bootstrap gate and the root
+# guard, on purpose. The bootstrap gate would otherwise send an unprovisioned host to the provisioning command,
+# and the root guard would answer `sudo ai-tools --relabel` -- the spelling the older docs printed -- with a list
+# of the verbs root may run, none of which reconciles an entrypoint. Exit 2 is the documented code for a rejected
+# command line (ai-tools(1)).
 if [[ "${1:-}" == "--relabel" ]]; then
-    echo "ai-tools: --relabel is now a root command:" >&2
+    echo "ai-tools: --relabel is a root command:" >&2
     echo "              atr admin system entrypoints relabel" >&2
     exit 2
 fi
@@ -399,11 +411,12 @@ AI_TOOLS_LOG_OPERATOR="${OWNER_USER}"
 
 # The registry this run reads and writes, ALLOWLIST, and its state, REGISTRY_STATE (`current`, `legacy` or `none`), are
 # set once conf.lib.sh is loaded: ai_tools_conf__resolve_registry decides which of the operator's two names is the file.
-# With `--for`, require_for_target re-points ALLOWLIST at a root-side SNAPSHOT of the target's file: a registry is 0600
-# inside a 0700 .config/ai-tools, so one operator cannot read another's at all, and every decision made from it would
-# otherwise read an unreadable file as an empty one. One resolution point for readers AND writers
+# With `--for`, load_target_registry_snapshot points ALLOWLIST at a root-side SNAPSHOT of the target's file: a registry
+# is 0600 inside a 0700 .config/ai-tools, so one operator cannot read another's at all, and every decision made from it
+# would otherwise read an unreadable file as an empty one. One resolution point for readers AND writers
 # (reg_allow/unreg_allow), so a fixture test that sets AI_TOOLS_ALLOWLIST never mutates the operator's real registry.
-# Root-only test hook -- see the GITCONFIG note for why the override grants the CLI's operator caller no new capability.
+# An operator-settable test hook here -- see the GITCONFIG note for why the override grants the CLI's operator caller no
+# new capability.
 ALLOWLIST=""
 REGISTRY_STATE=none
 
@@ -579,13 +592,6 @@ readonly ANCESTOR_CONFIG_LIB="/usr/local/lib/ai-tools/ancestor-config.lib.sh"
 # shellcheck source=SCRIPTDIR/../lib/ai-tools/ancestor-config.lib.sh
 source "${ANCESTOR_CONFIG_LIB}" 2>/dev/null || true
 
-# Live sessions of the sandbox account (sessions.lib.sh): ai-tools-relabel refuses its walk while one runs,
-# and the claim reads the same state unprivileged from the world-readable cgroup files so its Review block names
-# the refusal before the first sudo. Best-effort: the helper's refusal is the decision, so a missing lib costs
-# the notice alone.
-readonly SESSIONS_LIB="/usr/local/lib/ai-tools/sessions.lib.sh"
-# shellcheck source=SCRIPTDIR/../lib/ai-tools/sessions.lib.sh
-source "${SESSIONS_LIB}" 2>/dev/null || true
 
 # Service-health registry (services.lib.sh): the single source `atr status`, the launch wrapper's pre-launch health
 # warning and `atr admin status` share, so no two of them disagree on which units matter, what one is doing,
@@ -1280,9 +1286,10 @@ reg_allow() {
 }
 
 # die_unregistrable_name <dir> [<remedy>]  -- refuse a project whose path the registry grammar cannot carry: a glob
-# character would make its project line one the grammar refuses, and that line would refuse the whole file for every
-# reader, the launch gate included. <remedy> replaces the rename-then-claim one, for a verb whose directory does not
-# exist yet. ai-tools-allowlist prints this code for a `--for` run.
+# character, a control character or both quote characters would make its project line one the grammar refuses,
+# and that line would refuse the whole file for every reader, the launch gate included. <remedy> replaces
+# the rename-then-claim one, for a verb whose directory does not exist yet. ai-tools-allowlist prints this code
+# for a `--for` run.
 die_unregistrable_name() {
     die MSG-Z9R2 "this directory's name cannot be written as a registry line: $1" \
         "A project's registry path does not carry '*', '?', '[', a control character, or both a single and a double quote, and this one does. ${2:-Rename the directory, then claim it.}"
@@ -1613,17 +1620,18 @@ narrow_acl_entry_scan() {
 # a claimed tree whose SELinux type differs from the one the claim's relabel would apply, and <types-map>
 # with `<type it carries> -> <type the policy gives it>` under each. The expected type is asked of the policy: a dry run
 # of the relabel the claim performs (`restorecon -n -F`, unprivileged, reading the world-readable file contexts).
-# The walk is the relabel's scope (`restorecon -FR`, ai_tools_relabel__label_project): every directory, `.git`
-# and skip-listed names included, crossing mount points. Every walked name without a line feed goes into one
-# non-recursive batch with `-i`, since a path removed after the walk is outside the run's scope; a name holding one goes
-# through ai_tools_project_permissions__check_label on its own, so no record can be a fragment of another
-# (project-permissions.lib.sh). Only a TYPE difference counts: `-F` also reports the SELinux user and the MLS range,
-# and on the file classes the targeted policy constrains the user for create, relabelfrom and relabelto alone,
-# and ai_tools_t does not carry mcs_constrained_type, so a user or category difference on its own does not deny
-# the agent (`seinfo --constrain` and `seinfo -a mcs_constrained_type -x` read both on a host). Owner-only paths
-# and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out. Returns 1, with <detail-var>
-# naming why, when restorecon is absent, the walk or the batch output is not complete, a per-path check reads unknown,
-# or a drifted path's mode cannot be read and the path is not confirmed gone; the drift it did read stays in the arrays.
+# The walk is the relabel's scope, the tree `restorecon -FR` walks, which ai_tools_relabel__label_project labels
+# through ai-tools-relabel-tree: every directory, `.git` and skip-listed names included, crossing mount points. Every
+# walked name without a line feed goes into one non-recursive batch with `-i`, since a path removed after the walk is
+# outside the run's scope; a name holding one goes through ai_tools_project_permissions__check_label on its own, so no
+# record can be a fragment of another (project-permissions.lib.sh). Only a TYPE difference counts: `-F` also reports
+# the SELinux user and the MLS range, and on the file classes the targeted policy constrains the user for create,
+# relabelfrom and relabelto alone, and ai_tools_t does not carry mcs_constrained_type, so a user or category difference
+# on its own does not deny the agent (`seinfo --constrain` and `seinfo -a mcs_constrained_type -x` read both on a host).
+# Owner-only paths and '!'-excluded subtrees are filtered out afterwards, as the group scan leaves them out. Returns 1,
+# with <detail-var> naming why, when restorecon is absent, the walk or the batch output is not complete, a per-path
+# check reads unknown, or a drifted path's mode cannot be read and the path is not confirmed gone; the drift it did read
+# stays in the arrays.
 label_drift_scan() {
     local dir="$1" work="$2" status=0 path outcome from to excl skip mode incomplete=0 index
     local -n _label_scan_paths="$3" _label_scan_types="$4" _label_scan_detail="$5"
@@ -1977,24 +1985,29 @@ grant_ancestor_traversal() {
     ! ${failed}
 }
 
-# normalize_clone <dir> [locked-path...]  -- make a freshly created clone agent-accessible: group rwX on every path
-# and the setgid bit on every directory (the owner stays the projects user), with every <locked-path> -- the secret
-# gate's finds, locked owner-only by ai-tools-lockdown -- PRUNED from both walks, since re-opening one would undo
-# the lockdown this step follows. It prunes what THIS run's gate reported alone, which is why sandbox_finalize runs it
-# once, while the root is still owner-only (clone_is_private). The gate's walk covers every tree this opens
-# (ai-tools-lockdown's header). Both walks act on regular files and directories alone and stay on the clone's filesystem
-# (`-xdev`): chmod follows a symlink named on its command line, so a tracked symlink handed to it would change a target
-# outside the clone. A locked path is pruned by its literal name: `-path` reads its argument as a pattern, so `[`, `*`,
-# `?` and `\` are escaped first (find_pattern_literal), or the walk would re-open the secret.
+# normalize_clone <dir> [locked-path...]  -- open a freshly created clone's modes and ACL: group rwX on every path
+# and `g+s` on every directory (the owner stays the projects user), with every <locked-path> -- the secret gate's finds,
+# locked owner-only by ai-tools-lockdown -- PRUNED from both walks, since re-opening one would undo the lockdown this
+# step follows. It prunes what THIS run's gate reported alone, which is why sandbox_finalize runs it once, while
+# the root is still owner-only (clone_is_private). The gate's walk covers every tree this opens (ai-tools-lockdown's
+# header). Both walks act on regular files and directories alone and stay on the clone's filesystem (`-xdev`): chmod
+# follows a symlink named on its command line, so a tracked symlink handed to it would change a target outside
+# the clone. A locked path is pruned by its literal name: `-path` reads its argument as a pattern, so `[`, `*`, `?`
+# and `\` are escaped first (find_pattern_literal), or the walk would re-open the secret.
 #
-# The clone is created with its ACL stripped (clone_privately), so the walk then gives every opened path the access ACL
-# the clone area's default ACL would have given it at creation, and every directory that default ACL itself: the named
-# and `group::` entries as the default holds them, and the mask the kernel derives from the create mode -- `rwx`
-# on a directory and on a file with an owner execute bit, `rw-` on any other file, the rule ai-tools-setfacl applies
-# to a claimed file. A umask-077 create does not leave a group or other execute bit, so this is also what `chmod g+rwX`
-# leaves after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries and would open every file
-# to execute, so each class takes its mask explicitly under `-n`. `user::` and `other::` keep the bits the create's
-# umask 077 left.
+# The walks run as the operator, who is not in SANDBOX_GROUP, and the kernel clears the setgid bit of a directory
+# in that group on every chmod and access-ACL write such a caller makes. So on the directories clone_privately left
+# in SANDBOX_GROUP the setgid bit does not hold after this walk, and sandbox_finalize's root steps that follow it set
+# the bit, and regroup a path git created in the operator's group.
+#
+# The clone is created without the area's default ACL (clone_privately), so the walk then gives every opened path
+# the access ACL the clone area's default ACL would have given it at creation, and every directory that default ACL
+# itself: the named and `group::` entries as the default holds them, and the mask the kernel derives from the create
+# mode -- `rwx` on a directory and on a file with an owner execute bit, `rw-` on any other file, the rule
+# ai-tools-setfacl applies to a claimed file. A umask-077 create does not leave a group or other execute bit, so this is
+# also what `chmod g+rwX` leaves after the inherited mask. A plain `setfacl -m` recalculates the mask from the entries
+# and would open every file to execute, so each class takes its mask explicitly under `-n`. `user::` and `other::` keep
+# the bits the create's umask 077 left.
 normalize_clone() {
     local d="$1"; shift
     local -a prune=() p pattern
@@ -2045,6 +2058,38 @@ clone_is_private() {
     (( ( 8#${mode} & 077 ) == 0 ))
 }
 
+# clone_access_ready <dir>  -- 0 when an opened clone holds one group throughout: the root and its .git carry
+# the setgid bit, and every file and directory with a group permission bit is in the root's group. The clone area's
+# setgid hands the root SANDBOX_GROUP, so a path in another group -- the operator's, where git created the tree in it --
+# is one the agent's group bits do not reach, and the steps before this one each succeed over such a tree; this reads
+# the tree back before sandbox_finalize reports it ready. It reads as the operator, with stat and find, prints each
+# finding, and returns 1 for a finding and for a reading it could not make.
+clone_access_ready() {
+    local d="$1" p group mode root_group="" stray ready=0
+    for p in "${d}" "${d}/.git"; do
+        if ! IFS=' ' read -r group mode < <(stat -c '%G %a' -- "${p}" 2>/dev/null) \
+                || ! [[ "${mode}" =~ ^[0-7]+$ ]]; then
+            say "    could not read the group and mode of $(ai_tools_log__sanitize "${p}")"
+            ready=1; continue
+        fi
+        [[ -n "${root_group}" ]] || root_group="${group}"
+        if [[ "${group}" != "${root_group}" ]] || (( ( 8#${mode} & 02000 ) == 0 )); then
+            say "    $(ai_tools_log__sanitize "${p}"): group ${group}, mode ${mode} -- want group ${root_group} with setgid"
+            ready=1
+        fi
+    done
+    [[ -n "${root_group}" ]] || return 1
+    if ! stray="$(find "${d}" -xdev '(' -type f -o -type d ')' -perm /070 ! -group "${root_group}" \
+                      -print -quit 2>/dev/null)"; then
+        say "    could not read every path under $(ai_tools_log__sanitize "${d}") for its group"
+        ready=1
+    elif [[ -n "${stray}" ]]; then
+        say "    $(ai_tools_log__sanitize "${stray}"): group $(stat -c '%G' -- "${stray}" 2>/dev/null || printf '?') -- want ${root_group}"
+        ready=1
+    fi
+    return "${ready}"
+}
+
 # relabel_clone <dir>  -- apply the SELinux project label so the agent (ai_tools_t) can read/write the clone. A static
 # fcontext rule in selinux/policy/ai_tools.fc maps every directory under sandbox-projects/ to ai_tools_project_t,
 # so a plain restorecon labels it -- no per-project semanage and no root: the projects user runs as unconfined_t,
@@ -2053,8 +2098,9 @@ clone_is_private() {
 # maps (the module not loaded); 0 as well where SELinux is disabled or restorecon is absent, with no walk; 1 otherwise.
 #
 # sandbox_finalize runs it while the clone root is still 0700 and the operator's, ahead of normalize_clone, so no
-# directory inside the clone is the sandbox account's to rename mid-walk and the walk does not take the live-session
-# gate (cli.rule.md, ref-section-e6c6). A resume over a clone already opened does not run a relabel: the first finalize
+# directory inside the clone is the sandbox account's to rename mid-walk. It keeps `restorecon -FR`, run
+# as the operator: the tree walker is root-only, and no component of the 0700 clone is one the account can rename
+# (cli.rule.md, ref-section-e6c6). A resume over a clone already opened does not run a relabel: the first finalize
 # labelled it, before it opened.
 #
 # Where SELinux runs and no ai_tools policy is on the host, ai_tools_project_t does not exist to read the clone
@@ -2110,9 +2156,14 @@ run_lockdown() {
 }
 
 # run_relabel <dir> [--remove]  -- apply (or revert) the SELinux project label on <dir> via the root helper (sudo,
-# password); returns its status, RELABEL_LIVE_SESSION_STATUS where the live-session gate left the tree as it was.
-# The helper parses the path and the optional flag in any order.
-readonly RELABEL_LIVE_SESSION_STATUS=4
+# password); returns its status. The helper parses the path and the optional flag in any order.
+# The helper found no label to apply on this host -- SELinux disabled, or no ai_tools policy installed -- and said why
+# on stderr.
+readonly RELABEL_NOT_APPLICABLE_STATUS=5
+# The revert completed except on the hardlinked paths the helper listed on stderr, which keep their current type.
+readonly RELABEL_PARTIAL_REVERT_STATUS=4
+# The tree walker the helper runs could not start, so no path was reverted; the helper's line says why.
+readonly RELABEL_WALKER_UNAVAILABLE_STATUS=6
 run_relabel() {
     local d="$1"; shift
     # stdout suppressed: the helper narrates its own success ("labelled <path> ai_tools_project_t"), which lands
@@ -2358,8 +2409,12 @@ claim_relabel() {
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
         return 0
     fi
-    if run_relabel "${d}"; then
+    local relabel_status=0
+    run_relabel "${d}" || relabel_status=$?
+    if (( relabel_status == 0 )); then
         say "    SELinux label: ai_tools_project_t applied"
+    elif (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+        say "    SELinux label: not applicable on this host (the helper's line above says why)"
     else
         warn "could not apply the SELinux label -- run it by hand:"
         say  "      ${C_BOLD}sudo ${RELABEL_BIN} ${d}${C_RST}"
@@ -2812,6 +2867,24 @@ require_claimable_owner() {
         "${why[@]}"
 }
 
+# require_open_project_root <dir> <root-mode> <has-registry-entry>  -- die when <root-mode>, the owner-side read's mode
+# of the project root, has no group or other bit: ai-tools-setgid and ai-tools-setfacl leave an owner-only path as it is
+# (owner-only.lib.sh), so a claim would register the root without a grant under it, and the launch gate refuses
+# an owner-only directory whichever account owns it (MSG-H2E2). The mode is the operator's decision and its intent is
+# not readable from it, so neither refusal names a command that changes it. <has-registry-entry> is true for a root
+# a registry line names, whose line the refusal keeps; an empty <root-mode> is a reading the owner could not make
+# and passes. A directory projects create made is named by the refusal, so the create's leftover-directory line,
+# which names a claim, is not printed. The consequence is cli.rule.md's (Claim in place).
+require_open_project_root() {
+    local d="$1" mode="$2" has_registry_entry="$3"
+    [[ -n "${mode}" ]] && (( ( 8#${mode} & 077 ) == 0 )) || return 0
+    [[ "${CREATE_LEFT_TREE}" != "${d}" ]] || CREATE_LEFT_TREE=""
+    if [[ "${has_registry_entry}" == true ]]; then
+        die MSG-B5D2 "the project root ${d} is mode ${mode} (owner-only) -- the claim leaves it as it is; no change applied, and no session can start here"
+    fi
+    die MSG-H6J3 "refusing to claim -- ${d} is mode ${mode} (owner-only); a claim leaves an owner-only mode as it is and does not grant the sandbox account access under it, and no session could start here"
+}
+
 # ── The owner-side read: `projects inspect` ────────────────────────────────────────
 # The claim reads a project's tree as the account whose tree it is: it runs this file again as the owner, through
 # run_as_owner (`sudo -u <target> -H` under `--for`, directly otherwise), as `projects inspect`, and reads the record
@@ -2941,8 +3014,8 @@ inspect_write_verify_records() {
 
 # inspect_write_tree_records  -- the read half of cmd_project_inspect over its caller's <d>, scan_group and scan_label
 # (dynamic scope). The drift records are capped at CLAIM_SCAN_CAP + 1 per kind and reach, so the claim tells exactly
-# the cap from more than the cap (records.rule.md, Caps); what a path is before a repair, its subject type and its
-# secret mark are read here, at collection.
+# the cap from more than the cap (records.rule.md, ref-section-g4k3); what a path is before a repair, its subject type
+# and its secret mark are read here, at collection.
 inspect_write_tree_records() {
     local filemode owngap acl labelled git pristine=false root_mode
     # IFS pinned (see join_words).
@@ -3392,6 +3465,11 @@ cmd_project_claim() {
         claim_write_row error directory inspect "${d}" "the tree was not read as ${OWNER_USER} (${INSPECT_FAILURE})"
         claim_end
     fi
+    # Ahead of the re-enable offer, the first step that can write. The mode is the owner-side read's, so a `--for` run
+    # reads it as the target.
+    local has_registry_entry=false
+    { ${listed} || ${reenable}; } && has_registry_entry=true
+    require_open_project_root "${d}" "${root_mode}" "${has_registry_entry}"
 
     # The trust list is read ahead of the re-enable offer, the first step that can write: a claim that cannot read it
     # does not describe its pending steps, and applies none.
@@ -3430,7 +3508,7 @@ cmd_project_claim() {
     # at CLAIM_SCAN_CAP; the count then says so rather than naming the cap as the total.
     local narrow_acl_entry_path_count="${#paths_with_narrow_acl_entries[@]}"
     ! ${narrow_acl_entry_capped} || narrow_acl_entry_path_count="more than ${CLAIM_SCAN_CAP}"
-    # A step the owner-side read records as `unknown` is not applied (cli.rule.md, Claim in place).
+    # A step the owner-side read records as `unknown` is not applied (cli.rule.md, ref-section-h7d3).
     local git_unreadable=false filemode_unreadable=false
     [[ "${git}" == unknown ]] && git_unreadable=true
     [[ "${filemode}" == unknown ]] && filemode_unreadable=true
@@ -3475,19 +3553,6 @@ cmd_project_claim() {
         path_listing "file(s)" "${ancestor_configs[@]}"
         say "      ${C_DIM}a file moved into the project is readable to the sandbox account,${C_RST}"
         say "      ${C_DIM}which one above it is not${C_RST}"
-    }
-
-    # The reading ai-tools-relabel refuses its walk on, made here as the operator so the Review block names a live
-    # session ahead of the verb's first sudo; it does not ask anything, and the helper's refusal is what decides. It
-    # shows for a drift relabel too, which the operator may then decline, and on `live` alone: why `unreadable` is left
-    # to the helper's refusal is cli.rule.md's (ref-section-e6c6).
-    note_live_session() {
-        ${need_label} || (( ${#label_drift[@]} )) || return 0
-        declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || return 0
-        [[ "$(ai_tools_sessions__read_live_session_state)" == live ]] || return 0
-        headline_warn "NOTICE: a process of the sandbox account is running" \
-            "An agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live. The SELinux label step walks the tree as root, and the helper refuses that step while one is live, where the claim runs it: the other steps apply, the label is reported pending and the claim ends non-zero. A drift relabel you decline does not run the step. Let each session end (/exit inside it) and the toolchain update finish, or end them all with the command below, then re-run this claim:"
-        say "      ${C_BOLD}atr stop${C_RST}"
     }
 
     skip_listed_note() {
@@ -3664,17 +3729,6 @@ cmd_project_claim() {
 
     find_blocking_ancestors "${d}"
 
-    # The project root being owner-only is find_blocking_ancestors's problem one level down: ai-tools-setfacl honours
-    # a 0600/0700 mode and skips the path, so every later step still succeeds and the claim closes with its ✓ while
-    # the sandbox account cannot enter the tree at all. Stated here, before the confirm, rather than left
-    # to the helper's skip count afterwards; the mode is the owner-side read's, and a mode it could not read does
-    # not raise the notice.
-    if [[ -n "${root_mode}" ]] && (( ( 8#${root_mode} & 077 ) == 0 )); then
-        headline_warn "NOTICE: this project directory is owner-only" \
-            "${d} is mode ${root_mode}, which keeps it out of the sandbox account's reach: the claim honours that mode and grants nothing on it."
-        say ""
-    fi
-
     # A claimed project can still sit under a non-traversable parent (a later chmod 700 on an ancestor), and the grant
     # that closes that is a pending step like the others -- it takes the gate -- so a project with one takes
     # the pending-steps flow rather than this path.
@@ -3713,7 +3767,7 @@ cmd_project_claim() {
     [[ "${safedir}" == true  ]] || say "    - add git safe.directory"
     ${need_filemode} && say "    - set git core.filemode true"
     [[ "${owngap}"  == true  ]] && say "    - set group ${SANDBOX_GROUP} + setgid on the project directories"
-    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwX)"
+    ${need_acl} && say "    - apply group-permission ACL (default + access g:${SANDBOX_GROUP}:rwx, masked to your own permissions on each path)"
     ${needs_acl_entry_repair} \
         && say "    - apply the group-permission ACL again: ${narrow_acl_entry_path_count} file(s) carry an earlier claim's entries"
     ${need_label} && say "    - apply SELinux ai_tools_project_t label"
@@ -3739,7 +3793,6 @@ cmd_project_claim() {
     skip_listed_note
     sealed_setgid_note
     ancestor_config_note
-    note_live_session
 
     # The files listed here are the step's whole reason; the walk it runs covers the tree. An owner's chmod g+x
     # over entries written rwx does not show here, so the step does not reset a deliberate one on every re-claim.
@@ -3750,8 +3803,8 @@ cmd_project_claim() {
         ! ${narrow_acl_entry_capped} || say "        ${C_DIM}(list capped at ${CLAIM_SCAN_CAP} paths)${C_RST}"
     fi
 
-    # Heavy steps close the Review block behind the proceed confirm, the one prompt `--yes` pre-answers; a pristine tree
-    # skips it with the warnings it authorizes.
+    # Heavy steps close the Review block behind the proceed confirm, which `--yes` pre-answers with the SELinux type
+    # question; a pristine tree skips it with the warnings it authorizes.
     if ${heavy} && ! ${fresh}; then
         ${ASSUME_YES} || confirm "Apply these pending steps to the tree in place?" n \
             || die "aborted"
@@ -3854,6 +3907,11 @@ cmd_project_claim() {
         elif ${fresh}; then
             headline_warn "Git history: a new repository" \
                 "This repository has no commits yet. Normalizing .git lets the agent read the commits made here from now on. The create could not set .git to its owner's group and modes (the warning above), so declining leaves .git as git made it, which the agent may be able to read."
+        elif [[ "${inspect_pristine}" == true ]]; then
+            # A claim of an existing tree the owner-side read found pristine: its object store is empty, so there is no
+            # history yet to expose.
+            headline_warn "Git history: a new repository" \
+                "This repository has no commits yet. Normalizing .git lets the agent read the commits made here from now on."
         else
             headline_warn "WARNING: git history exposure" \
                 "normalizing .git lets the agent read this repo's full git history"
@@ -3975,6 +4033,15 @@ refuse_unresolved_parent() {
 # alone and the second by its default where no one is. A claim that stops after the mkdir leaves the tree named, with
 # the claim that finishes it (remove_run_files). The refusals, the modes it sets and the claim questions it infers are
 # cli.rule.md's.
+#
+# `.git` stays out of the agent's reach until the `.git` question shares it. `git init` builds `.git` under the owner's
+# umask, so under `022` it carries other bits, and under a setgid parent -- the clone area among them --
+# in that parent's group with any default ACL the parent carries. The create therefore strips every extended entry
+# and the default ACL under `.git` (`setfacl -R -b`), regroups it to the owner's primary group, and clears group write
+# and the other bits, all as the owner and before the root opens to 0750. Group write is cleared explicitly, because
+# `-b` turns the mask it strips into the group bits, and a `002` umask, the default a user-private-group login takes,
+# has git build `.git` group-writable. The setgid and ACL walks skip `.git`, so only `ai-tools-setfacl --with-git` opens
+# it; a step that fails warns, and the claim's headline for the question says a decline leaves `.git` as git made it.
 cmd_project_create() {
     local a path=""
     for a in "$@"; do
@@ -3985,7 +4052,7 @@ cmd_project_create() {
                 else die_usage MSG-Z5Y7 "projects create takes a single path"; fi ;;
         esac
     done
-    [[ -n "${path}" ]] || die MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
+    [[ -n "${path}" ]] || die_usage MSG-A7D3 "projects create needs a path: it creates a NEW project directory." \
         "To claim a directory that already exists, use:" \
         "       $(format_projects_command claim "") <path>"
 
@@ -4218,12 +4285,13 @@ die_path_required() {
 }
 
 # discover_project <verb>  -- print the project the current directory is in, for a verb run without a path: walk from
-# the canonical current directory upward and stop at the first directory a registry entry names. A `%`, `!`
-# or glob line covering a directory on the way, one that does not name it, refuses: the verb would otherwise act
-# on a tree from inside a part of it no session starts in. A `!` line naming a directory on the way refuses
-# the same way. Reaching `/` with no entry exits 2. The walk checks every directory between the current one
-# and the project, where the launch gate checks the current directory alone, so a glob matching only an intermediate
-# directory stops this walk and does not stop a launch (cli.rule.md).
+# the canonical current directory upward and stop at the first directory a registry entry names. A `%`, `!` or glob line
+# covering a directory on the way, one that does not name it, refuses: the verb would otherwise act on a tree
+# from inside a part of it no session starts in. A `!` line naming a directory on the way refuses the same way. Reaching
+# `/` with no entry exits 2. The walk checks every directory between the current one and the project, where the launch
+# gate checks the current directory alone; a glob matching a directory on the way covers everything under it
+# (ai_tools_conf__find_covering_path), so it stops this walk as it stops a launch there
+# (cli.rule.md).
 discover_project() {
     local verb="$1" d root
     d="$(pwd -P)"
@@ -4303,26 +4371,37 @@ resolve_verb_target() {
 # `projects enable`, `projects handback` and ai-tools-unclaim each refusing a path the registry no longer names.
 # Best-effort except for the allowlist line: every other step warns and the pass goes on, while a drop that did not
 # apply refuses (unreg_allow) and a disable that did not apply returns 1 without the ✓, since either leaves a session
-# able to start here. A label reversal that did not apply,
-# or that the live-session gate refused, returns 1 without the ✓ as well, after the registry reversal (cli.rule.md,
-# ref-section-m5n5).
+# able to start here. A label reversal that did not apply, or that left hardlinked paths at their type, returns 1
+# without the ✓ as well, after the hand-back and the registry reversal, which run either way (cli.rule.md,
+# ref-section-m5n5): a reversal that did not apply prints the helper's re-run, which acts on a path no entry names.
 unclaim_one() {
     local d="$1" group="$2" hint="$3" retry="$4"; shift 4
-    local stopped=false handback_missing=false label_left=false
+    local stopped=false handback_missing=false label_revert_outcome=""
 
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         local relabel_status=0
         run_relabel "${d}" --remove || relabel_status=$?
-        if (( relabel_status != 0 )); then
-            label_left=true
-            warn "could not revert the SELinux label -- run it by hand:"
-            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove ${d}${C_RST}"
-            # The gate's refusal came after sudo authenticated, so the steps after it are attempted without asking.
-            (( relabel_status == RELABEL_LIVE_SESSION_STATUS )) || note_root_failure || stopped=true
-        else
+        if (( relabel_status == 0 )); then
             say "    SELinux label: reverted"
+        elif (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+            say "    SELinux label: not applicable on this host (the helper's line above says why)"
+        elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
+            # The helper ran past sudo and names what it left, with the command that lists it, so the steps after it are
+            # attempted without asking.
+            label_revert_outcome=partial
+            warn "the SELinux label was reverted except on hardlinked paths, which keep their current type -- the helper's line above names up to 20 and counts the rest"
+        elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
+            # Past sudo as well, and no path was walked: the re-run reverts the tree once the helper's cause is cleared.
+            label_revert_outcome=reverting
+            warn "the SELinux label was not reverted: the tree walker could not run (the helper's line above says why) -- once that is resolved, run:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
+        else
+            label_revert_outcome=reverting
+            warn "could not revert the SELinux label -- run it by hand:"
+            say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
+            note_root_failure || stopped=true
         fi
     fi
 
@@ -4380,10 +4459,10 @@ unclaim_one() {
     if ${entry_active}; then
         local files_note=""
         ${handback_missing} && files_note=" Its files were not handed back either, so they still carry group ${SANDBOX_GROUP}."
-        headline_warn "WARNING: the allowlist entry was not disabled" \
+        headline_warn "WARNING: the registry entry was not disabled" \
             "${d} is still enabled in ${REGISTRY_DISPLAY_PATH}, so a session can still start there.${files_note} The lines above name what completes the reversal."
         ai_tools_log__structured warning \
-            "unclaim of ${d} incomplete (allowlist entry not disabled, still active)" \
+            "unclaim of ${d} incomplete (registry entry not disabled, still active)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
@@ -4391,11 +4470,19 @@ unclaim_one() {
         headline_warn "WARNING: disabled, but the files were not handed back" \
             "${d} is ${entry_word}, so no session can launch there, and its line stays for the unclaim that completes the reversal. Its files still carry group ${SANDBOX_GROUP}, so an agent session that can reach the path keeps its access to them. The command above completes the reversal."
         ai_tools_log__structured warning \
-            "unclaim of ${d} incomplete (allowlist entry disabled; filesystem hand-back did NOT run)" \
+            "unclaim of ${d} incomplete (registry entry disabled; filesystem hand-back did NOT run)" \
             "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
         return 1
     fi
-    if ${label_left}; then
+    if [[ "${label_revert_outcome}" == partial ]]; then
+        headline_warn "WARNING: the SELinux label was not reverted on every path" \
+            "${d} is ${entry_word}, so no session can launch there. The hardlinked paths keep their current type: through another name each may belong to another tree, so the walk does not write them. The helper's line above names up to 20, and its find command lists the hardlinked files the tree holds now."
+        ai_tools_log__structured warning \
+            "unclaimed ${d} (registries dropped; SELinux label NOT reverted on hardlinked paths)" \
+            "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=failed"
+        return 1
+    fi
+    if [[ -n "${label_revert_outcome}" ]]; then
         headline_warn "WARNING: the SELinux label was not reverted" \
             "${d} is ${entry_word}, so no session can launch there. It still carries the type the agent reads and writes. The command above reverts it."
         ai_tools_log__structured warning \
@@ -4604,11 +4691,11 @@ cmd_unclaim_unlisted() {
 # cmd_project_unclaim <path> [--force] [--full] [--dry-run] [-y|--yes] [--group <group>]  -- undo an in-place claim:
 # revert the SELinux label, drop both registries, and behind a default-yes confirm hand the tree back to a target group
 # through ai-tools-unclaim, with the agent's write access revoked; the directory itself is left on disk. The target is
-# classified against the project registry first (cli.rule.md, Unclaim), and a protected system path is refused up front,
-# whatever the mode: the backstop reads the path alone, so `--force` does not relax it. A disabled target is answered up
-# front (offer_reenable). `-y`/`--yes` pre-answers the default-NO confirm in every mode and is not read by the hand-back
-# or skip-listed questions, which ask on their own terms; `--group` names the hand-back group outright, so a script
-# never depends on the prompt's no-tty fallback.
+# classified against the project registry first (cli.rule.md, ref-section-m5n5), and a protected system path is refused
+# up front, whatever the mode: the backstop reads the path alone, so `--force` does not relax it. A disabled target is
+# answered up front (offer_reenable). `-y`/`--yes` pre-answers the default-NO confirm in every mode and is not read
+# by the hand-back or skip-listed questions, which ask on their own terms; `--group` names the hand-back group outright,
+# so a script never depends on the prompt's no-tty fallback.
 cmd_project_unclaim() {
     # `--force` swaps the allowlist gate for the helper's per-path residue gate (ai-tools-unclaim's header) and does not
     # relax any other gate.
@@ -4649,7 +4736,7 @@ cmd_project_unclaim() {
     # registry snapshot, the run's first sudo.
     if ${force} && [[ -n "${FOR_OPERATOR}" ]]; then
         die MSG-B5K3 "--for cannot be combined with --force" \
-            "an unlisted tree has no allowlist entry naming its owner, so the unclaim is bound to" \
+            "an unlisted tree has no registry entry naming its owner, so the unclaim is bound to" \
             "       you as the invoking operator; run it as ${FOR_OPERATOR}, or unclaim the registered" \
             "       project without --force"
     fi
@@ -4682,8 +4769,8 @@ cmd_project_unclaim() {
     # between what the operator asked for and what ran, and ai-tools(1) states the refusal. The registered unclaim is
     # one word away.
     if ${force}; then
-        die "--force does not apply here -- this path is covered by the allowlist: ${targets[0]}" \
-            "       --force reaches a tree the allowlist does not name; unclaim a registered project without it:" \
+        die "--force does not apply here -- this path is covered by the project registry: ${targets[0]}" \
+            "       --force reaches a tree the project registry does not name; unclaim a registered project without it:" \
             "       $(format_projects_command unclaim "${targets[0]}")"
     fi
 
@@ -4807,6 +4894,66 @@ get_covering_entry() {
     [[ "${CLASS_ENCLOSING_STATE}" != enabled || "${CLASS_BLOCKED}" != - ]] || printf '%s' "${CLASS_ENCLOSING}"
 }
 
+# How many hardlinked files a removal's inventory prints a command for; the count of the rest is stated beside them.
+readonly REMOVE_HARDLINKS_LISTED=20
+
+# read_hardlink_inventory <dir>  -- print `<inode> <mount>` once per hardlinked non-directory under <dir>, read as
+# the acting owner through run_as_owner, sorted, and `other-device` once where an entry sits on another device than
+# <dir>, a mount inside the tree, whose mount point this read does not name; returns non-zero where part of the tree was
+# not read. The inode and the device are find's own `-printf` reading of each entry, made inside the directory find
+# opened, so a directory the agent swaps for a symlink during the read does not substitute another file; the mount is
+# read once, from <dir>. find does not follow a symlink, and git is not run: the tree's names are the agent's to choose,
+# and its .git/config the agent's to write (cli.rule.md, ref-section-k3v7). A removal reads it ahead of the deletion,
+# since once the tree is gone the inode and the mount are what find the file's other names.
+read_hardlink_inventory() {
+    local root_identity root_device root_mount listing line status=0
+    root_identity="$(run_as_owner stat -c '%d %m' -- "$1" 2>/dev/null)" || return 1
+    root_device="${root_identity%% *}" root_mount="${root_identity#* }"
+    listing="$(run_as_owner find "$1" ! -type d -links +1 -printf '%D %i\n' 2>/dev/null)" || status=$?
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        if [[ "${line%% *}" == "${root_device}" ]]; then
+            printf '%s %s\n' "${line#* }" "${root_mount}"
+        else
+            printf 'other-device\n'
+        fi
+    done <<< "${listing}" | LC_ALL=C sort -u
+    return "${status}"
+}
+
+# report_hardlink_inventory <find-status> <listing>  -- after a removal's deletion, print one `sudo find <mount> -xdev
+# -inum <inode> -ls` for each of the first REMOVE_HARDLINKS_LISTED files of read_hardlink_inventory's <listing>,
+# under one warning stating how many files the tree held and that the type of their other names is the operator's
+# to decide. A <find-status> other than 0, or a line that does not read as an inode and an absolute mount, adds
+# that the read was incomplete, and a read that was incomplete and listed no file is its own warning. Prints nothing
+# where the listing is empty and the read complete.
+report_hardlink_inventory() {
+    local find_status="$1" listing="$2" line inode mount total=0 incomplete=false
+    local -a commands=()
+    [[ "${find_status}" == 0 ]] || incomplete=true
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] || continue
+        inode="${line%% *}" mount="${line#* }"
+        if [[ ! "${inode}" =~ ^[0-9]+$ || "${mount}" != /* ]]; then incomplete=true; continue; fi
+        total=$(( total + 1 ))
+        if (( total <= REMOVE_HARDLINKS_LISTED )); then
+            commands+=("      sudo find $(_quote_path "${mount}") -xdev -inum ${inode} -ls")
+        fi
+    done <<< "${listing}"
+    if (( total == 0 )); then
+        ${incomplete} || return 0
+        warn MSG-Y7P8 "the read of the tree's hardlinked files before the deletion did not complete, so this removal does not list the other names of a file it did not reach; those names keep the SELinux type they carry, and the type they take is yours to decide"
+        return 0
+    fi
+    local listed_clause="" incomplete_clause=""
+    if (( total > REMOVE_HARDLINKS_LISTED )); then listed_clause=", for the first ${REMOVE_HARDLINKS_LISTED} of them"; fi
+    if ${incomplete}; then
+        incomplete_clause=" -- the read of the tree before the deletion did not complete, so a file it did not reach is not counted"
+    fi
+    warn MSG-S6J8 "before the deletion the tree held ${total} hardlinked file(s); each one's names outside the tree keep the SELinux type they carry, and the type those names take is yours to decide -- each command below lists the other names of one file${listed_clause}${incomplete_clause}" \
+        "${commands[@]}"
+}
+
 # die_remove_incomplete <dir> <kind> <own-entry> <label-outcome> [<covering-entry>]  -- report a removal whose deletion
 # left paths under <dir>, and die. The warning states what the run verified: what became of <kind>'s own registry entry,
 # a session already running keeps what it holds until it ends, and the files left keep their group grant, since
@@ -4818,22 +4965,26 @@ get_covering_entry() {
 # the step ran and its helper returned success, which does not read the type the tree carries, since a rule
 # on an ancestor of the project keeps the project type through the step; `failed` says it did not complete,
 # and that the relabel command the failed step printed still applies, since `ai-tools-relabel --remove` does not read
-# the registry the removal has already changed; `skipped` (SELinux off, no sudo or getenforce, or a clone, whose type
-# comes from the policy's file contexts) does not name a label. Any other value is a caller error. The remedy is
-# the deletion run_as_owner ran, the path in bash's `%q` encoding, named as the target's under `--for`.
+# the registry the removal has already changed; `partial` says the step left the hardlinked paths its helper listed;
+# `unwalked` says the step dropped the rules and its walker could not run, so the paths left keep their type; `skipped`
+# (SELinux off, no sudo or getenforce, or a clone, whose type comes from the policy's file contexts) does not name
+# a label. Any other value is a caller error. The remedy is the deletion run_as_owner ran, the path in bash's `%q`
+# encoding, named as the target's under `--for`.
 die_remove_incomplete() {
-    local d="$1" kind="$2" own_entry="$3" label_outcome="$4" covering_entry="${5-}" entry_clause label_clause
+    local d="$1" kind="$2" own_entry="$3" label_revert_outcome="$4" covering_entry="${5-}" entry_clause label_clause
     local covering_clause=""
     case "${own_entry}" in
         removed) entry_clause="the ${kind}'s own registry entry is removed and no longer authorizes a launch there" ;;
         none)    entry_clause="the ${kind} had no registry entry of its own" ;;
         *)       die "die_remove_incomplete: unknown own-entry state: ${own_entry}" ;;
     esac
-    case "${label_outcome}" in
+    case "${label_revert_outcome}" in
         completed) label_clause="; the SELinux label step completed" ;;
         failed)    label_clause="; the SELinux label step did not complete, and the relabel command printed above still applies" ;;
+        partial)   label_clause="; the SELinux label step left the hardlinked paths its helper listed at their current type, which their other names keep" ;;
+        unwalked)  label_clause="; the SELinux label step did not walk the tree, so the paths left keep their current type, as do the other names of its hardlinked files" ;;
         skipped)   label_clause="" ;;
-        *)         die "die_remove_incomplete: unknown label outcome: ${label_outcome}" ;;
+        *)         die "die_remove_incomplete: unknown label outcome: ${label_revert_outcome}" ;;
     esac
     [[ -z "${covering_entry}" ]] \
         || covering_clause=" -- the entry for ${covering_entry} still authorizes a launch there"
@@ -4849,7 +5000,8 @@ die_remove_incomplete() {
 # A project's authorization is an EXACT registry entry, enabled or disabled; a clone's is its place, its owner and its
 # shape (remove_clone). The verb does not take `--force`. Teardown in either kind is registries first, deletion last,
 # so a failed deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be
-# deleted (cli.rule.md, Remove). `-y` pre-answers the default-NO confirm and the typed-name challenge of either kind.
+# deleted (cli.rule.md, ref-section-k3v7). `-y` pre-answers the default-NO confirm of either kind and the in-place
+# kind's typed-name challenge; the clone kind does not ask for a typed name.
 cmd_project_remove() {
     local a path="" assume_yes=false
     local -a remedy=()
@@ -4875,6 +5027,8 @@ cmd_project_remove() {
 
     local d; d="$(resolve_existing_path "${path}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    # Read while the directory exists: getcwd fails once it is deleted.
+    local cwd_real; cwd_real="$(pwd -P 2>/dev/null)" || cwd_real=""
     # The path checks of either kind read the path alone, so they run ahead of the snapshot, a `--for` run's first
     # `sudo`; the snapshot comes ahead of the clone branch, whose removal reaches the registry too.
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
@@ -4884,7 +5038,7 @@ cmd_project_remove() {
     fi
     load_target_registry_snapshot
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
-        remove_clone "${d}" "${assume_yes}"
+        remove_clone "${d}" "${assume_yes}" "${cwd_real}"
         return
     fi
 
@@ -4988,37 +5142,57 @@ cmd_project_remove() {
     # ── Apply: registries first, deletion last. ──
     headline "Removing the project" "${d}"
     # A failed cleanup step asks once (note_root_failure) and does not stop the removal: the registries drop regardless,
-    # and `ai-tools projects` reports what is left behind. The live-session gate's refusal stops it instead,
-    # before either registry changes: a label reversal left for later cannot be applied to a path this run deletes
-    # (cli.rule.md, ref-section-k3v7). The label step stays ahead of the registry step, since ai-tools-relabel resolves
-    # membership from the entry, so a de-list that does not apply (MSG-K8S2) leaves a registered project whose label is
-    # reverted, which the listing reports and `projects claim` restores. The registry step precedes
-    # the safe.directory step, so that refusal leaves the trust entry in place.
-    local cleanup_stopped=false label_outcome=skipped
+    # and `ai-tools projects` reports what is left behind (cli.rule.md, ref-section-k3v7). The label step stays ahead
+    # of the registry step, since ai-tools-relabel resolves membership from the entry, so a de-list that does not apply
+    # (MSG-K8S2) leaves a registered project whose label is reverted, which the listing reports and `projects claim`
+    # restores. The registry step precedes the safe.directory step, so that refusal leaves the trust entry in place.
+    local cleanup_stopped=false label_revert_outcome=skipped inventory_read=false inventory_status=0 inventory=""
     if command -v sudo >/dev/null 2>&1 \
             && command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
         local relabel_status=0
         run_relabel "${d}" --remove || relabel_status=$?
-        if (( relabel_status == RELABEL_LIVE_SESSION_STATUS )); then
-            say  "    let each session end (/exit inside it) and the toolchain update finish, or end them all"
-            say  "    with ${C_BOLD}atr stop${C_RST}, then re-run the removal; the project is left as it was"
-            die MSG-S3B9 "project remove stopped before any change -- the helper left the SELinux label of ${d} while an agent session, the toolchain update, or a step run as the sandbox account may be live"
+        if (( relabel_status == RELABEL_NOT_APPLICABLE_STATUS )); then
+            say "    SELinux label: not applicable on this host (the helper's line above says why)"
+        elif (( relabel_status == RELABEL_PARTIAL_REVERT_STATUS )); then
+            # The helper ran past sudo, so the step is counted and the question about the remaining root steps is not
+            # asked: it is about a step that did not apply.
+            label_revert_outcome=partial
+            warn "the SELinux label was reverted except on hardlinked paths (the helper's line above names up to 20 and counts the rest); the deletion removes their names in this tree, and a hardlinked path's other names outside it keep its current type"
+            ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
+        elif (( relabel_status == RELABEL_WALKER_UNAVAILABLE_STATUS )); then
+            # Past sudo as well: the rules are dropped and no path was walked. A re-run of the revert after the deletion
+            # does not reach any name the tree held, so none is printed; report_hardlink_inventory names the files
+            # whose other names stand outside it.
+            label_revert_outcome=unwalked
+            warn "the SELinux label was not reverted: the tree walker could not run (the helper's line above says why); the deletion removes the tree's names, and a hardlinked path's other names outside it keep its current type"
+            ROOT_STEP_FAILURES=$(( ROOT_STEP_FAILURES + 1 ))
         elif (( relabel_status != 0 )); then
-            label_outcome=failed
+            label_revert_outcome=failed
             warn "could not revert the SELinux label -- run it by hand:"
             say  "      ${C_BOLD}sudo ${RELABEL_BIN} --remove $(_quote_path "${d}")${C_RST}"
             note_root_failure || cleanup_stopped=true
         else
-            label_outcome=completed
+            label_revert_outcome=completed
             say "    SELinux label: reverted"
         fi
+    fi
+    # A revert that did not complete -- it left hardlinked paths, did not walk, or failed -- leaves each hardlinked
+    # file's names outside the tree at their type. Their inode and mount are read while the tree stands, since
+    # after the deletion they are what finds those names.
+    if [[ "${label_revert_outcome}" == partial || "${label_revert_outcome}" == unwalked \
+            || "${label_revert_outcome}" == failed ]]; then
+        inventory_read=true
+        inventory="$(read_hardlink_inventory "${d}")" || inventory_status=$?
     fi
     unreg_allow "${d}"
     ${cleanup_stopped} || unreg_safedir "${d}" || note_root_failure || true
 
-    if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then
-        die_remove_incomplete "${d}" project removed "${label_outcome}" "${covering_entry}"
+    local deletion_complete=true
+    if ! run_as_owner rm -rf -- "${d}" || [[ -e "${d}" ]]; then deletion_complete=false; fi
+    if ${inventory_read}; then report_hardlink_inventory "${inventory_status}" "${inventory}"; fi
+    if ! ${deletion_complete}; then
+        die_remove_incomplete "${d}" project removed "${label_revert_outcome}" "${covering_entry}"
     fi
 
     say ""
@@ -5030,9 +5204,9 @@ cmd_project_remove() {
     # by stating both facts and exits non-zero, which is also what lets a script tell the two apart.
     if (( ROOT_STEP_FAILURES )); then
         warn MSG-S6V2 "removed ${d}, but ${ROOT_STEP_FAILURES} cleanup step(s) did not run"
-        say  "  Each is named above with the command that completes it. Registry entries left"
-        say  "  behind now point at a path that no longer exists; this lists every entry that"
-        say  "  needs attention, across all your projects:"
+        say  "  Each is named above, with what it left. Registry entries left behind now point"
+        say  "  at a path that no longer exists; this lists every entry that needs attention,"
+        say  "  across all your projects:"
         say  ""
         say  "      ${C_BOLD}$(format_projects_command "" "")${C_RST}"
         ai_tools_log__structured warning \
@@ -5041,19 +5215,19 @@ cmd_project_remove() {
     else
         ok "removed ${d}"
     fi
-    [[ "${PWD}" == "${d}" || "${PWD}" == "${d}/"* ]] \
-        && say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
+    report_cwd_in_removed_tree "${d}" "${cwd_real}"
     (( ROOT_STEP_FAILURES == 0 ))
 }
 
 # sandbox_finalize <dst>  -- the access-granting tail of every sandbox create, run once the clone exists: allowlist
 # entry (the lockdown scan acts only on an allowlisted path; rolled back on a failed gate), the secret gate, then --
-# past the gate alone -- relabel, normalize (pruning the locked paths), and register. A declined or failed gate leaves
-# the clone on disk, private and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed:
-# cli.rule.md, Sandbox clone). The relabel and the normalize run once, while the root is still owner-only
-# (clone_is_private), in that order (relabel_clone states why), and the relabel before the guard comes off: a clone
-# that could not be labelled stops the create the same way, since the agent cannot enter a clone opened unlabelled
-# and a resume over an opened clone does not label it.
+# past the gate alone -- relabel, normalize (pruning the locked paths), the root group and setgid steps, a read-back
+# of the result (clone_access_ready), and register. A declined or failed gate leaves the clone on disk, private
+# and unregistered, with a guard CLAUDE.md and the resume command printed (fail closed: cli.rule.md, ref-section-u9a9).
+# The relabel and the normalize run once, while the root is still owner-only (clone_is_private), in that order
+# (relabel_clone states why), and the relabel before the guard comes off: a clone that could not be labelled stops
+# the create the same way, since the agent cannot enter a clone opened unlabelled and a resume over an opened clone does
+# not label it.
 sandbox_finalize() {
     local dst="$1"
     reg_allow "${dst}"
@@ -5078,24 +5252,45 @@ sandbox_finalize() {
         die MSG-Z7B9 "sandbox create stopped -- the clone could not be labelled ai_tools_project_t"
     fi
     clear_lockdown_guard "${dst}"
+    # The access steps and the safe.directory step each return non-zero when they did not take, so a bare call
+    # under `set -e` would abort the create; each failure is reported at the close rather than left under the ✓.
+    local access_ok=true
     if ${opening}; then
         normalize_clone "${dst}" "${SECRET_MATCH_PATHS[@]}"
-        say "    access: group ${SANDBOX_GROUP} rwX + setgid dirs (locked secrets stay private)"
+        say "    access: opened to group ${SANDBOX_GROUP} (locked secrets stay private)"
+        # The operator cannot give a path SANDBOX_GROUP or keep a setgid bit in it (normalize_clone's header), so root
+        # does both through the two helpers a claim runs, in the claim's order: ai-tools-setgid on the work tree's
+        # directories, then `ai-tools-setfacl --with-git`, which regroups each opened path left in another group
+        # and normalizes .git. Each re-validates the registry entry reg_allow wrote and leaves an owner-only
+        # or secret-named path, which covers every path the gate locked, as it is. They run after normalize_clone,
+        # whose chmods would clear the setgid bit again.
+        reg_ownership "${dst}" force || access_ok=false
+        claim_setfacl "${dst}" true || access_ok=false
     else
         say "    access: already granted; the tree is left as it is"
     fi
-    # A clone exists to run git in, and without safe.directory the agent's git refuses the tree ("dubious ownership"),
-    # so the failure is reported at the close rather than left under the ✓; reg_safedir returns non-zero, so a bare call
-    # under `set -e` would abort the create.
+    clone_access_ready "${dst}" || access_ok=false
+    # A clone exists to run git in, and without safe.directory the agent's git refuses the tree ("dubious ownership").
     local safedir_ok=true
     reg_safedir "${dst}" || safedir_ok=false
     say ""
+    if ! ${access_ok}; then
+        headline_warn "WARNING: the agent cannot use the clone yet" \
+            "${dst} is created, secured and registered, but a path in it is outside the clone's group or a directory lacks the setgid bit, so the agent cannot read the tree. These commands set group ${SANDBOX_GROUP} and the setgid bit; nothing else about the clone needs redoing:"
+        say  "      ${C_BOLD}sudo ${SETGID_BIN} ${dst}${C_RST}"
+        say  "      ${C_BOLD}sudo ${SETFACL_BIN} --with-git ${dst}${C_RST}"
+        ai_tools_log__structured warning \
+            "sandbox ${dst} registered with a path outside the clone's group or a directory without setgid" \
+            "AI_TOOLS_PROJECT=${dst}"
+    fi
     if ! ${safedir_ok}; then
         headline_warn "WARNING: the clone is not git-ready" \
             "${dst} is created, secured and registered, but git safe.directory could not be added, so the agent's git will refuse to operate in it. The command above adds the entry; nothing else about the clone needs redoing."
         ai_tools_log__structured warning \
             "sandbox ${dst} registered without a git safe.directory entry" \
             "AI_TOOLS_PROJECT=${dst}"
+    fi
+    if ! ${access_ok} || ! ${safedir_ok}; then
         return 1
     fi
     ok "sandbox ready: ${dst}"
@@ -5143,15 +5338,20 @@ sandbox_resolve_base() {
 # owner-only throughout: the tip commit's files -- possibly checked-in credentials -- stay unreadable to the sandbox
 # account until the gate has run and normalize_clone opens the non-secret paths. A umask alone does not do it: the clone
 # area carries a default ACL, and a path created under one takes that ACL in place of the umask (acl(5)), so git's own
-# mkdir would make the root group-accessible at creation. The root is therefore made here, 0700, with its inherited ACL
-# stripped before git writes into it, and git creates every path inside under umask 077; git accepts an existing empty
-# directory as a clone destination. A failure removes the directory while it is empty, and dies.
+# mkdir would make the root group-accessible at creation. The root is therefore made here, 0700, and its inherited
+# default ACL removed before git writes into it, and git creates every path inside under umask 077; git accepts
+# an existing empty directory as a clone destination. A failure removes the directory while it is empty, and dies.
+#
+# The root takes the area's group and setgid bit at creation, so every path git creates is in SANDBOX_GROUP. Only
+# the default ACL is removed (`setfacl -k`): the kernel clears a directory's setgid bit on a mode or access-ACL change
+# by a caller outside its group, which the operator is, so `setfacl -b` would leave git to create the tree
+# in the operator's own group. The access entries the root inherited stay, masked to `---` by the 0700 create mode.
 clone_privately() {
     local url="$1" branch="$2" dst="$3"
     mkdir -m 0700 -- "${dst}" || die "could not create ${dst}"
-    if ! setfacl -b -- "${dst}"; then
+    if ! setfacl -k -- "${dst}"; then
         rmdir -- "${dst}" 2>/dev/null || true
-        die MSG-U3Q6 "could not strip the inherited ACL from ${dst} -- the clone was not created"
+        die MSG-U3Q6 "could not remove the inherited default ACL from ${dst} -- the clone was not created"
     fi
     if ! ( umask 077 && git clone --depth=1 -b "${branch}" "${url}" "${dst}" ); then
         rmdir -- "${dst}" 2>/dev/null || true
@@ -5367,17 +5567,26 @@ cmd_project_push() {
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
-# remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: unregister a sandbox clone, then delete it.
-# A clone is authorized by its place, its owner and its shape (require_sandbox_clone_shape), and its own lines go
-# with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then the tree.
-# The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it was: on disk,
-# registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes> true
-# pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made over the clone
-# (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets instead
-# of counting them. The registry record is read for what a failed deletion's warning names alone: whether the clone had
-# an entry of its own and which entry still covers it; the authorization stays require_sandbox_clone_shape.
+# report_cwd_in_removed_tree <dir> <cwd>  -- after a removal of <dir>, name `cd` when <cwd>, the canonical current
+# directory read before the deletion, was <dir> or under it. The CLI cannot change its parent shell's directory,
+# and every later command in that shell prints bash's shell-init and job-working-directory errors.
+report_cwd_in_removed_tree() {
+    [[ -n "$2" && ( "$2" == "$1" || "$2" == "$1/"* ) ]] || return 0
+    say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
+}
+
+# remove_clone <dir> <assume-yes> <cwd>  -- the clone kind of `projects remove`: unregister a sandbox clone, then
+# delete it. A clone is authorized by its place, its owner and its shape (require_sandbox_clone_shape), and its own
+# lines go with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then
+# the tree. The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it
+# was: on disk, registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes>
+# true pre-answers the one default-NO confirm, and <cwd> is the canonical current directory read before the deletion.
+# The remote branch is left intact. No git read is made over the clone (cmd_project_remove states why), so a line ahead
+# of the confirm states what an unpushed commit meets instead of counting them. The registry record is read
+# for what a failed deletion's warning names alone: whether the clone had an entry of its own and which entry still
+# covers it; the authorization stays require_sandbox_clone_shape.
 remove_clone() {
-    local d="$1" assume_yes="$2" own_entry=none covering_entry
+    local d="$1" assume_yes="$2" cwd_real="$3" own_entry=none covering_entry
     require_sandbox_clone_shape "${d}"
     read_path_class "${d}"
     [[ "${CLASS_STATE}" != enabled && "${CLASS_STATE}" != disabled ]] || own_entry=removed
@@ -5401,6 +5610,7 @@ remove_clone() {
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
+    report_cwd_in_removed_tree "${d}" "${cwd_real}"
 }
 
 # cmd_project_lockdown [path] [--dry-run] [-y]  -- run ai-tools-lockdown (via sudo) on the project, or the one
@@ -5831,11 +6041,22 @@ cmd_providers() {
 # list_maintenance_note  -- the compact pointer to the existing per-project verbs, printed under the listing
 # so `projects list` doubles as a reconciliation/maintenance view.
 list_maintenance_note() {
+    local -a rows=(
+        "atr projects claim DIRECTORY"$'\t'"claim a project / finish claiming one"
+        "atr projects unclaim DIRECTORY"$'\t'"release a project (revoke agent access)"
+        "atr projects handback [--full] DIRECTORY"$'\t'"take back ownership; project stays claimed"
+        "atr projects lockdown DIRECTORY"$'\t'"lock down secret-named files"
+    )
+    local row command width=0
+    # The description column follows the longest command, so a row added or reworded keeps the block aligned.
+    for row in "${rows[@]}"; do
+        command="${row%%$'\t'*}"
+        if (( ${#command} > width )); then width="${#command}"; fi
+    done
     section "Maintenance"
-    say "  atr projects claim DIRECTORY             claim a project / finish claiming one"
-    say "  atr projects unclaim DIRECTORY           release a project (revoke agent access)"
-    say "  atr projects handback [--full] DIRECTORY  take back ownership; project stays claimed"
-    say "  atr projects lockdown DIRECTORY          lock down secret-named files"
+    for row in "${rows[@]}"; do
+        printf '  %-*s  %s\n' "${width}" "${row%%$'\t'*}" "${row#*$'\t'}"
+    done
 }
 
 # status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"). The wording is single-sourced
@@ -5887,19 +6108,24 @@ status_sandbox_unit_commands() {
 # through the SAME accessors -- charset-clamped fields and one age implementation - rather than a second reader
 # that could drift. Its path comes from entrypoint-verify.lib.sh, never hardcoded.
 #
-# Returns non-zero only when an unpinned entrypoint is actionable, which is exactly when the operator has required
-# verification: everywhere else unpinned is a legitimate state (an air-gapped host, a release the vendor published no
-# manifest for) and must not make a healthy host alarm, the same rule the unqueryable units follow. A pin this account
-# has no read on is reported as unknown, which ai_tools_services__is_attention_needed does not count as a fault:
-# `status` stays open to a non-operator, whom the state directory's mode keeps out. status_path_order -- where THIS
-# shell finds each enabled agent's launcher. The one reading this report can make for free and no other vantage can make
-# at all: the CLI runs in the operator's own login shell, so `command -v claude` resolves exactly what typing `claude`
-# would run. A launcher resolving to a file other than the wrapper starts UNCONFINED, as the operator, so it counts
-# toward the report's exit status and names the command that repairs it. What each state means is launch.rule.md's PATH
-# ordering section; what this report says about each is cli.rule.md.
+# Returns STATUS_UNREADABLE when the provider or entrypoint library did not load, and 1 for a stale pin, a recorded
+# labelling failure, and an unpinned entrypoint where the operator has required verification: everywhere else unpinned
+# is a legitimate state (an air-gapped host, a release the vendor published no manifest for) and must not make a healthy
+# host alarm, the same rule the unqueryable units follow. A pin this account has no read on is reported as unknown,
+# which ai_tools_services__is_attention_needed does not count as a fault: `status` stays open to a non-operator, whom
+# the state directory's mode keeps out. status_path_order -- where THIS shell finds each enabled agent's launcher. The
+# one reading this report can make for free and no other vantage can make at all: the CLI runs in the operator's own
+# login shell, so `command -v claude` resolves exactly what typing `claude` would run. A launcher resolving to a file
+# other than the wrapper starts UNCONFINED, as the operator, so it counts toward the report's exit status and names the
+# command that repairs it. What each state means is launch.rule.md's PATH ordering section; what this report says about
+# each is cli.rule.md.
 #
-# Best-effort like the rest of this report: without the library or the provider resolver this vantage has no launcher
-# to resolve, so the section is omitted rather than guessed at.
+# path-order.lib.sh and providers.lib.sh ship with base, so a reader either did not define is a broken install: reported
+# under MSG-N9Q3 and returned as STATUS_UNREADABLE, the later sections still printed. The launcher list comes
+# from the provider resolver, and without it the reader does not list a launcher and the section would print nothing.
+#
+# Run as root, the CLI reads root's PATH, which is not an operator's shell, and the remedy `atr admin operators add`
+# refuses root (MSG-C4Y4): each launcher prints n/a and the section does not count.
 status_path_order() {
     local path_order_lib=/usr/local/lib/ai-tools/path-order.lib.sh
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
@@ -5907,7 +6133,12 @@ status_path_order() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/path-order.lib.sh
     source "${path_order_lib}" 2>/dev/null || true
-    declare -F ai_tools_path_order__read_here >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_path_order__read_here >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
+        section "PATH ordering"
+        warn MSG-N9Q3 "the PATH ordering or provider library (${path_order_lib}, ${providers_lib}) did not load -- no launcher was resolved in this shell; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
 
     local state pair launcher winner seen=0
     ai_tools_path_order__read_here || true
@@ -5915,6 +6146,10 @@ status_path_order() {
     for pair in "${AI_TOOLS_PATH_ORDER__WINNERS[@]+"${AI_TOOLS_PATH_ORDER__WINNERS[@]}"}"; do
         launcher="${pair%%=*}"; winner="${pair#*=}"
         (( seen++ == 0 )) && section "PATH ordering"
+        if [[ "${INVOKING_USER}" == root ]]; then
+            printf '  %-28s %sn/a (root is not an operator -- run status as one)%s\n' "${launcher}" "${C_DIM}" "${C_RST}"
+            continue
+        fi
         case "${winner}" in
             # This host does not install a wrapper of that name, so its PATH has no ordering to get wrong here --
             # reported, and not a fault.
@@ -5928,11 +6163,12 @@ status_path_order() {
         esac
     done
     (( seen )) || return 0
+    [[ "${INVOKING_USER}" != root ]] || return 0
 
     case "${state}" in
         shadowed)
             say "      typing that name starts an agent OUTSIDE the sandbox: as you, with your"
-            say "      credentials and home, and no allowlist, confinement or ownership handback"
+            say "      credentials and home, and no project registry, confinement or ownership handback"
             say "      ${C_BOLD}atr admin operators add ${INVOKING_USER}${C_RST}"
             return 1 ;;
         # Reaching the wrapper without the ordering line is right today and right by accident: the next thing
@@ -5952,24 +6188,45 @@ status_entrypoint_pins() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/entrypoint-verify.lib.sh
     source "${verify_lib}" 2>/dev/null || true
-    declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 || return 0
-    declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 || return 0
+    # Both libraries ship with base, so one that did not load is a broken install: a reading this section promises
+    # and could not make. Every reader an agent's lines call is checked here, ahead of the first agent, so a missing one
+    # does not leave the pin's own fields to render as VERIFIED, a missing verification-policy reader does not leave
+    # an unpinned agent to render as not blocked where the host requires verification, and an agent that takes
+    # `continue` before its label line still has its label reader checked; status_entrypoint_label keeps its own guard
+    # (MSG-K8K4). The service registry's absence is the Services section's to report (MSG-X5Z8).
+    if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_pin_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__read_pin_kind >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; then
+        section "Entrypoint verification"
+        warn MSG-E5C3 "the provider or entrypoint library (${providers_lib}, ${verify_lib}) did not load -- no entrypoint pin was read; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1 || return 0
 
     local strict=no
-    declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
-        && ai_tools_entrypoint_verify__is_required && strict=yes
+    ai_tools_entrypoint_verify__is_required && strict=yes
 
-    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0
+    local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0 unreadable=0 label_status
+    local label_record unpinned
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
-        # what is installed for it instead, so it is reported once that pin exists and left out while there is nothing
+        # what is installed for it instead, so it is reported once that pin exists. Before then it is reported
+        # where the operator required verification, since its launch is refused until a reconcile records the pin,
+        # and where a label record exists: ai-tools-relabel-agent files a label outcome for every enabled agent, one it
+        # could not pin included, and a failed one stops that agent's launch. With neither, there is nothing
         # yet to report.
         pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
+        unpinned=""
         if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
               && ! -e "${pin}" ]]; then
-            continue
+            label_record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
+            [[ "${strict}" == yes || ( -n "${label_record}" && -e "${label_record}" ) ]] || continue
+            unpinned=yes
         fi
         (( seen++ == 0 )) && section "Entrypoint verification"
         version="$(ai_tools_services__read_stamp_field "${pin}" VERSION)"
@@ -5977,7 +6234,14 @@ status_entrypoint_pins() {
         # leaves the pin exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still
         # carries a version and a date and would otherwise render as a fresh, successful verification beside the line
         # saying it no longer describes the installed binary.
-        if status_entrypoint_stale "${agent}"; then
+        if [[ -n "${unpinned}" && "${strict}" == yes ]]; then
+            blocking=$(( blocking + 1 ))
+            printf '  %-28s %sUNVERIFIED%s %s(no pin recorded)%s\n' "${agent}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${C_RST}"
+            say "      this host requires verification, so its sessions will not launch"
+            say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(records the entrypoint as installed)${C_RST}"
+        elif [[ -n "${unpinned}" ]]; then
+            printf '  %-28s %sno pin recorded%s\n' "${agent}" "${C_DIM}" "${C_RST}"
+        elif status_entrypoint_stale "${agent}"; then
             stale=$(( stale + 1 ))
         elif [[ -n "${version}" ]]; then
             verified="$(ai_tools_services__read_stamp_age "${pin}" VERIFIED)"
@@ -6016,9 +6280,13 @@ status_entrypoint_pins() {
                     "${agent}" "${C_DIM}" "${C_RST}" "${C_DIM}" "${C_RST}"
             fi
         fi
-        status_entrypoint_label "${agent}" || mislabelled=$(( mislabelled + 1 ))
+        label_status=0
+        status_entrypoint_label "${agent}" || label_status=$?
+        if (( label_status == STATUS_UNREADABLE )); then unreadable=$(( unreadable + 1 ))
+        elif (( label_status != 0 )); then mislabelled=$(( mislabelled + 1 )); fi
     done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
 
+    [[ "${unreadable}" -gt 0 ]] && return "${STATUS_UNREADABLE}"
     [[ "${stale}" -gt 0 ]] && return 1
     [[ "${mislabelled}" -gt 0 ]] && return 1
     [[ "${strict}" == yes && "${blocking}" -gt 0 ]] && return 1
@@ -6127,10 +6395,9 @@ status_selinux_attestation() {
 # of a verification that once succeeded, so without the mark each status report renders it green while every status
 # reports render it green while every launch of that agent is already refused. The remedy is the reconcile command,
 # which re-reads the installed binary -- and the commands that replace it are the relabel helper's to print, since only
-# root can name the package directory.
+# root can name the package directory. status_entrypoint_pins checks the stale-path reader before the first agent.
 status_entrypoint_stale() {
     local agent="$1" record state version reason detected age
-    declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 || return 1
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -r "${record}" ]] || return 1
     state="$(ai_tools_services__read_stamp_field "${record}" STATE)"
@@ -6159,10 +6426,14 @@ status_entrypoint_stale() {
 # which reads the labels as root, and the service start that re-runs the work and clears the unit's own recorded failure
 # with it.
 #
-# Returns non-zero only for a recorded failure, which is the one state that stops a launch.
+# Returns 1 for a recorded failure, which is the one state that stops a launch, and STATUS_UNREADABLE when
+# entrypoint-verify.lib.sh's record-path reader is not defined, a library base ships that did not load.
 status_entrypoint_label() {
     local agent="$1" record result reason age
-    declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; then
+        warn MSG-K8K4 "the entrypoint library did not load its label-record reader -- the labelling of ${agent} was not read; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
     result="$(ai_tools_services__read_stamp_field "${record}" RESULT)"
     age="$(status_fmt_age "$(ai_tools_services__read_stamp_age "${record}" LABELLED)")"
@@ -6173,34 +6444,24 @@ status_entrypoint_label() {
         # One reason is read rather than only printed: `incomplete-package` (written by ai-tools-relabel-agent) says
         # the executable the manifest declares is not installed, which no relabel can supply -- so naming the relabel
         # as the retry would send the operator around the loop this report exists to end. The package is what has to be
-        # reinstalled, and the provisioning command is what does it. `live-session` on a failure is a config directory
-        # the walk left at a type the agent cannot write, which the next run with no session labels.
+        # reinstalled, and the provisioning command is what does it. Every other reason, one an earlier release wrote
+        # among them, takes the relabel retry.
         failed)  printf '  %-28s %sNOT LABELLED%s %s(%s%s)%s\n' "" "${C_RED}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${reason:+, ${reason}}" "${C_RST}"
                  if [[ "${reason}" == incomplete-package ]]; then
                      say "      this agent's package does not hold the executable its manifest declares, so there is"
                      say "      nothing to label and no session of it starts; reinstall the package:"
                      say "      ${C_BOLD}atr admin system bootstrap${C_RST} ${C_DIM}(its output names an install that did not complete)${C_RST}"
-                 elif [[ "${reason}" == live-session ]]; then
-                     say "      its config directory was not labelled while a process of the sandbox account was"
-                     say "      live, or its sessions could not be read, and carries a type the agent cannot write;"
-                     say "      once none is live: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
                  else
                      say "      the last reconciliation could not apply this agent's labels; the label its"
                      say "      entrypoint carries now is read by: ${C_BOLD}atr admin status${C_RST}"
                      say "      retry: ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST} ${C_DIM}(then: journalctl -t ai-tools-relabel-agent)${C_RST}"
                  fi
                  return 1 ;;
-        # Nothing to label -- a DAC-only host, or an agent the toolchain has not provisioned yet -- or the config
-        # directory's walk left while a process of the sandbox account was live, over a directory an earlier run
-        # labelled. None is a fault, so none is coloured or counted; the last names the run that completes it.
+        # Nothing to label: a DAC-only host, or an agent the toolchain has not provisioned yet. Neither is a fault,
+        # so neither is coloured or counted.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
-                     "${reason:-nothing to label}" "${C_RST}"
-                 if [[ "${reason}" == live-session ]]; then
-                     say "      ${C_DIM}the config directory was not relabelled while a process of the sandbox account was${C_RST}"
-                     say "      ${C_DIM}live, or its sessions could not be read; once none is live:${C_RST}"
-                     say "      ${C_BOLD}sudo systemctl start ai-tools-relabel.service${C_RST}"
-                 fi ;;
+                     "${reason:-nothing to label}" "${C_RST}" ;;
         # No record at all: this host has not run a reconciliation since the record was introduced, or the state
         # directory is unreadable from this account. It says only that, and never counts against the exit status --
         # the same rule the unqueryable units follow.
@@ -6216,9 +6477,9 @@ status_entrypoint_label() {
 # counted: an unfinished install is what this section exists to say, not a fault in a finished one. Returns non-zero
 # when the enabled agents cannot be read at all, which is a broken install, like a missing service registry,
 # and when an installed agent that is not enabled still has its link (status_residue), the state every launch is refused
-# in.
+# in. A reader status_managed_files or status_residue reports missing makes it return STATUS_UNREADABLE.
 status_provisioning() {
-    local rec agent_name launcher reason faults=0 unreadable
+    local rec agent_name launcher reason faults=0 unreadable managed_status managed_unreadable=0
     section "Provisioning"
     # The resolver not loading is a broken install, a reading this section could not make: STATUS_UNREADABLE,
     # so the report exits 5 rather than counting it among the faults it did read.
@@ -6238,13 +6499,17 @@ status_provisioning() {
         else
             say "  ${C_YEL}${agent_name} not provisioned${C_RST} -- run: ${C_BOLD}atr admin system bootstrap${C_RST}"
         fi
-        status_managed_files "${agent_name}" || faults=$(( faults + 1 ))
+        managed_status=0
+        status_managed_files "${agent_name}" || managed_status=$?
+        if (( managed_status == STATUS_UNREADABLE )); then managed_unreadable=1
+        elif (( managed_status != 0 )); then faults=$(( faults + 1 )); fi
     done
     status_residue || {
         unreadable=$?
         if (( unreadable == STATUS_UNREADABLE )); then return "${STATUS_UNREADABLE}"; fi
         faults=$(( faults + 1 ))
     }
+    (( managed_unreadable == 0 )) || return "${STATUS_UNREADABLE}"
     (( faults == 0 ))
 }
 
@@ -6364,10 +6629,16 @@ status_node_version() {
 # is where an operator learns the live file differs: the agent reads it alone, a key this release adds is not in it,
 # and what it declares is the host's rather than the package's. A file matching the shipped copy is not reported,
 # and an edited one is not counted -- it is a supported state -- while a missing one is, since the package is then
-# broken and a reinstall is the remedy. Returns non-zero for a missing file.
+# broken and a reinstall is the remedy. Returns 1 for a missing file, and STATUS_UNREADABLE under MSG-K9T3
+# where providers.lib.sh did not define the managed-files reader or the comparison it runs per file, a library base
+# ships.
 status_managed_files() {
     local agent="$1" live reference state rc=0
-    declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__evaluate_managed_file >/dev/null 2>&1; then
+        warn MSG-K9T3 "the provider library did not load its managed-files reader -- the managed files of ${agent} were not compared; reinstall the ai-tools package"
+        return "${STATUS_UNREADABLE}"
+    fi
     while IFS=$'\t' read -r live reference; do
         [[ -n "${live}" ]] || continue
         state="$(ai_tools_providers__evaluate_managed_file "${live}" "${reference}")"
@@ -6603,7 +6874,7 @@ status_services() {
             if [[ "${scope}" == sandbox-user ]]; then
                 status_sandbox_unit_commands "${unit}"
             fi
-            remedy="$(ai_tools_services__get_field "${rec}" 6)"
+            remedy="$(ai_tools_services__read_remedy "${rec}")"
             if [[ -n "${remedy}" ]]; then
                 say "      ${C_BOLD}${remedy}${C_RST}"
             fi
@@ -6618,11 +6889,14 @@ status_services() {
 # a stale path that no longer exists, or a project listed but never fully claimed). All read-only, reusing existing
 # predicates and verbs -- no recovery machinery of its own. A removal is offered only for an entry this run can
 # attribute to the registry it reads; a reading the invoker cannot make withholds the removal and is counted or named
-# instead.
+# instead. An absent registry is the listing's body, and the safe.directory reconciliation still runs, over an empty
+# entry set: read_path_class reads an absent file as unregistered, so a registry removed by hand leaves its
+# safe.directory entries reported.
 cmd_project_list() {
     [[ "$#" -eq 0 ]] || die_usage MSG-E2A5 "projects list takes no arguments"
     load_target_registry_snapshot
-    [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || { say "no registry at ${ALLOWLIST}"; return 0; }
+    local registry_source="${ALLOWLIST}"
+    [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || registry_source=/dev/null
     # Name the operator on a --for run: the listed entries are that account's launch gate, not the invoker's,
     # and an unlabelled listing of someone else's projects reads as your own.
     if [[ -n "${FOR_OPERATOR}" ]]; then
@@ -6649,7 +6923,7 @@ cmd_project_list() {
         say "  ${C_YEL}the projects verbs other than this list refuse until it is. Migrate it with:${C_RST}"
         say "      ${C_BOLD}atr admin system post-upgrade${C_RST}"
     fi
-    local raw entry excl kind safe sd shown=0
+    local raw entry excl kind safe sd project_root_mode shown=0
     local -a cleanup=()
 
     # _is_labelled <dir>  -- 0 when SELinux is active and <dir> carries ai_tools_project_t.
@@ -6678,9 +6952,6 @@ cmd_project_list() {
             safe="safe.dir:${C_YEL}NO${C_RST}"; sd=false
         fi
     }
-    # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
-    # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
-    # the removal command deletes.
     # _record_unreadable_entry <label> <entry>  -- when an ancestor of <entry> is a directory the invoker cannot enter,
     # append a block naming it and return 0; return 1 otherwise. realpath fails alike for such a path and for one that
     # is gone, so this is read first: an entry the invoker cannot read is not reported stale, and is not given
@@ -6693,6 +6964,17 @@ cmd_project_list() {
         [[ -z "${FOR_OPERATOR}" ]] || cleanup+=( "      ${FOR_OPERATOR}'s own atr projects reads it" )
         return 0
     }
+    # _read_owner_only_mode <dir>  -- print the mode of the directory <dir> names and return 0 when it has no group
+    # or other bit, as the invoker reads it; return 1 for any other mode and for a mode the invoker cannot read.
+    _read_owner_only_mode() {
+        local project_root_mode
+        project_root_mode="$(stat -L -c '%a' -- "$1" 2>/dev/null)" || return 1
+        [[ "${project_root_mode}" =~ ^[0-7]{1,4}$ ]] && (( ( 8#${project_root_mode} & 077 ) == 0 )) || return 1
+        printf '%s\n' "${project_root_mode}"
+    }
+    # _reconcile <entry> <kind> <safedir-yes> <raw-line>  -- append a remediation block for an inconsistent entry (stale
+    # / protected / listed-but-not-fully-claimed). Nested so it shares `cleanup`; <raw-line> is the verbatim source line
+    # the removal command deletes.
     _reconcile() {
         local e="$1" k="$2" sdy="$3" raw="$4" e_real
         _record_unreadable_entry "${e}" "${e}" && return 0
@@ -6716,6 +6998,9 @@ cmd_project_list() {
         [[ "${k}" == project ]] || return 0            # a sandbox clone takes the clone kind of `projects remove`
         # Not fully claimed: agent has no group access, the ACL is missing, or (SELinux active) the tree is unlabelled.
         # Read from the same read_project_state tokens the claim flow uses.
+        # An owner-only root is annotated on its row: the claim leaves that mode as it is, so a claim command is not
+        # a remedy for it.
+        _read_owner_only_mode "${e}" >/dev/null && return 0
         local listed safedir filemode owngap acl labelled git
         IFS=' ' read -r listed safedir filemode owngap acl labelled git < <(read_project_state "${e}")
         if [[ "${owngap}" == true || "${acl}" == true || "${labelled}" == false ]]; then
@@ -6756,6 +7041,7 @@ cmd_project_list() {
                 cleanup+=( "  % ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale disabled project); remove it:" \
                     "          $(format_registry_line_removal "${raw}" disabled "${excl}")" )
+                ${sd} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${excl}")" )
             fi
             continue
         fi
@@ -6765,14 +7051,23 @@ cmd_project_list() {
         esac
         _read_safedir_column "${entry}"
         read_path_class "$(resolve_entry_path "${entry}")"
-        printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
+        if project_root_mode="$(_read_owner_only_mode "${entry}")"; then
+            printf '  %-8s %-50s %s  %s\n' "${kind}" "${entry}" "${safe}" \
+                "${C_YEL}mode ${project_root_mode} (owner-only)${C_RST} ${C_DIM}-- no session can start here${C_RST}"
+        else
+            printf '  %-8s %-50s %s\n' "${kind}" "${entry}" "${safe}"
+        fi
         # A listed project under a `%`, a `!` or a glob line is still this operator's entry, and no session reaches it
         # while that line stands.
         [[ "${CLASS_STATE}" != enabled || "${CLASS_BLOCKED}" == - ]] \
             || say "           ${C_YEL}blocked${C_RST} ${C_DIM}by: ${CLASS_BLOCKED}${C_RST}"
         _reconcile "${entry}" "${kind}" "${sd}" "${raw}"
-    done < "${ALLOWLIST}"
-    (( shown )) || say "  (none)"
+    done < "${registry_source}"
+    if [[ "${registry_source}" == /dev/null ]]; then
+        say "  no registry at ${REGISTRY_DISPLAY_PATH}"
+    elif (( ! shown )); then
+        say "  (none)"
+    fi
 
     # Reverse reconciliation: a git safe.directory entry no registry entry names is an ORPHAN -- git still trusts
     # the tree though no line names it (the line was hand-deleted, or an unclaim was interrupted before the safedir
@@ -7221,14 +7516,16 @@ require_runas_target() {
         "This is a separate sudoers question from the ai-tools helpers: a host can grant every one of those and still restrict which accounts you may act as."
 }
 
-# refresh_target_allowlist_snapshot -- point ALLOWLIST at a private copy of the --for target's registry, read through
-# the root helper: first by load_target_registry_snapshot, once the verb's own checks have passed, and again after each
-# write. The copy is read-only input for THIS run: every mutation goes back through the helper, which re-reads the real
-# file, so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow refresh it after theirs.
-# The helper refuses a target with no allowlist file, and its refusal reaches the terminal on stderr, so a failed read
-# ends the run with a line naming the target under the helper's own text and code. The file exists only once the helper
-# has answered: mktemp creates it 0600, and the EXIT trap removes it, so another operator's project list does
-# not outlive the command.
+# FN-K9Y2: refresh_target_allowlist_snapshot
+#
+# refresh_target_allowlist_snapshot -- point ALLOWLIST at a private copy of the --for target's registry, read
+# through the root helper: first by load_target_registry_snapshot, once the verb's own checks have passed, and again
+# after each write. The copy is read-only input for THIS run: every mutation goes back through the helper,
+# which re-reads the real file, so a stale snapshot can never be what a write is based on -- and reg_allow/unreg_allow
+# refresh it after theirs. The helper refuses a target with no allowlist file, and its refusal reaches the terminal
+# on stderr, so a failed read ends the run with a line naming the target under the helper's own text and code. The file
+# exists only once the helper has answered: mktemp creates it 0600, and the EXIT trap removes it, so another operator's
+# project list does not outlive the command.
 ALLOWLIST_SNAPSHOT=""
 refresh_target_allowlist_snapshot() {
     local entries
@@ -7269,8 +7566,8 @@ remove_run_files() {
 # Every refusal here, like every refusal a verb makes of its own command line, precedes the snapshot, which is
 # the run's first sudo: a command that is going to be refused must not first prompt the operator for a password.
 #
-# --for is accepted only on the verbs whose whole effect is decided by WHICH operator's allowlist covers the path:
-# the registry pair, the two per-project root helpers that gate on allowlist coverage, and the listing. Elsewhere it is
+# --for is accepted only on the verbs whose whole effect is decided by WHICH operator's registry covers the path:
+# the registry pair, the two per-project root helpers that gate on registry coverage, and the listing. Elsewhere it is
 # REFUSED rather than ignored -- a `projects clone --for` that silently cloned as the invoker would leave the tree owned
 # by the wrong operator with no output to show the flag was disregarded.
 #
@@ -7283,8 +7580,14 @@ remove_run_files() {
 # refuses a caller outside the group, and a create under the clone area writes through that area's `g:ai-ops` ACL.
 # `id -nG` reads the group database without a password, so an account in OPERATORS and not in the group -- a name
 # written into operator.conf by hand -- is refused before the snapshot, rather than after the run's first writes.
+#
+# A command path the dispatch does not have is refused as an unknown command first (MSG-S2H5), so `--for op bogus` names
+# the typo rather than a flag. The gating tables together classify every dispatched path, which tests/unit/cli-verbs.sh
+# holds them to, so their union is the set read here.
 require_for_target() {
     [[ -n "${FOR_OPERATOR}" ]] || return 0
+    verb_in "${COMMAND}" "${OPERATOR_VERBS[@]}" "${ROOT_ALLOWED_VERBS[@]}" "${BOOTSTRAP_EXEMPT_VERBS[@]}" \
+        || unknown_command "${COMMAND}"
     verb_in "${COMMAND}" "${FOR_ALLOWED_VERBS[@]}" \
         || die MSG-U7R7 "--for is not accepted on ${COMMAND}" \
                "it applies to: $(join_paths "${FOR_ALLOWED_VERBS[@]}")"
@@ -7316,6 +7619,8 @@ require_for_target() {
     REGISTRY_DISPLAY_PATH="~${FOR_OPERATOR}/.config/ai-tools/project-registry"
 }
 
+# FN-R7N4: load_target_registry_snapshot
+#
 # load_target_registry_snapshot  -- read a --for target's registry into this run's snapshot and validate it,
 # the run's first sudo; a no-op without --for and once the snapshot exists. Each verb FOR_ALLOWED_VERBS names calls it
 # after its own command-line checks and before its first registry read, after its path resolution too where the path

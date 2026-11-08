@@ -12,7 +12,9 @@
 # blind fails rather than passing. The settings.json keep decision is a function, so it is also driven: read
 # out of install.sh as text (extract_function) and run over a fixture tree through the checkout's layout library
 # under AI_TOOLS_LAYOUT_ROOT. A file at its row needs a root-owned fixture, so that half runs as root and skips
-# otherwise.
+# otherwise. do_selinux_restore's text is read for every `restorecon -R` naming a root-owned tree and the account's
+# trees going through walk_account_tree, which is driven over the walker's statuses, over a tree named through
+# a symlinked ancestor and over a path realpath cannot resolve, with the walker a shell function.
 #
 # The ACL tools check, require_acl_tools, is driven the same way under a PATH without the tools, and do_install's text
 # is read for the call's place ahead of the first write. ensure_dir is driven over fixtures: a name that is not
@@ -224,16 +226,16 @@ else
 fi
 
 
-# ── do_selinux_restore walks only root-owned trees ahead of the live-session reading ──────────────
-# A walk of a tree the sandbox account can write runs behind the live-session reading (cli.rule.md, ref-section-e6c6).
-# Every `restorecon -R` the function makes before the reading must name a root-owned tree from the set
-# find_early_account_walks lists; a control fixture walking /opt/ai-tools/.config there must be flagged.
-# find_early_account_walks <file>: print each `restorecon -R` code line ahead of the reading that names a path outside
-# the root-owned set.
-find_early_account_walks() {
+# ── do_selinux_restore: restorecon on root-owned trees, the walker on the account's ───────────
+# A tree the sandbox account can write is labelled through the descriptor-pinned walker (cli.rule.md, ref-section-e6c6).
+# Every `restorecon -R` the function makes must name a root-owned tree from the set find_account_tree_restorecons lists;
+# a control fixture walking /opt/ai-tools/.config with it must be flagged. /opt/ai-tools/.config and the agents' config
+# directories go through walk_account_tree, which runs the installed walker. find_account_tree_restorecons <file>: print
+# each `restorecon -R` code line that names a path outside the root-owned
+# set.
+find_account_tree_restorecons() {
     local line path
     while IFS= read -r line; do
-        [[ "${line}" == *_sandbox_session_state=* ]] && break
         [[ "${line}" =~ restorecon[[:space:]]+-R ]] || continue
         for path in ${line#*restorecon}; do
             case "${path}" in
@@ -245,23 +247,113 @@ find_early_account_walks() {
     done < <(code_lines "$1")
 }
 restore_text="$(extract_function "${INSTALLER}" do_selinux_restore)"
-if [[ -z "${restore_text}" ]]; then
-    fail "install.sh does not define do_selinux_restore() in the form this file reads"
+walk_text="$(extract_function "${INSTALLER}" walk_account_tree)"
+if [[ -z "${restore_text}" || -z "${walk_text}" ]]; then
+    fail "install.sh does not define do_selinux_restore() and walk_account_tree() in the form this file reads"
 else
     printf '%s\n' 'do_selinux_restore() {' '    restorecon -R \\' '        /opt/ai-tools/bin/ \\' \
-        '        /opt/ai-tools/.config/' '    _sandbox_session_state="$(read)"' '}' > "${TESTDIR}/restore-control.sh"
-    if [[ -n "$(find_early_account_walks "${TESTDIR}/restore-control.sh")" ]]; then
-        pass "the reader flags a walk of an account-writable tree ahead of the reading (control)"
+        '        /opt/ai-tools/.config/' '}' > "${TESTDIR}/restore-control.sh"
+    if [[ -n "$(find_account_tree_restorecons "${TESTDIR}/restore-control.sh")" ]]; then
+        pass "the reader flags a restorecon -R of an account-writable tree (control)"
     else
-        fail "control: the reader does not flag an early walk, so the check below cannot fail"
+        fail "control: the reader does not flag a restorecon -R of an account-writable tree, so the check below cannot fail"
     fi
     printf '%s\n' "${restore_text}" > "${TESTDIR}/restore.sh"
-    if ! grep -q '_sandbox_session_state=' "${TESTDIR}/restore.sh"; then
-        fail "do_selinux_restore does not take the live-session reading this check splits on"
+    found="$(find_account_tree_restorecons "${TESTDIR}/restore.sh")"
+    [[ -z "${found}" ]] && pass "every restorecon -R in do_selinux_restore names a root-owned tree" \
+        || fail "do_selinux_restore runs restorecon -R over a tree the account can write: $(_san "${found}")"
+    restore_code="$(code_lines "${TESTDIR}/restore.sh")"
+    if grep -qE ':[[:space:]]*\[\[ -d /opt/ai-tools/\.config \]\] && walk_account_tree /opt/ai-tools/\.config$' <<<"${restore_code}" \
+            && grep -qE ':[[:space:]]*\[\[ -d "\$\{_cfg\}" \]\] && walk_account_tree "\$\{_cfg\}"$' <<<"${restore_code}" \
+            && grep -qE ':[[:space:]]*done < <\(ai_tools_control_plane__list_agent_config_dirs\)$' <<<"${restore_code}"; then
+        pass "do_selinux_restore walks /opt/ai-tools/.config and each agent config directory through walk_account_tree"
     else
-        found="$(find_early_account_walks "${TESTDIR}/restore.sh")"
-        [[ -z "${found}" ]] && pass "do_selinux_restore walks only root-owned trees ahead of the live-session reading" \
-            || fail "do_selinux_restore walks a tree the account can write ahead of the reading: $(_san "${found}")"
+        fail "do_selinux_restore does not walk /opt/ai-tools/.config and the agents' config directories through walk_account_tree"
+    fi
+    if grep -q 'read_live_session_state' <<<"${restore_code}"; then
+        fail "do_selinux_restore still reads the live-session state"
+    else
+        pass "do_selinux_restore does not read the live-session state"
+    fi
+    if grep -qF '"$(/usr/local/libexec/ai-tools/ai-tools-relabel-tree -- "${dir}" 2>&1 >/dev/null)"' <<<"${walk_text}"; then
+        pass "walk_account_tree runs the installed walker over its directory"
+    else
+        fail "walk_account_tree does not run /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- <dir>"
+    fi
+
+    # walk_run <status> <stderr> [named-path] : walk_account_tree over the fixture directory (named as <named-path>
+    #   where given, a symlinked spelling of it among them) with the walker a shell function printing <stderr>
+    #   and exiting <status>, which answers the canonical directory alone; prints both streams and then `exit=<status>`.
+    WALK_DIR="${TESTDIR}/d"
+    mkdir -p "${WALK_DIR}"
+    ln -s "${TESTDIR}" "${TESTDIR}/alias"
+    ln -s "${TESTDIR}/absent-target" "${TESTDIR}/dangling"
+    fake_walk_text="${walk_text//\"\$(\/usr\/local\/libexec\/ai-tools\/ai-tools-relabel-tree -- /\"\$(fake_walker -- }"
+    # log is a one-line definition, which extract_function's `^}` range does not end on.
+    emitters_text="$(grep -E '^log\(\)[[:space:]]+\{.*\}$' "${INSTALLER}" || true)"$'\n'"$(extract_function "${INSTALLER}" warn)"
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    walk_run() {
+        bash -c '
+            set -euo pipefail
+            C_YEL="" C_RST="" C_DIM=""
+            eval "$1"; eval "$2"
+            fake_status="$3" fake_stderr="$4" fixture_dir="$5" named="${6:-$5}"
+            fake_walker() { [[ "$1" == -- && "$2" == "${fixture_dir}" ]] || return 99; printf "%s" "${fake_stderr}" >&2; return "${fake_status}"; }
+            walk_account_tree "${named}"
+        ' _ "${emitters_text}" "${fake_walk_text}" "$1" "$2" "${WALK_DIR}" "${3:-}" 2>&1; printf 'exit=%s\n' "$?"
+    }
+    if [[ "${fake_walk_text}" == *'"$(fake_walker -- "${dir}"'* && "${emitters_text}" == 'log()'*'warn() {'* ]]; then
+        walk_out="$(walk_run 0 "")"
+        if grep -qF "SELinux: labelled ${WALK_DIR}" <<<"${walk_out}" && ! grep -q '^MSG-' <<<"${walk_out}" \
+                && grep -qx 'exit=0' <<<"${walk_out}"; then
+            pass "walk_account_tree: a walk that labelled every entry is logged (control)"
+        else
+            fail "walk_account_tree at status 0 printed: $(_san "${walk_out}")"
+        fi
+        walk_out="$(walk_run 4 "skipped hardlinked path ${WALK_DIR}/x (link count 2, inode 7)"$'\nsummary hardlinks-left=1 failures=0\n')"
+        if grep -qF "the walk left these hardlinked entries at their type: skipped hardlinked path ${WALK_DIR}/x (link count 2, inode 7)" \
+                <<<"${walk_out}" && ! grep -q 'summary hardlinks-left' <<<"${walk_out}" && ! grep -q '^MSG-' <<<"${walk_out}" \
+                && grep -qx 'exit=0' <<<"${walk_out}"; then
+            pass "walk_account_tree: a walk that left hardlinked files is a note naming them, its summary line dropped"
+        else
+            fail "walk_account_tree at status 4 printed: $(_san "${walk_out}")"
+        fi
+        for status in 1 3; do
+            walk_out="$(walk_run "${status}" "ai-tools-relabel-tree: could not label ${WALK_DIR}/y"$'\nsummary hardlinks-left=0 failures=1\n')"
+            assert_msg MSG-G4W5 "${walk_out}" "walk_account_tree: a walker exiting ${status} is warned under its code"
+            if grep -qF "under ${WALK_DIR} -- ai-tools-relabel-tree exited ${status}: ai-tools-relabel-tree: could not label ${WALK_DIR}/y" <<<"${walk_out}" \
+                    && grep -qF "run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${WALK_DIR}" <<<"${walk_out}" \
+                    && grep -qx 'exit=0' <<<"${walk_out}"; then
+                pass "walk_account_tree: the warning at ${status} names the directory, the walker's line and the walk to re-run, and the install goes on"
+            else
+                fail "walk_account_tree at status ${status} printed: $(_san "${walk_out}")"
+            fi
+        done
+        # The root is the canonical path: the walker refuses a root whose path is not the one it reads back, so a tree
+        # named through a symlinked ancestor reaches it resolved, and a path realpath cannot resolve is warned and not
+        # walked.
+        walk_out="$(walk_run 0 "" "${TESTDIR}/alias/d")"
+        if grep -qF "SELinux: labelled ${WALK_DIR}" <<<"${walk_out}" && ! grep -q '^MSG-' <<<"${walk_out}" && grep -qx 'exit=0' <<<"${walk_out}"; then
+            pass "walk_account_tree: a tree named through a symlinked ancestor is walked at its canonical path"
+        else
+            fail "walk_account_tree over a symlinked ancestor printed: $(_san "${walk_out}")"
+        fi
+        walk_out="$(walk_run 0 "" "${TESTDIR}/dangling")"
+        assert_msg MSG-S5G6 "${walk_out}" "walk_account_tree: a path realpath cannot resolve is warned under its code"
+        if ! grep -q 'SELinux: labelled' <<<"${walk_out}" && grep -qx 'exit=0' <<<"${walk_out}"; then
+            pass "walk_account_tree: a path realpath cannot resolve is not walked, and the install goes on"
+        else
+            fail "walk_account_tree over a dangling symlink printed: $(_san "${walk_out}")"
+        fi
+        realpath_line="$(grep -nF 'realpath -e -- "$1"' <<<"${walk_text}" | head -n 1)"; realpath_line="${realpath_line%%:*}"
+        walker_line="$(grep -nF 'ai-tools-relabel-tree -- "${dir}"' <<<"${walk_text}" | head -n 1)"; walker_line="${walker_line%%:*}"
+        if [[ -n "${realpath_line}" && -n "${walker_line}" ]] && (( realpath_line < walker_line )); then
+            pass "walk_account_tree resolves its tree with realpath -e (line ${realpath_line}) ahead of the walker call (line ${walker_line})"
+        else
+            fail "walk_account_tree does not resolve its tree ahead of the walker call (realpath: '${realpath_line}', walker: '${walker_line}')"
+        fi
+    else
+        fail "the walker call in walk_account_tree could not be replaced by a fixture, or log and warn were not read, so its statuses are not driven"
     fi
 fi
 
@@ -841,6 +933,34 @@ if [[ "${names_text}" == *'"/usr/local/bin/atr wrapper"'* && "${names_text}" == 
     pass "ATR_NAMES lists the wrapper, its link, the completion and both stub pages"
 else
     fail "ATR_NAMES does not list the five names: ${names_text//$'\n'/ | }"
+fi
+
+# ── The relabel watcher is restored whenever it is enabled ───────────────────────────────────
+# do_install stops ai-tools-relabel.path for its run and an EXIT trap starts it again. The trap is armed on the unit
+# being enabled: armed on its being active, a run that stopped early leaves an enabled watcher down, and every later run
+# that also stops early finds it down and does not arm the trap. watcher_trap_arm <file>: print the verb
+# of the systemctl test whose branch sets the trap that starts the watcher, or nothing where no such branch is found.
+section "install.sh: the relabel watcher's restore is armed on the unit being enabled (unit)"
+watcher_trap_arm() {
+    awk '
+        /^[[:space:]]*if systemctl is-[a-z]+ --quiet ai-tools-relabel\.path/ { match($0, /is-[a-z]+/); verb = substr($0, RSTART, RLENGTH); next }
+        verb != "" && /trap .*systemctl start ai-tools-relabel\.path.* EXIT/ { print verb; exit }
+        { verb = "" }
+    ' "$1"
+}
+# shellcheck disable=SC2016  # the control is install.sh text, written and not expanded
+printf '%s\n' '    if systemctl is-active --quiet ai-tools-relabel.path 2>/dev/null; then' \
+    "        trap 'systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT" '    fi' > "${TESTDIR}/watcher-control.sh"
+if [[ "$(watcher_trap_arm "${TESTDIR}/watcher-control.sh")" == is-active ]]; then
+    pass "the reader reads the verb an arm tests (control: is-active)"
+else
+    fail "control: the reader did not read is-active from the fixture, so the check below cannot fail"
+fi
+arm="$(watcher_trap_arm "${INSTALLER}")"
+if [[ "${arm}" == is-enabled ]]; then
+    pass "the EXIT trap that starts the watcher is armed on systemctl is-enabled"
+else
+    fail "the EXIT trap that starts the watcher is armed on '${arm:-no test found}', not is-enabled"
 fi
 
 # ── The registry a source install seeds and de-registers ─────────────────────────────────────────

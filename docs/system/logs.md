@@ -9,8 +9,8 @@ everything after that: journald for every component, root-only files
 for the privileged helpers.
 
 ```bash
-sudo atr audit                      # findings in the last 7 days
-sudo atr audit --since '2 days ago' # any window date(1) understands
+atr audit                      # findings in the last 7 days
+atr audit --since '2 days ago' # any window date(1) understands
 ```
 
 It reads all three trails and reports what refused, was rejected, was stranded,
@@ -23,6 +23,9 @@ Findings from the root-only files and refusals from the session's own journald
 tag are reported **separately**, because only the first is a trail the agent
 cannot write.
 
+Run it as yourself: it reads the trails through a root-only helper over `sudo`,
+so it needs a general sudo grant as well as membership of `ai-ops`.
+
 ## An agent started from inside a session
 
 A session can start an agent's binary directly, at its path in the sandbox
@@ -32,7 +35,7 @@ hand-back carry the *parent's* identity, and neither of those two trails tells
 the child apart. The kernel does:
 
 ```bash
-sudo atr audit                         # the records, classified
+atr audit                              # the records, classified
 sudo ausearch -m AVC -ts today | grep -A8 'granted.*execute_no_trans'   # raw
 ```
 

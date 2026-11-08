@@ -342,7 +342,7 @@ if command -v runuser >/dev/null 2>&1; then
 
     # A path is REQUIRED: the cwd always exists, so a defaulted create could only ever refuse.
     out="$(create_cli)" && rc=0 || rc=$?
-    refused "ai-tools.projects.create refuses to run without a path" MSG-A7D3
+    refused "ai-tools.projects.create refuses to run without a path" MSG-A7D3 2
 
     # An EXISTING directory is refused, naming the verb that does claim one. This is the line between the two verbs:
     # a create that quietly claimed what was already there would make them interchangeable, and only one of them grants
@@ -624,13 +624,13 @@ if command -v runuser >/dev/null 2>&1; then
     else
         fail "ai-tools.projects.create seeded owner-only path(s) the claim will skip:${_sealed}"
     fi
-    # Matched on the NOTICE's own title, not on the phrase "owner-only": the create prints that phrase itself when it
+    # Matched on the refusal's codes, not on the phrase "owner-only": the create prints that phrase itself when it
     # explains the modes it set on a umask-077 host, so a looser grep asserts the opposite of what it means on exactly
     # the hosts this case exists for.
-    if ! grep -qi 'this project directory is owner-only' <<<"${out}"; then
-        pass "the claim does not report the new project as out of the agent's reach"
+    if ! grep -qxE 'MSG-(H6J3|B5D2)' <<<"${out}"; then
+        pass "the claim does not refuse the new project as owner-only"
     else
-        fail "the created project was claimed as owner-only: $(brief "${out}" 'owner-only')"
+        fail "the created project was refused as owner-only: $(brief "${out}" 'owner-only')"
     fi
 
     # (6d) ai-tools.projects.remove.inplace deletes, so every assertion here is that it did NOT. Its authorization is
@@ -993,6 +993,9 @@ EOF
     # A git entry may name a listed project through a symlink or a `..`, so it is classified by its real path.
     ln -s "${lst}/partial" "${lst}/alias"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${lst}"
+    # mkdir takes the invoker's umask, and a 0700 root is annotated as owner-only in place of the row's own state.
+    chmod 0755 "${lst}" "${lst}/partial" "${lst}/eol-comment" "${lst}/quoted dir" "${lst}/glob-parent" \
+        "${lst}/excluded-live" "${lst}/orphan" "${lst}/disabled-proj" "${lst}/disabled-proj/child"
     # The reverse scan attributes an uncovered safe.directory before it offers a removal: a tree another account holds
     # (other-op, root's) and one under a directory the projects user cannot enter (sealed, 0700 root) are counted
     # and not listed; a tree the sandbox account holds (foreign) is named with a removal to run only if the tree is
@@ -1019,6 +1022,8 @@ ${REG_MARKER}
 % ${lst}/disabled-proj
 @ ${lst}/disabled-proj/child
 @ ${lst}/sealed/listed
+% ${lst}/disabled-stale-entry
+% ${lst}/disabled-stale-bare
 EOF
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lal}"
     lgc="${TESTDIR}/list-gitconfig"
@@ -1027,6 +1032,7 @@ EOF
 	directory = ${lst}/partial
 	directory = ${lst}/orphan
 	directory = ${lst}/disabled-proj
+	directory = ${lst}/disabled-stale-entry
 	directory = ${lst}/alias
 	directory = ${lst}/orphan/../partial
 	directory = /opt/ai-tools
@@ -1053,6 +1059,16 @@ EOF
     list_lacks() { if grep -qF -- "$1" <<<"${lout}"; then fail "$2 -- unexpectedly present in ai-tools.projects.list output"; else pass "$2"; fi; }
 
     list_has "Maintenance"            "ai-tools.projects.list reaches its footer past an early stale+protected entry (no set -e truncation)"
+    # Every Maintenance row's description starts at one column: the first character after the run of spaces that ends
+    # the command, a command being words joined by single spaces.
+    lmaint_columns="$(sed -n '/^Maintenance$/,$p' <<<"${lout}" | awk '/^  atr / {
+            rest = substr($0, 3); gap = index(rest, "  "); if (gap == 0) { print "none"; next }
+            col = gap + 2; while (substr(rest, col, 1) == " ") col++; print col }' | sort -u)"
+    if [[ -n "${lmaint_columns}" && "$(wc -l <<<"${lmaint_columns}")" -eq 1 && "${lmaint_columns}" != none ]]; then
+        pass "every Maintenance row's description starts at one column"
+    else
+        fail "the Maintenance rows' descriptions start at columns: $(tr '\n' ' ' <<<"${lmaint_columns:-none read}")"
+    fi
     list_has "stale entry"            "ai-tools.projects.list flags a stale allow entry"
     list_has "protected system path"  "ai-tools.projects.list flags a protected system path (/etc)"
     list_has "listed but not fully claimed" "ai-tools.projects.list flags a listed-but-unclaimed project"
@@ -1062,6 +1078,13 @@ EOF
     list_has "safe.dir:yes"           "ai-tools.projects.list shows safe.dir:yes for an entry present in git safe.directory"
     list_has "${lst}/eol-comment"     "ai-tools.projects.list renders an entry carrying an end-of-line comment"
     list_has "${lst}/quoted dir"      "ai-tools.projects.list renders a quoted entry"
+    # A stale disabled line takes the safe.directory removal the enabled arm prints, where git safe.directory holds its
+    # path; a stale disabled line without an entry is the control.
+    list_has "stale disabled project" "ai-tools.projects.list flags a stale disabled line"
+    list_has "ai-tools-safedir --remove ${lst}/disabled-stale-entry" \
+        "and names the safe.directory removal for a stale disabled line git safe.directory holds"
+    list_lacks "ai-tools-safedir --remove ${lst}/disabled-stale-bare" \
+        "control: a stale disabled line git safe.directory does not hold takes no safe.directory removal"
     # Only the gone exclusion is reconciled as stale; the live one is left alone.
     n_stale_excl="$(grep -cF 'stale excluded path' <<<"${lout}" || true)"
     if [[ "${n_stale_excl}" -eq 1 ]] && grep -qF "! ${lst}/excluded-stale-gone" <<<"${lout}"; then
@@ -1224,6 +1247,24 @@ EOF
         fail "ai-tools.projects.list offers a removal for an entry it cannot read: $(brief "${lcleanup}" 'sealed')"
     else
         pass "ai-tools.projects.list offers no removal for an entry it cannot read"
+    fi
+    # An absent registry is the listing's body, and the safe.directory reconciliation runs over an empty entry set,
+    # so a registry removed by hand leaves its entries reported: the stale one with its removal, the sandbox account's
+    # named as such, and the two it cannot attribute counted. `lout`, over the fixture registry, is the control.
+    lal_absent="${TESTDIR}/list-allowlist-absent"
+    [[ ! -e "${lal_absent}" ]] || fail "fixture: ${lal_absent} exists, so the absent-registry run reads a registry"
+    rc=0
+    aout="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal_absent}" \
+            AI_TOOLS_GITCONFIG="${lgc}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF "no registry at ${lal_absent}" <<<"${aout}" \
+            && grep -qF "ai-tools-safedir --remove ${lst}/stale-safedir" <<<"${aout}" \
+            && grep -qF "held by the sandbox account" <<<"${aout}" \
+            && grep -qF "2 git safe.directory entries are in trees" <<<"${aout}" \
+            && grep -qF "Maintenance" <<<"${aout}"; then
+        pass "ai-tools.projects.list without a registry names it and still reports the stale, foreign and unattributed safe.directory entries"
+    else
+        fail "ai-tools.projects.list without a registry (rc ${rc}): $(brief "${aout}")"
     fi
 
     # (8) ai-tools.projects.handback and ai-tools.projects.lockdown refuse a path outside every claimed project,
@@ -1502,6 +1543,8 @@ else
     pd_proj="${TESTDIR}/api"; pd_other="${TESTDIR}/web"
     pd_nested="${pd_proj}/service-a"; pd_excluded="${pd_proj}/secrets"
     mkdir -p "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_excluded}"
+    # mkdir takes the invoker's umask, and the claim refuses a 0700 root (MSG-B5D2) ahead of its disabled-line refusal.
+    chmod 0755 "${pd_proj}" "${pd_other}" "${pd_nested}" "${pd_excluded}"
     chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${TESTDIR}"
     # Written after the chown, so the fixture stays root's and the gate honours its AI_TOOLS_AGENTS line.
     mk_operator_conf "${pd_conf}" "${PROJECTS_USER}"
@@ -1550,6 +1593,23 @@ else
         pass "the refused claim appended no duplicate line"
     else
         fail "the refused claim duplicated the entry:"$'\n'"$(cat "${pd_al}")"
+    fi
+    # (2b) The owner-only refusal precedes the re-enable offer: over the same disabled project with its root at 0700,
+    # the claim refuses under the listed-project code and leaves the registry as it was.
+    pd_held="$(cat "${pd_al}")"
+    chmod 0700 "${pd_proj}"
+    if [[ "$(stat -c '%a %U' "${pd_proj}")" == "700 ${PROJECTS_USER}" ]]; then
+        pass "control: the disabled project's root is mode 700, held by ${PROJECTS_USER}"
+    else
+        fail "control: the disabled project's root reads '$(stat -c '%a %U' "${pd_proj}")', expected '700 ${PROJECTS_USER}'"
+    fi
+    out="$(pd_cli ai-tools.projects.claim "${pd_proj}")" && rc=0 || rc=$?
+    chmod 0755 "${pd_proj}"
+    refused "ai-tools.projects.claim over a disabled project at mode 700 refuses it as owner-only" MSG-B5D2 1
+    if [[ "$(cat "${pd_al}")" == "${pd_held}" ]]; then
+        pass "the owner-only refusal kept the disabled line and left the registry as it was"
+    else
+        fail "the owner-only refusal changed the registry:"$'\n'"$(cat "${pd_al}")"
     fi
 
     # (3) ai-tools.projects.list calls it what it is, and names the verb that restores it.

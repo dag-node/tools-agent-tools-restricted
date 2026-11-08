@@ -74,7 +74,7 @@ counts, and which it leaves at 0, are in [cli](cli.rule.md).
 - **A shell reader does not split a row with `IFS=$'\t' read`.** Tab is IFS whitespace, and bash collapses adjacent
   empty fields, so positions are lost; `cut -f` or a manual split keeps them.
 
-## Caps: a deliberate stop stays apart from a failure
+## Caps: a deliberate stop stays apart from a failure <a id="ref-section-g4k3"></a>
 
 A cap is enforced by the **collector**, so that stopping on purpose and failing are distinguishable, and no `head` sits
 between a collector and its consumer: under `pipefail`, `head -n 201` reports a deliberate truncation as the producer's

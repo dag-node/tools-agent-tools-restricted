@@ -231,16 +231,15 @@ _ai_tools_help__command_prefix() {
 # Both are globals because the caller reads the second one, which a $(...) capture would leave in a subshell. Every
 # refusal goes to stderr.
 #
-# A fragment is listed only while ai_tools_conf__is_trusted holds for it AND for <dir>: a group-writable directory lets
-# a non-root writer replace a root-owned file in it, which here is a command root then executes. A name base owns is
-# refused rather than merged, and a basename outside the domain charset is skipped before it is joined to a path, so
+# A fragment is listed only while ai_tools_conf__is_trusted holds for it AND for <dir>; a name base owns is refused
+# rather than merged, and a basename outside the domain charset is skipped before it is joined to a path, so
 # a separator or a traversal cannot address a file outside <dir>. The dispatch, the full-scope bootstrap and both helps
-# read this one function, so what an administrator is told and what runs cannot disagree.
+# read this one function, so what an administrator is told and what runs cannot disagree; why one untrusted entry
+# refuses the whole set is providers.rule.md's (the admin-commands.d seam).
 #
-# The two rejections are counted apart. A name this seam does not recognize (a README, a backup, a base name) is a file
-# that is not a command, and the set around it is unaffected. A file that group or other may write breaks the assumption
-# that only root decides what runs from <dir>, and that is what AI_TOOLS_HELP__ADMIN_COMMANDS_TAMPERED carries
-# to the set-wide gate.
+# The two rejections are counted apart: a name this seam does not recognize (a README, a backup, a base name) is a file
+# that is not a command, and the set around it is unaffected; a file that group or other may write sets
+# AI_TOOLS_HELP__ADMIN_COMMANDS_TAMPERED, which the set-wide gate reads.
 AI_TOOLS_HELP__ADMIN_DOMAINS=()
 AI_TOOLS_HELP__ADMIN_COMMANDS_TAMPERED=0
 ai_tools_help__read_admin_domains() {

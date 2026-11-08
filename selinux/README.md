@@ -45,8 +45,7 @@ shipped member; a host that confines its operators to a login domain
 with the `ipp_ai_tools_add_operator_domain` interface, which the package
 installs at `/usr/share/selinux/devel/include/distributed/ai_tools.if`.
 A launch from such a login is not validated yet and fails closed
-where the launch path is denied a read. An `atr admin selinux` command
-that declares the domain is planned.
+where the launch path is denied a read.
 
 You cannot confine a complex app (Node + git + the Bash tool) correctly
 by guessing rules — the rule set must be *observed*. The policy here was
@@ -93,7 +92,7 @@ by default**, each named for the capability it grants:
 | `podman`   | container runtime exec + image storage (still blocked by the namespace filter — see the confinement rule) |
 | `tmpmap`   | mmap of the agent's own `/tmp` files (`dotnet` build, `git`/SQLite in `/tmp`) |
 | `memfdexec` | map+execute of the session's own memfd files, on a private type (.NET apphost/JIT: `dotnet run`, ASP.NET Core, `xunit.v3`); disjoint from `tmpmap` |
-| `localipc` | unix sockets and FIFOs under `/tmp` and the home state, connect to the domain's own sockets and to an unreserved or ephemeral TCP port on any host (`dotnet test`, multi-node MSBuild, a dev server and its browser) |
+| `localipc` | unix sockets and FIFOs under `/tmp` and the home state, connect to the domain's own sockets and to an unreserved or ephemeral TCP port on any host (Claude Code background sessions and session messaging, codex's app-server, `dotnet test`, multi-node MSBuild, a dev server and its browser) |
 | `buildexec` | execute on a project's build output — the directories an integration's manifest names and its layout module types; a script written there runs too — see [dotnet.rule.md](../.claude/rules/dotnet.rule.md) |
 
 Which groups a toolchain needs is its integration manifest's to say
@@ -305,22 +304,24 @@ the log, the agent triggers the denials:
 sudo selinux/avc/avc-denials.sh           # -DB, prints the probe cmd, then WAITS
 
 # 2. AS THE AGENT, in a confined claude (approved project), the command
-#    step 1 printed -- it carries --run-id, --groups and, once root has
-#    verified enforcement, --enforcing-confirmed:
-bash selinux/avc/avc-denials.sh probe --run-id 3f9c0a1b2d4e5f60 --groups tmpmap,localipc --enforcing-confirmed
+#    step 1 printed -- it carries --run-id, --groups, --login-pty and, once
+#    root has verified enforcement, --enforcing-confirmed:
+bash selinux/avc/avc-denials.sh probe --run-id 3f9c0a1b2d4e5f60 --groups tmpmap,localipc --login-pty /dev/pts/7 --enforcing-confirmed
 
 # 3. back in terminal 1: press Enter   # ausearch + classify, run result,
 #                                      # then -B restores
 ```
 
 The root half exits 0 only when it confirmed enforcement, searched the window,
-and found the probe trail carrying its run id, started inside the window
-and finished with exit 0. Enforcement counts as confirmed when `getenforce`
-reads `Enforcing` and `seinfo --permissive` (setools-console) succeeds and does
-not list `ai_tools_t`; without `seinfo`, or when it fails, the probe command
-omits `--enforcing-confirmed` and the probe asks before it runs.
-A `semodule -l` that fails stops the run, since the probe would otherwise judge
-every group check against an empty group list.
+found the denial of the probe's open of the pty it allocated for the window
+(the record that shows audit collection worked), and found the probe trail
+carrying its run id, started inside the window and finished with exit 0.
+Enforcement counts as confirmed when `getenforce` reads `Enforcing`
+and `seinfo --permissive` (setools-console) succeeds and does not list
+`ai_tools_t`; without `seinfo`, or when it fails, the probe command omits
+`--enforcing-confirmed` and the probe asks before it runs. A `semodule -l`
+that fails stops the run, since the probe would otherwise judge every group
+check against an empty group list.
 
 The probe prints a summary line and exits non-zero when a check fails (1)
 or could not run its access (3). Each check reads the errno of its attempt:
@@ -408,15 +409,19 @@ cd selinux && sudo ./install-selinux.sh rebuild
 cd selinux && sudo ./install-selinux.sh remove
 ```
 
-Deletes every local fcontext rule naming an `ai_tools` type (the unload refuses
-while one stands), unloads every `ai_tools*` module, and `restorecon`s each
-agent's config directory, the nvm tree, and each project back to default
-contexts. A module left loaded ends the run with exit 1 and semanage's reason.
-DAC hardening (ownership/permissions/sticky `.claude`/locked `bin`) is
-untouched. While an agent session, the toolchain update, or a step run
-as the sandbox account is live, the command refuses before it changes anything:
-let each session end (`/exit` inside it) and the update finish, or end them all
-with `atr stop`, then run it again.
+Returns each agent's declared paths to their default contexts, deletes every
+local fcontext rule naming an `ai_tools` type (the unload refuses while one
+stands), unloads every `ai_tools*` module, and returns the nvm tree,
+the sandbox account's home state and each project to default contexts. A module
+left loaded ends the run with exit 1 and semanage's reason, and a file
+the restore left at a removed type ends it with exit 1: one with a second name
+with the `find` that lists its names, and an entry of an agent's config
+directory with the line the walk printed for it. DAC hardening
+(ownership/permissions/sticky `.claude`/locked `bin`) is untouched. While
+an agent session, the toolchain update, or a step run as the sandbox account is
+live, the command refuses before it changes anything: let each session end
+(`/exit` inside it) and the update finish, or end them all with `atr stop`,
+then run it again.
 
 ## Notes
 
@@ -424,10 +429,13 @@ with `atr stop`, then run it again.
   declares for its own trees — project, project build output, home,
   and private-tmp — and one entrypoint transition. What it reaches beyond those
   is read-only or execute-only: the nvm tree, `/etc`, shared libraries,
-  the controlling pty, DNS and outbound HTTPS, the handback socket,
-  and a process baseline. The accesses the agent *probed but does not need*
-  (other domains' `/proc`, the user's home listing, container storage) are
-  additionally `dontaudit`'d, so they stay denied and quiet.
+  the controlling pty on the descriptors it inherits, DNS and outbound HTTPS,
+  the handback socket, and a process baseline. The ptys a session allocates
+  take a type of their own, `ai_tools_devpts_t`, and TIOCSTI is refused
+  on every terminal type the domain uses. The accesses the agent *probed
+  but does not need* (other domains' `/proc`, the user's home listing,
+  container storage) are additionally `dontaudit`'d, so they stay denied
+  and quiet.
 - **git is covered:** `ai_tools_project_t` manage rights include the dir
   create/rename/unlink that git needs (`index.lock`, refs, objects); `git`
   itself runs from `corecmd_exec_bin`. No git permission from the main install

@@ -43,7 +43,7 @@
 #
 # ── Why root, and what this command accepts ──────────────────────────────────────────────────
 # Signalling the sandbox account's cgroups and writing cgroup.kill is root's to do. The %ai-ops sudoers rule grants this
-# helper NOPASSWD in its zero-argument form alone (the drop-in's trailing ""), so `ai-tools stop` runs without a prompt,
+# helper NOPASSWD in its zero-argument form alone (the drop-in's trailing ""), so `atr stop` runs without a prompt,
 # and a flagged form (`atr stop --dry-run`) meets sudo's ordinary password prompt, as a call
 # to `ai-tools-{lockdown,reclaim,audit}` does.
 #
@@ -471,11 +471,13 @@ cgroup_unit_name() {
 # and a login session scope for every `sudo -u` that crossed pam_systemd. All of them are terminated -- no cgroup is
 # exempt -- but calling four such cgroups "4 agent sessions" in the table an operator confirms against, and in the line
 # they read first after an incident, is untrue, and untrue in the direction that inflates how much agent work was
-# running.
+# running. Calling them all plumbing is untrue in the other direction: a login session scope holds a process someone
+# started as the account, so the table names it as a step run as the account, with what its first process runs,
+# and the headline counts it apart.
 #
 # THIS CHANGES A LABEL AND A COUNT, NEVER A TARGET. Like unit_working_directory, it is attribution alone, and carries
 # the same caveat: a unit name inside the delegated subtree is the delegatee's to choose, so a session can name itself
-# out of the agent class, and does not gain an exemption by it, because both classes are enumerated, listed and killed
+# out of the agent class, and does not gain an exemption by it, because every class is enumerated, listed and killed
 # identically. Nothing here is consulted to decide what a stop reaches; that remains cgroup-slice membership alone.
 
 # session_is_agent <unit-name> -- succeed for a unit ai-tools-run started. It names every session
@@ -485,21 +487,107 @@ session_is_agent() {
     [[ "$1" == "${SANDBOX_USER}-"*.service ]]
 }
 
-# session_class_note <unit-name> -- PRINT the parenthetical a non-agent row is marked with, or empty for an agent
-# session.
+# cgroup_is_step <cgroup-dir> -- succeed for a scope directly under the account's slice, outside its user manager:
+# where logind places a login session scope (`session-cN.scope`: a `sudo -u`, `runuser` or `systemctl --user -M`
+# that crossed pam_systemd) and where sandbox-exec.lib.sh places a root caller's run as the account
+# (`ai-tools-sandbox-exec-*.scope`, a bootstrap's npm step among them). The policy unload's refusal calls either one "a
+# step run as the sandbox account", and the table uses those words. Decided by place, so no unit name appears here.
+cgroup_is_step() {
+    [[ "${1%/*}" == "${SANDBOX_SLICE}" && "${1##*/}" == *.scope ]]
+}
+
+# cgroup_first_pid <cgroup-dir> -- PRINT the first pid listed in the cgroup's own cgroup.procs, or an empty string
+# where none is listed. The table's PID column, and the process cgroup_first_command names.
+cgroup_first_pid() {
+    local pid=""
+    # `2>/dev/null` precedes the input redirect: see the note in cgroup_pids.
+    read -r pid 2>/dev/null < "$1/cgroup.procs" || true
+    [[ "${pid}" =~ ^[0-9]+$ ]] && printf '%s' "${pid}"
+    return 0
+}
+
+# proc_status_value <pid> <field> -- PRINT the first value /proc/<pid>/status gives for <field> (`PPid`, `Uid`,
+# whose first value is the real uid), or an empty string where the process or the field cannot be read.
+proc_status_value() {
+    local key value rest
+    [[ -r "/proc/$1/status" ]] || return 0
+    while read -r key value rest; do
+        if [[ "${key}" == "$2:" ]]; then printf '%s' "${value}"; return 0; fi
+    done 2>/dev/null < "/proc/$1/status"
+    return 0
+}
+
+# scope_launcher_uid <cgroup-dir> -- PRINT the real uid of the process that started the scope, or an empty string
+# where it cannot be read. The scope's entry process is the listed pid whose parent is outside the scope -- the launch
+# wrapper's `sudo`, which the launcher's own process exec'd -- and its parent is what ran the launcher: the operator's
+# shell for a launch, whoever typed `sudo -u` or `runuser` for a step. Its real uid is the kernel's credential and not
+# the account's word, which makes the BY column the one attribution here the sandbox account cannot write. A parent
+# that is pid 1 means the starter has exited and the entry process was re-parented, so the function prints an empty
+# string rather than init's uid.
+scope_launcher_uid() {
+    local pid ppid
+    local -A in_scope=()
+    local -a pids=()
+    mapfile -t pids < <(cgroup_pids "$1")
+    for pid in "${pids[@]}"; do in_scope["${pid}"]=1; done
+    for pid in "${pids[@]}"; do
+        ppid="$(proc_status_value "${pid}" PPid)"
+        [[ "${ppid}" =~ ^[0-9]+$ && -z "${in_scope[${ppid}]:-}" ]] || continue
+        (( ppid > 1 )) || return 0
+        proc_status_value "${ppid}" Uid
+        return 0
+    done
+    return 0
+}
+
+# account_name <uid> -- PRINT the account /etc/passwd names for <uid>, read as data, or the uid itself where the file
+# does not list it (an account from a directory service).
+account_name() {
+    local name uid
+    while IFS=: read -r name _ uid _; do
+        if [[ "${uid}" == "$1" ]]; then printf '%s' "${name}"; return 0; fi
+    done 2>/dev/null < /etc/passwd
+    printf '%s' "$1"
+}
+
+# cgroup_first_command <cgroup-dir> -- PRINT the program the first process listed in the cgroup runs, its argv[0] alone,
+# reduced by sanitize and capped at 80 characters, or `unknown` where no process or argv can be read. Read as root
+# from /proc. The arguments are left out: a command line can carry a credential (`--token <value>`), and this line
+# reaches every operator who runs the stop, on a host whose /proc hides other accounts' processes from them too. argv[0]
+# is the account's own data, so it is a label, read once at selection and never consulted for what is stopped.
+cgroup_first_command() {
+    local pid command=""
+    local -a argv=()
+    pid="$(cgroup_first_pid "$1")"
+    if [[ -n "${pid}" && -r "/proc/${pid}/cmdline" ]]; then
+        mapfile -d '' -t argv 2>/dev/null < "/proc/${pid}/cmdline" || argv=()
+    fi
+    (( ${#argv[@]} )) && command="${argv[0]}"
+    command="$(sanitize "${command:-unknown}")"
+    (( ${#command} > 80 )) && command="${command:0:79}~"
+    printf '%s' "${command}"
+}
+
+# session_class_note <cgroup-dir> <unit-name> -- PRINT the parenthetical a non-agent row is marked with, or empty
+# for an agent session: a step run as the account names what its first process runs, and every other unit is
+# `(account plumbing)`, the user manager's own init.scope and dbus broker among them.
 #
-# A root caller's run as the account (sandbox-exec.lib.sh's ai-tools-sandbox-exec-*.scope, a bootstrap's npm step
-# among them) is a system-manager scope in the account's slice: it is a .scope, so it is marked here like the rest
-# of the plumbing, and its attribution reads `unknown`, since the account's user manager does not know a system-manager
-# unit, and no `projects handback` line is printed for it. It is swept and verified like every other unit in the slice.
+# A step is marked apart because it is a process of the account that someone started, which the policy unload's session
+# reading reads as live, where the manager's units are always there. Its attribution reads `unknown`, since
+# the account's user manager does not know a system-manager or logind scope, and no `projects handback` line is printed
+# for it. It is swept and verified like every other unit in the slice.
 #
-# ONE MARKER, deliberately, rather than naming the user manager separately. Distinguishing it would take either a path
-# test against MANAGER_SERVICE -- which is wrong, since every unit that manager starts is inside its subtree, agent
-# sessions included, so the account's dbus broker came out labelled "user manager" -- or an `init.scope` literal,
-# which would put a systemd unit name back in a file that deliberately holds none. The headline already states
+# ONE MARKER for the rest, deliberately, rather than naming the user manager separately. Distinguishing it would take
+# either a path test against MANAGER_SERVICE -- which is wrong, since every unit that manager starts is inside its
+# subtree, agent sessions included, so the account's dbus broker would be labelled "user manager" -- or an `init.scope`
+# literal, which would put a systemd unit name back in a file that deliberately holds none. The headline already states
 # that the manager is among these and is restarted afterwards, which is the part an operator acts on.
 session_class_note() {
-    session_is_agent "$1" && return 0
+    session_is_agent "$2" && return 0
+    if cgroup_is_step "$1"; then
+        printf '(a step run as %s: %s)' "${SANDBOX_USER}" "$(cgroup_first_command "$1")"
+        return 0
+    fi
     printf '(account plumbing)'
 }
 
@@ -580,13 +668,15 @@ cgroup_is_live() {
 #
 # Failing to read it means the process is GONE: this runs as root, the pid came from a cgroup being torn
 # down, and root's only reason to fail on /proc/<pid>/stat is that the entry no longer exists. So a read failure skips
-# the pid, which is correct rather than fail-open -- there is no process left to signal. The readability test comes
-# first purely to keep the common vanished-pid case off stderr; the read is still checked, because the pid can exit
-# between the two.
+# the pid, which is correct rather than fail-open -- there is no process left to signal. The readability test skips
+# the common vanished-pid case ahead of the read, which a caller under `set -e` needs: there a failed `$(< file)` ends
+# the shell whatever follows it. A pid can still exit between the two, so the read's stderr goes to /dev/null
+# through a group; a redirection on the assignment itself applies after the substitution has printed bash's "No such
+# file or directory".
 pid_start_time() {
     local stat_line fields_after_comm
     [[ -r "/proc/$1/stat" ]] || return 1
-    stat_line="$(< "/proc/$1/stat")" || return 1
+    { stat_line="$(< "/proc/$1/stat")"; } 2>/dev/null || return 1
     [[ -n "${stat_line}" ]] || return 1
     fields_after_comm="${stat_line##*) }"
     local -a fields
@@ -719,8 +809,8 @@ unit_working_directory() {
     # Attribution does not decide any part of the sweep here, so this is not a gate -- it is what keeps a value this
     # helper cannot interpret from being printed as though it could be used. The concrete case is
     # print_reclaim_guidance, which turns each attributed directory into a command the operator is invited to run:
-    # an unstripped marker emitted `atr projects handback !/opt/ai-tools`, which is not a runnable command and, pasted
-    # into an interactive bash, is not even an inert one.
+    # an unstripped marker would emit `atr projects handback !/opt/ai-tools`, which is not a runnable command
+    # and, pasted into an interactive bash, is not even an inert one.
     #
     # The shape is ALLOWLISTED rather than the markers enumerated, so a rendering systemd adds later degrades
     # to `unknown` instead of reaching the operator as a broken command. `~` (WorkingDirectory=~, the account's home)
@@ -760,17 +850,17 @@ restore_user_manager() {
 }
 
 # ── Confirmation ─────────────────────────────────────────────────────────────────────────────
-# confirm_stop <agent-count> <plumbing-count> -- succeed unless the operator deliberately declines. Inverted convention
-# 2 in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or a bare Enter all proceed, and only
+# confirm_stop <agent-count> <step-count> -- succeed unless the operator deliberately declines. Inverted convention 2
+# in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or a bare Enter all proceed, and only
 # an explicit `n` stops the stop.
 #
-# THE QUESTION NAMES BOTH CLASSES, for the reason the table separates them: consent given to "4 sessions" that were one
-# session and three units of the account's own plumbing was not informed consent about either number.
+# THE QUESTION NAMES THE WHOLE SLICE, since that is what the sweep reaches: consent given to "4 sessions" when the stop
+# also ends the account's plumbing and every step run as it was not informed consent about what was stopped.
 #
 # THE ARITY IS DEFAULTED, and that is inverted convention 1 rather than defensive habit. This file runs under `set -u`,
 # where reading an argument a caller did not pass aborts the shell outright -- here, mid-question, after the table has
 # been printed and before anything has been signalled: a stop that was asked for and did not happen, which is the one
-# outcome this file exists to prevent. main() always passes both counts, so the default is not an expected path; it is
+# outcome this file exists to prevent. main() always passes the counts, so the default is not an expected path; it is
 # the guarantee that a caller's slip costs the wording of a question and never the answer to it.
 #
 # WHICH PATH GAVE CONSENT IS RECORDED, because the paths are not equally strong and a reader of the trail must not have
@@ -779,14 +869,17 @@ restore_user_manager() {
 # carried the run. The last is legitimate -- it is the whole point of defaulting YES -- but it is the one an operator
 # would want to see when asking why a cron job stopped a session at 4am.
 confirm_stop() {
-    local agent_count="${1:-0}" plumbing_count="${2:-0}"
-    # Three shapes, none of which names a class that is not there. main() reaches this only with at least one cgroup
-    # selected, so "no sessions and no plumbing" cannot occur.
-    local question
-    if   (( agent_count == 0 )); then question="Terminate the ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
-    elif (( plumbing_count ));   then question="Terminate the ${agent_count} agent session(s) listed above, and ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
-    else                              question="Terminate the ${agent_count} agent session(s) listed above?"
+    local agent_count="${1:-0}" step_count="${2:-0}"
+    # The question names the blast radius, every process in the account's slice, which is what the sweep reaches, led
+    # by the agent sessions or, where none is listed, the steps run as the account. main() reaches this only
+    # with at least one cgroup selected.
+    local question lead=""
+    if (( agent_count )); then
+        lead="the ${agent_count} agent session(s) and "
+    elif (( step_count )); then
+        lead="the ${step_count} step(s) run as the ${SANDBOX_USER} account and "
     fi
+    question="Stop ${lead}every process in the ${SANDBOX_USER} account's slice?"
     if ${ASSUME_YES}; then
         log_event info "stop confirmed by ${CALLER} via --yes" "AI_TOOLS_CONSENT=flag"
         return 0
@@ -812,34 +905,108 @@ confirm_stop() {
 }
 
 # ── Reporting ────────────────────────────────────────────────────────────────────────────────
-# print_session_table <verb> -- the detail the confirmation is answered against. An operator agreeing to stop "3
-# sessions" without seeing which projects they are in is not consenting to
+# print_session_table -- the detail the confirmation is answered against, without a verb column, since the headline's
+# title states whether the run stops or previews. An operator agreeing to stop "3 sessions" without seeing
+# which projects they are in is not consenting to
 # anything.
 #
 # Reads the parallel selection arrays directly rather than taking packed records. Nothing in this file joins fields
 # into a delimited string any more: a WorkingDirectory is an arbitrary pathname and may contain the delimiter,
 # which would split one session into two garbled rows -- in the very table whose job is to be exact. Agent sessions are
-# listed FIRST, ahead of the account's plumbing, because the table is read under time pressure and the rows that answer
-# "what was running" must not be interleaved with rows that are always there. Order is presentation only; every selected
-# cgroup is ended by the loop in main() in its own order, and no cgroup is dropped from either pass.
+# listed FIRST with their launch scopes after them, then the steps run as the account, then the account's plumbing,
+# because the table is read under time pressure and the rows that answer "what was running" must not be interleaved
+# with rows that are always there. Order is presentation only; every selected cgroup is ended by the loop in main()
+# in its own order, and no cgroup is dropped from either pass.
 print_session_table() {
-    local verb="$1" index note
-    printf '  %-11s %-40s %6s  %s\n' "" "SESSION" "PROCS" "PROJECT"
+    local index child class name dir i j moving
+    # Bytewise comparison for the sort, and byte widths for the columns; sanitize reduces every printed value to ASCII.
+    local LC_ALL=C
+    local -a agents=()
+    local -A sort_key=() first_path_for_name=() shared_name=()
+    printf '  %-42s %7s %6s  %-10s %s\n' "SESSION" "PID" "PROCS" "BY" "PROJECT"
+    # Agent sessions in project order, then unit order, compared bytewise so the order does not depend on the locale,
+    # with the sessions whose project could not be read last. An insertion sort over the handful of rows a host runs
+    # keeps an external `sort` off this file's paths.
     for index in "${!selected_cgroups[@]}"; do
-        ${selected_is_agent[index]} || continue
-        printf '  %-11s %-40s %6s  %s\n' "${verb}" \
-            "$(sanitize "${selected_units[index]:-unattributed cgroup}")" \
-            "${selected_counts[index]}" \
-            "$(sanitize "${selected_dirs[index]:-unknown}")"
+        [[ "${selected_classes[index]}" == agent ]] || continue
+        agents+=("${index}")
+        if [[ -n "${selected_dirs[index]}" ]]; then
+            sort_key["${index}"]="1${selected_dirs[index]}"$'\t'"${selected_units[index]}"
+        else
+            sort_key["${index}"]="2"$'\t'"${selected_units[index]}"
+        fi
     done
-    for index in "${!selected_cgroups[@]}"; do
-        ${selected_is_agent[index]} && continue
-        note="$(session_class_note "${selected_units[index]}")"
-        printf '  %-11s %-40s %6s  %s  %s\n' "${verb}" \
-            "$(sanitize "${selected_units[index]:-unattributed cgroup}")" \
-            "${selected_counts[index]}" \
-            "$(sanitize "${selected_dirs[index]:-unknown}")" "${note}"
+    for (( i = 1; i < ${#agents[@]}; i++ )); do
+        moving="${agents[i]}"; j=$(( i - 1 ))
+        while (( j >= 0 )) && [[ "${sort_key[${agents[j]}]}" > "${sort_key[${moving}]}" ]]; do
+            agents[j + 1]="${agents[j]}"; j=$(( j - 1 ))
+        done
+        agents[j + 1]="${moving}"
     done
+    # A project is shown by its directory's name, and by its full path where another listed project has the same name,
+    # so two `api` checkouts are not read as one.
+    for index in "${agents[@]}"; do
+        dir="${selected_dirs[index]}"
+        [[ -n "${dir}" ]] || continue
+        name="${dir##*/}"; name="${name:-${dir}}"
+        if [[ -z "${first_path_for_name[${name}]+set}" ]]; then
+            first_path_for_name["${name}"]="${dir}"
+        elif [[ "${first_path_for_name[${name}]}" != "${dir}" ]]; then
+            shared_name["${name}"]=1
+        fi
+    done
+    for index in "${agents[@]}"; do
+        dir="${selected_dirs[index]}"; name="${dir##*/}"; name="${name:-${dir}}"
+        if [[ -z "${dir}" ]]; then
+            name="unknown"
+        elif [[ -n "${shared_name[${name}]:-}" ]]; then
+            name="${dir}"
+        fi
+        print_session_row "${index}" "" "$(sanitize "${name}")"
+        for child in "${!selected_cgroups[@]}"; do
+            [[ "${selected_parents[child]}" == "${index}" ]] && print_session_row "${child}" ' \_ '
+        done
+    done
+    for class in step plumbing; do
+        for index in "${!selected_cgroups[@]}"; do
+            [[ "${selected_classes[index]}" == "${class}" ]] && print_session_row "${index}" ""
+        done
+    done
+    # The rows are cgroups, which is what a stop ends, and systemd-cgls prints the same cgroups with every process
+    # in each, the root-owned sudo of a launch scope among them, which a `ps -u` of the account leaves out.
+    printf '  %s\n' "the processes in each: systemd-cgls --no-pager -u user-${SANDBOX_UID:-<uid>}.slice"
+    return 0
+}
+
+# print_session_row <index> <prefix> [<project>] -- one table row, the session name after <prefix>: ` \_ ` places
+# a launch scope under the session it belongs to, drawn as `ps --forest` draws a child. The link is the unit's name, not
+# process parentage: the user manager starts the session unit, and the launch only asks it to. <project> is an agent
+# session's label, its project's name or path; a launch row reads `(launch)`, since the session row it sits under names
+# the unit, and a step or a unit of plumbing reads `-` and its note, since it has no project (the dbus broker's working
+# directory is the control plane). The result lines keep the full note, since they print without the table beside them.
+print_session_row() {
+    local index="$1" prefix="$2" project="${3:-}" note
+    note="${selected_notes[index]}"
+    case "${selected_classes[index]}" in
+        agent)  project="${project:-unknown}" ;;
+        launch) project="(launch)"; note="" ;;
+        *)      project="-" ;;
+    esac
+    printf '  %-42s %7s %6s  %-10s %s\n' \
+        "${prefix}$(sanitize "${selected_units[index]:-unattributed cgroup}")" \
+        "${selected_pids[index]:--}" "${selected_counts[index]}" "$(sanitize "${selected_by[index]:--}")" \
+        "${project}${note:+  ${note}}"
+}
+
+# print_stop_consequences <agent-count> -- the two facts the question qualifies, printed under the table and ahead
+# of the question: a stopped session does not run its session-end handback, and the stop ends every process
+# in the account's slice, whatever the table's classes, and restarts the user manager.
+print_stop_consequences() {
+    printf '\n'
+    if (( ${1:-0} )); then
+        printf '  %s\n' "A stopped session does not run its session-end handback: reclaim the projects named above afterwards."
+    fi
+    printf '  %s\n' "The stop ends every process in the ${SANDBOX_USER} account's slice and restarts its user manager afterwards."
 }
 
 # print_reclaim_guidance <dir>... -- name the reclaim per project actually stopped. A stop cannot run the agent's
@@ -848,8 +1015,8 @@ print_session_table() {
 #
 # CALLED WITH AGENT SESSIONS' DIRECTORIES ONLY. The account's plumbing has no project to hand back, and its
 # WorkingDirectory is routinely a path `atr projects handback` would refuse outright: the account's dbus broker reports
-# `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it produced a remedy that cannot
-# run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
+# `/opt/ai-tools`, the control plane, which the safe-paths backstop protects. Emitting it would offer a remedy
+# that cannot run, offered to an operator mid-incident with no marker to distinguish it from the one that can.
 print_reclaim_guidance() {
     local directory
     local -A seen=()
@@ -883,9 +1050,10 @@ main() {
         "AI_TOOLS_FORCE=${FORCE_KILL}" "AI_TOOLS_DRYRUN=${DRY_RUN}"
 
     local -a selected_cgroups=() selected_units=() selected_dirs=() selected_counts=() \
-             selected_is_agent=()
-    local agent_count=0 plumbing_count=0
-    local cgroup_directory unit working_directory pid_count
+             selected_is_agent=() selected_classes=() selected_notes=() selected_pids=() selected_by=() \
+             selected_parents=()
+    local agent_count=0 step_count=0 plumbing_count=0
+    local cgroup_directory unit working_directory pid_count first_pid launcher_uid
     local -a session_pids
     while read -r cgroup_directory; do
         [[ -n "${cgroup_directory}" ]] || continue
@@ -905,12 +1073,55 @@ main() {
         selected_units+=("${unit}")
         selected_dirs+=("${working_directory}")
         selected_counts+=("${pid_count}")
+        # The note, the pid and the launcher are read here, once: a step's first process is gone by the time its result
+        # line is printed. The launcher is read for a scope directly under the slice alone; an agent unit takes its
+        # launch scope's in the pairing pass.
+        selected_notes+=("$(session_class_note "${cgroup_directory}" "${unit}")")
+        first_pid="$(cgroup_first_pid "${cgroup_directory}")"
+        selected_pids+=("${first_pid:-${session_pids[0]}}")
+        launcher_uid=""
+        cgroup_is_step "${cgroup_directory}" && launcher_uid="$(scope_launcher_uid "${cgroup_directory}")"
+        selected_by+=("${launcher_uid:+$(account_name "${launcher_uid}")}")
+        selected_parents+=("")
         if session_is_agent "${unit}"; then
-            selected_is_agent+=(true);  agent_count=$(( agent_count + 1 ))
+            selected_is_agent+=(true);  selected_classes+=(agent); agent_count=$(( agent_count + 1 ))
+        elif cgroup_is_step "${cgroup_directory}"; then
+            selected_is_agent+=(false); selected_classes+=(step); step_count=$(( step_count + 1 ))
         else
-            selected_is_agent+=(false); plumbing_count=$(( plumbing_count + 1 ))
+            selected_is_agent+=(false); selected_classes+=(plumbing); plumbing_count=$(( plumbing_count + 1 ))
         fi
     done < <(find_session_cgroups)
+
+    # A LAUNCH SCOPE IS ITS SESSION'S, NOT A STEP. The launch wrapper's `sudo -u` crosses pam_systemd, so logind opens
+    # a scope in the account's slice holding sudo and ai-tools-run, which waits on the session unit it starts and names
+    # that unit `<SANDBOX_USER>-<agent>-<its own pid>.service`. A step scope holding a pid that is the complete numeric
+    # suffix of a selected agent unit's name is therefore that session's launch scope: listed after the agent rows,
+    # counted with its session, and not as a step. A scope whose pids name no selected unit stays a step. The unit name
+    # is the account's word, so this pairing is a label like the agent class, and does not decide what is stopped.
+    # The pairing also nests the launch row under its session in the table, sets its PID to the ai-tools-run pid
+    # that named the unit, and gives the session the BY its launch scope read.
+    local -A agent_index_by_pid=()
+    local index unit_pid scope_pid agent_index launch_count=0
+    for index in "${!selected_cgroups[@]}"; do
+        [[ "${selected_classes[index]}" == agent ]] || continue
+        unit_pid="${selected_units[index]%.service}"
+        unit_pid="${unit_pid##*-}"
+        [[ "${unit_pid}" =~ ^[0-9]+$ ]] && agent_index_by_pid["${unit_pid}"]="${index}"
+    done
+    for index in "${!selected_cgroups[@]}"; do
+        [[ "${selected_classes[index]}" == step ]] || continue
+        while read -r scope_pid; do
+            [[ -n "${scope_pid}" && -n "${agent_index_by_pid[${scope_pid}]:-}" ]] || continue
+            agent_index="${agent_index_by_pid[${scope_pid}]}"
+            selected_classes[index]=launch
+            selected_parents[index]="${agent_index}"
+            selected_pids[index]="${scope_pid}"
+            selected_notes[index]="(launch of $(sanitize "${selected_units[agent_index]}"))"
+            selected_by[agent_index]="${selected_by[index]}"
+            step_count=$(( step_count - 1 )); launch_count=$(( launch_count + 1 ))
+            break
+        done < <(cgroup_pids "${selected_cgroups[index]}")
+    done
 
     if (( ${#selected_cgroups[@]} == 0 )); then
         say_headline "Stop" "No agent session is running."
@@ -918,46 +1129,39 @@ main() {
         return 0
     fi
 
-    # The two counts are reported separately everywhere, never summed into one "session" figure. See the classification
-    # block for why, and for why the split is advisory.
-    #
-    # Two wordings, because "go with them" has no antecedent when no agent session was found -- the shape a RERUN always
-    # takes, the manager having been restarted by the run before it.
-    local plumbing_clause=""
-    if (( plumbing_count && agent_count )); then
-        plumbing_clause=" ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing (marked below) go with them -- nothing in the account's slice is exempt -- and its user manager is restarted afterwards."
-    elif (( plumbing_count )); then
-        plumbing_clause=" ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing (marked below) are stopped regardless -- nothing in the account's slice is exempt -- and its user manager is restarted afterwards."
+    # The headline says what happens to the agent sessions, and the table lists every cgroup, each class marked.
+    # The steps and the plumbing are counted in the table and named in the closing lines, where the slice-wide scope
+    # of the command sits next to the question it qualifies. A step run as the account leads the headline where no agent
+    # session is listed: the headline does not say that no session is running while one is listed.
+    local headline
+    if (( agent_count )) && ${DRY_RUN}; then
+        headline="${agent_count} agent session(s) would be terminated. Nothing was changed."
+    elif (( agent_count )) && ${FORCE_KILL}; then
+        headline="${agent_count} agent session(s) will be KILLED immediately (--force): no grace period, and unsaved work in the current turn is lost."
+    elif (( agent_count )); then
+        headline="${agent_count} agent session(s) will be terminated, each with ${GRACE_SECONDS}s to exit before it is killed."
+    elif (( step_count )); then
+        headline="${step_count} step(s) run as the ${SANDBOX_USER} account $(${DRY_RUN} && printf 'would' || printf 'will') be terminated, and no agent session.$(${DRY_RUN} && printf ' Nothing was changed.')"
+    else
+        headline="No agent session is running.$(${DRY_RUN} && printf ' Nothing was changed.')"
     fi
 
     if ${DRY_RUN}; then
-        local dry_headline
-        if (( agent_count )); then
-            dry_headline="${agent_count} agent session(s) would be terminated.${plumbing_clause} Nothing was changed."
-        else
-            dry_headline="No agent session is running.${plumbing_clause} Nothing was changed."
-        fi
-        say_headline "Stop (dry run)" "${dry_headline}"
-        print_session_table "would stop"
-        log_event info "dry run: ${agent_count} agent session(s) and ${plumbing_count} account unit(s) would be stopped in ${scope} for ${CALLER}"
+        say_headline "Stop (dry run)" "${headline}"
+        print_session_table
+        print_stop_consequences "${agent_count}"
+        log_event info "dry run: ${agent_count} agent session(s) with ${launch_count} launch scope(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) would be stopped in ${scope} for ${CALLER}"
         return 0
     fi
 
-    local headline
-    if (( agent_count == 0 )); then
-        headline="No agent session is running.${plumbing_clause}"
-    elif ${FORCE_KILL}; then
-        headline="${agent_count} agent session(s) will be KILLED immediately (--force): no grace period, no session-end handback, and unsaved work in the current turn is lost.${plumbing_clause}"
-    else
-        headline="${agent_count} agent session(s) will be terminated, with everything they spawned. Each gets ${GRACE_SECONDS}s to exit before it is killed. No session runs its session-end handback, so reclaim the projects named below afterwards.${plumbing_clause}"
-    fi
     say_headline "Terminate agent sessions" "${headline}"
-    print_session_table "stop"
+    print_session_table
+    print_stop_consequences "${agent_count}"
 
-    if ! confirm_stop "${agent_count}" "${plumbing_count}"; then
+    if ! confirm_stop "${agent_count}" "${step_count}"; then
         say_notice MSG-J3U9 "Nothing was stopped"
         log_event notice \
-            "${CALLER} declined the stop of ${agent_count} agent session(s) and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
+            "${CALLER} declined the stop of ${agent_count} agent session(s) with ${launch_count} launch scope(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=declined"
         return 6
     fi
@@ -970,8 +1174,7 @@ main() {
         working_directory="${selected_dirs[index]}"
         # Carried onto the result lines too, not just the table: in a run with several sessions the table has scrolled
         # off by the time these appear, and these are what the operator watches.
-        class_note="$(session_class_note "${unit}")"
-        [[ -n "${class_note}" ]] && class_note="  ${class_note}"
+        class_note="${selected_notes[index]:+  ${selected_notes[index]}}"
         outcome="$(end_session "${cgroup_directory}")"
         case "${outcome}" in
             terminated)
@@ -1077,7 +1280,7 @@ main() {
         return 1
     fi
     log_event notice \
-        "stopped ${agent_count} agent session(s) and ${plumbing_count} account unit(s) in ${scope} for ${CALLER}, verified empty via cgroup.procs and a final slice sweep" \
+        "stopped ${agent_count} agent session(s) with ${launch_count} launch scope(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) in ${scope} for ${CALLER}, verified empty via cgroup.procs and a final slice sweep" \
         "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" \
         "AI_TOOLS_COUNT=${#selected_cgroups[@]}" "AI_TOOLS_AGENT_COUNT=${agent_count}"
     # Agent sessions only -- the account's plumbing has no project to reclaim. See the function.

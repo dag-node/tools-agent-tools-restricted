@@ -31,11 +31,10 @@ and the new entrypoint is relabelled for the SELinux transition.
 work. It first rewrites a provider list an earlier release wrote with bare names, the rewrite `system post-upgrade`
 makes ([providers](providers.rule.md)), so what follows reads the line this release reads. **It decides which agents it
 provisions before its first network step** (`choose_agents`): no agent manifest ships enabled, so with `AI_TOOLS_AGENTS`
-absent and at least one trusted manifest installed it draws one `ai_tools_msg__pick none` menu — one option
-per installed agent (`display_name`) and one for none, single-select — and writes the chosen name into `operator.conf`
-through `ai_tools_conf__set_list`; an unanswered menu (no terminal, closed input, three misses) or none chosen
-provisions Node alone under a coded warning naming the line and the re-run, at exit 0. `--agents NAME[,NAME...]`, passed
-through by `ai-tools-admin`, is the unattended form: each name is checked
+absent and at least one trusted manifest installed it asks which one installed agent to enable and writes the chosen
+name into `operator.conf` through `ai_tools_conf__set_list`; an unanswered menu or none chosen provisions Node alone
+under a coded warning naming the line and the re-run, at exit 0 (how the menu answers is the helper's header).
+`--agents NAME[,NAME...]`, passed through by `ai-tools-admin`, is the unattended form: each name is checked
 against `ai_tools_providers__list_installed_agents` and an unknown one refuses the run with the key unwritten. A present
 key is the operator's declaration and is not asked about; one naming more than one agent is answered with a notice,
 since every agent named runs as the one sandbox account, and an untrusted `operator.conf` is neither asked
@@ -60,18 +59,19 @@ a download is applied — the account and its home, the launcher links, the rela
 the prompts — and the nvm, Node and npm install is skipped over a toolchain that is already installed, or ends the run
 under `MSG-R5Z3` where none is, since the download is the one step this command cannot make without the network. It then
 creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`,
-default 22), and each enabled agent's npm package as `SANDBOX_USER` (the enabled set resolved
-via [providers](providers.rule.md)), re-links each versioned launcher at the target its manifest declares (see [The
-versioned launcher and its declared target](#the-versioned-launcher-and-its-declared-target)), points
-`/opt/ai-tools/bin/<launcher>` at each versioned binary, relabels the freshly installed entrypoint
-(`ai-tools-relabel-agent`, gated on that helper being deployed, so the first launch after a fresh provision is confined
-without a manual `atr admin system entrypoints relabel`), and captures the initial control plane in a root-private git
-repo. It is the one network step, so it is an operator command rather than an RPM scriptlet (which must succeed
-offline). It is idempotent: an existing account, nvm install, or Node version is reused. It enables `SANDBOX_USER`
-linger and the `nvm-update.timer` in that instance (best-effort), so the maintenance schedule is live once the toolchain
-exists. Root starts the timer over the machine transport (`systemctl --user -M SANDBOX_USER@.host`), the route
-the system bus authorizes for root; a `sudo -u` call on the account's own bus is refused there even while the manager is
-healthy ([cli](cli.rule.md)).
+default 22), then updates npm, as `nvm-update` does first on every run, so the agents install and the signature check
+audits with the npm the updater maintains rather than the one bundled with Node, then each enabled agent's npm package
+as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each versioned launcher
+at the target its manifest declares (see [The versioned launcher and its declared
+target](#the-versioned-launcher-and-its-declared-target)), points `/opt/ai-tools/bin/<launcher>` at each versioned
+binary, relabels the freshly installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed,
+so the first launch after a fresh provision is confined without a manual `atr admin system entrypoints relabel`),
+and captures the initial control plane in a root-private git repo. It is the one network step, so it is an operator
+command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an existing account, nvm install,
+or Node version is reused. It enables `SANDBOX_USER` linger and the `nvm-update.timer` in that instance (best-effort),
+so the maintenance schedule is live once the toolchain exists. Root starts the timer over the machine transport
+(`systemctl --user -M SANDBOX_USER@.host`), the route the system bus authorizes for root; a `sudo -u` call
+on the account's own bus is refused there even while the manager is healthy ([cli](cli.rule.md)).
 
 **It offers the entrypoint requirement where confinement is in force** (`offer_launch_requirements`). On a host
 where SELinux is enforcing and the `ai_tools` module is loaded, it asks once, through `ai_tools_msg__confirm` defaulting
@@ -146,13 +146,13 @@ routes to the toolchain, and no third:
   the run. The deadline holds through the draining of the child's output, so a descendant the child left holding its
   output open is ended the same way rather than waited for. The run is a transient systemd scope, the boundary
   a descendant cannot leave whatever session it opens, placed in the account's slice `user-<uid>.slice`,
-  where `atr stop` ends it and the relabel gate reads it as live; where the system manager does not answer the helper's
-  probe in that slice, the run is refused under `MSG-Q2K6` rather than made inside the weaker boundary a session is,
-  since a descendant's own `setsid` leaves that one. Otherwise the command's own status is returned.
-  `ai-tools-bootstrap` requires it and refuses the run under `MSG-E2X2` without it; its link repair, its residue
-  removal, its nvm/Node/agent install and its signature check go through it, and so does `install.sh`'s package erase
-  at uninstall. `ai_tools_sandbox_exec__is_sandbox_account`, beside it, is the check a function that sources `nvm.sh`
-  or runs `npm` makes of its own process.
+  where `atr stop` ends it and the policy unload's session reading reads it as live; where the system manager does not
+  answer the helper's probe in that slice, the run is refused under `MSG-Q2K6` rather than made inside the weaker
+  boundary a session is, since a descendant's own `setsid` leaves that one. Otherwise the command's own status is
+  returned. `ai-tools-bootstrap` requires it and refuses the run under `MSG-E2X2` without it; its link repair, its
+  residue removal, its nvm/Node/agent install and its signature check go through it, and so does `install.sh`'s package
+  erase at uninstall. `ai_tools_sandbox_exec__is_sandbox_account`, beside it, is the check a function that sources
+  `nvm.sh` or runs `npm` makes of its own process.
 
 A step that runs as the account and executes only root-owned code — the launcher re-link through `providers.lib.sh`,
 the stamp's `mkdir` and `touch` — does not run a file the account can write, and keeps its plain `sudo -u`. `nvm-update`
@@ -698,11 +698,11 @@ applied would show green for work that did not happen. It is written on the DAC-
 because there is no `ai_tools_exec_t` to assign, so that host reports "nothing to label" rather than "cannot tell".
 Writing it is best-effort and never changes the outcome of the relabel it describes.
 
-A config directory the live-session gate left ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) is filed by the type it
-carries. At the type the agent writes it is `skipped`, and the run warns and exits 0. At another type it is `failed`,
-and the run exits non-zero as it does for a path that did not take its type, since no session of that agent can write
-its state: `ai-tools-relabel.service` is a oneshot, so the unit then reads failed until a run with no session labels
-the directory.
+The config directory is walked whatever the account runs ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)), and its
+walk files the agent by what it left. A walk that left hardlinked files says how many and files the agent `ok` where its
+declared paths took their type, since a path a label leaves keeps the type it had; a walk whose walker could not start
+files it `failed` with the reason `walker-unavailable`; and a directory left at another type is `failed`, so the run
+exits non-zero, and `ai-tools-relabel.service`, a oneshot, reads failed until a run labels it.
 
 The helper then **reconciles** what it applied against what is installed: it resolves `/opt/ai-tools/bin/<launcher>`
 the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path the declared pattern
@@ -760,12 +760,14 @@ provisioning](#toolchain-provisioning-system-bootstrap)). Two further paths run 
   executes the helper of one release against the libraries of another. The service is stopped with it, because stopping
   a `.path` does not end a run it already started, and a oneshot still active at the closing start absorbs that start
   rather than running again. `install.sh` stops both the same way for its run, and an `EXIT` trap starts the watcher
-  again whatever ends that run. The service unit **wants** the path unit, so a start of the service — by hand,
-  by the `%posttrans`, by the bootstrap or by `install.sh`, each of which runs it once after its own relabel
-  so the unit's recorded result is that run's — brings the watcher up with it. Should it be down anyway,
-  `services.lib.sh` surfaces it before the next Node bump would fail-close a launch on a mislabelled entrypoint:
-  proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block, from the same registry) and in `atr status` (see
-  [cli](cli.rule.md)).
+  again whatever ends that run wherever the unit is enabled, so a watcher an earlier run left down comes back too.
+  The service unit **wants** the path unit, so a start of the service — by hand, by the `%posttrans`, by the bootstrap
+  or by `install.sh`, each of which runs it once after its own relabel so the unit's recorded result is that run's —
+  brings the watcher up with it. Should it be down anyway, `services.lib.sh` surfaces it before the next Node bump would
+  fail-close a launch on a mislabelled entrypoint: proactively at launch (`launch-wrapper.lib.sh` warns, warn-not-block,
+  from the same registry) and in `atr status` (see [cli](cli.rule.md)), with a remedy that leads
+  with `systemctl daemon-reload` where the manager reports the unit file changed since it loaded it
+  (`ai_tools_services__read_remedy`).
 - **On demand**, through `atr admin system entrypoints relabel`, which runs the same helper as root. It is
   an administrator command rather than an operator one: it carries no `%ai-ops` NOPASSWD rule and is reached
   through the host's own general sudo grant, the axis [CLAUDE.md](../../CLAUDE.md) names (see
@@ -823,12 +825,20 @@ over agent-controlled files as root. `nvm-update.sh` runs it directly; `ai-tools
 sandbox-account step; and the impure entry `ai_tools_npm_verify__verify_signatures` refuses to run as root
 as a fail-closed backstop. The pure decision `ai_tools_npm_verify__evaluate_audit` — no npm, no filesystem, no privilege
 — is split out and unit-tested over the audit-output truth table (`tests/unit/npm-verify.sh`), mirroring
-`confinement.lib.sh`'s pure verdict. That verdict parses its JSON with `node`, which on most hosts exists only
-in the sandbox toolchain, so the root-run test resolves that one binary the way the launch wrapper resolves the agent
-binary — one `readlink` hop through a stable launcher symlink to the active version's `bin` — and runs the verdict
-as the sandbox account through `runuser`, with that directory alone on its `PATH`: the binary is that account's
-to replace, and root does not execute it ([tests](tests.rule.md)). Resolving from `PATH` alone would skip the file
-on a fully provisioned host, which strict mode reports as no coverage.
+`confinement.lib.sh`'s pure verdict. That verdict parses its JSON with the host's `/usr/bin/python3` in isolated mode,
+so it does not execute any file of the toolchain and the root-run test drives it directly ([tests](tests.rule.md)).
+
+An invalid signature is reported with the packages that failed and, for each of the first 20, npm's own `code`, `keyid`,
+`integrity` and `message`, the inputs npm checked and its account of the failure, so the journal holds what a reader
+compares with the registry's keys endpoint and the package's published integrity. Each field passes the printable-ASCII
+allowlist without the space, capped at 160 characters, since the audit JSON is the sandbox account's to write;
+the message keeps the space, closes the line, and is quoted with every quote inside it replaced.
+
+**An invalid signature is audited once more** after a pause, since a registry's answer can be inconsistent for a moment
+while the installed tree is not, and both audits are reported. Only a second verified result clears the first: it means
+every installed package verified against the registry's key, which a tampered tarball does not. Every other second
+answer keeps the invalid verdict, so an audit that cannot run the second time does not move a tamper to unable
+to verify.
 
 The verdict gates activation fail-closed. An **invalid** signature (tamper) aborts before the install scripts, the prune
 and the launcher-symlink repoint, so the previous, trusted version stays active and the tampered tree is left unwired

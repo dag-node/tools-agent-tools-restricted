@@ -122,6 +122,7 @@ An operator holding only the two launches agent sessions and reads the reports.
 The commands that reach a root helper need the grant as well: every
 .B projects
 command other than
+.BR "projects list" ,
 .B "projects push"
 and the plain form of
 .B "projects enable"
@@ -338,6 +339,11 @@ line with the command that finishes it, and the claim exits 5.
 On a disabled project the claim offers the re-enable first, defaulting to no.
 It refuses an excluded path, and a path a disabled, excluded or glob line
 covers.
+It refuses a directory whose own mode has no group or other bit, such as 700,
+600 or 500, before it writes anything and before the re-enable offer:
+the claim leaves an owner-only mode as it is and does not add a grant under it,
+and no session starts in an owner-only directory.
+On a listed or disabled project the refusal keeps its registry line.
 A directory with projects under it is claimed as one, and the review names
 the projects it holds.
 .RS
@@ -543,11 +549,19 @@ Skip the final \(lqCreate the sandbox clone?\(rq confirmation. The secret gate s
 applies.
 .RE
 .IP
-The clone is born owner-only; tip-commit secrets are locked down first, under every
-directory of the clone, and only past
-that gate is the clone opened to the agent and registered. A declined or failed lockdown
-stops fail-closed \(em the clone stays private and unregistered; re-run this command on
-the clone path to resume securing it.
+The clone is created owner-only; tip-commit secrets are locked down first, under
+every directory of the clone, and only past that gate is the clone labelled
+and opened to the agent. The registry entry the lockdown acts on is written
+ahead of the gate and removed again when the gate or the label fails. A declined or failed lockdown, and a clone
+the SELinux policy could not label, stop fail-closed \(em the clone stays
+private and unregistered; re-run this command on the clone path to resume
+securing it. Where SELinux runs without the ai-tools policy the clone is
+created unlabelled and the command says so. Opening the clone sets its group
+and permissions through
+.BR sudo ,
+as a claim does; a clone those steps leave unfinished, or one without its
+git safe.directory entry, is reported not ready with the commands that finish
+it, and the command exits 1.
 .TP
 .B projects push \fR[\fIDIRECTORY\fR]
 Push the sandbox clone's commits to the remote branch it tracks
@@ -583,7 +597,7 @@ Without
 .I DIRECTORY
 it hands back the project the current directory is in.
 .TP
-.B stop
+.B stop \fR[\fB\-\-dry\-run\fR] [\fB\-y\fR] [\fB\-\-force\fR] [\fB\-\-all\fR]
 Terminate every running agent session and everything it spawned. This is the one control
 that acts on a session
 .BR "already running" :
@@ -599,11 +613,13 @@ manager, and signalling it is root's to do. The bare command needs
 \(em the operators group holds a
 .B NOPASSWD
 rule for exactly that form, so a detector with no human present can reach it \(em while
-every option,
-.B \-\-all
+every option \(em
+.BR \-\-dry\-run ,
+.BR \-y ,
+.B \-\-force
 and
-.B \-y
-included, falls outside the rule and prompts. Why it is granted this way:
+.B \-\-all
+\(em falls outside the rule and prompts. Why it is granted this way:
 .IR /usr/share/doc/ai\-tools/docs/sessions/stop.md .
 .IP
 It is
@@ -647,12 +663,23 @@ and verified gone from its
 .BR cgroup ;
 it does not mean none can start afterwards, and it does not describe the manager.
 .IP
-The report counts agent sessions apart from the account's own plumbing \(em its user manager, its
-dbus broker, and a login session scope per
+The report lists each agent session's launch scope, the
 .BR sudo (8)
-that crossed pam_systemd. All are terminated; the plumbing is listed after the sessions and marked
-.IR "(account plumbing)" ,
-so the headline does not report four units of scaffolding as four agent sessions. The split is
+the launch ran through, under its session and counts it with them. Sessions are listed in project order, each project by its directory's name, or its full path where two listed projects share a name. Each row names its first process id and, under
+.BR BY ,
+the account that started the launch or the step, read from the kernel; the table closes with the
+.BR systemd-cgls (1)
+command that shows the processes inside each, and the question names every process in the account's slice, which
+is what the command stops. It counts agent sessions apart from the steps run as the account \(em a login session
+scope per
+.BR sudo (8)
+or
+.BR runuser (1)
+that crossed pam_systemd, and a root command's run as the account, each row naming the program its first process runs, without its arguments \(em and apart from the account's own plumbing, its user manager and dbus broker,
+marked
+.IR "(account plumbing)" .
+All are terminated, listed after the sessions, so the headline does not report four units
+of scaffolding as four agent sessions, nor say that no session is running while a step is listed. The split is
 presentational \(em it labels and orders rows and decides which get a handback command, without
 selecting any target. Because the restarted manager is itself inside the swept slice, running the command twice
 in a row is not silent: the second run reports zero agent sessions, then terminates and restarts the
@@ -673,6 +700,12 @@ and which pass ended it are all recorded in
 and journald. What each outcome means, and what a stop leaves in place:
 .IR /usr/share/doc/ai\-tools/docs/sessions/stop.md .
 .RS
+.TP
+.B \-\-dry\-run
+List the sessions a run would terminate, and terminate none of them.
+.TP
+.BR \-y ", " \-\-yes
+Skip the confirmation.
 .TP
 .B \-\-all
 Accepted and inert: every run already terminates every agent session. Like every other
@@ -836,9 +869,12 @@ beside it is checked as on any command. Answered ahead of every gate, like
 .BR \-y ", " \-\-yes
 For
 .BR "projects claim" :
-pre-answer only the proceed prompt; the secret-lockdown, git-history, and
-ancestor-traversal questions still ask. For
+pre-answer the proceed prompt and the SELinux type question; the group and ACL
+repair, the secret-lockdown, git-history and ancestor-traversal questions
+still ask. For
 .BR "projects lockdown" :
+skip the confirmation. For
+.BR stop :
 skip the confirmation.
 For
 .BR "projects unclaim" :
@@ -849,14 +885,14 @@ pre-answer
 .I both
 the confirmation and the typed-name challenge \(em the only thing that does, since
 .B AI_TOOLS_ASSUME_YES
-never answers a default-NO question and the challenge has no default at all. It
-then requires an explicit
-.IR DIRECTORY ,
-so an unattended removal cannot inherit the current directory. For a sandbox
-clone it pre-answers the one confirm the clone kind asks, on the same terms.
+never answers a default-NO question and the challenge has no default at all.
+For a sandbox clone it pre-answers the one confirm the clone kind asks, on the
+same terms.
 .TP
 .B \-\-dry\-run
 For
+.BR stop :
+list the sessions a run would terminate, and terminate none of them. For
 .BR "projects lockdown" :
 report what would be locked, and what would be stripped from the paths you have
 already sealed by mode, without changing anything. For
@@ -1014,16 +1050,12 @@ the
 .B "rm \-rf"
 that removes them. For
 .B "projects claim"
-it covers a SELinux label step refused while an agent session, the toolchain
-update, or a step run as the sandbox account is live, or while its sessions
-could not be read: the other steps applied, and a re-run once none is live
-applies the label. For
+it covers a SELinux label step that failed: the other steps applied, and
+a re-run applies the label. For
 .B "projects unclaim"
-it covers a label reversal refused for the same reason, or failed: the
-registries and the hand-back applied, and the printed command reverts the
-label. The same refusal stops
-.B "projects remove"
-before it changes anything, so the tree and its entries stay as they were.
+it covers a label reversal that failed, or that left hardlinked files at their
+type: the registries and the hand-back applied, and the printed command
+reverts the label.
 .TP
 .B 2
 The command line was rejected, before any helper or

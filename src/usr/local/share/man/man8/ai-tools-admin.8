@@ -265,7 +265,8 @@ Seeds that account's own config first \(em a project registry at
 .I ~/.config/ai\-tools/project\-registry
 and secret\-name patterns at
 .IR ~/.config/ai\-tools/secret\-patterns ,
-each carrying its header alone, the registry its format marker first \(em then appends the name to
+the registry holding its format marker alone and the patterns file its header
+alone \(em then appends the name to
 .BR OPERATORS ,
 adds the account to
 .BR ai\-ops ,
@@ -548,7 +549,10 @@ an earlier release wrote is migrated too, unattended included, since every
 command but the listing refuses until it is.
 The block for each account prints every line, then writes
 .I ~/.config/ai\-tools/project\-registry
-as the format marker followed by those lines unchanged, at the old file's
+as the format marker followed by those entries, each with its sign, in the order
+every later write leaves (see
+.BR ai-tools-project-registry (5)),
+at the old file's
 owner and mode, and renames the old file to a dated
 .I .bak
 beside it.

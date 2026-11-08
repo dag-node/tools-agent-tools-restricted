@@ -366,6 +366,21 @@ if pid_start_time "$(fixture_pid 201)" >/dev/null 2>&1; then
 else
     pass "a fixture pid has no /proc entry, so it can never be signalled"
 fi
+# A pid that exits between the readability test and the read reaches a read that fails; its error stays off the table
+# the operator reads. The function's text is run with the readability line removed and its /proc path pointed
+# at an absent file, the state the read meets after that exit, under the helper's own `set -u` without `set -e`.
+start_time_text="$(extract_function "${STOP_HELPER}" pid_start_time)"
+start_time_text="${start_time_text//\[\[ -r \"\/proc\/\$1\/stat\" \]\] || return 1/:}"
+start_time_text="${start_time_text//\/proc\/\$1\/stat/\$1}"
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+race_out="$(bash -c 'set -u; eval "$1"; pid_start_time "$2" >/dev/null; printf "status=%s\n" "$?"' _ \
+    "${start_time_text}" "${TESTDIR}/absent-stat" 2>&1)" || true
+# shellcheck disable=SC2016  # the pattern matches the literal "$1" text of the rewritten read
+if [[ "${start_time_text}" != *'[[ -r'* && "${start_time_text}" == *'< "$1"'* && "${race_out}" == "status=1" ]]; then
+    pass "a start-time read that fails past the readability test returns 1 and writes nothing to stderr"
+else
+    fail "a start-time read failing past the readability test: ${race_out//$'\n'/ | }"
+fi
 
 sleep 30 &
 victim=$!
@@ -456,8 +471,8 @@ fi
 # init.scope, and the four of them are stopped identically -- but the line an operator reads first during an incident,
 # and answers the confirmation against, must not call four cgroups four agent sessions. The plumbing row is still
 # in the table: separated, not omitted.
-if grep -q "1 unit(s) of the ${SANDBOX_USER} account's own plumbing" <<< "${MAIN_OUTPUT}" \
-        && grep -q 'init.scope.*(account plumbing)' <<< "${MAIN_OUTPUT}"; then
+if grep -q '^3 agent session(s) would be terminated' <<< "${MAIN_OUTPUT}" \
+        && grep -qE '^  init\.scope .* -  \(account plumbing\)$' <<< "${MAIN_OUTPUT}"; then
     pass "the account's own plumbing is counted apart from the agent sessions, and still listed"
 else
     fail "the plumbing split is missing from the dry run: ${MAIN_OUTPUT}"
@@ -489,6 +504,27 @@ else
 fi
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/dir"
 
+# AGENT ROWS ARE IN PROJECT ORDER, EACH PROJECT BY ITS DIRECTORY'S NAME. The order compares the paths bytewise,
+# so proj/alpha, proj/alpha-extra and proj/alpha/sub/dir come in that order whatever order the walk found them
+# in, and each row shows the last component alone. Two projects sharing that name in different directories each show
+# the full path, so they are not read as one; a third with a name of its own keeps its name.
+run_main true
+agent_rows="$(awk '/^  ai-tools-claude-code-2[123]\.service / { print $1 " " $NF }' <<< "${MAIN_OUTPUT}" | tr '\n' '|')"
+if [[ "${agent_rows}" == "ai-tools-claude-code-21.service alpha|ai-tools-claude-code-23.service alpha-extra|ai-tools-claude-code-22.service dir|" ]]; then
+    pass "agent rows are in project order, each project shown by its directory's name"
+else
+    fail "agent rows in project order by name: '${agent_rows}'"
+fi
+FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/other/alpha"
+run_main true
+agent_rows="$(awk '/^  ai-tools-claude-code-2[123]\.service / { print $1 " " $NF }' <<< "${MAIN_OUTPUT}" | tr '\n' '|')"
+if [[ "${agent_rows}" == "ai-tools-claude-code-22.service ${TESTDIR}/other/alpha|ai-tools-claude-code-21.service ${TESTDIR}/proj/alpha|ai-tools-claude-code-23.service alpha-extra|" ]]; then
+    pass "two projects sharing a directory name each show the full path, and a project with a name of its own its name"
+else
+    fail "projects sharing a name: '${agent_rows}'"
+fi
+FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/dir"
+
 # A WORKING DIRECTORY THAT IS NOT AN ABSOLUTE PATH YIELDS AN EMPTY VALUE. systemd renders the "missing is ok" flag
 # as a `!` prefix over d-bus (`WorkingDirectory=!/opt/ai-tools`), and an unstripped one reached the operator inside
 # an ai-tools.projects.handback command that will not run -- and that, pasted into an interactive bash, is not even
@@ -505,6 +541,141 @@ for stub_case in "!/srv/p:/srv/p" "-/srv/p:/srv/p" "/srv/p:/srv/p" "~:" "!~:" "r
     fi
 done
 unset -f systemctl timeout
+
+# A LOGIN SESSION SCOPE IS A STEP RUN AS THE ACCOUNT, NOT PLUMBING. logind places one directly under the account's slice
+# for a `sudo -u` or a `runuser` that crossed pam_systemd, outside the user manager, and the policy unload reads it
+# as live. The table names it as a step with what its first process runs, the manager's init.scope beside it stays
+# account plumbing, and the headline counts the step apart and does not say that no session is running. A fixture pid
+# has no /proc entry, so the command reads `unknown`; cgroup_first_command is driven over a real process further down.
+CG3="${TESTDIR}/cgroup2d/user.slice/user-4242.slice"
+point_at "${CG3}" 4242
+mkcg "${CG3}"
+mkcg "${CG3}/session-c142.scope" 130 131
+mkcg "${CG3}/user@4242.service"
+mkcg "${CG3}/user@4242.service/init.scope" 120
+sync_events "${TESTDIR}/cgroup2d"
+run_main true
+if (( MAIN_STATUS == 0 )) \
+        && grep -q "session-c142.scope.*(a step run as ${SANDBOX_USER}: unknown)" <<< "${MAIN_OUTPUT}" \
+        && grep -q 'init.scope.*(account plumbing)' <<< "${MAIN_OUTPUT}" \
+        && grep -q "1 step(s) run as the ${SANDBOX_USER} account" <<< "${MAIN_OUTPUT}" \
+        && ! grep -qi 'no agent session is running' <<< "${MAIN_OUTPUT}"; then
+    pass "a login session scope is listed as a step run as the account, counted apart, and the headline names it"
+else
+    fail "the session scope's row or headline: status ${MAIN_STATUS}, output: ${MAIN_OUTPUT}"
+fi
+# Beside an agent session, the step is counted in a clause of its own and listed after the agent rows.
+mkcg "${CG3}/user@4242.service/app.slice"
+mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-31.service" 140
+sync_events "${TESTDIR}/cgroup2d"
+FIXTURE_WORKING_DIR[ai-tools-claude-code-31.service]="${TESTDIR}/proj/alpha"
+run_main true
+table_order="$(grep -oE 'ai-tools-claude-code-31.service|session-c142.scope|init.scope' <<< "${MAIN_OUTPUT}" | tr '\n' ' ')"
+if (( MAIN_STATUS == 0 )) && grep -q '1 agent session(s) would be terminated' <<< "${MAIN_OUTPUT}" \
+        && grep -qE "^  session-c142\.scope .* -  \(a step run as ${SANDBOX_USER}: unknown\)$" <<< "${MAIN_OUTPUT}" \
+        && grep -qF "The stop ends every process in the ${SANDBOX_USER} account's slice" <<< "${MAIN_OUTPUT}" \
+        && [[ "${table_order}" == "ai-tools-claude-code-31.service session-c142.scope init.scope " ]]; then
+    pass "beside an agent session the step is listed after the agent rows and before the plumbing, and the closing line names the slice"
+else
+    fail "agent plus step: status ${MAIN_STATUS}, order '${table_order}', output: ${MAIN_OUTPUT}"
+fi
+# A LAUNCH SCOPE PAIRS WITH ITS SESSION. ai-tools-run names its unit for its own pid, and runs inside the scope
+# the launch wrapper's `sudo -u` opened, so a scope holding a pid that is the complete numeric suffix of a selected
+# agent unit is that session's launch scope: labelled with the unit, listed after the agent rows, and counted with its
+# session rather than as a step. A scope holding a pid that is only the tail of a unit's number does not pair and stays
+# a step, as session-c142.scope does, whose pids are not in any unit's name.
+launch_pid="$(fixture_pid 160)"; near_pid="$(fixture_pid 170)"
+mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-${launch_pid}.service" 161
+mkcg "${CG3}/session-c150.scope" 160 162
+mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-9${near_pid}.service" 171
+mkcg "${CG3}/session-c151.scope" 170
+sync_events "${TESTDIR}/cgroup2d"
+run_main true
+table_classes="$(awk '/^  SESSION / { rows = 1; next } /^  the processes in each:/ { rows = 0 } rows { print ($1 == "\\_" ? $2 : $1) }' <<< "${MAIN_OUTPUT}" \
+    | sed -e 's/^ai-tools-claude-code-.*/A/' -e 's/^session-c150\.scope$/L/' -e 's/^session-c1.*/S/' -e 's/^init\.scope$/P/' \
+    | tr '\n' ' ')"
+if (( MAIN_STATUS == 0 )) \
+        && grep -q "^3 agent session(s) would be terminated. Nothing was changed.$" <<< "${MAIN_OUTPUT}" \
+        && [[ "${table_classes}" == "A A L A S S P " ]] \
+        && grep -A1 "^  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}" \
+            | grep -qE "^   \\\\_ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
+        && grep -qF "the processes in each: systemd-cgls --no-pager -u user-4242.slice" <<< "${MAIN_OUTPUT}"; then
+    pass "a scope holding the pid an agent unit is named for is that session's launch scope, placed under it with that pid, and the table names the process view"
+else
+    fail "the launch scope: status ${MAIN_STATUS}, classes '${table_classes}', output: ${MAIN_OUTPUT}"
+fi
+if grep -qE "^  session-c151\.scope .* -  \(a step run as ${SANDBOX_USER}: unknown\)$" <<< "${MAIN_OUTPUT}"; then
+    pass "a scope whose pid is only the tail of an agent unit's number stays a step"
+else
+    fail "the near-match scope: output: ${MAIN_OUTPUT}"
+fi
+# BY IS THE KERNEL'S CREDENTIAL FOR WHOEVER STARTED THE SCOPE. The scope's entry process is the listed pid whose parent
+# is outside it, and BY is that parent's real uid, named from /etc/passwd. A shell the projects user runs stands
+# in for the operator's shell: with its child alone in the scope, BY names the projects user; with the shell
+# in the scope too, the entry moves up to the shell, whose parent is runuser, run by root -- the control that the walk
+# finds the entry and does not read the first pid listed.
+if can_drop_privilege; then
+    by_pid_file="${TESTDIR}/by-pid"; : > "${by_pid_file}"; chmod 0666 "${by_pid_file}"
+    # shellcheck disable=SC2016  # the $! and $1 are for the inner bash, not this shell
+    runuser -u "${PROJECTS_USER}" -- bash -c 'sleep 30 & printf "%s %s\n" "$$" "$!" > "$1"; wait' _ "${by_pid_file}" &
+    by_runner=$!
+    for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "${by_pid_file}" ]] && break; sleep 0.2; done
+    read -r by_shell by_child < "${by_pid_file}"
+    by_cg="${TESTDIR}/by-scope"; mkdir -p "${by_cg}"
+    printf '%s\n' "${by_child}" > "${by_cg}/cgroup.procs"
+    by_alone="$(account_name "$(scope_launcher_uid "${by_cg}")")"
+    printf '%s\n' "${by_shell}" "${by_child}" > "${by_cg}/cgroup.procs"
+    by_with_shell="$(account_name "$(scope_launcher_uid "${by_cg}")")"
+    kill "${by_child}" "${by_shell}" 2>/dev/null || true; wait "${by_runner}" 2>/dev/null || true
+    if [[ "${by_alone}" == "${PROJECTS_USER}" && "${by_with_shell}" == root ]]; then
+        pass "BY names the real uid of the process that started the scope, found by walking to the scope's entry"
+    else
+        fail "BY read '${by_alone}' with the child alone and '${by_with_shell}' with its shell in the scope"
+    fi
+else
+    skip "BY over a real process" "needs root and runuser to start a process as the projects user"
+fi
+if [[ "$(account_name 2147483646)" == 2147483646 && "$(account_name 0)" == root ]]; then
+    pass "account_name names an account /etc/passwd lists and prints the uid of one it does not"
+else
+    fail "account_name read '$(account_name 0)' for 0 and '$(account_name 2147483646)' for 2147483646"
+fi
+# The program a step's first process runs is the account's data: argv[0] alone, read from /proc as root, reduced
+# to printable ASCII and capped. Real processes stand in: one whose argv[0] carries an escape byte and runs past
+# the cap, and one whose arguments must not be printed, since a command line can carry a credential. A cgroup with no
+# process is the control that reads `unknown`. The stand-in is bash, an ELF binary on every host, so /proc shows
+# the argv[0] `exec -a` gives it. A coreutils program can be a script whose interpreter replaces argv[0]: the multi-call
+# coreutils of an EL10 container image is one. Bash blocks reading a FIFO it holds open both ways until the timeout.
+step_fifo="${TESTDIR}/step-fifo"; mkfifo "${step_fifo}"
+( exec -a step-short bash -c 'read -r -t 30 line <> "$1"' _ "${step_fifo}" 31 ) &
+step_pid=$!
+step_cg="${TESTDIR}/step-real"; mkdir -p "${step_cg}"; printf '%s\n' "${step_pid}" > "${step_cg}/cgroup.procs"
+sleep 0.2
+step_command="$(cgroup_first_command "${step_cg}")"
+kill "${step_pid}" 2>/dev/null || true; wait "${step_pid}" 2>/dev/null || true
+if [[ "${step_command}" == step-short ]]; then
+    pass "a step's command is its argv[0] alone, without the arguments"
+else
+    fail "cgroup_first_command printed more than argv[0]: '$(printf '%q' "${step_command}")'"
+fi
+( exec -a $'step\e[2J'"$(printf 'x%.0s' {1..100})" bash -c 'read -r -t 30 line <> "$1"' _ "${step_fifo}" 31 ) &
+step_pid=$!
+printf '%s\n' "${step_pid}" > "${step_cg}/cgroup.procs"
+sleep 0.2
+step_command="$(cgroup_first_command "${step_cg}")"
+kill "${step_pid}" 2>/dev/null || true; wait "${step_pid}" 2>/dev/null || true
+if [[ "${step_command}" == 'step?[2Jxxx'* && "${step_command}" == *'~' && ${#step_command} -eq 80 \
+        && "${step_command}" != *$'\e'* ]]; then
+    pass "a step's command is read from /proc, its escape byte reduced, and capped at 80 characters"
+else
+    fail "cgroup_first_command over a real process read: '$(printf '%q' "${step_command}")'"
+fi
+: > "${step_cg}/cgroup.procs"
+if [[ "$(cgroup_first_command "${step_cg}")" == unknown ]]; then
+    pass "control: a cgroup with no process reads unknown"
+else
+    fail "cgroup_first_command over an empty cgroup read: '$(cgroup_first_command "${step_cg}")'"
+fi
 
 # An empty slice is not an error: no session running is a successful stop.
 point_at "${TESTDIR}/cgroup2c/user.slice/user-4242.slice" 4242
@@ -554,24 +725,24 @@ else
     fail "a missing count abandoned the confirmation: ${consent_out}"
 fi
 
-# THE QUESTION NAMES BOTH CLASSES AND SUMS NEITHER INTO THE OTHER. This is the consent half of the split the table
-# makes: agreement to "5 sessions" that were two sessions and three units of the account's own plumbing is not informed
-# consent about either number. Each shape is asserted against the counts it was given, so a branch that names a class
-# that is not there fails here.
+# THE QUESTION NAMES THE WHOLE SLICE. The sweep ends every process in the account's slice, so the question says so, led
+# by the agent sessions or, where none is listed, the steps run as the account. Each shape is asserted whole
+# against the counts it was given, so a branch that names a class that is not there fails here.
 CONFIRM_QUESTION=""
 ai_tools_msg__confirm() { CONFIRM_QUESTION="$1"; return 0; }
 check_question() {
     CONFIRM_QUESTION=""; ASSUME_YES=false
     confirm_stop "$1" "$2" >/dev/null 2>&1
-    if [[ "${CONFIRM_QUESTION}" == *"$3"* ]]; then
-        pass "$1 session(s) + $2 plumbing unit(s) is asked as: '$3'"
+    if [[ "${CONFIRM_QUESTION}" == "$3" ]]; then
+        pass "$1 session(s) + $2 step(s) is asked as: '$3'"
     else
         fail "confirm_stop $1 $2 asked: '${CONFIRM_QUESTION}'"
     fi
 }
-check_question 2 0 "Terminate the 2 agent session(s) listed above?"
-check_question 0 3 "Terminate the 3 unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
-check_question 2 3 "the 2 agent session(s) listed above, and 3 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
+check_question 2 0 "Stop the 2 agent session(s) and every process in the ${SANDBOX_USER} account's slice?"
+check_question 2 1 "Stop the 2 agent session(s) and every process in the ${SANDBOX_USER} account's slice?"
+check_question 0 1 "Stop the 1 step(s) run as the ${SANDBOX_USER} account and every process in the ${SANDBOX_USER} account's slice?"
+check_question 0 0 "Stop every process in the ${SANDBOX_USER} account's slice?"
 unset -f ai_tools_msg__confirm check_question
 
 # And a deliberate decline stops the stop, at exit 6 -- the code ai-tools(1) reserves for an operator's explicit

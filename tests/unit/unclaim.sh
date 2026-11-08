@@ -422,4 +422,78 @@ else
     fail "control: ${ir}/sub keeps the group entry -- the refusal above is not evidence"
 fi
 
+# ── `--unlisted`: the label reset walks through the tree walker and reads each status ───────
+# reset_unlisted_label is read out of the helper as text and run with the root's type and the walker both shell
+# functions, over a path carrying a space: a root not at the project type is not walked; a walk that labelled every
+# entry logs ok; one that left hardlinked paths warns under its code naming them, with the find that lists the tree's
+# hardlinked files, the path quoted for a shell; any other exit warns under its code with the walker's line and the walk
+# to re-run. No session reading gates it.
+section "ai-tools-unclaim --unlisted: the label reset through the tree walker (unit)"
+reset_text="$(extract_function "${HELPER}" reset_unlisted_label)"
+unclaim_warn_text="$(extract_function "${HELPER}" warn)"
+# The call alone is rewritten, so the re-run command the warning names keeps the walker's path.
+# shellcheck disable=SC2016  # literal command substitutions, matched and expanded by the inner shell
+walker_call='$(/usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ' stub_call='$(fake_walker -- '
+if [[ -z "${reset_text}" || -z "${unclaim_warn_text}" || "${reset_text}" != *"${walker_call}"* ]]; then
+    fail "${HELPER} does not define reset_unlisted_label and warn in the form this file reads"
+else
+    reset_text="${reset_text//"${walker_call}"/"${stub_call}"}"
+    moved="${TESTDIR}/moved tree"; moved_quoted="$(printf '%q' "${moved}")"
+    # run_reset <root-type> <walk-status> <walker-stderr>: prints both streams and a LOG line per record the helper's
+    #   log calls made; the recorder holds one line per walker call.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    run_reset() {
+        : > "${TESTDIR}/recorder"
+        bash -c '
+            set -euo pipefail
+            eval "$1"; eval "$2"
+            _warn_code=""
+            root_type="$3" fake_status="$4" canonical="$5" fake_stderr="$6" recorder="$7"
+            stat() { printf "system_u:object_r:%s:s0\n" "${root_type}"; }
+            fake_walker() {
+                printf "walk %s\n" "$*" >> "${recorder}"
+                [[ "$1" == -- && "$2" == "${canonical}" ]] || return 99
+                printf "%s" "${fake_stderr}" >&2; return "${fake_status}"
+            }
+            ai_tools_log__structured() { printf "LOG %s %s %s\n" "$1" "$2" "$3"; }
+            ai_tools_log__coded() { printf "LOG %s %s %s %s\n" "$1" "$2" "$3" "$4"; }
+            reset_unlisted_label
+        ' _ "${unclaim_warn_text}" "${reset_text}" "$1" "$2" "${moved}" "$3" "${TESTDIR}/recorder" 2>&1 || true
+    }
+    out="$(run_reset user_home_t 0 "")"
+    if [[ ! -s "${TESTDIR}/recorder" && -z "${out}" ]]; then
+        pass "--unlisted: a root not at the project type is not walked"
+    else
+        fail "--unlisted: a root at another type: $(_san "${out}") / $(<"${TESTDIR}/recorder")"
+    fi
+    out="$(run_reset ai_tools_project_t 0 "")"
+    if [[ "$(<"${TESTDIR}/recorder")" == "walk -- ${moved}" ]] && grep -qF "LOG info reset SELinux label under ${moved} (was ai_tools_project_t) AI_TOOLS_RESULT=ok" <<<"${out}" \
+            && ! grep -q '^MSG-' <<<"${out}"; then
+        pass "--unlisted: a walk that labelled every entry is logged ok, the tree walked once"
+    else
+        fail "--unlisted at status 0: $(_san "${out}") / $(<"${TESTDIR}/recorder")"
+    fi
+    out="$(run_reset ai_tools_project_t 4 "skipped hardlinked path ${moved}/x (link count 2, inode 7)"$'\nsummary hardlinks-left=1 failures=0\n')"
+    assert_msg MSG-B7A8 "${out}" "--unlisted: a walk that left hardlinked paths warns under its code"
+    if grep -qF "which keep ai_tools_project_t: skipped hardlinked path ${moved}/x (link count 2, inode 7); list the hardlinked files the tree holds now with: find ${moved_quoted} -xdev -type f -links +1" <<<"${out}" \
+            && grep -qF 'AI_TOOLS_RESULT=partial' <<<"${out}" && ! grep -q 'summary hardlinks-left' <<<"${out}"; then
+        pass "--unlisted: the warning names the paths left, the find over the quoted tree, and logs the reset partial"
+    else
+        fail "--unlisted at status 4: $(_san "${out}")"
+    fi
+    out="$(run_reset ai_tools_project_t 1 "ai-tools-relabel-tree: could not label ${moved}/y"$'\nsummary hardlinks-left=0 failures=1\n')"
+    assert_msg MSG-T4S2 "${out}" "--unlisted: a walk that could not label an entry warns under its code"
+    if grep -qF "could not reset the SELinux label under ${moved} -- ai-tools-relabel-tree: could not label ${moved}/y; run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${moved_quoted}" <<<"${out}" \
+            && grep -qF 'AI_TOOLS_RESULT=failed' <<<"${out}"; then
+        pass "--unlisted: the warning carries the walker's line and the quoted walk to re-run, and logs the reset failed"
+    else
+        fail "--unlisted at status 1: $(_san "${out}")"
+    fi
+    if ! grep -q 'read_live_session_state\|sessions.lib' <<<"${reset_text}"; then
+        pass "--unlisted: no session reading gates the label reset"
+    else
+        fail "--unlisted: the label reset still reads the sessions"
+    fi
+fi
+
 finish

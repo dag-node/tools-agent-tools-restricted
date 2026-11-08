@@ -32,6 +32,9 @@
 #   - ai-tools OS user created at /opt/ai-tools  (README step 2)
 #   - nvm + Node v22 + claude installed as ai-tools  (README step 3)
 #   - the acl package (setfacl, getfacl), which the RPM requires; the install refuses without it
+#   - no other program answering to `atr` on the default PATH, and no foreign entry at a name `atr` takes (ATR_NAMES):
+#     the install refuses ahead of its first write otherwise (require_no_other_atr_command,
+#     require_atr_entries_replaceable)
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -819,6 +822,31 @@ bootstrap_launcher_symlinks() {
     done
 }
 
+# walk_account_tree <dir>: label <dir> and every entry under it through the installed ai-tools-relabel-tree, at the
+# canonical path realpath resolves: the walker reads its root back through /proc/self/fd and refuses a root whose path
+# is not the one it was given, which a symlinked ancestor (/opt a link) makes of every fixed path here. A path realpath
+# cannot resolve is warned under MSG-S5G6 and not walked. The walker's stderr is its own, every path escaped, and its
+# `summary` line is dropped. A walk that left hardlinked paths at their type is a note naming them; any other non-zero
+# exit warns naming the tree and the command to re-run. Returns 0 either way, since a label left is reported and does
+# not stop the install.
+walk_account_tree() {
+    local dir rc=0 diagnostics line kept=""
+    if ! dir="$(realpath -e -- "$1" 2>/dev/null)"; then
+        warn MSG-S5G6 "could not resolve $(printf '%q' "$1") to a canonical path, so it was not walked; once it resolves, re-run this install"
+        return 0
+    fi
+    diagnostics="$(/usr/local/libexec/ai-tools/ai-tools-relabel-tree -- "${dir}" 2>&1 >/dev/null)" || rc=$?
+    while IFS= read -r line; do
+        if [[ -n "${line}" && ! "${line}" =~ ^summary\ hardlinks-left= ]]; then kept+="${kept:+; }${line}"; fi
+    done <<< "${diagnostics}"
+    case "${rc}" in
+        0) log "SELinux: labelled ${dir}" ;;
+        4) log "SELinux: labelled ${dir}; the walk left these hardlinked entries at their type: ${kept}" ;;
+        *) warn MSG-G4W5 "could not restore every label under ${dir} -- ai-tools-relabel-tree exited ${rc}: ${kept:-no detail}; once that is fixed, run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- $(printf '%q' "${dir}")" ;;
+    esac
+    return 0
+}
+
 # Restore SELinux file contexts for every path this script deploys. No-op when SELinux is disabled or restorecon is not
 # installed.
 do_selinux_restore() {
@@ -841,23 +869,15 @@ do_selinux_restore() {
         /var/log/ai-tools/
     # Each agent's config directory is labelled from the rule its own manifest declares, applied
     # by ai-tools-relabel-agent after this; restore what is already mapped. The sandbox account writes inside each one,
-    # so the walk runs only while no process of that account is live (cli.rule.md, ref-section-e6c6); the state is read
-    # in a child shell, so the checkout's libraries do not load into this one. /opt/ai-tools/.config takes the same
-    # gate: it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant an older install
-    # left sandbox-owned is a tree the account can write.
-    local _cfg _sandbox_session_state
-    # shellcheck disable=SC2016  # $1 and $2 are the inner shell's positionals
-    _sandbox_session_state="$(bash -c '. "$1" && ai_tools_sessions__read_live_session_state_for_uid "$2"' _ \
-        "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" "$(id -u "${SANDBOX_USER}" 2>/dev/null)" \
-        2>/dev/null || true)"
-    if [[ "${_sandbox_session_state}" == none ]]; then
-        [[ -d /opt/ai-tools/.config ]] && restorecon -R /opt/ai-tools/.config/
-        while IFS=$'\t' read -r _ _cfg; do
-            [[ -d "${_cfg}" ]] && restorecon -R "${_cfg}"
-        done < <(ai_tools_control_plane__list_agent_config_dirs)
-    else
-        warn MSG-D6A5 "left the labels on /opt/ai-tools/.config and the agents' config directories as they were: an agent session, the toolchain update, or a step run as ${SANDBOX_USER} is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -R /opt/ai-tools/.config/ && sudo systemctl start ai-tools-relabel.service"
-    fi
+    # so each goes through the descriptor-pinned walker this install deployed, which labels the entry it holds open
+    # while a session of that account runs (cli.rule.md, ref-section-e6c6). /opt/ai-tools/.config takes the same walk:
+    # it is root-owned and its systemd/user chain is a layout row at that owner, but a descendant an older install left
+    # sandbox-owned is a tree the account can write.
+    local _cfg
+    [[ -d /opt/ai-tools/.config ]] && walk_account_tree /opt/ai-tools/.config
+    while IFS=$'\t' read -r _ _cfg; do
+        [[ -d "${_cfg}" ]] && walk_account_tree "${_cfg}"
+    done < <(ai_tools_control_plane__list_agent_config_dirs)
     restorecon \
         /usr/local/bin/ai-tools-launch \
         /usr/local/bin/claude \
@@ -1071,6 +1091,7 @@ do_summary() {
     _chk /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
     _chk /usr/local/libexec/ai-tools/ai-tools-lockdown
     _chk /usr/local/libexec/ai-tools/ai-tools-relabel
+    _chk /usr/local/libexec/ai-tools/ai-tools-relabel-tree
     _chk /usr/local/libexec/ai-tools/ai-tools-relabel-agent
     _chk /usr/local/libexec/ai-tools/ai-tools-bootstrap
     _chk /usr/local/libexec/ai-tools/ai-tools-admin
@@ -1326,11 +1347,6 @@ probe_shadowing_agents() {
 
 # ── install ────────────────────────────────────────────────────────────────────
 
-# Deploy every sandbox file with its intended owner and mode (root helpers, libs, hooks, the wrapper, the CLI, systemd
-# units), seed user config without clobbering edits, bootstrap the launcher symlinks, enable the nvm-update timer,
-# restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end -- run
-# the installed-files summary and the test suite (which includes the permissions check). Aborts if the sandbox user is
-# absent.
 # require_acl_tools -- refuse a host without setfacl and getfacl, ahead of the install's first write. Every grant
 # the ownership model makes is a POSIX ACL -- a claim's two entries, the clone area's g:ai-ops entries, a clone's
 # private create -- so a host without the tools does not hold the model. The RPM states the same requirement
@@ -1541,6 +1557,11 @@ remove_recognized_atr_entries() {
     done
 }
 
+# do_install -- deploy every sandbox file with its intended owner and mode (root helpers, libs, hooks, the wrapper,
+# the CLI, systemd units), seed user config without clobbering edits, bootstrap the launcher symlinks, enable
+# the nvm-update timer, restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end --
+# run the installed-files summary and the test suite (which includes the permissions check). Aborts if the sandbox user
+# is absent.
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
@@ -1597,10 +1618,12 @@ do_install() {
     # under /opt/ai-tools/bin trigger ai-tools-relabel.service, and a run mid-install executes the helper of one release
     # against the libraries of another. Stopping the .path does not end a run in progress, and a run still active
     # at the end would absorb the closing start, so the service is stopped whether or not the watcher was up. The EXIT
-    # trap starts the watcher again whatever ends the run, after a daemon-reload for the unit files the run rewrote,
-    # so an install that stops early leaves the watcher as it found it; a completed run enables it at its service step
-    # and runs the relabel once at its end, which completes a run cut short here.
-    if systemctl is-active --quiet ai-tools-relabel.path 2>/dev/null; then
+    # trap starts the watcher again whatever ends the run, after a daemon-reload for the unit files the run rewrote.
+    # The trap is armed on the unit being enabled, not active: an earlier run that stopped early left an enabled watcher
+    # down, and arming on its state at this moment would leave it down after every later run that also stops early.
+    # A completed run enables the watcher at its service step and runs the relabel once at its end, which completes
+    # a run cut short here.
+    if systemctl is-enabled --quiet ai-tools-relabel.path 2>/dev/null; then
         trap 'systemctl daemon-reload 2>/dev/null || true; systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT
     fi
     systemctl stop ai-tools-relabel.path ai-tools-relabel.service 2>/dev/null || true
@@ -1846,8 +1869,9 @@ do_install() {
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sandbox-exec.lib.sh" \
         /usr/local/lib/ai-tools/sandbox-exec.lib.sh
 
-    # The live-session reader the recursive relabels gate on (sessions.lib.sh): 644 root:root, shipped logic alone,
-    # sourced by the relabel helpers and this installer as root and by the CLI as the operator.
+    # The live-session reader the policy unload reads (sessions.lib.sh), since a process of the sandbox account live
+    # at the unload would run on in a domain the policy no longer defines: 644 root:root, shipped logic alone, sourced
+    # as root by install-selinux.sh's remove and the ai-tools-selinux %postun.
     log "/usr/local/lib/ai-tools/sessions.lib.sh"
     install -o root -g root -m 644 \
         "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/sessions.lib.sh" \
@@ -2166,6 +2190,13 @@ do_install() {
     install_subst 750 root root \
         "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel.sh" \
         /usr/local/libexec/ai-tools/ai-tools-relabel
+
+    # Descriptor-pinned tree relabel. 750 root:root -- run AS root by the relabel helpers over a tree the sandbox
+    # account can write; never by ai-tools. No placeholders.
+    log "/usr/local/libexec/ai-tools/ai-tools-relabel-tree"
+    install_subst 750 root root \
+        "${SCRIPT_DIR}/src/usr/local/libexec/ai-tools/ai-tools-relabel-tree.py" \
+        /usr/local/libexec/ai-tools/ai-tools-relabel-tree
 
     # SELinux entrypoint-relabel helper. 750 root:root -- run AS root: automatically by the ai-tools-relabel.path
     # watcher after a Node upgrade, and on demand by `atr admin system entrypoints relabel`; never by ai-tools. No
@@ -2672,11 +2703,12 @@ do_install() {
     # and it is not the dir owner, so it cannot bypass that. setgid keeps new entries in group ai-tools. The DIRECTORIES
     # are created here, from the manifests (the base names none of them), so the agent layer can install into its own;
     # modes are re-asserted at section end.
-    local agent_config_dir _agent
+    local agent_config_dir _agent listed_config_dirs=$'\n'
     while IFS=$'\t' read -r _ agent_config_dir; do
         [[ -n "${agent_config_dir}" ]] || continue
         log "${agent_config_dir}/"
         ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${agent_config_dir}"
+        listed_config_dirs+="${agent_config_dir}"$'\n'
     done < <(ai_tools_control_plane__list_agent_config_dirs)
 
     # The claude-code agent layer: its hooks and settings, into the directory its own manifest declares. This
@@ -2735,13 +2767,15 @@ do_install() {
         seed_result "${settings}" "${settings_existed}" 0
     fi
 
-    # The codex agent layer: its two hook adapters, into the directory its manifest declares. The directory is created
-    # here rather than by the walk over ai_tools_control_plane__list_agent_config_dirs, which covers ENABLED agents
-    # only, and codex ships disabled; its hook declarations live in /etc/codex/requirements.toml, deployed
-    # with the configuration, and it has no settings file.
+    # The codex agent layer: its two hook adapters, into the directory its manifest declares. The walk
+    # over ai_tools_control_plane__list_agent_config_dirs covers ENABLED agents only, and codex ships disabled,
+    # so the directory is created here where that walk did not list it; its hook declarations live
+    # in /etc/codex/requirements.toml, deployed with the configuration, and it has no settings file.
     local codex_config_dir="/opt/ai-tools/.codex"
-    log "${codex_config_dir}/"
-    ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${codex_config_dir}"
+    if [[ "${listed_config_dirs}" != *$'\n'"${codex_config_dir}"$'\n'* ]]; then
+        log "${codex_config_dir}/"
+        ensure_dir "${CP_AGENT_CONFIG_MODE}" root "${SANDBOX_GROUP}" "${codex_config_dir}"
+    fi
     install_subst 750 root "${SANDBOX_GROUP}" \
         "${SCRIPT_DIR}/src/opt/ai-tools/agents/codex/post-tool-hook.sh" \
         "${codex_config_dir}/post-tool-hook.sh"
@@ -2888,16 +2922,20 @@ do_install() {
     # The orientation text is one file rather than a directory of assets, and it lands under the filename each agent
     # reads as user-scope instructions -- so it is linked by name from the manifest instead of by iterating a shared
     # root.
-    local _memory_target
+    local _memory_target linked_memory_targets=$'\n'
     while IFS=$'\t' read -r _agent _memory_target; do
         log "linking the shared orientation into ${_memory_target}"
         ai_tools_managed_assets__link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
             "${_memory_target%/*}" "${_memory_target##*/}" "${SANDBOX_GROUP}"
+        linked_memory_targets+="${_memory_target}"$'\n'
     done < <(ai_tools_control_plane__list_agent_memory_targets)
-    # The walk covers enabled agents; codex ships disabled and its manifest names AGENTS.md at the root of CODEX_HOME.
-    log "linking the shared orientation into ${codex_config_dir}/AGENTS.md"
-    ai_tools_managed_assets__link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
-        "${codex_config_dir}" AGENTS.md "${SANDBOX_GROUP}"
+    # The walk covers enabled agents; codex ships disabled and its manifest names AGENTS.md at the root of CODEX_HOME,
+    # so it is linked here where the walk did not link it.
+    if [[ "${linked_memory_targets}" != *$'\n'"${codex_config_dir}/AGENTS.md"$'\n'* ]]; then
+        log "linking the shared orientation into ${codex_config_dir}/AGENTS.md"
+        ai_tools_managed_assets__link_agent_memory "${CP_SHARED_ORIENTATION}/AGENTS.md" \
+            "${codex_config_dir}" AGENTS.md "${SANDBOX_GROUP}"
+    fi
 
     section "Configuration (allowlist & secret patterns)"
 

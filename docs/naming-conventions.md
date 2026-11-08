@@ -202,18 +202,17 @@ way:
 | Facet | Where | Prose term |
 |-------|-------|------------|
 | an operator's project list | `~/.config/ai-tools/project-registry`, per operator (`ai-tools-project-registry(5)`) | "the project registry" / "`<operator>`'s project registry", or the path |
-| the file an earlier release wrote | `~/.config/ai-tools/allowed-projects`, until `atr admin system post-upgrade` migrates it | the path |
+| the file an earlier release wrote | `~/.config/ai-tools/allowed-projects`, until the upgrade migrates it ([Upgrade](install/upgrade.md)) | the path |
 | a line in it | an `@`-prefixed project, a `%`-prefixed disabled project, or a `!`-prefixed excluded path | "an entry" / "a disabled project" / "an excluded path" |
 | the pair a claim writes and an unclaim drops | the registry entry and the `safe.directory` entry in the sandbox account's `.gitconfig` | "the registries" / "both registries" |
 
 **Project registry** is the term, and the file is named by its path,
 `~/.config/ai-tools/project-registry`. The bare word "projects" names the CLI
 noun alone (`atr projects claim`), since the file is not named for it.
-"Allowlist" stays the code's word (`ALLOWLIST`,
-`ai_tools_operator__is_covered_by_allowlist`, `ai-tools-allowlist`),
-and "approved projects" is not used. "The registries" is reserved
-for the registry entry together with the `safe.directory` entry, the pair
-`projects unclaim` and `projects remove` drop.
+"Allowlist" stays the code's own word for the file, and "approved projects" is
+not used. "The registries" is reserved for the registry entry together
+with the `safe.directory` entry, the pair `projects unclaim`
+and `projects remove` drop.
 
 ## The command you type, and the programs behind it
 
@@ -222,12 +221,12 @@ atr status                      # runs ai-tools status
 atr admin operators add alice   # runs ai-tools-admin operators add alice, as root
 ```
 
-`atr` is the command an operator types: `atr admin <command>` runs
-`ai-tools-admin`, and every other `atr <command>` runs `ai-tools`. `ai-tools`
-and `ai-tools-admin` are the programs, and their names are the ones the files,
-the man pages, the packages and the installed layout carry. A page spells
-a command as `atr`, and names a program as `ai-tools` or `ai-tools-admin`
-where the sentence is about the program itself.
+`atr` is the command an operator types, and `ai-tools` and `ai-tools-admin` are
+the programs behind it, whose names the files, the man pages, the packages
+and the installed layout carry; which program each `atr` line runs is
+`man ai-tools`. A page spells a command as `atr`, and names a program
+as `ai-tools` or `ai-tools-admin` where the sentence is about the program
+itself.
 
 ## Agent vs subagent
 

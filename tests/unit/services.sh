@@ -615,6 +615,36 @@ else
     pass "neither the wrapper nor the system filter can select a failed sandbox-user unit"
 fi
 
+# ── the remedy names the daemon-reload a changed unit file needs ─────────────────────────────
+# An install rewrites the watcher's unit file; while the manager still holds the old definition, a start runs that one,
+# so the remedy leads with the reload exactly where the manager reports NeedDaemonReload=yes. The registry is a fixture
+# by this point, so the records are the real ones read at the top. A library without the reader would answer 127
+# on every case, so its absence is one failure rather than three.
+if declare -F ai_tools_services__read_remedy >/dev/null 2>&1; then
+    watcher_rec="$(grep '^ai-tools-relabel\.path|' <<<"${recs}" || true)"
+    watcher_remedy="$(ai_tools_services__get_field "${watcher_rec}" 6)"
+    _SVC_PROP=( [ai-tools-relabel.path|NeedDaemonReload]=no )
+    if [[ "$(ai_tools_services__read_remedy "${watcher_rec}")" == "${watcher_remedy}" ]]; then
+        pass "control: a watcher whose unit file the manager has loaded takes the registry's remedy as written"
+    else
+        fail "remedy at NeedDaemonReload=no: $(ai_tools_services__read_remedy "${watcher_rec}")"
+    fi
+    _SVC_PROP=( [ai-tools-relabel.path|NeedDaemonReload]=yes )
+    if [[ "$(ai_tools_services__read_remedy "${watcher_rec}")" == "sudo systemctl daemon-reload && ${watcher_remedy}" ]]; then
+        pass "a watcher whose unit file changed since the manager loaded it takes the daemon-reload ahead of the start"
+    else
+        fail "remedy at NeedDaemonReload=yes: $(ai_tools_services__read_remedy "${watcher_rec}")"
+    fi
+    _SVC_PROP=()
+    if [[ -z "$(ai_tools_services__read_remedy "${svc_rec}")" ]]; then
+        pass "a record with no remedy prints none"
+    else
+        fail "a record with no remedy printed: $(ai_tools_services__read_remedy "${svc_rec}")"
+    fi
+else
+    fail "services.lib.sh does not define ai_tools_services__read_remedy (${LIB})"
+fi
+
 # ── the live reading a ROOT caller adds, and what it may and may not override ───────────────────
 # `ai-tools-admin status` reaches the sandbox account's own manager over the machine transport, which the operator
 # cannot; the verdict that reading feeds into is the pure function, so it is driven here over its whole truth table

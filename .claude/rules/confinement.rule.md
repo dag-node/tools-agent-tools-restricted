@@ -184,7 +184,7 @@ the agent's package directory `lib_t`, and the entrypoint `ai_tools_exec_t`, on 
 `execute_no_trans` plus what `application_domain` gives (entrypoint/read/getattr), and no other permission.
 The `execute_no_trans` grant is the one access the module also audits (`auditallow`, beside the grant in `ai_tools.te`):
 an exec through it is an entrypoint started from inside a session, the kernel writes an AVC `granted` record for each,
-and `ai-tools audit` reads those back ([launch](launch.rule.md), [cli](cli.rule.md)).
+and `atr audit` reads those back ([launch](launch.rule.md), [cli](cli.rule.md)).
 
 A vendored helper a package ships beside its entrypoint keeps `lib_t`, which the domain may **execute** — codex's `rg`,
 `zsh` and `bwrap` all start inside a session, as does every `bin_t` file under `corecmd_exec_bin` — so what the entry
@@ -386,6 +386,11 @@ reaches the system bus with the `systemd` and `netadmin` groups off, and what it
 by the D-Bus policy and polkit, not by this module. `syslog_client_type` and the module's own logging interface let it
 write to the journal, where journald stamps the trusted fields from the sender's credentials.
 
+The module's own HTTPS grant reaches past its purpose the same way. `corenet_tcp_connect_http_port`, which the module
+calls for the agent's API endpoint, is keyed on the port type and not on the address, so a session connects to every
+`http_port_t` port on any address the network allows — 443 and 8443 among them, a service the operator runs on loopback
+included (`semanage port -l` lists the set).
+
 Some of those rules are conditional on a Boolean the host sets: `nis_enabled` (`name_bind` and `name_connect` on most
 port types), `domain_can_mmap_files` (`map` on every file type), `authlogin_nsswitch_use_ldap` and `kerberos_enabled`
 (directory-service ports and sockets). A Boolean switched on widens the domain without any module change, and disabling
@@ -414,6 +419,49 @@ policy does not have reads as unread and refuses the same way. `sesearch -A -s a
 with its expression, `[ nis_enabled ]:True` for the true branch, which is not the Boolean's current value; `getsebool`
 reads that.
 
+## Terminals
+
+A session reaches two kinds of terminal, and the policy types them apart. **Its own terminal** is the pty
+`systemd-run --pty` allocates on the launch side, a `user_devpts_t` node the sandbox account owns, which the user
+manager opens for the unit's standard streams. `ai_tools_t` holds it through `userdom_use_inherited_user_terminals`:
+read, write and ioctl on `user_devpts_t` and `user_tty_device_t`, without `open`, so the domain uses the descriptors it
+inherits and cannot open a login terminal by its `/dev/pts` path whatever the terminal's mode. Claude Code reopens its
+terminal by path on an interactive start (`O_RDONLY|O_NOCTTY|O_NONBLOCK` on the session's own `/dev/pts/N`), is refused,
+and runs on the inherited descriptors. The open stays refused: every session's terminal is the account's own `0620`
+node, so DAC lets one session open another's and read its input or write its output. A `dontaudit` on that `open` keeps
+the start-up refusal out of the audit log, a `semodule -DB` window shows it, and `avc-analyze.sh` files Claude Code's
+with the terminal boundary; another agent's open by path stays under NEW.
+
+**The ptys it allocates** — a Claude Code background session's terminal, codex's `script` — take `ai_tools_devpts_t`.
+`term_create_pty` grants read and write on `/dev/ptmx` (`ptmx_t`), the listing of `/dev/pts`, and the `type_transition`
+that types the new slave, and the domain holds `rw_term_perms` on that type and on no other pty type: no
+`term_use_all_ptys` and no further user-terminal interface. The grant does not include `setattr`, since glibc's
+`grantpt` on devpts does not change the slave's owner or mode. `term_pty` puts the type in `ptynode`, so a domain
+that uses every pty, `unconfined_t` among them, reaches these as well. A background session's daemon and its pty hosts
+talk over unix sockets under `/tmp`, which the `localipc` group grants, so the pty grant alone does not start one:
+without the group the daemon's bind of its `control.sock` is refused, `/fork` and `claude --bg` print that `EACCES`,
+and a foreground session runs as before.
+
+**TIOCSTI** pushes a byte into a terminal's input queue as though typed. The kernel allows it on the caller's
+controlling terminal while `dev.tty.legacy_tiocsti` is `1`, the EL10 build default, so a process holding the agent's
+terminal could type into its prompt. An `allowxperm` complement excludes TIOCSTI (`0x5412`) and TIOCLINUX (`0x541c`,
+whose console subcommands paste a selection) on each terminal type the domain ioctls — `ai_tools_devpts_t`, `ptmx_t`,
+`user_devpts_t`, `user_tty_device_t`, and `devtty_t`, the label of `/dev/tty`, which is what the kernel checks an ioctl
+made through that node against — and permits every other command. The LSM check runs ahead of the tty driver,
+so a refused attempt returns `EACCES` whatever the kernel would have answered, and that errno is what tells the policy's
+refusal from the kernel's `EPERM` or `EIO`. A Claude Code tool command runs without a controlling terminal,
+which the kernel refuses TIOCSTI from in any case.
+
+**The ptys of one domain are not isolated from one another.** Every session runs as the one account in the one domain,
+and a pty is `<owner>:tty 0620`, so one session can open a pty another session allocated: the shared-account boundary
+of [ref-section-x6a9](../../CLAUDE.md#ref-section-x6a9).
+
+`tests/integration/selinux.sh` holds the `chr_file` types an allow rule gives the domain to a reviewed table and reads
+the `open`, `dontaudit` and `allowxperm` properties back from the loaded policy; `avc-testsuite.sh` section 10 drives
+a pty the session allocates through its lifecycle and makes the TIOCSTI attempts from a child whose controlling terminal
+it is, and `avc-denials.sh` section TTY opens a `user_devpts_t` pty the root half allocates at `0666`, so DAC permits
+the open and its refusal is the policy's.
+
 ## Bring-up and enforce-verification (`selinux/avc/`)
 
 The rule set is arrived at by observation: load permissive (`permissive ai_tools_t;` in `ai_tools.te`), exercise
@@ -428,27 +476,30 @@ attempt), **EXPECTED GROUP-DISABLED** (one only an optional group would allow), 
 a candidate to fold in.
 
 A benign probe is an access whose refusal does not change what the caller does next, and it is classified and **left
-audited** rather than `dontaudit`'d. Four are classified: the login shell's `hostname_exec_t` lookup,
+audited** rather than `dontaudit`'d. The classified probes are the login shell's `hostname_exec_t` lookup,
 which `/etc/profile` answers from `uname -n` and which every agent raises; `install`(1)'s relabel of the file it just
 created, which the `type_transition` has already given the type it asks for, so the copy exits 0; codex's inotify
-`watch` on the account's home root (`usr_t`); and `emacs`(1)'s two startup existence probes — one for `ssh`
-(`access(X_OK)`, which the kernel checks as `ssh_exec_t:file execute` without the binary being run) and a read
-of the mail-spool symlink (`mail_spool_t:lnk_file`) — which this repository's own comment filler raises once per file it
-formats. The first three are measured at three to four records per session start and none per command afterwards,
-which is what decides the treatment: section (4) silences a **flood**, and a `dontaudit` would equally hide a later
-agent release making the same call in a loop. The emacs pair scales with files formatted rather than with sessions,
-and neither probe is reachable from this repository's side — `tramp` is not loaded during a fill run and `$MAIL` is
-unset, and both fire regardless — so there is no invocation to change and the classification is the remedy.
+`watch` on the account's home root (`usr_t`); Claude Code's inotify `watch` on `/etc/claude-code` and its
+`managed-settings.json` (`etc_t`), which leaves an edit to managed settings to the next session start; and `emacs`(1)'s
+two startup existence probes — one for `ssh` (`access(X_OK)`, which the kernel checks as `ssh_exec_t:file execute`
+without the binary being run) and a read of the mail-spool symlink (`mail_spool_t:lnk_file`) — which this repository's
+own comment filler raises once per file it formats. All but the emacs pair are measured at two to four records
+per session start and none per command afterwards, which is what decides the treatment: section (4) silences
+a **flood**, and a `dontaudit` would equally hide a later agent release making the same call in a loop. The emacs pair
+scales with files formatted rather than with sessions, and neither probe is reachable from this repository's side —
+`tramp` is not loaded during a fill run and `$MAIL` is unset, and both fire regardless — so there is no invocation
+to change and the classification is the remedy.
 
 **Neither is `dontaudit`'d, and the ssh one must not be.** A `dontaudit` names a type and a permission and cannot be
 scoped to a command, so silencing this probe would silence *every* `ssh_exec_t:file execute` the domain ever makes —
 the same lateral-movement signal `sudo_exec_t` and `semanage_exec_t` are deliberately left visible for. It would also
 ship that silence to every host to quiet a condition only a development host can reach: `emacs` is a dependency
 of the formatter, not of the product, and a host that only runs sessions does not have it installed. All but the first
-are matched on the permission, and `install`'s and `emacs`'s on the command as well. **NEW is the default bucket** — it
-holds every denial no classifier claims — so how narrowly a probe is matched is the whole of what keeps a real signal
-out of it: a `chcon` of a project file, a `usr_t` denial of anything but `watch`, and, `ssh_exec_t` being a type no
-other classifier names, an `execute` of it by any command other than emacs.
+are matched on the permission, `install`'s and `emacs`'s on the command as well, and Claude Code's on the path. **NEW is
+the default bucket** — it holds every denial no classifier claims — so how narrowly a probe is matched is the whole
+of what keeps a real signal out of it: a `chcon` of a project file, a `usr_t` denial of anything but `watch`, a `watch`
+on `etc_t` outside `/etc/claude-code`, and, `ssh_exec_t` being a type no other classifier names, an `execute` of it
+by any command other than emacs.
 
 **The window is the analyst's to state, because the marker is the exerciser's start** — one turn into the session,
 after the agent's own startup probes. Sweeping a whole session means passing `-ts` from before the launch and `-te`
@@ -463,14 +514,18 @@ with `semodule -DB` … `semodule -B`, since a `dontaudit` suppresses the audit 
 would otherwise be indistinguishable from a probe that never ran; a trap restores dontaudit on any exit, Ctrl-C
 included. The probe reads each attempt's errno rather than its exit status: only `EACCES`/`EPERM` counts as a denial,
 and an attempt that failed for another reason is reported as not exercised and makes the probe exit non-zero, since
-a missing tool or a refused connection says nothing about the policy. A socket check makes a real `connect(2)`,
-and the write checks open an existing file for append without writing or ask `access(2)` of a directory, so a probe run
-against a broken boundary does not change the host. The loaded groups and the enforcement state come from the root half,
-which prints them into the probe command, because the session can read neither; a failed module-store read stops
-the run, and enforcement is confirmed only from a `seinfo --permissive` query that succeeded and printed the listing it
-documents. The root half also prints a run id, which the probe writes into its trail with its start time and exit
-status, and the run passes only on the one trail carrying that id: the audit log cannot show a probe that never ran,
-or an access that succeeded.
+a missing tool or a refused connection says nothing about the policy. A call to a D-Bus service is the exception the bus
+decides: the bus broker enforces the domain's `send_msg` and logs a refusal as `USER_AVC`, which `avc-analyze.sh` does
+not search, and the tool reports it in its own words (`nmcli` prints that NetworkManager is not running), so a failed
+call reads as a refusal while the service's name has an owner on the bus (`NameHasOwner`) and as an absent service while
+it has none. That reading does not tell the policy's refusal from the D-Bus policy's or polkit's. A socket check makes
+a real `connect(2)`, and the write checks open an existing file for append without writing or ask `access(2)`
+of a directory, so a probe run against a broken boundary does not change the host. The loaded groups and the enforcement
+state come from the root half, which prints them into the probe command, because the session can read neither; a failed
+module-store read stops the run, and enforcement is confirmed only from a `seinfo --permissive` query that succeeded
+and printed the listing it documents. The root half also prints a run id, which the probe writes into its trail with its
+start time and exit status, and the run passes only on the one trail carrying that id: the audit log cannot show a probe
+that never ran, or an access that succeeded.
 
 Both agent halves **abort unless the calling process is in `ai_tools_t`**: run unconfined they log no `ai_tools_t`
 denial at all, and that empty result reads as success. The procedure for running either is in `selinux/README.md` §2
@@ -479,9 +534,11 @@ and §4.
 An agent half does not gate a section on whether an optional group is loaded. That fact lives in the root-only module
 store, and `semodule -l` is refused in a session, so a `semodule -l` gate takes its skip branch every time the half runs
 as the agent, and the section it guards never executes. Each group section exercises its path and reports the outcome:
-a stable group asserts it, an experimental one reports it. A tool a disabled group gates reads as absent rather than
-refused, because `command -v` runs `access(X_OK)`, which the kernel checks as `execute` on the tool's own exec type.
-The report names both readings, since the domain cannot tell them apart.
+a stable group asserts it, an experimental one reports it. bash's PATH search does not find a tool whose exec type
+the policy refuses `getattr` on, a type a disabled group gates or `kmod_exec_t`: the search `stat`s each candidate,
+and bash reports the refusal as `command not found`, as it does a tool that is not installed. `avc-testsuite.sh` names
+both readings. `avc-denials.sh` reads a `stat` of the name in each `PATH` directory through `python3`: `EACCES` on one
+is the refusal, `ENOENT` on every one an absent tool, and any other result leaves the check not exercised.
 
 ## References
 
@@ -557,35 +614,40 @@ cannot be labelled until the module's types exist in the kernel — at the defau
 **reported with `semodule`'s own message** and the command that repeats it, rather than swallowed: every type
 the entrypoint and project labels name comes from this module, so a load that did not happen surfaces later as a relabel
 that cannot register its rules and a launch that fail-closes, with no message naming this as the cause. The transaction
-still completes — the remedy is a re-run, not a rollback. After the module load, `%post` also `restorecon`s the trees
-that carry `ai_tools*` types (the handback daemon among them) — the root-owned ones always, and `/opt/ai-tools`
-and the clone area only while no process of the sandbox account is live, with a warning naming the walk to run when it
-skips ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) — and, when the handback socket is already active — an upgrade
-— refreshes the live listener: `restorecon` fixes the daemon binary's on-disk label, but the socket bound on tmpfs
-`/run/ai-tools` keeps its stale context and its per-connection handler keeps running `unconfined_service_t`,
-so `daemon-reexec` + a socket restart re-derive the listener context from the now-correct binary label (the same
-sequence `install-selinux.sh` `_relabel_runtime` runs; see [handback-bridge](handback-bridge.rule.md)). Without it
-a session's `connectto` to the handback socket is denied under enforcing and every hook handback silently no-ops.
-On a fresh install the socket is not up yet — `ai-tools-base` `%posttrans` starts it later, already correctly labelled —
-so the refresh no-ops there. `%postun` on final erase unloads every loaded `ai_tools*` module, enumerated rather than
-named: a group's `.pp` is erased with the package while the compiled module persists in the store, and a group compiled
-from a source checkout was never in the rpm database at all. Ahead of the unload it drops **every local file-context
-rule naming an `ai_tools` type**, by type rather than by registry, since `semodule -r` refuses while one stands
-and a claimed project's rule is one; a later claim writes the rule again. Both store writes wait on the reading
-the `%post` makes of the sandbox account's sessions ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)), taken
-under the policy-store lock ([updater](updater.rule.md)) so a session started during the wait is read: a process
-of the account live at the unload would run on in a domain the policy no longer defines, so while the reading is
-anything but `none` the erase leaves the policy loaded and every rule in place and prints the stop and the re-run,
-the direction `install-selinux.sh remove` refuses in. A dropped rule shaped like a project's is named
-with the `restorecon -R` that returns its tree to the default type and not walked, since a scriptlet holds neither
+still completes — the remedy is a re-run, not a rollback. After the module load, `%post` also labels the trees
+that carry `ai_tools*` types — `restorecon` for the root-owned ones (the handback daemon among them), and the tree
+walker for `/opt/ai-tools` and the clone area, whatever process of the sandbox account runs
+([ref-section-e6c6](cli.rule.md#ref-section-e6c6)) — then runs `ai-tools-relabel-agent` once it has released the lock
+that helper takes, since the walk does not write the hardlinked entrypoint; and, when the handback socket is already
+active — an upgrade — it refreshes the live listener: `restorecon` fixes the daemon binary's on-disk label,
+but the socket bound on tmpfs `/run/ai-tools` keeps its stale context and its per-connection handler keeps running
+`unconfined_service_t`, so `daemon-reexec` + a socket restart re-derive the listener context from the now-correct binary
+label (the same sequence `install-selinux.sh` `_relabel_runtime` runs; see [handback-bridge](handback-bridge.rule.md)).
+Without it a session's `connectto` to the handback socket is denied under enforcing and every hook handback silently
+no-ops. On a fresh install the socket is not up yet — `ai-tools-base` `%posttrans` starts it later, already correctly
+labelled — so the refresh no-ops there. `%postun` on final erase unloads every loaded `ai_tools*` module, enumerated
+rather than named: a group's `.pp` is erased with the package while the compiled module persists in the store,
+and a group compiled from a source checkout was never in the rpm database at all. Ahead of the unload it drops **every
+local file-context rule naming an `ai_tools` type**, by type rather than by registry, since `semodule -r` refuses while
+one stands and a claimed project's rule is one; a later claim writes the rule again. Both store writes wait on a reading
+of the sandbox account's sessions ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)), taken under the policy-store lock
+([updater](updater.rule.md)) so a session started during the wait is read: a process of the account live at the unload
+would run on in a domain the policy no longer defines, so while the reading is anything but `none` the erase leaves
+the policy loaded and every rule in place and prints the stop and the re-run, the direction `install-selinux.sh remove`
+refuses in. On a `none` reading it first reverts each installed agent's declared paths while the policy still defines
+their types (`ai_tools_relabel__unlabel_agent_paths`, as the installer's `remove` does), since the walk after the unload
+does not write a hardlinked file and an entrypoint can have a second name. A dropped rule shaped like a project's is
+named with the `restorecon -R` that returns its tree to the default type and not walked, since a scriptlet holds neither
 the protected-paths backstop nor the literal check the installer's `remove` walks a tree under; one an earlier release
 wrote raw is named for review instead. The unload is read back from the store rather than from `semodule`'s exit status,
 and a store that cannot be listed is reported as that and never read as an empty one, since an empty store is
-what `removed` rests on; once the read-back shows every `ai_tools` module gone, the trees the `%post` restores take one
-`restorecon` each, the account's under the same reading. A module left loaded, a rule semanage will not delete
+what `removed` rests on; once the read-back shows every `ai_tools` module gone, the trees the `%post` labels return
+to their default types — the root-owned ones through `restorecon`, the account's through the walker while it is still
+executable and through `restorecon` where the same transaction erased `ai-tools-base`. A walk that left hardlinked paths
+names each with the `find` that lists its inode's names. A module left loaded, a rule semanage will not delete
 and a tree the walk could not restore are each named with the command that completes the step.
 `install-selinux.sh remove` takes the same steps from a checkout, refuses at either read, and exits 1 over a module left
-loaded.
+loaded or a path the revert left on a type the policy no longer defines, an agent's config directory included.
 
 The `%selinux_*` rpm macros are not used. `%selinux_requires` records the build host's `selinux-policy` version
 as a `Requires`, which a `noarch` package cannot satisfy across both EL targets; `%selinux_modules_install`/`_uninstall`

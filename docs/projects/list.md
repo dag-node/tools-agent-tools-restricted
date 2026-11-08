@@ -40,9 +40,8 @@ a removal.
 
 A registry the grammar refuses is not listed: the command prints the line
 the grammar refuses and exits 1, as every other `projects` command does
-over that file. The `~/.config/ai-tools/allowed-projects` an earlier release
-wrote is listed under a line naming `atr admin system post-upgrade`, with every
-`!` line read as an excluded path.
+over that file. A registry an earlier release wrote is listed under a line
+naming the command that migrates it ([Upgrade](../install/upgrade.md)).
 
 The command does not take an argument; one given exits 2. It does not need
 `sudo`, and it stays open to an account that is not an operator, so it is
@@ -54,10 +53,11 @@ Run as root it reads root's own registry, which no bootstrap creates, so it
 reports an empty list and says whose registry it read, naming the enrolled
 operators to run it as instead. `atr projects list --for svc-ci` lists
 that operator's projects: their registry is readable by its owner alone,
-so this is the one `--for` read that asks for your `sudo` password ([Service
-accounts](../operators/service-accounts.md)). An account without a `sudo`
-grant for that read is refused before the password prompt. The removal it
-prints for a stale project line edits that operator's registry for you:
+so the `--for` form of this read-only command asks for your `sudo` password,
+as every `--for` run does ([Service
+accounts](../operators/service-accounts.md)). An account without a `sudo` grant
+for that read is refused before the password prompt. The removal it prints
+for a stale project line edits that operator's registry for you:
 
 ```bash
 sudo /usr/local/libexec/ai-tools/ai-tools-allowlist --operator svc-ci --remove DIRECTORY

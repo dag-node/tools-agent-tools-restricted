@@ -81,6 +81,10 @@ the exit status) and a suspected line is tried alone in `bash -c 'set -euo pipef
   `local`'s status and hides the failure instead. `shopt -p <option>` is the common case: it exits non-zero whenever
   the option is off. Where the next line is the check, the substitution ends in `|| true` (`secret-patterns.lib.sh`,
   `nvm-update.sh`'s version lookup).
+- **A failed `$(< file)` ends a `set -e` shell whatever follows it.** `x="$(< missing)" || return 1` prints bash's error
+  and exits the script before the `||` is read (bash 5.2), where `x="$(cat missing)" || return 1` takes the branch.
+  A read that may fail keeps a readability test ahead of it (`ai-tools-stop.sh`'s `pid_start_time`), and one reached
+  past that test, a file removed between the two, still ends a `set -e` caller.
 - **A redirection on a bare `exec` stays in force.** `exec {fd}< file 2>/dev/null` sends the shell's own stderr
   to `/dev/null` for the rest of the script; `{ exec {fd}< file; } 2>/dev/null` scopes it to the open
   (`ai-tools-chown.sh`).

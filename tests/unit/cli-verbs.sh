@@ -182,6 +182,18 @@ for table in OPERATOR_VERBS ROOT_ALLOWED_VERBS BOOTSTRAP_EXEMPT_VERBS FOR_ALLOWE
     fi
 done
 
+# ── (3b) The gating tables together name every dispatched verb ──────────────────
+# require_for_target reads the union of OPERATOR_VERBS, ROOT_ALLOWED_VERBS and BOOTSTRAP_EXEMPT_VERBS as the set
+# of commands, and refuses any other path as unknown ahead of the `--for` refusal. A dispatched verb outside all three
+# would read as unknown under `--for`.
+unlisted="$(comm -23 <(printf '%s\n' "${DISPATCH}") \
+                     <(printf '%s\n' "${OPERATOR}" "${ROOTOK}" "${BOOTEXEMPT}" | sort -u))"
+if [[ -z "${unlisted}" ]]; then
+    pass "every dispatched verb is in OPERATOR_VERBS, ROOT_ALLOWED_VERBS or BOOTSTRAP_EXEMPT_VERBS"
+else
+    fail "dispatched verb(s) no gating table names, which --for reads as unknown: $(tr '\n' '/' <<<"${unlisted}")"
+fi
+
 # ── (4) The help lists exactly the verbs the CLI dispatches ─────────────────────
 # man.sh pins the help rows against ai-tools(1); this pins them against the CODE, so the three surfaces agree
 # transitively. A verb that works but is documented nowhere is as much a defect as the reverse -- an operator cannot run

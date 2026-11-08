@@ -1,26 +1,25 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/sessions.lib.sh
-# Whether any process of the sandbox account is live, read from the kernel's cgroup tree: the reader the recursive
-# relabels gate on (cli.rule.md, ref-section-e6c6), called from relabel.lib.sh.
+# Whether any process of the sandbox account is live, read from the kernel's cgroup tree: the reader the policy unload
+# gates on (cli.rule.md, ref-section-e6c6), called from the ai-tools-selinux %postun and install-selinux.sh's remove.
 #
-# THE ENUMERATION IS A TWIN OF ai-tools-stop's, not a call into it (stop.rule.md, ref-section-e8k5). Four functions here
+# THE ENUMERATION IS A TWIN OF ai-tools-stop's, not a call into it (stop.rule.md, ref-section-e8k5). The functions here
 # are its cgroup2_mount, has_own_tasks, find_session_cgroups and cgroup_is_live under this module's names,
 # with the slice and the manager directory taken as arguments where the helper reads its globals SANDBOX_SLICE
 # and MANAGER_SERVICE. Each body is otherwise the helper's, and tests/unit/sessions.sh holds each pair equal
 # through `declare -f`. The comments explaining each body stay in the helper.
 #
 # What this file adds is an exemption by name, which the stop helper does not have: the user manager's own plumbing, its
-# init.scope and the dbus broker it starts on first use (the units `ai-tools stop` lists as account plumbing). A login
-# session scope (session-N.scope) is not plumbing: it holds a process of the account that a `sudo -u` started.
-# Why the name is sound where a relabel runs, which process it is not sound against, and what closes the residual are
-# cli.rule.md's.
+# init.scope and the dbus broker it starts on first use, which `atr stop` labels plumbing. A login session scope
+# (session-N.scope) is not exempt here: it holds a process of the account that a `sudo -u` started, which `atr stop`
+# labels a step run as the account. Why the name is sound where the unload reads it, and which process it is not sound
+# against, are cli.rule.md's.
 #
-# Sourced, not executed. Deployed 644 root:root: shipped logic alone, sourced by root (the relabel helpers,
-# the installers) and by the operator's CLI, which reads the world-readable cgroup files unprivileged.
+# Sourced, not executed. Deployed 644 root:root: shipped logic alone, sourced by root (the %postun's child shell,
+# install-selinux.sh) and by tests/unit/sessions.sh unprivileged, since the cgroup files it reads are world-readable.
 # sandbox-exec.lib.sh is loaded best-effort for the account's uid; without it the state reads as unreadable.
-# The installer and the CLI source it under IFS=$'\n\t', and the reader's entry pins the default IFS for the reads
-# beneath it.
+# install-selinux.sh sources it under IFS=$'\n\t', and the reader's entry pins the default IFS for the reads beneath it.
 
 # Include guard, as an if-statement: `[[ ]] && return` returns 1 for an unset guard and trips a sourcing shell's
 # `set -e`.
@@ -176,8 +175,8 @@ _ai_tools_sessions__is_slice_listable() {
 ai_tools_sessions__list_live_cgroups() {
     # The default IFS for every read beneath this call: bash scopes a local to the functions it calls
     # and to the subshell, so the twins' space-split reads of /proc/mounts and cgroup.events hold under a caller's
-    # IFS=$'\n\t'. It is set here and not on each read because the reads are ai-tools-stop's, and both public readers
-    # enter here.
+    # IFS=$'\n\t'. It is set here and not on each read because the reads are ai-tools-stop's, and every state reader
+    # enters here.
     local IFS=$' \t\n'
     local uid="${1:-}" mount_point slice manager cgroup
     [[ "${uid}" =~ ^[0-9]+$ ]] || return 1
@@ -200,11 +199,11 @@ ai_tools_sessions__list_live_cgroups() {
     )
 }
 
-# ai_tools_sessions__read_live_session_state_for_uid <uid>: print `live` when a process of the account <uid> is live
+# _ai_tools_sessions__read_live_session_state_for_uid <uid>: print `live` when a process of the account <uid> is live
 #   outside its manager's plumbing, `none` when none is, and `unreadable` when the reading cannot be made
-#   (ai_tools_sessions__list_live_cgroups returning 1). A caller gating a walk treats `unreadable` as `live`.
+#   (ai_tools_sessions__list_live_cgroups returning 1). The unload treats `unreadable` as `live`.
 #   Always returns 0, so the answer is read from stdout.
-ai_tools_sessions__read_live_session_state_for_uid() {
+_ai_tools_sessions__read_live_session_state_for_uid() {
     local live_cgroups
     if ! live_cgroups="$(ai_tools_sessions__list_live_cgroups "${1:-}")"; then
         printf 'unreadable\n'
@@ -224,5 +223,5 @@ ai_tools_sessions__read_live_session_state() {
     if declare -F ai_tools_sandbox_exec__read_sandbox_uid >/dev/null 2>&1; then
         uid="$(ai_tools_sandbox_exec__read_sandbox_uid)"
     fi
-    ai_tools_sessions__read_live_session_state_for_uid "${uid}"
+    _ai_tools_sessions__read_live_session_state_for_uid "${uid}"
 }

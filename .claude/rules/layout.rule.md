@@ -1,10 +1,7 @@
 ---
 paths:
   - "src/usr/local/lib/ai-tools/layout.lib.sh"
-  - "tests/unit/layout.sh"
-  - "tests/unit/layout-reconcile-*.sh"
-  - "tests/lib/layout-fixture.sh"
-  - "tests/integration/perms.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
 ---
 
 # The installed layout as one table
@@ -210,27 +207,13 @@ comparison waits for the relabel service the base `%posttrans` starts, whose fir
 `install.sh` and `ai-tools-bootstrap` run the installed command before each seeds the timer stamp, so the reconcile
 creates the unit search path chain and the stamp directory as rows ([ownership-and-hooks](ownership-and-hooks.rule.md)).
 Every caller runs the command, so every caller takes its deadline. The base `%post` keeps its `setfacl` lines and its
-setgid re-assert as the first state before any library loads; removing them is a later release's.
+setgid re-assert as the first state before any library loads.
 
 ## Tests
 
-`tests/unit/layout.sh` loads the checkout's library by path, with the sandbox tokens substituted into a copy
-as `install.sh` substitutes them, and prints the path first. Unprivileged it drives each reader, the validator,
-the entry set, the `--check` stream and the reconcile's decisions, and the per-entry repair over owned fixtures,
-where a leaf or a parent swapped after the identity read is refused with the file outside the fixture left as it was. It
-holds the table in lockstep with `packaging/ai-tools.spec` — every `%attr` line resolves to a row with the same owner,
-mode, package and `config`/`ghost` flag, and every `files` row is a `%files` line of each package it names.
-The reconcile as root is three files, which the runner's pool runs at once, each building its own tree from the table
-itself over `AI_TOOLS_LAYOUT_ROOT` (`tests/lib/layout-fixture.sh`) and driving the reconcile over the whole tree:
-`layout-reconcile-fields.sh` the field repairs and the refusals of an exposed file, `layout-reconcile-entries.sh`
-the missing and replaced entries and the ancestor rule, `layout-reconcile-inputs.sh` the discovery inputs and the exit
-order. Each planted drift it repairs converges in one run, each state it refuses is left as it was, and the exit order
-holds. `tests/unit/layout-bound.sh` sources the checkout's `ai-tools-admin.sh` with the library stubbed and holds
-the command's deadline: a reconcile sleeping past a two-second bound returns within a few seconds at exit 1 under its
-code, its collector gone, beside a control that finishes inside it. `tests/integration/perms.sh` is the loop
-over the installed library, and `tests/boundary/access.sh` probes the library, every boundary row, and the reconcile
-through the installed `/usr/sbin/ai-tools-admin` link, established as root first, as the sandbox account, holding
-the status to the two a refusal produces.
+The suite holds the table to the spec, drives each reader and the reconcile's decisions unprivileged, drives the repair
+as root over fixture trees built from the table itself, bounds the command's deadline, and probes every boundary row
+as the sandbox account; which file does which is [tests](tests.rule.md)'.
 
 ## Design notes
 
@@ -272,6 +255,8 @@ the status to the two a refusal produces.
 
 ## Deferred
 
+- Dropping the base `%post`'s own `setfacl` lines and setgid re-assert, once the reconcile is the first state a package
+  install places.
 - A declared per-row override (`/etc/ai-tools/layout.d/`), so a value an operator keeps at another mode stops reading
   as drift, and the same directory as the seam a third-party package adds rows through.
 - The label field is driven on a packaged host: every fixture of the layout tests is under `/tmp`, where the policy does

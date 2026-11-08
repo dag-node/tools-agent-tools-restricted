@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
-policy_module(ai_tools, 0.10.0)
+policy_module(ai_tools, 0.11.0)
 
 ########################################
 #
@@ -45,6 +45,11 @@ require {
     type tmpfs_t;
     type tty_device_t;
     type usb_device_t;
+
+    # the terminal types the TIOCSTI exclusion names (the terminal block)
+    type user_devpts_t;
+    type user_tty_device_t;
+    type devtty_t;
     type kernel_t;
     type init_t;
 
@@ -104,6 +109,11 @@ files_type(ai_tools_systemd_data_t)
 # gets its own scratch space and cannot read or clobber other domains' tmp_t/user_tmp_t files once enforcing.
 type ai_tools_tmp_t;
 files_tmp_file(ai_tools_tmp_t)
+
+# The pseudo-terminals a session allocates through /dev/ptmx: a background session's terminal, a `script` run.
+# The terminal block grants the domain these and no other pty type (confinement.rule.md).
+type ai_tools_devpts_t;
+term_pty(ai_tools_devpts_t)
 
 # The user-owned ai-tools config the ROOT helpers must read on the agent's behalf:
 # ~/.config/ai-tools/{project-registry,secret-patterns}. Those paths are normally config_home_t, which the THE BOUNDARY
@@ -362,7 +372,35 @@ allow ai_tools_t fs_t:filesystem getattr;                  # find -xdev: statfs(
 # Interactive terminal (claude is a TUI)
 ########################################
 
-userdom_use_user_terminals(ai_tools_t)   # the controlling pty (user_devpts_t)
+# The controlling pty (user_devpts_t), on the descriptors the unit inherits: the user manager opens the pty
+# `systemd-run --pty` names and hands it to the service as stdin, stdout and stderr, so the domain reads, writes and
+# ioctls it without opening it. The grant does not include open, so a session cannot open a login terminal
+# (user_devpts_t, user_tty_device_t) by path, whatever its mode.
+userdom_use_inherited_user_terminals(ai_tools_t)
+# Claude Code reopens its own terminal by path on an interactive start (O_RDONLY|O_NOCTTY|O_NONBLOCK on the session's
+# /dev/pts/N), is refused, and runs on the inherited descriptors. The open stays refused: every session's terminal is
+# the account's own 0620 node, so DAC lets one session open another's. The dontaudit keeps that start-up refusal
+# out of the audit log; `semodule -DB` shows it again.
+dontaudit ai_tools_t user_devpts_t:chr_file open;
+
+# A pty the session allocates. term_create_pty grants read and write on /dev/ptmx (ptmx_t), the listing of /dev/pts,
+# and the type_transition that gives the slave the session's own type, which the domain then uses. It does not grant any
+# other pty type, so an operator's login pty stays user_devpts_t. term_pty adds the type to ptynode, so a domain that
+# already uses every pty reaches these too.
+term_create_pty(ai_tools_t, ai_tools_devpts_t)
+allow ai_tools_t ai_tools_devpts_t:chr_file rw_term_perms;
+# Every ioctl on those two types except TIOCSTI (0x5412), which pushes a byte into a terminal's input queue as though
+# typed, and TIOCLINUX (0x541c), whose console subcommands paste a selection the same way. The kernel's own TIOCSTI
+# check lets a process inject into its controlling terminal while dev.tty.legacy_tiocsti is 1, so a process the session
+# runs on one of its ptys would otherwise type into whatever reads the other end. Once a rule names ioctl commands
+# for a (source, target, class), the kernel permits on it the commands listed and refuses every other.
+allowxperm ai_tools_t { ai_tools_devpts_t ptmx_t }:chr_file ioctl ~{ 0x5412 0x541c };
+
+# The same two commands, refused on the terminal the session inherits. Its own terminal is the user_devpts_t pty
+# `systemd-run --pty` hands the unit, which claude and codex hold as their controlling terminal, so a process sharing it
+# could type into the agent's prompt. /dev/tty (devtty_t) reaches the same tty under the label of its own node, which
+# the kernel checks the ioctl against, so it carries the exclusion as well.
+allowxperm ai_tools_t { user_devpts_t user_tty_device_t devtty_t }:chr_file ioctl ~{ 0x5412 0x541c };
 
 ########################################
 # Outbound HTTPS to the Anthropic API
@@ -487,8 +525,9 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # INTENTIONALLY LEFT COMMENTED. Unlike sections (1)-(5) which silence operational noise that is safe to suppress (proc
 # table walks, USB probes, startup statfs), the accesses in this section are SECURITY-RELEVANT BREACH ATTEMPTS. Leaving
 # them active in the audit log means any attempt by the agent to read credentials, escalate privilege, install
-# persistence, or move laterally produces a visible AVC and is caught by avc-analyze.sh as NEW. That is the desired
-# default behaviour.
+# persistence, or move laterally produces a visible AVC. avc-analyze.sh files one on a type its BOUNDARY_NAMED_RE names
+# as expected boundary in every window, and any other as NEW outside an avc-denials.sh probe run and under the probe
+# category inside one (`--probe-run`). That is the desired default behaviour.
 #
 # To suppress a specific line (e.g. because you have verified why the agent reaches that path and have accepted
 # the access as benign in your environment), uncomment it. Never uncomment wholesale -- each suppressed line is a breach

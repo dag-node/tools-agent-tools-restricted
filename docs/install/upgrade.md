@@ -36,6 +36,31 @@ collection form; [option spellings](../option-spellings.md) lists each one.
 Installing offline from a release archive, and what an upgrade preserves, are
 in [ref-section-f5q2](../rpm-packaging.md#ref-section-f5q2).
 
+## The project registry after 0.27
+
+```bash
+atr admin system post-upgrade
+```
+
+A registry an earlier release wrote, `~/.config/ai-tools/allowed-projects`,
+still starts sessions after the upgrade, and every `atr projects` command
+except `atr projects list` refuses until that command migrates it
+to `~/.config/ai-tools/project-registry`. The migration keeps every entry
+with its kind and its path, writes the new file in the order every later write
+leaves it in, and renames the old file to a dated `.bak`; it runs unattended
+too, and the upgrade's own output names it while a file remains. One kind
+of line needs you: an earlier release spelled a disabled project with `!`,
+the same text as an excluded path, so the migration keeps each `!` line
+as an excluded path and names every one no project encloses. Change such a line
+to `%` if it was a disabled project, and keep the `!` if the subtree is to stay
+excluded (`man 5 ai-tools-project-registry`).
+
+A project an earlier release claimed can carry grants written without execute
+on its files. The next `atr projects claim` lists the files that carry them
+under *ACL entries from an earlier claim*, and applying the pending steps,
+or `-y`, walks the project and sets each file's access from your own
+permissions ([Permissions](../projects/permissions.md)).
+
 ## Every installed path is restored to its owner, mode and ACL
 
 ```bash
@@ -135,23 +160,25 @@ Two consequences reach an operator:
 `atr status` reports when the update last ran and how it ended
 ([System](../system/index.md)).
 
-## Labels under the sandbox's own trees wait for idle sessions
+## Labels under the sandbox's own trees are restored while sessions run
 
 ```text
-ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: ...
-ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects
+ai-tools-selinux: NOTE /opt/ai-tools: skipped hardlinked path /opt/ai-tools/.nvm/... (link count 2, inode 1234)
+ai-tools-selinux: NOTE an agent entrypoint among the paths listed takes its type from the agent relabel that follows
 ```
 
 An upgrade of `ai-tools-selinux` restores the SELinux labels of the trees it
-covers. The ones the agent's account writes into — the toolchain, its caches,
-each agent's config directory, the sandbox clones — are restored only while no
-session of that account and no toolchain update is running
+covers, the ones the agent's account writes into included: the toolchain, its
+caches, each agent's config directory and the sandbox clones. Sessions do not
+need to end first; the restore runs beside them
 ([ref-section-e6c6](../../.claude/rules/cli.rule.md#ref-section-e6c6)).
-An upgrade made while one runs completes and prints that warning once. Let each
-session end with `/exit` and the update finish, or end them all
-with `atr stop`, then run the command it names. A label left as it was is
-the one the tree already carried, so a session started before you run it is
-confined as before.
+
+The notes name files the restore leaves as they are because each has a second
+name. Where the agent's own binary is among them, the agent relabel that runs
+next gives it its type, and prints its own warning if it cannot. Any other file
+listed, such as a hardlinked tool under a sandbox clone's `node_modules`, keeps
+the type it had. A restore that could not label an entry prints a WARNING
+with the command that runs it again.
 
 ## A new entrypoint is relabelled before it is launched
 

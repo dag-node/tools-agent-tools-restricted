@@ -483,6 +483,23 @@ ai_tools_services__read_record_state() {
         "$(ai_tools_services__get_field "$1" 9)"
 }
 
+# ai_tools_services__read_remedy <record>  -- PRINT the record's remedy, led by `sudo systemctl daemon-reload && `
+# where the system manager reports the unit's file changed since it loaded it (NeedDaemonReload=yes): a start
+# before the reload runs the definition the manager holds, not the file the last install wrote. An empty remedy prints
+# nothing. ALWAYS returns 0.
+ai_tools_services__read_remedy() {
+    local remedy
+    remedy="$(ai_tools_services__get_field "$1" 6)"
+    [[ -n "${remedy}" ]] || return 0
+    if [[ "$(ai_tools_services__get_field "$1" 2)" == system \
+            && "$(ai_tools_services__read_unit_property "$(ai_tools_services__get_field "$1" 1)" NeedDaemonReload)" \
+                == yes ]]; then
+        remedy="sudo systemctl daemon-reload && ${remedy}"
+    fi
+    printf '%s' "${remedy}"
+    return 0
+}
+
 # ai_tools_services__is_attention_needed <state>  -- 0 when the state is one a consumer should report as a problem
 # (down, failed, stale). The single definition of "broken", so the scanner's set and the CLI's report cannot drift
 # apart. 'unknown' is deliberately NOT one: it says the vantage point cannot tell, which is not the same as a fault.

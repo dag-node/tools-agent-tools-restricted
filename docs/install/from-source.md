@@ -253,15 +253,15 @@ holding none is enrolled after the install with `ai-tools-admin`, rather than
 named at this prompt.
 
 The script deploys the static `%ai-ops` sudoers drop-in, the helpers
-and the system units, seeds your project registry with its format marker
-and a header, installs the `ai-tools` project CLI and the `/var/opt/ai-tools`
-sandbox area, enables the `nvm-update.timer` in `${SANDBOX_USER}`'s
-`--user instance`, and enables the `ai-tools-relabel.path` watcher. It is
-idempotent — safe to re-run after updates. It deploys the commit the checkout
-is at and names it before asking to proceed. A checkout with uncommitted
-changes is listed, with the paths the sandbox account wrote marked,
-and refused, so what root deploys is a tree you reviewed and committed.
-To deploy work in progress while developing, say so on the command line:
+and the system units, seeds your project registry with its format marker alone,
+installs the `ai-tools` project CLI and the `/var/opt/ai-tools` sandbox area,
+enables the `nvm-update.timer` in `${SANDBOX_USER}`'s `--user instance`,
+and enables the `ai-tools-relabel.path` watcher. It is idempotent — safe
+to re-run after updates. It deploys the commit the checkout is at and names it
+before asking to proceed. A checkout with uncommitted changes is listed,
+with the paths the sandbox account wrote marked, and refused, so what root
+deploys is a tree you reviewed and committed. To deploy work in progress while
+developing, say so on the command line:
 `sudo ./install.sh install --allow-uncommitted`. A checkout older than
 the version installed is refused too, as `dnf` refuses a downgrade. The clean
 way down is to remove the installed version with the tool that installed it,

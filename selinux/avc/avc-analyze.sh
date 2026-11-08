@@ -4,8 +4,8 @@
 # into four buckets: EXPECTED BOUNDARY (an access the policy refuses on purpose -- silenced by a dontaudit, or left
 # visible as a breach attempt -- and grants no allow rule for), EXPECTED GROUP-DISABLED (accesses only an optional
 # policy group would allow, so the fix is enable-group, not a core change), BENIGN PROBE (a call whose refusal changes
-# nothing the caller does, classified and left audited), and NEW (the candidates to fold into the policy). NEW must be 0
-# to pass. RUN AS ROOT (it reads the audit log).
+# nothing the caller does, classified and left audited; with `--probe-run`, also avc-denials.sh's deliberate attempts),
+# and NEW (the candidates to fold into the policy). NEW must be 0 to pass. RUN AS ROOT (it reads the audit log).
 #
 # Usage:
 #   sudo ./avc-analyze.sh                             # from the marker avc-testsuite.sh wrote
@@ -33,11 +33,22 @@ command -v ausearch    >/dev/null || { echo "avc-analyze: ausearch not found (au
 command -v audit2allow >/dev/null || { echo "avc-analyze: audit2allow not found (policycoreutils-devel)" >&2; exit 1; }
 
 # Flags: `--suggest` appends the (verbose) `audit2allow -R` policy proposal; off by default so the report stays short.
+# `--login-pty /dev/pts/<n>` names avc-denials.sh's login-pty fixture, whose open denial then files as the expected
+# boundary (category 5); avc-denials.sh passes it, and a value of any other shape is refused. `--probe-run` states
+# that the window holds an avc-denials.sh probe, whose deliberate attempts then file as probe category 6; avc-denials.sh
+# passes it.
 SUGGEST=0
+LOGIN_PTY_NUMBER=""
+PROBE_RUN=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --suggest)  SUGGEST=1; shift ;;
-    -h|--help)  echo "usage: $0 [--suggest] [-ts <when>] [-te <when>]"; exit 0 ;;
+    --login-pty)
+      [[ "${2:-}" =~ ^/dev/pts/([0-9]+)$ ]] \
+        || { echo "avc-analyze: --login-pty takes /dev/pts/<n>, not '${2:-}'" >&2; exit 1; }
+      LOGIN_PTY_NUMBER="${BASH_REMATCH[1]}"; shift 2 ;;
+    --probe-run) PROBE_RUN=1; shift ;;
+    -h|--help)  echo "usage: $0 [--suggest] [--login-pty /dev/pts/<n>] [--probe-run] [-ts <when>] [-te <when>]"; exit 0 ;;
     *)          echo "avc-analyze: unknown flag '$1'" >&2; exit 1 ;;
   esac
 done
@@ -159,7 +170,8 @@ fi
 # themselves: reaching either is the escalation attempt section (6) is written to keep visible, and the agent half
 # probes both deliberately (the explicit sudo -> chown step, and `semodule -l` behind each optional-group check).
 # Without them here a run of the suite reports its own probes as unclassified gaps. cgroup_t is the account's own cgroup
-# files, which section Y of avc-denials.sh opens for write: the relabel gate's plumbing exemption rests on that refusal.
+# files, which section Y of avc-denials.sh opens for write: the policy unload's session reading exempts the plumbing
+# by name, which rests on that refusal.
 readonly BOUNDARY_NAMED_RE='(user_home_t|user_home_dir_t|home_root_t|config_home_t|container_file_t|sendmail_exec_t|sudo_exec_t|semanage_exec_t|ssh_port_t|smtp_port_t|mysqld_port_t|postgresql_port_t|usb_device_t|shadow_t|etc_sudoers_t|admin_home_t|user_runtime_t|user_tmp_t|system_dbusd_var_run_t|syslogd_var_run_t|container_var_run_t|sysctl_t|sysctl_kernel_t|memory_device_t|fixed_disk_device_t|user_cron_spool_t|system_cron_spool_t|systemd_unit_file_t|cgroup_t)'
 
 # Target types granted ONLY by an optional policy group (systemd / pkgmgmt / netadmin / podman), all DISABLED
@@ -195,7 +207,27 @@ _b2="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:[a-z_]+_port_t:' | gre
 # Category 3: other-domain /proc reads (dev="proc", tcontext not ai_tools_t).
 _b3="$(printf '%s\n' "${LINES}" | grep -E 'dev="proc"' | grep -Ev 'tcontext=[^ ]*:ai_tools_t:' || true)"
 
-boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" | sort -u | grep -v '^$' || true)"
+# Category 4: avc-denials.sh WLK-001's own FIFO, by the name the probe gives it -- the create of a FIFO of the domain's
+# type, or the filesystem associate its label needs. Any other denial on either keeps its own bucket.
+_b4="$(printf '%s\n' "${LINES}" | grep -E 'name="\.avc-denials-ownfifo-[0-9]+"' \
+  | grep -E 'denied  \{ create \} .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=fifo_file|denied  \{ associate \} .*scontext=[^ ]*:ai_tools_t:[^ ]* .*tclass=filesystem' || true)"
+
+# Category 5: the terminal boundary (the terminal block of ai_tools.te), matched on the permission and the type: TIOCSTI
+# or TIOCLINUX on a character device, which the allowxperm rules exclude on every terminal type the domain uses
+# (avc-testsuite.sh and avc-denials.sh both attempt them); avc-denials.sh's open of its login-pty fixture,
+# which the domain holds on inherited descriptors alone, matched on python3 and the fixture's pty named by --login-pty;
+# and Claude Code's reopen of its own terminal on an interactive start, the same refusal, which the terminal block
+# dontaudits and a `semodule -DB` window shows, matched on the command, the permission, the type and the class together.
+# Any other open of a login terminal keeps the NEW bucket, a python3 one outside the fixture included, as does any other
+# denial on a terminal type.
+_b5_re='denied  \{ ioctl \} .* ioctlcmd=0x(5412|541c) .*tclass=chr_file'
+_b5_re+='|denied  \{ open \} .* comm="claude\.exe" .*tcontext=[^ ]*:user_devpts_t:[^ ]* tclass=chr_file'
+if [[ -n "${LOGIN_PTY_NUMBER}" ]]; then
+  _b5_re+="|denied  \\{ open \\} .* comm=\"python3\" (path=\"/dev/pts/${LOGIN_PTY_NUMBER}\"|name=\"${LOGIN_PTY_NUMBER}\") dev=\"devpts\" .*tcontext=[^ ]*:user_devpts_t:[^ ]* tclass=chr_file"
+fi
+_b5="$(printf '%s\n' "${LINES}" | grep -E "${_b5_re}" || true)"
+
+boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" "${_b5}" | sort -u | grep -v '^$' || true)"
 
 # Group-disabled set: lines hitting a GROUP_DISABLED_RE type, MINUS anything already claimed by boundary (boundary wins,
 # so each line lands in one bucket -- e.g. a /proc read of NetworkManager_t stays boundary, its D-Bus chat is group).
@@ -237,9 +269,13 @@ groupdis="$(comm -23 <(printf '%s\n' "${_g}" | sort -u | grep -v '^$') \
 #   hostname_exec_t -- stock /etc/profile resolves HOSTNAME as hostnamectl, then /usr/bin/hostname, then `uname -n`.
 #                      The login shell every agent's shell tool opens runs it, and the third form answers. Not
 #                      agent-specific: it fires identically for every agent.
-#   usr_t + watch   -- codex arms an inotify watch on the account's home root at startup. Refused; the session
+#   usr_t + watch   -- codex adds an inotify watch on the account's home root at startup. Refused; the session
 #                      is unaffected. Matched on the PERMISSION, since usr_t reads are core-granted and a usr_t denial
 #                      of any other permission is a real finding.
+#   etc_t + watch   -- Claude Code adds an inotify watch on /etc/claude-code and its managed-settings.json at startup.
+#                      Refused; the session reads the file at start, so an edit applies from the next session start.
+#                      Matched on the TYPE, the PERMISSION and the PATH, since etc_t reads are core-granted and a watch
+#                      anywhere else in /etc is a finding.
 #   install(1)      -- `install` sets the context of the file it just created. The type_transition already gave it
 #                      ai_tools_project_t, so the relabel is refused and `install` still exits 0 with the file
 #                      correctly labelled (verified for -m, a plain copy, and -D). Matched on the COMMAND as well as
@@ -266,7 +302,26 @@ _p4a="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*
         | grep -E 'tcontext=[^ ]*:ssh_exec_t:' | grep -E 'tclass=file\b' || true)"
 _p4b="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*\bread\b' \
         | grep -E 'tcontext=[^ ]*:mail_spool_t:' | grep -E 'tclass=lnk_file\b' || true)"
-probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" | sort -u | grep -v '^$' || true)"
+_p5="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:etc_t:' | grep -E 'denied[^}]*\bwatch\b' \
+        | grep -E 'path="/etc/claude-code(/managed-settings\.json)?"' || true)"
+
+# Category 6, with `--probe-run` alone: the accesses avc-denials.sh attempts on purpose that no other category files,
+# each matched on the command, the permission, the target type and the class together -- the container-storage listing
+# (section D), the PATH search for insmod and modprobe and the probe's stat of each name it did not find (O), the eBPF
+# call (P), the raw socket (W), the privileged-port bind (X), and the probe's own enforcement read (`getenforce`, then
+# `cat /sys/fs/selinux/enforce`). Without the flag each stays NEW: ai_tools.te section (6) leaves an attempt like these
+# audited so that an ordinary session making one is reported, and only a window the probe ran in explains it.
+_p6=""
+if [[ "${PROBE_RUN}" -eq 1 ]]; then
+  _p6_re='denied  \{ search \} .* comm="ls" .*tcontext=[^ ]*:container_var_lib_t:[^ ]* tclass=dir( |$)'
+  _p6_re+='|denied  \{ getattr \} .* comm="(bash|python3)" .*tcontext=[^ ]*:kmod_exec_t:[^ ]* tclass=file( |$)'
+  _p6_re+='|denied  \{ prog_load \} .* comm="bpftool" .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=bpf( |$)'
+  _p6_re+='|denied  \{ create \} .* comm="python3" .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=rawip_socket( |$)'
+  _p6_re+='|denied  \{ name_bind \} .* comm="python3" .*tcontext=[^ ]*:http_port_t:[^ ]* tclass=tcp_socket( |$)'
+  _p6_re+='|denied  \{ read \} .* comm="(getenforce|cat)" .*tcontext=[^ ]*:security_t:[^ ]* tclass=file( |$)'
+  _p6="$(printf '%s\n' "${LINES}" | grep -E "${_p6_re}" || true)"
+fi
+probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" "${_p5}" "${_p6}" | sort -u | grep -v '^$' || true)"
 
 # Everything intentionally denied (boundary + group-disabled + benign probe), to subtract from NEW.
 excluded="$(printf '%s\n' "${boundary}" "${groupdis}" "${probe}" | sort -u | grep -v '^$' || true)"
@@ -324,6 +379,7 @@ echo
 hr
 echo "BENIGN PROBE denials (left audited on purpose -- the caller falls back, and a"
 echo "dontaudit would silence the same access for every command; do NOT grant):"
+[[ "${PROBE_RUN}" -eq 0 ]] || echo "With --probe-run, also avc-denials.sh's own deliberate attempts."
 hr
 if [[ -n "${probe}" ]]; then
   printf '%s\n' "${probe}" | fmt

@@ -7,7 +7,8 @@
 # of that verdict against fixture links -- the version a link points into, the split line where two links disagree,
 # and no claimed version where no link names one -- with the updater's stamp being the host's own and read alongside.
 # The Provisioning section is read the same way, per enabled agent's link, beside a base file that makes the launcher
-# directory non-empty on every host.
+# directory non-empty on every host. The Entrypoints and Version sections are driven over the loaded libraries with one
+# reader removed at a time, each a reading the section could not make.
 #
 # The helper is SOURCED rather than run (its root check and its dispatch are guarded for that), in a fresh shell
 # per case because the helper and the harness both declare SANDBOX_USER readonly, with the resolver's two hooks
@@ -202,6 +203,115 @@ if [[ "${rc}" -eq 5 ]]; then
     pass "a fault read beside a reading that could not be made exits 5: unreadable wins the fold"
 else
     fail "fault plus unreadable exited ${rc}, expected 5"
+fi
+
+# ── A base-library reader a section calls, missing after the libraries loaded, is a reading it could not make ──
+# Each section is driven directly over the libraries status() loads, with the reader removed after the load, since
+# relabel.lib.sh has no include guard and status()'s own source would restore it. Each case prints the section and
+# the unreadable count: one coded or UNREADABLE line and a count of 1, where the same run with every reader in place,
+# the control, prints neither and counts 0. The live label reader under status_labels is stubbed to an empty report,
+# so no case reads the host's labels, and a case that needs a label line replaces the stub in its <pre>; the library's
+# own reader stays callable as real_ai_tools_relabel__list_agent_labels.
+# call_section <pre> <section> : source the helper and the libraries with the hooks set, run <pre>, then <section>.
+# shellcheck disable=SC2016  # the $1/$2/$3 are for the inner `bash -c`, not this shell -- do not expand here
+call_section() {
+    env AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+        AI_TOOLS_ENTRYPOINT_PIN_DIR="${TESTDIR}/pins" \
+        bash -c 'helper="$1"; pre="$2"; section_fn="$3"; set --; source "${helper}" >/dev/null 2>&1 || exit 99
+                 for lib in "${SERVICES_LIB}" "${PROVIDERS_LIB}" "${RELABEL_LIB}" "${ENTRYPOINT_VERIFY_LIB}" "${TOOLCHAIN_LIB}"; do
+                     source "${lib}" >/dev/null 2>&1 || exit 98
+                 done
+                 eval "real_$(declare -f ai_tools_relabel__list_agent_labels)"
+                 ai_tools_relabel__list_agent_labels() { :; }
+                 eval "${pre}"; "${section_fn}"; printf "unreadable=%s\n" "${STATUS_UNREADABLE}"' \
+        _ "${HELPER}" "$1" "$2" 2>&1
+}
+mkdir -m 0755 "${TESTDIR}/pins"
+reset_fixtures; manifest alpha la; vlink la v9.9.9
+for section_fn in status_entrypoints status_agent_versions status_node_version status_managed_files; do
+    rc=0; out="$(call_section ':' "${section_fn}")" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=0' <<<"${out}" && ! grep -qF '[UNREADABLE]' <<<"${out}" \
+            && ! grep -qxE 'MSG-(M9D4|B5R6)' <<<"${out}"; then
+        pass "control: ${section_fn} with every reader loaded counts no unreadable reading"
+    else
+        fail "control: ${section_fn} with every reader loaded (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+for reader in ai_tools_entrypoint_verify__get_stale_path ai_tools_entrypoint_verify__read_pin_kind \
+              ai_tools_entrypoint_verify__check ai_tools_entrypoint_verify__is_required \
+              ai_tools_relabel__resolve_agent_entrypoint_path; do
+    rc=0; out="$(call_section "unset -f ${reader}" status_entrypoints)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
+            && ! grep -qE '\[(VERIFIED|UNCHANGED)\]' <<<"${out}" && ! grep -qF 'launches are not blocked' <<<"${out}"; then
+        pass "Entrypoints without ${reader} prints its UNREADABLE line before any agent line and counts it"
+    else
+        fail "Entrypoints without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+# The live labels have a reader of their own, so a pin reader missing does not take them with it: a mislabelled
+# entrypoint is still named beside the UNREADABLE line. The same label report with every reader loaded is the control.
+bad_label='ai_tools_relabel__list_agent_labels() { printf "bad alpha entrypoint /fixture/la bin_t ai_tools_exec_t\n"; }'
+for pre in ':' 'unset -f ai_tools_entrypoint_verify__read_pin_kind'; do
+    rc=0; out="$(call_section "${pre}; ${bad_label}" status_entrypoints)" || rc=$?
+    if [[ "${pre}" == ':' ]]; then
+        if [[ "${rc}" -eq 0 ]] && grep -qF '[NOT LABELLED]' <<<"${out}" && grep -qx 'unreadable=0' <<<"${out}"; then
+            pass "control: with every reader loaded, a mislabelled entrypoint is named under Entrypoints"
+        else
+            fail "control: a mislabelled entrypoint with every reader loaded (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+        fi
+    elif [[ "${rc}" -eq 0 ]] && grep -qF '[NOT LABELLED]' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}" \
+            && grep -qx 'unreadable=1' <<<"${out}"; then
+        pass "Entrypoints without the pin-kind reader still names a mislabelled entrypoint beside its UNREADABLE line"
+    else
+        fail "Entrypoints without the pin-kind reader and a mislabelled entrypoint (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+# The real label reader, with the policy read stubbed active, over the same fixture: each function it calls, removed,
+# is a label reading it could not make -- UNREADABLE and counted beside the pin guard's own line -- and never the
+# inactive-SELinux line or an entrypoint read as not installed. The same reader with every function loaded is
+# the control: the fixture's dangling launcher link reads as not installed, and the unreadable count stays 0.
+real_labels='_ai_tools_relabel__is_entrypoint_policy_active() { return 0; }
+             ai_tools_relabel__list_agent_labels() { real_ai_tools_relabel__list_agent_labels; }'
+rc=0; out="$(call_section "${real_labels}" status_entrypoints)" || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=0' <<<"${out}" && grep -qF 'its entrypoint is not installed' <<<"${out}" \
+        && ! grep -qF 'confinement is inactive' <<<"${out}"; then
+    pass "control: the real label reader with every function loaded reads the fixture's entrypoint as not installed"
+else
+    fail "control: the real label reader (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+for reader in ai_tools_providers__list_enabled_agents ai_tools_providers__read_agent_manifest_field \
+              ai_tools_relabel__resolve_agent_entrypoint_path; do
+    rc=0; out="$(call_section "${real_labels}; unset -f ${reader}" status_entrypoints)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=2' <<<"${out}" \
+            && grep -qF 'live labels: a reader the label report calls did not load' <<<"${out}" \
+            && ! grep -qF 'confinement is inactive' <<<"${out}" && ! grep -qF 'is not installed' <<<"${out}"; then
+        pass "the label report without ${reader} is an UNREADABLE line, not inactive SELinux or an uninstalled entrypoint"
+    else
+        fail "the label report without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+for reader in ai_tools_providers__list_agent_managed_files ai_tools_providers__evaluate_managed_file; do
+    rc=0; out="$(call_section "unset -f ${reader}" status_managed_files)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qF '[UNREADABLE]' <<<"${out}"; then
+        pass "Managed files without ${reader} prints its UNREADABLE line and counts it"
+    else
+        fail "Managed files without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+for reader in ai_tools_relabel__resolve_agent_entrypoint_path ai_tools_entrypoint_verify__read_installed_version; do
+    rc=0; out="$(call_section "unset -f ${reader}" status_agent_versions)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qx 'MSG-M9D4' <<<"${out}"; then
+        pass "the agent Version line without ${reader} prints one MSG-M9D4 line and counts it"
+    else
+        fail "the agent Version line without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+rc=0; out="$(call_section 'unset -f ai_tools_toolchain__list_agent_link_node_versions' status_node_version)" || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -qx 'unreadable=1' <<<"${out}" && grep -qx 'MSG-B5R6' <<<"${out}" \
+        && ! grep -qF 'no launcher link names one' <<<"${out}"; then
+    pass "the Node line without the toolchain link reader prints MSG-B5R6, counts it, and does not claim a link read"
+else
+    fail "the Node line without the toolchain link reader (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
 fi
 
 # ── The SELinux attestation section counts a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse a launch ──

@@ -6,12 +6,19 @@ paths:
   - "src/usr/local/libexec/ai-tools/ai-tools-safedir.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-reclaim.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-relabel.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-relabel-tree.py"
   - "src/usr/local/libexec/ai-tools/ai-tools-stop.sh"
   - "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-allowlist.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-audit.sh"
+  - "src/usr/local/libexec/ai-tools/ai-tools-lockdown.sh"
+  - "src/usr/local/lib/ai-tools/help.lib.sh"
   - "src/usr/local/lib/ai-tools/relabel.lib.sh"
   - "src/usr/local/lib/ai-tools/sessions.lib.sh"
   - "src/usr/local/lib/ai-tools/project-permissions.lib.sh"
   - "src/usr/local/lib/ai-tools/services.lib.sh"
+  - "src/usr/local/share/man/man1/ai-tools.1"
+  - "src/usr/local/share/man/man5/ai-tools-project-registry.5"
 ---
 
 # Management CLI and project lifecycle (`ai-tools`)
@@ -22,10 +29,15 @@ and reaches the root-owned git `safe.directory` list in `/opt/ai-tools/.gitconfi
 root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside its other root operations. Each
 `git config --file` write renames a new inode over that file, so the helper restores its owner, mode and SELinux type
 after it (`ai_tools_control_plane__restore_file_attributes`), and a claim or an unclaim does not leave layout drift
-on the row. It refuses to run as the sandbox account (the agent must not manage its own registry).
+on the row. It refuses to run as the sandbox account (the agent must not manage its own registry). It unsets git's
+repository-selection variables (`GIT_DIR`, `GIT_WORK_TREE` and the rest its header lists) and `GIT_CONFIG` before its
+first git call, so each call acts on the repository its path names: under `GIT_DIR`, `config --local` writes
+the repository the variable names and `init` initialises it, and under `GIT_CONFIG` `config --local` refuses.
+The configuration variables (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_COUNT` and their kin) pass through, so `projects clone`
+and `projects push` use the credential helper or URL rewrite the operator's shell sets.
 
-How its commands are **spelled** — and why this one binary keeps option-spelled verbs while the rest of the project uses
-bare words — is in [cli-grammar](cli-grammar.rule.md). This rule covers what each verb does.
+How its commands are **spelled**, and how each option spelling an earlier release wrote maps onto a command path, is
+in [cli-grammar](cli-grammar.rule.md). This rule covers what each verb does.
 
 **Root runs only the verbs that leave operator-owned state untouched.** That criterion is what the root refusal
 protects: a registry written by root names an owner whose own launch gate cannot read it. `ROOT_ALLOWED_VERBS` —
@@ -126,13 +138,13 @@ before the run's first `sudo` — the same ordering `require_for_target` follows
 asked for it on a verb no rule lets them run. Each verb is probed on the **first** helper it reaches (a `--for` run
 on `ai-tools-allowlist`, whose snapshot precedes the verb's own helper), so a host granting some helpers and not others
 is answered accurately rather than through one representative. On a plain run, `projects push`, `projects remove`
-of a clone, and the informational verbs reach no helper that can refuse the command, and are not probed; a `--for` run
-of a verb `FOR_ALLOWED_VERBS` names is probed on `ai-tools-allowlist` whatever the verb, the listing among them,
-since its registry snapshot is the run's first `sudo`. Neither is `stop`, the privileged verb
-an operator without a general grant can already run through the `%ai-ops` rule for its helper: probing it answers "grant
-present" every time, so the entry would carry no information. (That rule covers the bare form only, so `stop`'s flagged
-forms do meet sudo's ordinary prompt — [ref-section-r5r9](stop.rule.md#ref-section-r5r9). The probe could not have
-reported that either: it asks about a helper, not about a command line.)
+of a clone, `projects enable`, `projects disable` and the informational verbs reach no helper that can refuse
+the command, and are not probed; a `--for` run of a verb `FOR_ALLOWED_VERBS` names is probed on `ai-tools-allowlist`
+whatever the verb, the listing among them, since its registry snapshot is the run's first `sudo`. Neither is `stop`,
+the privileged verb an operator without a general grant can already run through the `%ai-ops` rule for its helper:
+probing it answers "grant present" every time, so the entry would carry no information. (That rule covers the bare form
+only, so `stop`'s flagged forms do meet sudo's ordinary prompt — [ref-section-r5r9](stop.rule.md#ref-section-r5r9).
+The probe could not have reported that either: it asks about a helper, not about a command line.)
 
 The probe is `sudo -n -l <helper>`, which cannot prompt. An operator holding a general grant gets exit 0 and the command
 echoed back, whether or not a credential is cached — listing an allowed command is not itself password-gated on a stock
@@ -147,11 +159,11 @@ answer means listing is itself password-gated (sudoers `listpw`), so the grant m
 to the ordinary prompt; `LC_ALL=C` pins the wording of that one match.
 
 **The gate reports; it does not decide, and so it fails open.** The project's fail-closed rule governs the predicates
-that decide what a principal may do: each resolves, on any failure, to *less* access ([CLAUDE.md](../../CLAUDE.md)).
-This gate is not one of them. It does not grant any access, and `sudo` remains the only thing consulted about the helper
-— so an inconclusive probe (no `sudo` binary, a translated or unrecognized answer) falls through to the call site
-and lets sudo answer, leaving the access outcome identical to having no gate at all. The composition stays fail-closed
-because the enforcement point it sits in front of is.
+that decide what a principal may do: each resolves, on any failure, to *less* access
+([ref-section-e7n8](../../CLAUDE.md#ref-section-e7n8)). This gate is not one of them. It does not grant any access,
+and `sudo` remains the only thing consulted about the helper — so an inconclusive probe (no `sudo` binary, a translated
+or unrecognized answer) falls through to the call site and lets sudo answer, leaving the access outcome identical
+to having no gate at all. The composition stays fail-closed because the enforcement point it sits in front of is.
 
 Failing *closed* here would invert that: refusing on an unparsed message subtracts access sudo would have granted,
 turning a diagnostic into an access decision that can only ever take away — a `wheel` operator whose sudo answered
@@ -164,10 +176,12 @@ The refusal names the account, the helper, and one command, and stops there. Who
 the suggested command or what they are to each other. So it does not suggest how to obtain a grant, and does not
 describe the account as anyone's. For the delegable verbs the command carries `--for <account>`, which is the whole
 mechanism: the verb runs against that account's registry whoever performs it. `projects clone` does not take `--for`
-(the clone is made with the git credentials of whoever runs it), so its refusal names two commands — the create, then
-a `projects claim --for <account>` over the resulting clone, which the protected-paths backstop deliberately permits.
-`audit` additionally names a `journalctl` query, since the trail is written to journald as well and many hosts let
-an ordinary account read it — a partial view, the file sink being the authoritative one.
+(the clone is made with the git credentials of whoever runs it), so its refusal names three commands — the clone,
+a `chown -R` of the clone to the account, since a claim for another operator over a tree that operator does not own
+leaves the agent without access (`require_claimable_owner`), then a `projects claim --for <account>` over it,
+which the protected-paths backstop deliberately permits. `audit` additionally names a `journalctl` query, since
+the trail is written to journald as well and many hosts let an ordinary account read it — a partial view, the file sink
+being the authoritative one.
 
 ## Commands
 
@@ -253,14 +267,10 @@ an ordinary account read it — a partial view, the file sink being the authorit
   a reading that could not be made, and the run exits 5.
 
   **Each source is read with its exit status, stdout and stderr apart, and a source whose result is empty is told
-  from one that failed by what its tool documents** ([records](records.rule.md) holds the collector shape). `grep` exits
-  1 on no match and 2 on a read error; `journalctl` exits 0 over an empty window; `ausearch` exits 1 for no match
-  and for an error alike, so its `<no matches>` line is what separates them, and an exit 1 without it is reported
-  as unreadable. The log directory is checked before it is listed, since an unexpanded glob over a directory that is
-  missing or refuses a listing would read as a host with no log file; a `*.log` entry other than a readable file
-  and a record whose timestamp `date(1)` refuses are each a reading that could not be made. The observed absences — no
-  `journalctl`, no sandbox account (`getent` exit 2: no session ran), no audit daemon, no SELinux, no `sesearch` — are
-  printed as the reading each is, and leave the exit alone.
+  from one that failed by what its tool documents** ([records](records.rule.md) holds the collector shape); which status
+  each tool documents, and the checks on the log directory and on each record, are `ai-tools-audit.sh`'s header.
+  The observed absences — no `journalctl`, no sandbox account (`getent` exit 2: no session ran), no audit daemon, no
+  SELinux, no `sesearch` — are printed as the reading each is, and leave the exit alone.
 
   **It reports events, never current state.** Each line is something that *happened* between two points in time,
   and a condition recorded here may have been resolved since, so the report closes by naming `status` (and
@@ -321,8 +331,9 @@ an ordinary account read it — a partial view, the file sink being the authorit
   and counts toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired is right today
   and says so dimly, since that shell is sandboxed until the next thing that prepends to PATH takes it away. A launcher
   this host does not install a wrapper for, and a name `command -v` does not resolve in this shell, are reported and are
-  not faults — the same rule the unqueryable units follow. The states and the reading behind them are
-  [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
+  not faults — the same rule the unqueryable units follow. Run as root, the report reads root's PATH, which is not
+  an operator's shell, and `atr admin operators add` refuses root, so each launcher reads `n/a` with no remedy and does
+  not count. The states and the reading behind them are [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
 
   <a id="ref-section-r8u5"></a>**Sandbox-user units and the `?` line**
 
@@ -385,9 +396,10 @@ an ordinary account read it — a partial view, the file sink being the authorit
   loads and requires): 4 where a section read a fault, 5 where a section could not make a reading it promises, and 0
   otherwise. Each section returns 1 for a fault and `STATUS_UNREADABLE` for a reading it could not make,
   and `status_fold` turns the two into the fold, so the sections stay free of the library and drivable on their own.
-  What exits 5 is a library base ships that did not load — the service registry, the provider resolver, the toolchain
-  readers — a broken install, reported under a code and still followed by every later section, so the page carries each
-  reading it could make beside the one it could not.
+  What exits 5 is a library base ships that did not load — the service registry, the provider resolver and its
+  managed-files reader, the toolchain readers, the entrypoint readers, the PATH ordering reader — a broken install,
+  reported under a code and still followed by every later section, so the page carries each reading it could make beside
+  the one it could not.
 
   **Both halves of the entrypoint reconciliation are reported, from the records it writes.** Neither the binary nor its
   label can be inspected from this account, so each half leaves a root-owned record where the operator can read it.
@@ -395,8 +407,11 @@ an ordinary account read it — a partial view, the file sink being the authorit
   with the pinned version and how long ago, or `unverified`, or `?` when this account cannot read the pin at all
   (`status` stays open to a non-operator, who cannot traverse the state directory). It reads through the **same stamp
   accessors** as the unit records — the pin is written in that grammar — so the charset clamp and the age calculation
-  have one implementation. An agent whose package does not declare a release manifest is omitted, not reported
-  as perpetually unverified. Unpinned counts toward the **exit status only where the operator required verification**
+  have one implementation. An agent whose package does not declare a release manifest is not reported as perpetually
+  unverified: it is reported once root has recorded its pin, and before then only where a label record exists,
+  under a dim `no pin recorded` line, since a failed record stops that agent's launch; where the operator required
+  verification it reads `UNVERIFIED` and counts, label record or not, since its launch is refused until a reconcile
+  records the pin. Unpinned counts toward the **exit status only where the operator required verification**
   (`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`), since that is exactly when it will refuse a launch; everywhere else it is
   a legitimate state — an air-gapped host, a release the vendor published no manifest for — and must not alarm, the same
   rule the unqueryable units follow.
@@ -462,12 +477,11 @@ an ordinary account read it — a partial view, the file sink being the authorit
 
   Every command for such a unit goes through root, and the CLI composes them rather than the registry storing them: each
   names the sandbox **account**, and `services.lib.sh` is deployed with no `@SANDBOX_USER@` substitution. Status
-  and restart use the **machine transport** (`sudo systemctl --user -M ai-tools@.host …`), which reaches that manager
-  over the system bus where root is authorized — a plain `sudo -u ai-tools systemctl --user` gets its own bus refused
-  even when the manager is healthy (the reason the tests' `sandbox_systemctl` prefers it). The journal query cannot use
-  either: `journalctl --user-unit` as root reads **root's** user units, so the unit is selected by the journal fields
-  instead (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field names
-  and catches both the unit's own output and the `systemd-cat` lines its script emits.
+  and restart use the **machine transport**, which reaches that manager over the system bus where root is authorized,
+  where a plain `sudo -u` gets its own bus refused (`services.lib.sh`'s header). The journal query cannot use either:
+  `journalctl --user-unit` as root reads **root's** user units, so the unit is selected by the journal fields instead
+  (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field names and catches
+  both the unit's own output and the `systemd-cat` lines its script emits.
 - `projects list` — report every line of the registry by its kind (`project` / `sandbox` / `disabled`, with the enable
   command that restores it / `exclude` for an excluded path) with each project's git `safe.directory` status, then
   a **Suggested cleanup** section flagging inconsistent hand-edited lines, each with a copy-paste remediation carrying
@@ -476,31 +490,35 @@ an ordinary account read it — a partial view, the file sink being the authorit
   directions: a protected system path the tools refuse to touch; a stale enabled or disabled line, or a stale non-glob
   excluded line, whose path no longer exists; a project listed but not fully claimed; and — the reverse direction —
   a git `safe.directory` with **no** registry entry, skipping the deliberately-registered control-plane paths
-  the protected-paths backstop already covers. `safe.directory` is one list every operator's claims write
-  into and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is attributed
-  before a removal is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line, an interrupted
-  unclaim); one whose tree the sandbox account holds is named with its removal, to run only if the tree is the reader's,
-  since `require_claimable_owner` accepts that owner for any operator and no registry attributes it; one whose path is
-  gone is stale; one under a directory the invoker cannot enter, in a tree another account holds, or whose owner cannot
-  be read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not write — git's `*`
-  and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value that is not absolute
-  — is named by its form with the command that lists the file, and does not take a removal or count, since
-  the exact-value removal deletes a live rule. Each printed path is one bash word, and `ai-tools-safedir --remove`
-  removes a value as git holds it, so a stored spelling is removed as stored. The list is read once, with git run
-  from `/`, since git exits on a working directory that was deleted, the one a shell keeps
+  the protected-paths backstop already covers. A row whose directory the invoker reads at an owner-only mode carries
+  that mode and that no session can start there, and takes no *listed but not fully claimed* entry, since the claim
+  refuses such a root; a mode the invoker cannot read leaves the row as it was. `safe.directory` is one list every
+  operator's claims write into and `ai-tools-safedir --remove` does not consult any registry, so an uncovered entry is
+  attributed before a removal is offered: one whose tree `OWNER_USER` holds is orphaned (a hand-deleted line,
+  an interrupted unclaim); one whose tree the sandbox account holds is named with its removal, to run only if the tree
+  is the reader's, since `require_claimable_owner` accepts that owner for any operator and no registry attributes it;
+  one whose path is gone is stale; one under a directory the invoker cannot enter, in a tree another account holds,
+  or whose owner cannot be read is counted in one closing line and not listed; and a value `ai-tools-safedir` does not
+  write — git's `*` and `<dir>/*` trust rules, a path git expands from a leading `~` or `%(prefix)/`, any other value
+  that is not absolute — is named by its form with the command that lists the file, and does not take a removal
+  or count, since the exact-value removal deletes a live rule. Each printed path is one bash word,
+  and `ai-tools-safedir --remove` removes a value as git holds it, so a stored spelling is removed as stored. The list
+  is read once, with git run from `/`, since git exits on a working directory that was deleted, the one a shell keeps
   after `atr projects remove .`; a list git cannot read is named under the cleanup, and each row's status reads `?`.
-  A registry line under a directory the invoker cannot enter is reported as one it cannot read, without a removal,
-  and on a `--for` run names the target's own listing as the one that reads it. The `sed` line deletes the verbatim
-  line, comment and all, from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line
-  is removed through `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line,
-  which that removal leaves standing, and a protected path, which the helper's backstop refuses, read in the form
-  that backstop reads, `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry
-  through the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow
-  line among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
-  under a banner naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing
-  predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command, never
-  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational, so it
-  stays open to a non-operator.
+  An absent registry is the listing's body, `no registry at <path>`, and the reconciliation still runs, over an empty
+  entry set, so the `safe.directory` entries a registry removed by hand leaves are reported. A registry line
+  under a directory the invoker cannot enter is reported as one it cannot read, without a removal, and on a `--for` run
+  names the target's own listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all,
+  from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed
+  through `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
+  standing, and a protected path, which the helper's backstop refuses, read in the form that backstop reads,
+  `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry through the registry
+  gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line among the lines
+  that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed under a banner
+  naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing predicates and verbs
+  only (no recovery machinery), stays **read-only** (every fix is an emitted command, never an in-place rewrite),
+  and closes with a compact **Maintenance** pointer to the per-project verbs. Informational, so it stays open
+  to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree).
 - `--help`, `-h` and the bare word `help` — a **help request**, answered after the principal guards and ahead of every
   gate from the bootstrap gate on, so it does not run the command, call `sudo` or take a `--for` snapshot: the top help,
@@ -523,10 +541,11 @@ checks ([Acting for another operator](#acting-for-another-operator---for)); a he
 
 **`--relabel` prints the new command and exits 2.** The entrypoint reconcile is `atr admin system entrypoints relabel`
 ([updater](updater.rule.md) owns what it does, [cli-grammar](cli-grammar.rule.md) why it is spelled that way): it runs
-as root, which this CLI refuses, so it is not an alias. The pointer answers **ahead of every gate**, which is where its
-value is — the bootstrap gate would send an unprovisioned host to the provisioning command, and the root guard would
-answer `sudo atr --relabel`, the spelling the older release notes print, with a list of the verbs root may run, none
-of which reconciles an entrypoint. It exits **2**, the documented code for a rejected command line.
+as root, which this CLI refuses, so it is not an alias. The pointer answers ahead of the bootstrap gate and the root
+guard, after the sandbox-account refusal and the `--for` value check, which is where its value is: the bootstrap gate
+would send an unprovisioned host to the provisioning command, and the root guard would answer a `sudo` spelling of it
+with a list of the verbs root may run, none of which reconciles an entrypoint. It exits **2**, the documented code
+for a rejected command line.
 
 The CLI ships a man page, `ai-tools(1)` (`src/usr/local/share/man/man1/ai-tools.1` → `/usr/local/share/man/man1/`,
 deployed by `install.sh` and the RPM with the same `@AI_TOOLS_VERSION@` substitution as the CLI). It is hand-written
@@ -535,17 +554,13 @@ on an unprovisioned host). The page and the help are **not** copies of each othe
 rows `help.lib.sh` holds, one line each, and the cross-command options — while the page is the reference for every
 per-command option, which is why a per-command option lives under its command there rather than in a flat list
 that would separate `--branch` or `--dir` from the only command they mean anything for, and why a command's hint names
-its page entry. `tests/unit/man.sh` reads the rows through `ai_tools_help__list_commands` and keeps the two honest
-with three checks: the **command** sets match in both directions, every option the help's option rows name is documented
-in the page, and every option the page documents is one a CLI **parser** accepts. That last direction replaces "the help
-must name it too", which made moving an option out of the help fail as a stale man entry; what goes stale is an option
-outliving its parser.
+its page entry. `tests/unit/man.sh` holds the page and the help to each other ([tests](tests.rule.md)).
 
 ## The root vantage: `atr admin status`
 
-`status` and `atr admin status` read **one host from two vantages**: two resources, `GET /status`
-and `GET /admin/status` ([cli-grammar](cli-grammar.rule.md)), over one set of facts. The root command reports the same
-host and adds the readings the operator's prints as `?`:
+`status` and `atr admin status` read **one host from two vantages**, the two resources
+[cli-grammar](cli-grammar.rule.md) projects them onto, over one set of facts. The root command reports the same host
+and adds the readings the operator's prints as `?`:
 
 | reading | what blocks the operator | what root does |
 |---|---|---|
@@ -613,17 +628,15 @@ registry coverage (`operator.lib.sh`), not from either global.
 that way by `ai-tools-admin`), so one operator cannot read another's at all — and every decision the CLI makes from it
 (the path's state, which disabled and excluded lines apply, what `projects list` reports) would read an unreadable file
 as an empty one. A `--for` run therefore takes a root-side **snapshot** through `ai-tools-allowlist --print`
-into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The verb takes it, through
-`load_target_registry_snapshot`, once its own command line and path have passed; until then `ALLOWLIST` names a path
-under `/dev/null`, where no file can exist, so every reader finds no registry there and a verb that forgot the call
-reads every path as unregistered — the less-access answer for each verb but the claim, whose add then goes through
-the helper, which re-reads the real file. `tests/unit/cli-verbs.sh` holds each verb `FOR_ALLOWED_VERBS` names
-to the call. The helper prints only a migrated registry the loader accepts over the target's own file, the link rule
-taken from that file's owner (`require_migrated_registry`), so the run's loader validates the snapshot under its grammar
+into a `0600` temp file removed on exit, and points `ALLOWLIST` at it for reads. The verb takes it
+through `load_target_registry_snapshot` ([FN-R7N4](../../src/usr/local/bin/ai-tools.sh)) once its own command line
+and path have passed, and until then every reader finds no registry, the less-access answer for each verb but the claim,
+whose add goes through the helper; `tests/unit/cli-verbs.sh` holds each verb `FOR_ALLOWED_VERBS` names to the call.
+The helper prints only a migrated registry the loader accepts over the target's own file, the link rule taken
+from that file's owner (`require_migrated_registry`), so the run's loader validates the snapshot under its grammar
 alone: the snapshot belongs to the invoker, and the loader's owner rule would read the target's own links as foreign.
-The snapshot is read-only input for that run: mutations go back through the helper, which re-reads the real file
-and applies its own idempotency, and `reg_allow`/`unreg_allow` refresh the snapshot after theirs — so a stale copy
-is never what a write is based on.
+The snapshot is read-only input for that run, refreshed after each write
+([FN-K9Y2](../../src/usr/local/bin/ai-tools.sh)), so a stale copy is never what a write is based on.
 
 **What a `--for` run prints names the target's file and carries the flag.** The snapshot is a temporary file the run
 removes, so a message naming `ALLOWLIST` would send the operator to a path that is gone. Every message that names
@@ -637,9 +650,11 @@ or a `#` pastes as one word.
 `require_for_target` gates the run, after `require_operator` (acting for another operator is itself an operator action,
 so the invoker must be enrolled before the target is looked up). It accepts the flag only on the verbs whose whole
 effect is decided by *which* operator's registry covers the path — the verbs `FOR_ALLOWED_VERBS` names, which is every
-`projects` verb but `clone` and `push` — and **refuses it elsewhere rather than ignoring it**: a `projects clone --for`
-that silently cloned as the invoker would leave the tree owned by the wrong operator, with no output to show the flag
-was disregarded. The target must be **enrolled in `OPERATORS`**, since the ownership helpers resolve a path's owner
+`projects` verb but `clone`, `push` and the internal `inspect` — and **refuses it elsewhere rather than ignoring it**:
+a `projects clone --for` that silently cloned as the invoker would leave the tree owned by the wrong operator, with no
+output to show the flag was disregarded. A command path the dispatch does not have is refused as an unknown command
+(`MSG-S2H5`) ahead of that refusal, read from the union of the gating tables, which `tests/unit/cli-verbs.sh` holds
+to the dispatch. The target must be **enrolled in `OPERATORS`**, since the ownership helpers resolve a path's owner
 over that list and an entry written for an unenrolled name would be a launch gate no helper can act on; the sandbox
 account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact `atr admin operators add`
 writes: the target's launch wrapper refuses a caller outside the group, and a create in the clone area writes
@@ -685,9 +700,9 @@ where the predicate the claim's own traverse grant passes permits one ([safe-pat
 grant the claim completes.
 
 **It uses a grant the caller already holds.** `sudo -u <target>` rides the caller's **general** sudo grant, the axis
-[CLAUDE.md](../../CLAUDE.md) names, so an operator who reaches it could already act as that account; the sandbox account
-does not hold a sudo rule and runs under `PR_SET_NO_NEW_PRIVS`, which drops sudo's SUID bit, so the seam is out of its
-reach.
+[ref-section-e7n8](../../CLAUDE.md#ref-section-e7n8) names, so an operator who reaches it could already act
+as that account; the sandbox account does not hold a sudo rule and runs under `PR_SET_NO_NEW_PRIVS`, which drops sudo's
+SUID bit, so the seam is out of its reach.
 
 It is nonetheless a **distinct sudoers question** from the helper grants `require_sudo_access` probes: a host can grant
 every `ai-tools-*` helper and still restrict `Runas` to root. `require_runas_target` asks it up front — probing each
@@ -811,23 +826,24 @@ refuses it — and the editor restores it.
 A registry an earlier release wrote spelled a disabled project with `!`, the same text as an excluded path.
 The migration keeps each line's kind, so a `!` stays an excluded path in format 1.0 and covers what it covered
 before; `ai_tools_conf__plan_registry_migration` names each `!` line no allow line encloses with its `%` spelling, since
-only the operator knows which one an earlier edit meant. Reading the kind from position — a `!` inside a listed project
-an excluded path, one outside a disabled project — was rejected: nested projects make it unsound, and the verbs
-that relied on it had to refuse to disable a nested project at all.
+only the operator knows which one an earlier edit meant. The kind is read from the sign on the line and not from its
+position (a `!` inside a listed project as an excluded path, one outside as a disabled project): nested projects make
+a positional reading unsound, and a verb that relied on one would refuse to disable a nested project at all.
 
 ### One implementation of a registry change
 
 Every component that edits an entry — the CLI (the operator's own), `ai-tools-allowlist` (another operator's,
-for `--for`), `install.sh` (de-registering its own checkout) — calls the same functions in `conf.lib.sh`: `_state`,
-`_add`, `_remove`, `_enable`, `_disable`. Each verifies by re-reading the file and separates *applied* (0) from *could
-not write* (1) from *does not apply from this state* (2) from *a legacy or refused file* (3), and `_add` returns 4
-for a path `_ai_tools_conf__format_registry_entry` does not write as a line; their header in `conf.lib.sh` states
-the set. The rules live there rather than in any caller, so no writer can skip them: `_add` **refuses** a disabled path
-and an excluded path (appending under a winning `%` is the duplicate-pair bug), and `_remove` deletes the enabled
-and disabled lines naming the path, so de-registering a disabled project does not leave a `%` behind to disable whatever
-is claimed at that path next, and leaves every excluded line, which is the operator's own edit. `projects create`
-and `projects clone` ask the same formatter, `ai_tools_conf__is_registry_path_representable`, before their first write,
-so a name the registry cannot carry is refused before a directory exists.
+for `--for`), `install.sh` (de-registering its own checkout) — calls the same functions in `conf.lib.sh`:
+`ai_tools_conf__read_allowlist_state` and the editors `ai_tools_conf__allowlist_add`, `_remove`, `_enable`
+and `_disable`, which this section names by their member. Each verifies by re-reading the file and separates *applied*
+(0) from *could not write* (1) from *does not apply from this state* (2) from *a legacy or refused file* (3), and `_add`
+returns 4 for a path `_ai_tools_conf__format_registry_entry` does not write as a line; their header in `conf.lib.sh`
+states the set. The rules live there rather than in any caller, so no writer can skip them: `_add` **refuses**
+a disabled path and an excluded path (appending under a winning `%` is the duplicate-pair bug), and `_remove` deletes
+the enabled and disabled lines naming the path, so de-registering a disabled project does not leave a `%` behind
+to disable whatever is claimed at that path next, and leaves every excluded line, which is the operator's own edit.
+`projects create` and `projects clone` ask the same formatter, `ai_tools_conf__is_registry_path_representable`,
+before their first write, so a name the registry cannot carry is refused before a directory exists.
 
 **Every write rewrites the whole file in its canonical form**, `_ai_tools_conf__write_registry_canonical`: a forest
 in which a line sits under the nearest entry enclosing its path, indented two spaces per level, projects ahead
@@ -898,7 +914,9 @@ decision:
 3. *Reachability* — the traverse opt-in, its question alone ([Reachability](#reachability)).
 4. *Secret lockdown* — the gate, before any access-granting step ([Secret pre-check](#secret-pre-check-on-claimclone));
    it fails the claim closed.
-5. *`.git` history* — the `--with-git` opt-in, shown when a `.git` tree is present and not yet normalized.
+5. *`.git` history* — the `--with-git` opt-in, shown when a `.git` tree is present and not yet normalized. Over a tree
+   the owner-side read finds pristine (`is_project_tree_pristine`) it is asked under the create's no-history headline,
+   and otherwise under the history-exposure warning.
 6. *Apply* — one result line per step, the traverse grant first, closed by `claimed`, which appears only when every
    access-granting step applied and carries the ✓ only when the report state is clean.
 
@@ -927,8 +945,18 @@ and `ai-tools-setfacl` act only on those two owners ([ref-section-y9z4](ownershi
 while the registries, the `safe.directory` entry and the label apply regardless, so a tree held by anyone else would
 take every step that registers a project and none that grants access, and close with a ✓ over a tree the agent cannot
 enter. `require_claimable_owner` refuses before the first registry write and names the `chown`; transferring a tree
-recursively needs an authority this CLI does not hold, and is deliberately not built. The commonest route to the state
-is `mkdir ~/proj && atr projects claim --for svc ~/proj`, where the owner resolves to `svc`.
+recursively needs an authority this CLI does not hold, and is deliberately not built.
+
+**The project root must carry a group or other bit.** The same helpers leave an owner-only path as it is
+([ref-definition-e3h3](secret-handling.rule.md#ref-definition-e3h3)), so a root at `700`, `600` or `500` would take
+the registry steps and no grant, and no session could start there. `require_open_project_root` reads the mode
+the owner-side read reports, so a `--for` run reads it as the target, and refuses ahead of the re-enable offer,
+the claim's first write, with exit 1 and no `--format tsv` row: a root no registry line names under `MSG-H6J3`, ahead
+of every root helper and, on a plain run, of any `sudo` prompt, and a listed or disabled project under `MSG-B5D2`, its
+line kept. The mode is the operator's decision and its intent is not readable from it, so neither refusal names
+a command that changes it. A mode the owner could not read passes. A `projects create` whose `0750` did not apply meets
+the refusal, which names the directory, so the create's leftover-directory line (`MSG-S3U5`) is not printed: its remedy
+is a claim.
 
 **A claim that could not apply its root steps does not report success.** `reg_safedir`, `reg_ownership`,
 `claim_setfacl`, `claim_relabel` and `grant_ancestor_traversal` each return non-zero when their step did not take,
@@ -977,7 +1005,7 @@ does:
 | `projects claim` | stops, reports what is pending, exits 1 | fewer steps applied is *less* access, and a re-run is idempotent |
 | `projects unclaim` | applies the registry reversal **anyway**, then reports — dropping the entry, or disabling it where the hand-back did not run | either disposition ends with no session able to start there; stopping short would leave the project launchable |
 | `projects remove` | deletes **anyway**, notes the cleanup that did not run | the leftovers point at a path that no longer exists; refusing to delete would leave the tree |
-| `projects clone` | reports the clone is not git-ready, exits 1 | a clone exists to run git in, and without `safe.directory` the agent's git refuses the tree |
+| `projects clone` | reports the clone is not ready, exits 1 | a clone exists for the agent to run git in, and without the sandbox group, the setgid bits or `safe.directory` it cannot |
 
 **Two read-only notices in the Review block name what no claim step changes.** A build toolchain collects configuration
 by walking from the project toward `/`, and a file it opens in an ancestor the sandbox account is denied fails the build
@@ -1067,14 +1095,14 @@ the cap left unlisted among them.
 **After the Apply block the claim checks each drifted path on its own**, as the owner, in the owner-side read's
 `--verify` pass, against the postconditions its repair establishes (`claim_verify_label`, `claim_verify_group`,
 which an entries path takes too, its repair being the same walk and its check reading the entries as written;
-the contracts are the doc comments in `project-permissions.lib.sh`). A pass that exits non-zero, a record that does not
+the contracts are the two functions' doc comments in `ai-tools.sh`). A pass that exits non-zero, a record that does not
 decode, and a path it does not answer leave each path without an outcome `unverified`, under one `error` row naming
 the pass. A re-scan does not decide `fixed`, since a path can be missing from one because the scan was capped, failed,
 or excludes it; a check that cannot be read yields `unverified` and never `fixed`, a confirmed absence yields `gone`,
 and the group check reads owner, group, mode and ACL from one pinned object, so its result is an observation
 of that object rather than a guarantee against a later change.
 
-<a id="ref-table-x8q5"></a>**The outcome a re-claim reports per drifted path**
+**The outcome a re-claim reports per drifted path**
 
 | outcome | meaning | report state |
 |---|---|---|
@@ -1167,17 +1195,13 @@ shared on some hosts, and those are the modes an unclaim normalizes back to. Thi
 is a blanket default, not a seal placed on this directory, so where the umask would have sealed it the create says
 so in a line.
 
-**`.git` stays out of the agent's reach until the `.git` question shares it.** `git init` builds `.git`
-under the owner's umask, so under `022` it carries other bits, and under a setgid parent — the clone area among them —
-in that parent's group, the sandbox group there, with any default ACL the parent carries, the clone area's
-`group:ai-ops` entry among them. The create therefore strips every extended entry and the default ACL under `.git`
-(`setfacl -R -b`), regroups it to the owner's primary group, and clears group write and the other bits, all as the owner
-and before the root opens to `0750`, so the mode bits alone decide who reads `.git` and an operator's access to another
-account's `.git` is that owner's to grant. Group write is cleared explicitly, because `-b` turns the mask it strips
-into the group bits, and a `002` umask, the default a user-private-group login takes, has git build `.git`
-group-writable. The setgid and ACL walks skip `.git`, so a declined share leaves it so, and only
-`ai-tools-setfacl --with-git` opens it. If one of those steps fails, the create warns, and the claim's headline
-for the question says a decline leaves `.git` as git made it, which the agent may be able to read.
+**`.git` stays out of the agent's reach until the `.git` question shares it.** The create resets `.git` to the owner's
+primary group and mode bits alone, as the owner and before the root opens, so the mode bits decide who reads `.git`
+and an operator's access to another account's `.git` is that owner's to grant; the entries it strips, and why group
+write is cleared explicitly, are `cmd_project_create`'s header. The setgid and ACL walks skip `.git`, so a declined
+share leaves it so, and only `ai-tools-setfacl --with-git` opens it. If one of those steps fails, the create warns,
+and the claim's headline for the question says a decline leaves `.git` as git made it, which the agent may be able
+to read.
 
 ## Remove <a id="ref-section-k3v7"></a>
 
@@ -1198,8 +1222,8 @@ A registry line the writer cannot write back, other than the project's own, refu
 (`MSG-A5Y2`), since the registry step follows the label reversal. A read-only deletability pre-flight runs as the acting
 owner and refuses when any directory in the tree is not writable and traversable by them, naming
 `atr projects handback --full`: the failure a destructive verb must not have is a tree deleted down to the first
-directory it could not enter, with no entry left to find the remains by. The project's **parent** is checked first and
-separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory is not part of the project;
+directory it could not enter, with no entry left to find the remains by. The project's **parent** is checked first
+and separately, since `rm -rf <d>` finishes by unlinking `<d>` from it, and that directory is not part of the project;
 missing it leaves an empty, deregistered husk, so its refusal names `projects unclaim` instead. Teardown then runs
 registries first, deletion last — the label, the registry entry, the `safe.directory` entry, then the tree — so a failed
 deletion leaves an *unregistered* tree, less access rather than more. The registry step is the first that cannot be
@@ -1207,29 +1231,33 @@ undone and the one that refuses, so a de-list that does not apply leaves the tru
 ahead of it, since `ai-tools-relabel` resolves membership from the entry. A clone takes the same order without the label
 step, since its type comes from the policy's file contexts ([Sandbox clone](#sandbox-clone)), and its registry step
 comes first and is fatal as the project's is, so a de-list that does not apply leaves the clone as it was: on disk,
-registered and trusted. A label reversal the live-session gate refuses stops the removal at that step, with the tree and
-both registries as they were and exit 1: the refusal is a state a re-run passes once the sessions end, and a label left
-for later could not be reverted over a path the removal deleted, since `ai-tools-relabel` refuses a path that does not
-exist. The registry step is fatal if it cannot complete, since that entry is the launch gate: `unreg_allow` verifies the
-entry is gone by re-reading the file rather than trusting `sed`, and names the line to delete by hand (`sed -i` writes
-its temporary file into the registry's own directory, which the operator may not be able to write). The filesystem
-hand-back an unclaim performs is not run over files about to be deleted.
+registered and trusted. A label reversal that did not complete does not stop the removal: a revert that left hardlinked
+paths (4), one whose walker could not run (6), and one that failed (1) are each warned about, and the deletion follows.
+Ahead of the deletion the verb reads the tree's hardlinked files by inode and mount, from `find`'s own `-printf`, since
+after it those are what find a file's other names, and once the tree is gone it names how many the tree held and prints
+a `sudo find <mount> -xdev -inum <inode> -ls` for each of the first 20 (`report_hardlink_inventory`); a read that did
+not complete says so. The relabel command a failed reversal prints drops the rules the step left, and a revert
+after the deletion does not reach those names. The registry step is fatal if it cannot complete, since that entry is
+the launch gate: `unreg_allow` verifies the entry is gone by re-reading the file rather than trusting `sed`, and names
+the line to delete by hand (`sed -i` writes its temporary file into the registry's own directory, which the operator may
+not be able to write). The filesystem hand-back an unclaim performs is not run over files about to be deleted.
 
 The verb does not run git over the tree, in either kind. The agent co-writes `.git`, so `.git/config` is the agent's
 to write, and git run as the operator executes the commands that file names: the invariant
 [ref-section-s9t9](updater.rule.md#ref-section-s9t9) states, applied to this verb. The comment at the point
 in `cmd_project_remove` where no read is made names the two commands a ref read and an index refresh would run. Unpushed
 commits and uncommitted changes are therefore not counted, and the deletion warning names them as the operator's
-to check. `tests/integration/cli.sh` drives the verb over a partial clone whose missing `HEAD` object fetches
-through a `core.sshCommand` that writes a marker, with a direct `git rev-list` as the control that the fixture arms it.
+to check; how the suite proves the verb does not run git is [tests](tests.rule.md)'s.
 
 It confirms twice — a default-no prompt, then `ai_tools_msg__challenge` for the project's name — and neither is answered
 by a run with no terminal or by `AI_TOOLS_ASSUME_YES`. The path is required, with or without `-y` (`MSG-K7D9`, exit 2):
 the verb deletes the directory it acts on, so that directory is named rather than inherited from where the command ran,
 and `atr projects remove .` is the spelling for the one the caller is in. The unknown-option refusal does not enumerate
 `-y`: a caller who mistyped a flag is not who a both-prompts bypass is for, and `ai-tools(1)` documents it
-where reaching it is deliberate. The only inline `projects clone` cross-reference in the claim flows is the Reachability
-blocked case, where an in-place claim cannot work.
+where reaching it is deliberate. The CLI cannot change its parent shell's directory, so each kind closes with a line
+naming `cd` when the canonical current directory, read before the deletion, was inside the removed tree. The only inline
+`projects clone` cross-reference in the claim flows is the Reachability blocked case, where an in-place claim cannot
+work.
 
 ## Unclaim <a id="ref-section-m5n5"></a>
 
@@ -1280,11 +1308,12 @@ a dropped line would leave the remedy without the entry the hand-back resolves i
 at the group prompt is a choice rather than a failure, and drops the line as usual. A registry line the unclaim could
 not change ends it non-zero as well, in a `--for` run as in a plain one, since the line is the launch gate: a drop
 that did not apply refuses (`unreg_allow`), naming the line or the helper command that removes it, and a disable
-that did not apply closes with the entry reported still enabled and no ✓. A label reversal that failed,
-or that the live-session gate refused, closes the same way, without the ✓ and non-zero, after the hand-back
-and the registry reversal have run: the project type and its rule stay on a tree no entry names until the printed
-command runs. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem
-effect per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
+that did not apply closes with the entry reported still enabled and no ✓. A label reversal that failed, that left
+hardlinked paths, or whose walker could not run closes the same way, without the ✓ and non-zero, after the hand-back
+and the registry reversal have run: the project type stays on the paths the step did not revert, on a tree no entry
+names, and the close names the command that reverts them, or for a partial reversal the `find` that lists the hardlinked
+files. A failed root step follows the per-verb table under [Claim in place](#claim-in-place). The filesystem effect
+per mode is [ref-table-b5v7](ownership-and-hooks.rule.md#ref-table-b5v7).
 
 ## Sandbox clone <a id="ref-section-u9a9"></a>
 
@@ -1298,103 +1327,181 @@ through `require_sandbox_clone_shape`: a direct child of `SANDBOX_ROOT` that pas
 by the acting owner or the invoker, with a `.git` directory holding a `HEAD` file, read as data ([Commands](#commands)),
 which scopes the `rm -rf` to one tree of that shape.
 
-The create is **lock-before-grant**, by construction. `clone_privately` creates the clone root `0700` with its inherited
-ACL stripped before git writes into it, and git creates every path inside under `umask 077`. A umask alone does not make
-the clone private: the clone area carries a default ACL, which a path created under it takes in place of the umask.
-A checked-in credential is therefore unreadable to the sandbox account until the gate has run. `sandbox_finalize` then
-writes the registry entry (the lockdown acts only on a registered path; rolled back on a failed gate), runs the same
-secret gate as a claim, and only past it labels and opens the clone: the label is applied while the root is still
-owner-only, then `normalize_clone` adds group `rwX`, setgid directories and the ACL the area would have given each path,
-pruning every path the gate locked, and the clone is registered. A registry line the writer cannot write back refuses
-the clone ahead of the branch push (`MSG-A5Y2`), since the registry write follows the push and the clone. A declined
-or failed gate, and a label the clone root does not take, **fail closed**: the clone stays on disk, private and
-unregistered, and the resume command is printed.
-A host where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
+The create is **lock-before-grant**, by construction: the clone root stays `0700` until the secret gate has passed,
+so the sandbox account cannot enter the tree before then.
+
+**Private until the gate.** `clone_privately` creates the clone root `0700`, removes the default ACL the root inherited
+from the clone area, and runs `git clone` under `umask 077`. The default ACL has to go first: a path created
+in a directory carrying one takes its permissions from that ACL, and the umask is not applied (acl(5)). With it removed,
+git creates every path owner-only, so a checked-in credential stays unreadable to the sandbox account until the gate has
+run.
+
+**In `SANDBOX_GROUP` from creation.** The root takes `SANDBOX_GROUP` and the setgid bit from the area, so every path git
+creates under it is in that group. The kernel clears a directory's setgid bit when a caller outside the directory's
+group changes its mode or its access ACL, and the operator is outside `SANDBOX_GROUP`. `clone_privately` therefore
+removes the default ACL alone (`setfacl -k`), which changes neither, and the bit holds while git writes.
+
+**Opened past the gate.** `sandbox_finalize` runs these steps in order:
+
+1. Writes the registry entry, since the lockdown acts only on a registered path. A failed gate rolls it back.
+2. Runs the same secret gate as a claim.
+3. Labels the clone while its root is still owner-only (`relabel_clone`).
+4. Opens the tree with `normalize_clone`: group `rwX` and the ACL the area would have given each path, with every path
+   the gate locked pruned. Its chmods run as the operator, so they clear the setgid bit on each directory they change.
+5. Sets the setgid bits again as root, through the two helpers a claim runs: `ai-tools-setgid` on the work tree's
+   directories, then `ai-tools-setfacl --with-git`, which also normalizes `.git` and regroups an opened path left
+   in another group. They follow step 4 because its chmods would clear the bits again. Both leave an owner-only
+   or secret-named path as it is, so every path the gate locked stays locked.
+6. Reads the tree back with `clone_access_ready`: the root and `.git` carry the setgid bit, and every path with a group
+   permission bit is in the root's group.
+7. Adds the clone's `safe.directory` entry.
+
+A clone that fails step 5, 6 or 7 stays registered and opened, is reported not ready with the commands that finish it,
+and exits 1. A registry line the writer cannot write back refuses the clone ahead of the branch push (`MSG-A5Y2`), since
+the registry write follows the push and the clone. A declined or failed gate, and a label the clone root does not take,
+**fail closed**: the clone stays on disk, private and unregistered, and the resume command is printed. A host
+where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
 through (`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
 not exist there; a module shipped and not loaded, and a reading that cannot be made, keep the stop. A declined or failed
 gate also leaves a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) telling the agent to wait until the lockdown
 runs, with a real `CLAUDE.md` preserved by `git mv` to `CLAUDE.md.bak`. Re-running `projects clone` on the clone path
 resumes `sandbox_finalize`, which removes the guard and restores the original on success. A resume is idempotent:
-the label and `normalize_clone` run while the root is still owner-only (`clone_is_private`), the state the private
-create and a stopped finalize each leave, so a resume over an opened clone re-runs the gate and leaves the tree's modes
-alone, and a directory the operator sealed inside it keeps its mode.
+the label, `normalize_clone` and the root steps run while the root is still owner-only (`clone_is_private`), the state
+the private create and a stopped finalize each leave, so a resume over an opened clone re-runs the gate
+and the read-back and leaves the tree's modes alone, and a directory the operator sealed inside it keeps its mode.
 
-The shared area carries a `g:ai-ops:rwX` ACL (traverse on `/var/opt/ai-tools`, `rwX` plus default on `sandbox-projects`,
-applied by `install.sh`), so an operator creates and works in clones without `SANDBOX_GROUP` membership —
-the shared-area counterpart to the per-project `user:<operator>` grant. The agent is not in `ai-ops` (`ai-tools-run`
-refuses to launch otherwise), so the grant adds it no access.
+The shared area carries the `ai-ops` ACL entries its layout rows state — read-and-traverse on `/var/opt/ai-tools`, `rwx`
+with a matching default on `sandbox-projects`, written by the layout reconcile over the first state `install.sh`
+and the base `%post` place ([layout](layout.rule.md)) — so an operator creates and works in clones without
+`SANDBOX_GROUP` membership — the shared-area counterpart to the per-project `user:<operator>` grant. The agent is not
+in `ai-ops` (`ai-tools-run` refuses to launch otherwise), so the grant adds it no access.
 
-## The recursive relabels and the live-session gate <a id="ref-section-e6c6"></a>
+## The recursive relabels: the descriptor-held walk <a id="ref-section-e6c6"></a>
 
-A `restorecon -R` over a tree the sandbox account can write — a claimed project, a clone, an agent's config directory,
-the toolchain under `/opt/ai-tools` — walks by path, and on libselinux before 3.11 it resolves each path again before it
-writes the label. A process of that account that renames a directory aside and plants a symlink of its name inside
-the walk sends the tree's type onto an inode it chose. The account's only writers are its live processes, agent
-sessions, the toolchain update with the install scripts it runs, and the steps a bootstrap and a package erase run
-as the account, so every such walk runs **only while no process of the account is live**.
+A project's label and revert, an agent config directory's label, the config half of an agent's unlabel, and the restores
+the installers, the selinux package's scriptlets, `ai-tools-admin`'s clone restore after a group change
+and `ai-tools-unclaim --unlisted` make over `/opt/ai-tools`, the toolchain, the clone area and a project each walk
+a tree the sandbox account can write, so each runs through `ai-tools-relabel-tree`, directly
+or through `ai_tools_relabel__relabel_tree` in `relabel.lib.sh`, which labels the entry it holds open rather than
+the one a path names. None of these walks reads the account's sessions: a claim, an unclaim, a removal, an agent relabel
+and an install label while a session runs.
+
+**The invariant.** The walker reaches only an inode the account could already move or link into the tree, and the policy
+limits those to a reviewed set of types. A descriptor keeps a rename or a planted link from redirecting the write it
+holds; it does not keep the account from renaming an opened directory out of the tree and moving another entry
+in, or from linking a file in after the walker reads its link count. The loaded policy bounds those moves and links.
+`ai_tools.te` grants `ai_tools_t` `rename` and `link`, through `manage_*_pattern`, on the types of the account's own
+trees, `ai_tools_project_t`, `ai_tools_project_build_t`, `ai_tools_home_t` and `ai_tools_tmp_t`, and the base policy
+adds two grants. The account's `nsswitch_domain` attribute manages the Kerberos replay cache (`krb5_host_rcache_t:file`,
+write included); which such file the account can bring into a tree is decided by DAC and by where the cache lives, not
+by the type. Under `fips_mode` every domain manages FIFOs of its own type (`ai_tools_t:fifo_file`, without write):
+a pipe carries that type in pipefs, where no tree is, and a named FIFO of it on a project's filesystem needs
+that filesystem's `associate` permission, which `selinux/avc/avc-denials.sh` (WLK-001) attempts from inside a session
+on a host where `fips_mode` is on, reading as not exercised where the creation context could not be set. The label
+the walker writes is the walked path's: on a label a type the account manages, and on a revert the default type,
+which narrows the account's access to that inode through every name. `fs.protected_hardlinks` holds the account
+to linking a file it owns or can read and write. `tests/integration/selinux.sh` reads the sysctl as a boundary row,
+and holds every `(type, class, permission)` the loaded policy grants `ai_tools_t` for `rename` or `link`, the optional
+groups included, to that reviewed table: the four types in any file class, and each base-policy grant by its source
+and condition, reported apart. Any other tuple fails the row. Two residuals remain. On a host running Permissive
+whose operator set `AI_TOOLS_REQUIRE_SELINUX=no`, no type check holds. A hardlink the **operator** makes during a walk —
+a `pnpm install` while a claim walks — can be written, since the walker's link-count read precedes its write; a second
+read before the write narrows that window without closing it, and is not made. A host without the policy does not write
+a label.
+
+**How the walk holds an entry.** The root is opened `O_PATH|O_NOFOLLOW`, and every entry under it relative to its
+parent's listing descriptor, typed with `fstat`. A directory is listed through a second, `O_RDONLY|O_DIRECTORY` open
+of its `O_PATH` descriptor, since `getdents` refuses an `O_PATH` one, and the walk descends while the two name one
+`(st_dev, st_ino)`. The label is the file-context database's for the logical path — the root plus the names opened
+under it — looked up through `libselinux.so.1` over `ctypes` with the path as `bytes`, so a name carrying an invalid
+UTF-8 byte is labelled as `restorecon` labels it; `libselinux` is the walker's one runtime requirement. Where the label
+differs the walker writes it in full, customizable types included (`restorecon -F`), through `/proc/self/fd/<fd>`,
+and reads it back. A symlink is labelled as itself and a symlinked directory is not descended; a path the database maps
+to `<<none>>` keeps its label. Mounts are crossed, as `restorecon -R` crosses them, since the account cannot create
+a mount. An excluded path (`!`) is labelled with the rest of the tree, as `restorecon -FR` labels it.
+
+**The root.** The walker exits 1 unless `/proc/self/fd/<fd>` names the root's path both at the open and at the end
+of the walk, so a walk exits 0 only where the path named the walked tree at both reads. A rename away and back
+between the two is not seen, and leaves the walk on the opened tree. A root renamed before the open is not followed;
+only a project nested in a claimed one gives the account write on a root's parent, and there the outer project's rule
+types the tree either way. A caller of a fixed path hands the walker the path `realpath -e` resolves, since
+under a symlinked ancestor (`/opt` a link) the fixed path is not the one the walker reads back; a path `realpath` cannot
+resolve is named and not walked.
+
+**A walk is one pass, not a snapshot.** A writer that moves an entry the walk has not reached into a directory it has
+passed, or renames a directory the walk holds open and puts another at its name, leaves that entry at the type it
+carries, and the walk still exits 0: the walker labels what it holds open, and a check that failed the walk
+on a directory renamed under it would fail every claim beside a session running a package install. On a label, an entry
+the sandbox account moved carries a type it writes, and one the operator moved keeps its own, which is less access
+the next claim's drift scan names. On a revert it keeps the project type, and the hand-back that follows is what takes
+the agent's group and ACL access to it away.
+
+**Hardlinks, by direction.** An entry other than a directory with more than one link is not written where its label
+differs, since through another name it may be another project's or another operator's. The walker names the first 20
+such paths with their link count and inode, counts the rest, exits 4, and closes stderr with one `summary` line
+the library reads the counts from, so its output does not grow with the tree. A label discloses them: `ai-tools-relabel`
+exits 0 under `MSG-R5F8`, and `ai-tools-relabel-agent` reports a `partial` line before the agent's `ok`, since a path
+a label leaves keeps the type it had. A revert fails on them, as the DAC hand-back refuses the same inodes
+([Unclaim](#unclaim)): a path left on a type the agent reads and writes is more access, so `ai-tools-relabel --remove`
+exits 4 under `MSG-D2T9`, with the `find` that lists the hardlinked files the tree holds now.
+
+**The helper's exits.** `ai-tools-relabel` exits 0 for a label applied, one that left hardlinked paths included; 4
+for a revert that left them; 5 where the host has no label to apply, SELinux `Disabled` or no `ai_tools` policy, named
+on stderr; 6 where the walker could not run, so no path was walked; 3 for a protected target; and 1 for every other
+refusal or failure, a tree moved or deleted during a revert among them. The CLI reads 5 as a step that does not apply
+on the host: a claim reports the label pending and exits 1 on every other non-zero status, an unclaim closes non-zero
+after its other steps over 1, 4 and 6 ([Unclaim](#unclaim)), and a removal deletes after each of them, naming
+what the step left ([Remove](#remove)).
+
+**The walks that keep `restorecon`** each walk a tree the account cannot write, write one path, or write nothing:
+the operator config subtree (`ai_tools_relabel__label_operator_conf`), an agent entrypoint's per-path `restorecon -F`,
+the clone's label while its root is still owner-only ([Sandbox clone](#sandbox-clone)), whose own entry sits in an area
+`ai_tools_t` may search and not write, and the claim's drift scan, a dry run as the operator. The installers
+and the selinux scriptlets keep `restorecon` for the root-owned trees (the helpers, the libraries, the log and runtime
+directories), the operators' config directories, and `/opt/ai-tools/.gitconfig`, one file in a directory the account
+cannot write. An entrypoint's `restorecon -F` is a root label write by a path through the account-owned toolchain,
+the class the write-side invariant [ref-list-b6z9](../../CLAUDE.md#ref-list-b6z9) states, and it does not walk.
+The selinux `%postun` restores the account's trees with `restorecon -R` where an erase removed `ai-tools-base`
+and the walker with it in the same transaction, and only after its session reading read `none`.
+
+### The policy unload and the live-session reading
+
+The selinux `%postun` on final erase and `install-selinux.sh remove` read the sandbox account's sessions before their
+first policy-store write, since a process of the account live at the unload would run on in a domain the policy no
+longer defines. While the reading is anything but `none`, the `%postun` leaves the policy loaded and every local rule
+in place with one WARNING naming the re-run, and `remove` refuses under `MSG-H7Q2` ([confinement](confinement.rule.md)
+states the order of the erase). No other walk or write reads the sessions.
 
 The reading is `sessions.lib.sh`'s: a cgroup under the account's slice `user-<uid>.slice` that holds a task, read
 from `cgroup.procs` and `cgroup.events` as `ai-tools-stop` reads them, makes the account live; the enumeration is a twin
 of the stop helper's ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)). Every reading the reader cannot make — no
 cgroup v2 mount, no uid, a `user.slice` the caller cannot enter, a directory under the account's slice it cannot list
-and enter — reads `unreadable`, and a `cgroup.procs` or `cgroup.events` it cannot read makes its unit live; each gate
-treats both as live. The toolchain update is live by the same reading: it writes the toolchain the `%post` walk crosses.
+and enter — reads `unreadable`, and a `cgroup.procs` or `cgroup.events` it cannot read makes its unit live; the unload
+treats both as live. The toolchain update and a step run as the account inside the slice read live as a session does.
 A step this project's root code runs as the account outside the slice — the shim's cache cleanup ahead of its unit,
-the bootstrap's link repair under a plain `sudo -u` on a host whose sudo stack does not place it in a session scope —
-runs root-owned code, and is not a writer the gate defends against.
+the bootstrap's link repair under a plain `sudo -u` on a host whose sudo stack does not place it in a session scope — is
+not read.
 
 **The user manager's own plumbing is exempt by name**: its `init.scope` and the dbus broker it starts. The stop helper
 does not exempt any cgroup, because on a DAC-only host a session can move its tasks into any cgroup it names. Here
-the name is sound because of where the gate runs. `ai_tools_relabel__is_available` returns 2 and no walk happens
-where SELinux is `Disabled`; where the policy is loaded, `ai_tools_t` does not hold a write on `cgroup_t` and cannot
-reach its user manager's socket or its session bus, so the names under the slice are the ones `ai-tools-run`
-and the manager gave them; `Permissive` refuses every launch under the default `AI_TOOLS_REQUIRE_SELINUX`. The residual
-is a permissive host whose operator wrote `AI_TOOLS_REQUIRE_SELINUX=no`. A name is exempt only at the depth the manager
-gives it, so a unit of that name under a further slice is read like any other. The name is not sound against a process
-of the account outside `ai_tools_t`, the updater's unit and the install scripts it runs: the gate reads such a process
-live by its own unit until it moves, and one that moves itself into an exempt name is a compromised install script
-that already holds the account's whole DAC reach. `tests/integration/selinux.sh` reads the cgroup half from the loaded
-policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside a session.
+the name is sound because of where the reading decides: where SELinux is `Disabled` no process runs in `ai_tools_t`,
+so an unload does not leave one in an undefined domain; where the policy is loaded, `ai_tools_t` does not hold a write
+on `cgroup_t` and cannot reach its user manager's socket or its session bus, so the names under the slice are the ones
+`ai-tools-run` and the manager gave them; `Permissive` refuses every launch under the default
+`AI_TOOLS_REQUIRE_SELINUX`. The residual is a permissive host whose operator wrote `AI_TOOLS_REQUIRE_SELINUX=no`. A name
+is exempt only at the depth the manager gives it, so a unit of that name under a further slice is read like any other.
+The name is not sound against a process of the account outside `ai_tools_t`, the updater's unit and the install scripts
+it runs: the reading reads such a process live by its own unit until it moves, and one that moves itself into an exempt
+name is a compromised install script that already holds the account's whole DAC reach. `tests/integration/selinux.sh`
+reads the cgroup half from the loaded policy, and `selinux/avc/avc-denials.sh` makes all four accesses from inside
+a session.
 
-Where each walk takes the gate:
-
-- `relabel.lib.sh` gates its own walks — the project label and unlabel, an agent config directory's label and the config
-  half of its unlabel — and returns 3 before any write, so a re-run applies the whole step. `ai-tools-relabel` refuses
-  under a code with an exit status of its own; the claim then reports its label step pending and exits 1, an unclaim
-  reports the revert as not applied once its other steps have run ([Unclaim](#unclaim)), and a removal stops
-  before either registry changes ([Remove](#remove)). `ai-tools-relabel-agent` files a config directory the gate left
-  by the type it carries ([updater](updater.rule.md)), and labels the entrypoint as it otherwise would: that write is
-  per path, not a walk.
-- The selinux `%post` restores the root-owned trees unconditionally and `/opt/ai-tools` and the clone area behind
-  the reading, with one WARNING naming the `restorecon` to run when it skips; the selinux `%postun` makes both its
-  policy-store writes behind the same reading, leaving the policy loaded with one WARNING naming the re-run
-  ([confinement](confinement.rule.md)); `install.sh` does the same for `/opt/ai-tools/.config` and the agent config
-  directories, and `selinux/install-selinux.sh` for every tree the account can write that its actions walk,
-  the toolchain, the home state, the clones and the projects its removal restores, reading the account
-  through the installed `sandbox-exec.lib.sh`; its `remove` refuses before its first policy-store write while
-  the reading is not idle, since the module unload fails on a project rule the gate left in place. `ai-tools-admin`'s
-  clone restore after a group change, and `ai-tools-unclaim --unlisted`'s label reset, warn the same way.
-- `projects claim` reads the state unprivileged when its label step is pending and names a live session in the Review
-  block, ahead of the verb's first `sudo`; a `--for` run's registry snapshot precedes it ([Acting for another
-  operator](#acting-for-another-operator---for)). The notice does not ask anything; the helper's refusal decides,
-  where the claim runs the label step, and a drift relabel the operator declines does not run it. The notice shows
-  on a `live` reading alone: the operator account reads `unreadable` where the sandbox account's user manager creates
-  its slices owner-only, the state EL10's manager leaves (`app.slice`, `session.slice` and `background.slice`
-  under `user@<uid>.service` at `0700`, the account's), so on such a host the helper's refusal at the label step is
-  the first report, and a notice on `unreadable` would open every labelling claim with it.
-- A clone is labelled while it is still private ([Sandbox clone](#sandbox-clone)), ahead of `normalize_clone`, so its
-  walk does not cross a directory the account can rename, and the clone's own entry sits in an area whose type
-  `ai_tools_t` may search and not write; that walk does not take the gate.
-
-Every message leads with letting the sessions end and the update finish, and offers `atr stop` beside it, since a stop
+Each message leads with letting the sessions end and the update finish, and offers `atr stop` beside it, since a stop
 ends a session without its session-end handback and an update mid-run.
 
-**The gate narrows the exposure and does not close it.** A session launched between the reading and the walk is inside
-the walk. What closes it is either a libselinux at or above 3.11, whose walker holds a descriptor, or the launch lock
-[stop](stop.rule.md) defers, which would serialize `ai-tools-run` against the stop and the relabel alike. No libselinux
-version is read: the gate holds on every version, and a version read is a label rather than a check. The per-path
-`restorecon -F` of an agent entrypoint through the account-owned toolchain is outside this gate: it is a root label
-write by a path, the class the write-side invariant in [CLAUDE.md](../../CLAUDE.md) states, and it does not walk.
+Removing the policy is an administrator's deliberate step that ends confinement on the host, so a session launched while
+the removal runs may start without the transition, as every launch after it does; `ai-tools-run` does not take
+the relabel lock the removal holds.
 
 ## Privilege model
 
@@ -1412,11 +1519,11 @@ is `750 root:root`, so the projects user cannot stat a helper and the CLI never 
 reaches it.
 
 Those calls assume a **general** sudo grant, a host-level axis `ai-ops` membership does not carry and this project
-neither writes nor records ([CLAUDE.md](../../CLAUDE.md), [naming-conventions](../../docs/naming-conventions.md));
-the CLI answers for it ahead of the run's first prompt ([The caller with no sudo
-grant](#the-caller-with-no-sudo-grant)), and a `--for` run that writes the filesystem rides the same axis
-through the runas seam ([The runas seam](#the-runas-seam-and-why-it-needs-a-grant---for-alone-does-not)).
-`projects create` and `projects remove` add no helper and no sudoers rule.
+neither writes nor records ([ref-section-e7n8](../../CLAUDE.md#ref-section-e7n8)); the CLI answers for it ahead
+of the run's first prompt ([The caller with no sudo grant](#the-caller-with-no-sudo-grant)), and a `--for` run
+that writes the filesystem rides the same axis through the runas seam ([The runas
+seam](#the-runas-seam-and-why-it-needs-a-grant---for-alone-does-not)). `projects create` and `projects remove` add no
+helper and no sudoers rule.
 
 ## Secret pre-check on claim/clone <a id="ref-section-u5h3"></a>
 

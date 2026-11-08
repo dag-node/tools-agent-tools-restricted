@@ -11,6 +11,8 @@ paths:
   - src/usr/local/libexec/ai-tools/ai-tools-stop.sh
   - install.sh
   - selinux/install-selinux.sh
+  - src/usr/local/share/man/man7/ai-tools-messages.7
+  - tools/generators/man-messages.sh
 ---
 
 # User-facing message formatting
@@ -253,9 +255,9 @@ Pre-answering is two distinct mechanisms, by direction:
 - `AI_TOOLS_ASSUME_YES=1` (environment; unattended runs, tests) skips the prompt and answers yes **only when the default
   is already `y`** — it fast-tracks safe-direction questions and never flips a default-NO question.
 - A default-NO question is pre-answered only by an **explicit per-invocation flag** on the command that owns it —
-  `atr projects claim -y/--yes` (the launch wrapper's delegated claim, covering just the proceed prompt),
-  `ai-tools-lockdown --yes`, `ai-tools-chown --yes` (the batch caller's per-path skip) — an auditable operator decision,
-  never ambient state.
+  `atr projects claim -y/--yes` (the launch wrapper's delegated claim, covering the proceed prompt and the relabel
+  question, [ref-table-s7c5](cli.rule.md#ref-table-s7c5)), `ai-tools-lockdown --yes`, `ai-tools-chown --yes` (the batch
+  caller's per-path skip) — an auditable operator decision, never ambient state.
 
 ### The stop confirmation defaults YES, and that is the rule, not an exception to it
 
@@ -364,13 +366,16 @@ status of the operation whose outcome they report.
   names through `ai_tools_msg__format_command`. Neither screen repeats paths: the claim/clone commands default
   to the current directory.
 
-  The **setup** screen carries one line of prose and **no commands**; its options live in the `ai_tools_msg__pick none`
-  menu under it, each with the consequence that distinguishes it — **1)** Create sandbox (*the session runs in the copy,
-  not here*), **2)** Claim here (*its group becomes `ai-tools`*), **3)** Cancel. Because the block does not name
-  a command, the Cancel path — which is also the no-terminal and unanswered-menu path — prints both commands itself,
-  plain and under the frame. The **finish-setup** screen keeps its per-gap bullets, its embedded `projects clone`
-  command (its prompt is a yes/no confirm offering only the claim, so the alternative has nowhere else to appear),
-  and its severity-based default.
+  The **setup** screen carries one line of prose, and the owner-only lines this paragraph names, and **no commands**;
+  its options live in the `ai_tools_msg__pick none` menu under it, each with the consequence that distinguishes it —
+  **1)** Create sandbox (*the session runs in the copy, not here*), **2)** Claim here (*its group becomes `ai-tools`*),
+  **3)** Cancel. Because the block does not name a command, the Cancel path — which is also the no-terminal
+  and unanswered-menu path — prints the commands itself, plain and under the frame. For a directory at an owner-only
+  mode the menu leaves out *Claim here* and the Cancel path its command, since the claim refuses such a root
+  ([launch](launch.rule.md)); the block and the Cancel path then state the mode and that the clone needs a git
+  repository with a remote and a checked-out branch, the clone being the screen's one remedy. The **finish-setup**
+  screen keeps its per-gap bullets, its embedded `projects clone` command (its prompt is a yes/no confirm offering only
+  the claim, so the alternative has nowhere else to appear), and its severity-based default.
 - **`ai-tools.sh`** routes `die()` and `warn()` through the error/warning emitters, and builds the `projects claim` /
   `projects clone` flows from `ai_tools_msg__headline` blocks, in the run order
   [ref-list-g6f5](cli.rule.md#ref-list-g6f5) states. The flows carry **no sudo-password notices**: the first sudo prompt

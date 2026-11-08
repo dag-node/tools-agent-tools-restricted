@@ -41,7 +41,7 @@
 #                            `runas` fails every run-as-owner call, and `runas:<basename>` the calls of one command
 #                            (`runas:ai-tools`, the claim's owner-side read).
 # cli_stub_fail_status <helper> <status>  makes <helper>'s call exit <status> after it is logged, for a helper whose
-#                            exit status the CLI reads (ai-tools-relabel's live-session refusal).
+#                            exit status the CLI reads (ai-tools-relabel's not-applicable 5 and partial-revert 6).
 # cli_calls <helper>             prints the log lines for <helper>, fields after the cwd only
 #                                (tab-separated args).
 # cli_called <helper> [ere]      0 when <helper> was called and, with <ere>, some call's args match it.

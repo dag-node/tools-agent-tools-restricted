@@ -3,7 +3,7 @@
 # /usr/local/libexec/ai-tools/ai-tools-allowlist
 # Reads and edits ANOTHER enrolled operator's project registry (<their-home>/.config/ai-tools/project-registry, the file
 # ai_tools_conf__resolve_registry picks) on behalf of the operator invoking sudo. This is the one privileged seam behind
-# `ai-tools ... --for <operator>`: it lets a human operator claim a project for a service account that has no password
+# `atr ... --for <operator>`: it lets a human operator claim a project for a service account that has no password
 # and therefore cannot authenticate the claim's own root helpers.
 #
 # Root is needed for READS as well as writes: a registry is 0600 inside a 0700 .config/ai-tools (ai-tools-admin seeds
@@ -27,12 +27,15 @@
 #   - the target has no registry file yet                         -> refuse, print nothing, write no entry
 #   - the target's registry is a legacy allowed-projects, or the  -> refuse, print nothing, write no entry
 #     grammar refuses a line of it
+#   - the registry spells an exclusion through a link the sandbox -> refuse, print nothing, write no entry
+#     account can change (MSG-Y5N6, the gate-side loader's rule)
 #   - for `--add` and `--enable`, the path is not a directory;    -> refuse, write no entry
 #     for every action, it is a protected system directory
 #     (safe-paths backstop)
 #   - a required library will not load                            -> refuse, write no entry
-# A refused run leaves the target's allowlist byte-identical, so a failure can only ever leave the agent with fewer
-# places to launch than the operator intended, never more.
+# A refused run leaves the target's registry byte-identical, so a failure can only ever leave the agent with fewer
+# places to launch than the operator intended, never more. Every refusal exits 1, a protected system directory 3 (the
+# safe-paths backstop), and a run that applied or printed exits 0.
 #
 # Usage:
 #   ai-tools-allowlist --operator <name> --print
@@ -41,10 +44,11 @@
 #   ai-tools-allowlist --operator <name> --enable  <absolute-project-path>
 #   ai-tools-allowlist --operator <name> --disable <absolute-project-path>
 #
-# `--enable` and `--disable` neither add nor drop a line: they take the leading '%' off an entry, or put it
-# on, IN PLACE. They are the privileged half of `atr projects enable`/`projects disable` (and of the claim's re-enable
-# prompt), and they are deliberately not an add/remove pair: the line keeps its position and its comment,
-# so a disable-and-enable round trip leaves an ordered, commented registry exactly as its operator wrote it.
+# `--enable` and `--disable` neither add nor drop a line: they change the sign that opens an entry and keep its comment.
+# They are the privileged half of `atr projects enable`/`projects disable` (and of the claim's re-enable prompt),
+# and they are deliberately not an add/remove pair. Every write rewrites the whole file in canonical form (conf.lib.sh),
+# so a hand-edited file takes that order at its first write, and a disable-and-enable round trip over a canonical file
+# leaves it byte-identical.
 #
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
@@ -185,11 +189,11 @@ readonly caller allowlist target_home
 registry_state="$(ai_tools_conf__read_registry_state "${allowlist}")"
 readonly registry_state
 
-# require_target_config: the target's allowlist must already exist. This helper reads or changes an existing file
+# require_target_config: the target's registry must already exist. This helper reads or changes an existing file
 # and does not create one: `ai-tools-admin operators add` is where an operator's config comes from -- the config files,
-# at the modes that keep the sandbox account out (0700 dir, 0600 files) -- and it is idempotent. A missing allowlist
+# at the modes that keep the sandbox account out (0700 dir, 0600 files) -- and it is idempotent. A missing registry
 # therefore means the name reached OPERATORS another way, or the home did not exist at enrolment; seeding it from here
-# would write the allowlist and leave the account without the secret-patterns file beside it, so the refusal names
+# would write the registry and leave the account without the secret-patterns file beside it, so the refusal names
 # the command that writes the whole config.
 require_target_config() {
     if [[ -f "${allowlist}" ]]; then
@@ -305,7 +309,7 @@ case "${ACTION}" in
             4) ai_tools_conf__is_registry_path_representable "${canonical}" && die_unrenderable_line add
                printf 'MSG-Z9R2\nai-tools-allowlist: %s\n' "this directory's name cannot be written as a registry line: ${canonical} -- nothing changed; rename the directory, then claim it" >&2
                exit 1 ;;
-            *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s allowlist -- nothing changed" ;;
+            *) die MSG-D3T3 "could not add ${canonical} to ${OPERATOR}'s project registry -- nothing changed" ;;
         esac
         ai_tools_log__structured info \
             "operator ${caller} added ${canonical} to ${OPERATOR}'s allowlist" \
@@ -318,7 +322,7 @@ case "${ACTION}" in
         # no '%' behind to disable whatever is claimed at that path next; a `!` line is the operator's own edit
         # and stays.
         if [[ ! -f "${allowlist}" ]]; then
-            note MSG-V9K7 "no allowlist for ${OPERATOR} -- nothing to remove"
+            note MSG-V9K7 "no project registry for ${OPERATOR} -- nothing to remove"
             exit 0
         fi
         require_migrated_registry
@@ -330,7 +334,7 @@ case "${ACTION}" in
         rc=0; ai_tools_conf__allowlist_remove "${allowlist}" "${entry_path}" || rc=$?
         (( rc == 4 )) && die_unrenderable_line remove
         (( rc == 0 )) \
-            || die MSG-K2G9 "could not remove ${entry_path} from ${OPERATOR}'s allowlist -- a line naming it survived, so that project is still registered"
+            || die MSG-K2G9 "could not remove ${entry_path} from ${OPERATOR}'s project registry -- a line naming it survived, so that project is still registered"
         ai_tools_log__structured info \
             "operator ${caller} removed ${entry_path} from ${OPERATOR}'s allowlist" \
             "AI_TOOLS_CALLER=${caller}" "AI_TOOLS_RESULT=ok"

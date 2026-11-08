@@ -111,13 +111,33 @@ A final sweep re-enumerates after the run and reports a cgroup that became live 
 
 Attribution is best-effort and display-only: a `WorkingDirectory` is read from the account's own user manager,
 so a rogue unit can misreport it, and all that buys is a wrong label in the table and a missing `projects handback`
-line. It cannot affect what is terminated, because the sweep does not consult it. The split between agent sessions
-and the account's own plumbing (its user manager, dbus, login session scopes) is advisory in the same sense: the class
-comes from a unit name, which inside a delegated subtree is the delegatee's to choose, so a session can name itself
-out of the agent class and does not gain an exemption by it. The split orders the table, separates the two counts,
-and decides which rows carry a `projects handback` line; both classes are enumerated, listed and killed identically.
-Only an agent session gets a `projects handback` line: the account's dbus broker reports `/opt/ai-tools` as its working
-directory, the control plane, which the protected-paths backstop refuses.
+line. It cannot affect what is terminated, because the sweep does not consult it. The split into agent sessions, steps
+run as the account and the account's own plumbing (its user manager's `init.scope` and dbus broker) is advisory
+in the same sense: the agent class comes from a unit name, which inside a delegated subtree is the delegatee's
+to choose, so a session can name itself out of the agent class and does not gain an exemption by it. A step is a scope
+directly under the account's slice, outside its user manager: a login session scope (a `sudo -u`, `runuser`
+or `systemctl --user -M` that crossed `pam_systemd`), or a root caller's run as the account. Its row names the program
+its first process runs, its `argv[0]` alone since a command line can carry a credential, read as root from `/proc`
+and reduced to printable ASCII, and the words are the ones the policy unload's refusal uses for that process,
+so a headline that counts zero agent sessions still names the steps it lists. A step scope holding a pid that is
+the complete numeric suffix of a listed agent unit's name is that session's launch scope instead: the launch wrapper's
+`sudo -u` opens it, and `ai-tools-run`, inside it, names the unit for its own pid. It is drawn under that session's row
+with `\_`, as `ps --forest` draws a child, though the link is the unit's name and not process parentage (the user
+manager starts the session unit), and counted with its session, and a scope no listed unit pairs with stays a step. Each
+row carries the first pid its cgroup lists, a launch row the `ai-tools-run` pid that named the unit, and a `BY` column:
+the real uid of the parent of a scope's entry process, the one listed process whose parent is outside the scope, read
+as root from `/proc` and named from `/etc/passwd`. That uid is a kernel credential, the one attribution in the table
+the account cannot write; a session takes its launch scope's. The table closes with the `systemd-cgls` command
+that shows the same cgroups with every process in each, a launch scope's root-owned `sudo` among them. Only an agent row
+carries a project, shown by its directory's name, or its full path where another listed project has the same name; every
+other row reads `-`. Agent rows are in project order, bytewise, those whose project could not be read last, each
+with its launch scope under it, then the steps and the plumbing; the handback lines after a stop name each project
+by its full path. The headline counts the agent sessions, or the steps where none is listed, and the two lines
+under the table and the question state the rest: a stopped session does not run its session-end handback, and the stop
+ends every process in the account's slice and restarts its user manager. The split orders the table, separates
+the counts, and decides which rows carry a `projects handback` line; every class is enumerated, listed and killed
+identically. Only an agent session gets a `projects handback` line: the account's dbus broker reports `/opt/ai-tools`
+as its working directory, the control plane, which the protected-paths backstop refuses.
 
 ## Residual failure modes
 
@@ -135,8 +155,8 @@ Stated so the guarantee is bounded rather than overstated.
 - **Blast radius.** Everything in the account's slice is in scope, including an in-flight toolchain update, a step
   a bootstrap or an uninstall runs as the account, and the account's own user manager. The updater is fail-closed
   on interruption and leaves the previous, trusted version active ([updater](updater.rule.md)), a bootstrap whose step
-  was ended fails and is re-run, and the manager is restarted afterwards. Such a step reads as account plumbing
-  with an `unknown` project: the account's user manager does not know a system-manager scope.
+  was ended fails and is re-run, and the manager is restarted afterwards. Such a step is listed as a step run
+  as the account with an `unknown` project: the account's user manager does not know a system-manager scope.
 - **The manager does not come back.** The restart is best-effort and reported separately. Until it succeeds no *new*
   session starts, since `ai-tools-run` launches each one as a transient unit of that manager, which is nearer
   to the point of this command than against it; the message names the command that fixes it.
@@ -184,11 +204,12 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
   │        NOTHING is exempt -- init.scope is enumerated like anything else    │
   │  attribute each unit via WorkingDirectory  (best-effort, DISPLAY ONLY:     │
   │        it selects nothing, so `unknown` costs a label, not a target)       │
-  │  classify agent session vs account plumbing  (advisory, DISPLAY ONLY:      │
-  │        splits the counts and orders the table; selects nothing)            │
+  │  classify agent session / launch / step / plumbing  (advisory, DISPLAY     │
+  │        ONLY: splits the counts and orders the table; selects nothing)      │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 3. confirm ────────────────────────────────────────────────────────────────┐
-  │  the table, then a question that DEFAULTS TO YES; consent path recorded    │
+  │  the table, then a question naming the whole slice that DEFAULTS TO YES;   │
+  │        consent path recorded                                               │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 4. end each session ───────────────────────────────────────────────────────┐
   │  SIGTERM pass, deepest-first, re-collected each second, up to 10s          │
@@ -234,10 +255,10 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
 
 ### Degradation policy: two inversions, one reason <a id="ref-section-e8k5"></a>
 
-`sessions.lib.sh` carries a copy of four walk functions from this helper, `find_session_cgroups` and the liveness reads
-beneath it, for the relabel gate ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)). The helper stays the original
-and does not source the library, by the first inversion in this section, and `tests/unit/sessions.sh` holds each copy
-equal to it, so a fix to the walk lands in both or fails the suite.
+`sessions.lib.sh` carries a copy of this helper's cgroup mount reader, of `find_session_cgroups` and of the liveness
+reads beneath it, for the policy unload's session reading ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)). The helper
+stays the original and does not source the library, by the first inversion in this section, and `tests/unit/sessions.sh`
+holds each copy equal to it, so a fix to the walk lands in both or fails the suite.
 
 For every other component here the safe direction is **don't act**. For this one it is **act**, so two project-wide
 conventions are inverted, each for that reason alone:
@@ -277,7 +298,7 @@ the guarantee its row names.
 | The restart runs after verification and is reported on its own, outside the exit status | the invariant is that the *stop* happened; the manager is a separate fact ([Where containment ends](#where-containment-ends)) |
 | Liveness comes from cgroups only | systemd never decides whether something is running ([The decisions inside those phases](#the-decisions-inside-those-phases)) |
 | Attribution is best-effort and display-only | the sweep does not consult it, so a misreported project costs a label rather than a target ([Where containment ends](#where-containment-ends)) |
-| Agent sessions and account plumbing are counted apart, advisorily | the class comes from a unit name, so it is the account's word; it labels a row and never selects one, and a headline that counted four units of scaffolding as four agent sessions misread the incident ([Where containment ends](#where-containment-ends)) |
+| Agent sessions with their launch scopes, steps run as the account and account plumbing are counted apart, advisorily | the agent class comes from a unit name, so it is the account's word; it labels a row and never selects one, a headline that counted four units of scaffolding as four agent sessions misread the incident, one that called a login session scope plumbing hid a process someone started, and one that counted each session's launch scope as a step doubled the work it reported ([Where containment ends](#where-containment-ends)) |
 | A second run terminates and restarts the manager again | idempotence is in end state; a silent rerun costs either an exemption or a name-decided sweep ([Where containment ends](#where-containment-ends)) |
 
 ## Quirks
@@ -319,5 +340,4 @@ Known, bounded, and not built:
   what](#who-may-stop-what)).
 - **A launch/stop gate.** A session launched after the final sweep is outside the window; closing that needs
   the launcher to take the same lock. It would also serialize concurrent stops, whose current cost is duplicate audit
-  events rather than a wrong result, and the recursive relabels, whose live-session gate has the same window
-  ([ref-section-e6c6](cli.rule.md#ref-section-e6c6)).
+  events rather than a wrong result.

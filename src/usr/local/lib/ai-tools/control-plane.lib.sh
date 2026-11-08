@@ -111,20 +111,16 @@ _ai_tools_control_plane__is_selinux_in_use() {
 }
 
 # ai_tools_control_plane__restore_file_attributes <owner:group> <mode> <path> : bring a control-plane file a root writer
-#   has replaced by rename back to its declared owner, mode and SELinux label. `git config --file` writes <path>.lock
-#   and renames it over <path>, so each write is a new inode, born with root's group and umask and the type of its
-#   parent directory rather than the one the policy's file context gives the path; without the label step the installed
-#   layout reports the file's row as label drift until the next reconcile. The label is written by path
+#   has replaced by rename back to its declared owner, mode and SELinux label, the label written by path
 #   (`restorecon -F`, which resets the SELinux user to the file context's as well; the layout's pinned apply compares
-#   the type alone, so either form clears the row), which is sound only while no component of <path> is the sandbox
-#   account's to rename: each caller passes a file directly under CP_HOME, whose mode (CP_HOME_MODE) does not carry
-#   group write, so the account cannot plant a name there. `ai-tools-safedir`'s AI_TOOLS_GITCONFIG moves its path,
-#   and that condition does not cover the file it names: the variable is a test hook only root sets, since sudo's
-#   env_reset does not carry it. A file under a directory the account can write takes the layout reconcile's pinned
-#   apply instead. Where SELinux is not in use the label step is skipped without a line. Each step that does not take
-#   prints a coded warning and is left in AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS, which the call empties first.
-#   Returns 1 when a step did not take, 0 otherwise. Best-effort: the content is already written, so a caller reports
-#   and continues.
+#   the type alone, so either form clears the row). Sound only while no component of <path> is the sandbox account's
+#   to rename: each caller passes a file directly under CP_HOME, whose mode (CP_HOME_MODE) does not carry group write.
+#   `ai-tools-safedir`'s AI_TOOLS_GITCONFIG moves its path outside that condition; the variable is a test hook only root
+#   sets, since sudo's env_reset does not carry it. Where SELinux is not in use the label step is skipped without
+#   a line. Each step that does not take prints a coded warning and is left in AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS,
+#   which the call empties first. Returns 1 when a step did not take, 0 otherwise. Best-effort: the content is already
+#   written, so a caller reports and continues. Why a rename needs the restore, and why a file under a directory
+#   the account can write takes the layout reconcile instead, are ownership-and-hooks.rule.md's.
 ai_tools_control_plane__restore_file_attributes() {
     local owner="$1" mode="$2" path="$3" status=0 label_status=0 label_reason=""
     AI_TOOLS_CONTROL_PLANE__RESTORE_WARNINGS=()

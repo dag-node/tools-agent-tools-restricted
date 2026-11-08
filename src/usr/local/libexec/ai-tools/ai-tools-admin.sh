@@ -5,10 +5,10 @@
 # config (the OPERATORS list, the ai-ops group, the sandbox account's linger; the loaded optional SELinux policy groups)
 # while the ai-tools CLI is unprivileged and refuses to run as root.
 #
+#   ```bash
 #   atr admin operators                          # list (the zero-argument default)
 #   atr admin operators add [user]               # default: $SUDO_USER
 #   atr admin operators remove <user>
-#   ```bash
 #   atr admin selinux groups                     # show core + optional group state
 #   atr admin selinux groups enable <name>...    # load prebuilt (stable) groups
 #   atr admin selinux groups disable <name>      # unload one
@@ -18,7 +18,11 @@
 #   atr admin system entrypoints relabel         # verify + relabel the agent entrypoints
 #   atr admin system post-upgrade                # reconcile the .rpmnew files upgrades leave
 #   atr admin system post-upgrade --check        # findings as a record stream; silent, exit 0 when clean
+#   atr admin system layout                      # every installed path, with the drift each carries
+#   atr admin system layout reconcile            # restore each drifted path to its row
 #   atr admin status                             # the host's health, read as root
+#   atr admin assets                             # the asset sets, and what each enabled agent links
+#   atr admin assets enable --set <name>         # enable a set in every enabled agent
 #   atr admin stop                               # stop every agent session, through the stop helper
 #   atr admin dotnet bootstrap                   # a domain a provider package contributes
 #   ```
@@ -37,7 +41,7 @@
 # linger, and offers to wire the PATH ordering line. The seed comes first so that an account enrolled here holds
 # the project registry every later command resolves it through; a first enrolment that cannot write one is refused
 # with the host unchanged. `remove` reverses the host-side membership (drops the name from OPERATORS and ai-ops),
-# leaving the user's own allowlist and config. `list` prints the current operators.
+# leaving the user's own registry and config. `list` prints the current operators.
 #
 # `selinux groups` toggles the optional policy groups, all off by default. It loads the COMPILED ai_tools_<group>.pp
 # that ai-tools-selinux (or a checkout's install-selinux.sh build) staged under AI_TOOLS_SELINUX_GROUPS__PACKAGE_DIR
@@ -64,10 +68,10 @@
 # as an executable fragment at /usr/local/lib/ai-tools/admin-commands.d/<name> and this tool discovers it. The basename
 # is the domain token -- the same name the provider takes in agents.d/integrations.d and in operator.conf. Dispatch is
 # an exec, not a source, so a fragment keeps its own `set -euo pipefail`, root guard and logging. A fragment is honored
-# only while it passes the same trust predicate as every other provider input (root-owned, not group/other-writable,
-# and so is its directory), and one claiming a name base owns is refused rather than merged; both refusals are reported.
-# INSTALLATION, not enablement, decides whether a command exists -- what a command reports still names the enablement
-# state, and `system bootstrap --scope full` reads the enabled set instead.
+# only while it and its directory pass the provider trust predicate, and one claiming a name base owns is refused rather
+# than merged; both refusals are reported (providers.rule.md, the admin-commands.d seam). INSTALLATION, not enablement,
+# decides whether a command exists -- what a command reports still names the enablement state,
+# and `system bootstrap --scope full` reads the enabled set instead.
 #
 # `system entrypoints relabel` reconciles each enabled agent's entrypoint after a toolchain change, through the root
 # helper ai-tools-relabel-agent: it verifies the binary against the checksum its vendor signed and records the result
@@ -76,8 +80,8 @@
 # signed manifest: the unattended callers (ai-tools-relabel.service, the agent package's %post) may answer
 # from an unchanged pin, and an administrator asking for a reconcile is asking for the fetch.
 #
-# `status` reports this host's health as root: the same resource `ai-tools status` reports to an operator, completed
-# with the three readings that vantage point prints as `?` -- the sandbox account's own `systemd --user units`,
+# `status` reports this host's health as root: the same resource `atr status` reports to an operator, completed
+# with the readings that vantage point prints as `?` -- among them the sandbox account's own `systemd --user units`,
 # whose bus root reaches over the machine transport; the entrypoint pin, in a state directory a non-operator has no
 # traverse bit on; and the SELinux type each agent path carries right now, inside a 0750 toolchain. Every verdict comes
 # from the same services.lib.sh registry both reports and the launch wrapper's pre-launch warning read, so the two
@@ -90,7 +94,9 @@
 # registry -- and every treatment shows what it would change, confirms, backs the file up before writing, and names each
 # path it touched. The copy itself is never removed: each block names the one to delete, once the operator has merged
 # what they want from it. The from-source installer reaches the same end through its own keep-or-reset prompts and dated
-# .bak/.shipped sidecars; this is the RPM-side equivalent.
+# .bak/.shipped sidecars; this is the RPM-side equivalent. The same command migrates each enrolled operator's registry
+# an earlier release wrote (_pu_registry_migrate), and under `--check` writes a `registry-unmigrated` finding per legacy
+# file and `registry-invalid` for one format 1.0 does not carry.
 #
 # Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
@@ -661,7 +667,7 @@ path_order_explain() {
             "" \
             "    ${winner}" \
             "" \
-            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project allowlist, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}, so that directory has to come first on the PATH." \
+            "That is an UNCONFINED agent: it runs as ${user}, with ${user}'s credentials and home, outside the project registry, the SELinux confinement and the ownership handback. The sandbox is reached only through the wrapper in ${AI_TOOLS_PATH_ORDER__WRAPPER_DIR}, so that directory has to come first on the PATH." \
             "" \
             "ai-tools ships one line that deduplicates the PATH and ranks the root-owned directories ahead of the nvm shims. It is appended after the nvm init, changes nothing else about the shell, and is undone by deleting it." ;;
     clear)
@@ -1027,23 +1033,25 @@ sel_disable() {
 # to ai_tools_project_build_t), so that is what is restored; a claimed project's build rule is a per-project local rule
 # written at claim time and is not the group's.
 #
-# A clone is a tree the sandbox account can write, so the walk runs only while no process of that account is live, read
-# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md,
-# ref-section-e6c6). The group change stands either way; the skip names the walk to run once the sessions end.
+# A clone is a tree the sandbox account can write, so the walk runs through ai-tools-relabel-tree, the descriptor-pinned
+# walker, which labels the entry it holds open and so walks whatever process of that account is live (cli.rule.md,
+# ref-section-e6c6), at the canonical path realpath resolves, since the walker refuses a root whose path is not the one
+# it reads back. The group change stands either way: a walk that left hardlinked paths at their type is a log line
+# naming them, and a path realpath cannot resolve or any other non-zero exit is a warning naming the walk to re-run.
 _restore_group_static_labels() {
-    local clones=/var/opt/ai-tools/sandbox-projects state=unreadable
-    [[ -d "${clones}" ]] && command -v restorecon >/dev/null 2>&1 || return 0
-    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/sessions.lib.sh
-    if source /usr/local/lib/ai-tools/sessions.lib.sh 2>/dev/null \
-            && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
-        state="$(ai_tools_sessions__read_live_session_state)"
-    fi
-    if [[ "${state}" != none ]]; then
-        warn MSG-B9C4 "left the labels under ${clones} as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -FR ${clones}"
+    local clones=/var/opt/ai-tools/sandbox-projects dir lines rc=0 kept
+    [[ -d "${clones}" ]] || return 0
+    if ! dir="$(realpath -e -- "${clones}" 2>/dev/null)"; then
+        warn MSG-S8K7 "could not restore labels under ${clones} -- realpath cannot resolve it; once it resolves, run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${clones}"
         return 0
     fi
-    restorecon -FR "${clones}" >/dev/null 2>&1 \
-        || warn MSG-C9W9 "could not restore labels under ${clones}; run: sudo restorecon -FR ${clones}"
+    lines="$(/usr/local/libexec/ai-tools/ai-tools-relabel-tree -- "${dir}" 2>&1 >/dev/null)" || rc=$?
+    kept="$(grep -v '^summary ' <<<"${lines}" | tr '\n' ';' | sed 's/;$//')"
+    case "${rc}" in
+        0) ;;
+        4) log "the walk over ${dir} left these hardlinked entries at their type: ${kept:-the walker printed no detail}" ;;
+        *) warn MSG-C9W9 "could not restore labels under ${dir} -- ${kept:-ai-tools-relabel-tree exited ${rc}}; run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- ${dir}" ;;
+    esac
     return 0
 }
 
@@ -2351,14 +2359,11 @@ _pu_kind_migrate() {
 
 # _pu_registry_migrate <root>: migrate every enrolled operator's `~/.config/ai-tools/allowed-projects`
 # to `~/.config/ai-tools/project-registry` (the plan and the write are ai_tools_conf__plan_registry_migration
-# and ai_tools_conf__migrate_registry, conf.lib.sh), one block per operator, on every run, the unattended one included:
-# each entry keeps its kind and its written path, so the migration does not change what a session reaches, and until it
-# lands every `projects` verb refuses. The plan is printed row by row first -- the line each entry becomes, a whole-line
-# comment the canonical form drops, an entry it cannot carry -- and a plain `!` line no project encloses with the `%`
-# line that disables it in format 1.0, since that reading is the one the migration changes and only the operator knows
-# which was meant. A registry no reader accepts, legacy or current, is named and left as written; a legacy file the gate
-# refuses only for an exclusion through a link still migrates, and the block names the line after its rows. Root
-# writes through the operator's own 0700 directory, and the new file takes the source's owner and mode.
+# and ai_tools_conf__migrate_registry, conf.lib.sh), one block per operator, on every run, the unattended one included.
+# What the migration keeps, drops and names is conf.lib.sh's (NOTE-Q2D8); this block prints the plan row by row first,
+# names a registry no reader accepts, legacy or current, and leaves it as written, migrates a legacy file the gate
+# refuses only for an exclusion through a link and names the line after its rows, and writes as root
+# through the operator's own 0700 directory, the new file taking the source's owner and mode.
 _pu_registry_migrate() {
     local root="$1" user uid state path verdict number raw hint sidecar rc scratch notes registry
     while IFS=$'\t' read -r user uid state path; do
@@ -2589,7 +2594,7 @@ status_services() {
                 && detail "sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager"
             detail "sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}"
         fi
-        remedy="$(ai_tools_services__get_field "${rec}" 6)"
+        remedy="$(ai_tools_services__read_remedy "${rec}")"
         [[ -n "${remedy}" ]] && detail "${remedy}"
     done < <(ai_tools_services__list_records)
     return 0
@@ -2694,10 +2699,11 @@ status_provisioning() {
 # The package never overwrites such a file, so this line is where an operator learns it differs. An edited file is
 # a supported state and is not counted; a missing one is, since the package is then broken. Prints no line for a file
 # matching the shipped copy. Without the resolver status_provisioning has already said so; a resolver that loaded
-# without its managed-files reader is a reading this section could not make.
+# without its managed-files reader or the comparison it runs per file is a reading this section could not make.
 status_managed_files() {
     declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 0
-    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1; then
+    if ! declare -F ai_tools_providers__list_agent_managed_files >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__evaluate_managed_file >/dev/null 2>&1; then
         st UNREADABLE "managed files: ${PROVIDERS_LIB} did not load its managed-files reader; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
@@ -2732,23 +2738,33 @@ status_managed_files() {
 # state -- an air-gapped host, a release published without a manifest -- so it is reported and left uncounted.
 status_entrypoints() {
     heading "Entrypoints"
-    # Four libraries answer this section between them, and a partial load must report that rather than reach
-    # an undefined function -- which under `set -e` would abort the whole report over the section it could not give.
-    # Each ships with base, so a missing one is a reading this section could not make, not a `?`.
+    # The provider, entrypoint, relabel and service libraries answer this section between them, and a partial load must
+    # report that rather than reach an undefined function -- which under `set -e` would abort the whole report
+    # over the section it could not give. Each ships with base, so a missing one is a reading this section could not
+    # make, not a `?`. Every reader an agent's line calls is checked here, the ones entrypoint_live_verdict
+    # and entrypoint_stale_mark call included: a reader missing past this point would leave the pin's own fields
+    # to render as VERIFIED or UNCHANGED for a binary the report did not hash, and a missing verification-policy reader
+    # would render an unpinned agent as not blocked on a host that requires verification. The live labels have a reader
+    # and a guard of their own, so status_labels runs on this branch too.
     if ! declare -F ai_tools_providers__list_enabled_agents      >/dev/null 2>&1 \
             || ! declare -F ai_tools_providers__read_agent_manifest_field  >/dev/null 2>&1 \
             || ! declare -F ai_tools_entrypoint_verify__get_pin_path   >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__read_pin_kind  >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__check          >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__is_required    >/dev/null 2>&1 \
+            || ! declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__read_stamp_field   >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__read_stamp_age     >/dev/null 2>&1 \
             || ! declare -F ai_tools_services__format_age       >/dev/null 2>&1; then
-        st UNREADABLE "the provider, entrypoint or service libraries did not load -- no agent could be resolved; reinstall ai-tools-base"
+        st UNREADABLE "the provider, entrypoint, relabel or service libraries did not load -- no entrypoint was read; reinstall ai-tools-base"
         STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        status_labels
         return 0
     fi
 
     local agent pin version age live strict=no seen=0
-    declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
-        && ai_tools_entrypoint_verify__is_required && strict=yes
+    ai_tools_entrypoint_verify__is_required && strict=yes
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         seen=1
@@ -2800,13 +2816,18 @@ status_entrypoints() {
 # status_agent_versions: one Version line per enabled agent, the version its installed package declares, read as data --
 # ai_tools_entrypoint_verify__read_installed_version over the package.json around the entrypoint the stable launcher
 # resolves to. Root traverses the toolchain the operator cannot, and reads it rather than running the agent's
-# `--version`, which would execute a file the sandbox account can write (updater.rule.md, "Root runs none
-# of the toolchain"). An entrypoint outside its package reads as unknown, with the path, which is itself the finding.
-# Best-effort: a missing reader does not print a line, and Entrypoints reports the libraries.
+# `--version`, which would execute a file the sandbox account can write (updater.rule.md, "Root runs none of the
+# toolchain"). An entrypoint outside its package reads as unknown, with the path, which is itself the finding. A missing
+# enabled-agent resolver does not print a line, since Provisioning and Entrypoints report it; a missing relabel resolver
+# or installed-version reader, each shipped with base, prints one line under MSG-M9D4 and counts in STATUS_UNREADABLE.
 status_agent_versions() {
     declare -F ai_tools_providers__list_enabled_agents                >/dev/null 2>&1 || return 0
-    declare -F ai_tools_relabel__resolve_agent_entrypoint_path         >/dev/null 2>&1 || return 0
-    declare -F ai_tools_entrypoint_verify__read_installed_version  >/dev/null 2>&1 || return 0
+    if ! declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 \
+            || ! declare -F ai_tools_entrypoint_verify__read_installed_version >/dev/null 2>&1; then
+        warn MSG-M9D4 "the relabel or entrypoint library (${RELABEL_LIB}, ${ENTRYPOINT_VERIFY_LIB}) did not load its readers -- no agent version was read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        return 0
+    fi
     local agent entrypoint version
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
@@ -2826,11 +2847,10 @@ status_agent_versions() {
 # `ok`, `mismatch`, `unpinned`, `unreadable` -- or an empty string where the reading cannot be made. The third root-only
 # reading of this report, beside the live SELinux type: the toolchain is 0750 and sandbox-owned, so no operator-side
 # command can hash that file, and a pin records only what the last reconciliation found. Read-only, and it does not
-# reach the network: it is the comparison the launch shim makes on every launch.
+# reach the network: it is the comparison the launch shim makes on every launch. status_entrypoints checks both readers
+# it calls before the first agent.
 entrypoint_live_verdict() {
     local agent="$1" entrypoint
-    declare -F ai_tools_entrypoint_verify__check      >/dev/null 2>&1 || return 0
-    declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 || return 0
     entrypoint="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" 2>/dev/null || true)"
     [[ -n "${entrypoint}" ]] || return 0
     ai_tools_entrypoint_verify__check "${agent}" "${entrypoint}" 2>/dev/null || true
@@ -2839,10 +2859,9 @@ entrypoint_live_verdict() {
 # entrypoint_stale_mark <agent>: report, and return 0, when the last reconciliation REFUSED to re-record this agent's
 # pin. The refusal leaves the pin standing -- that staleness is what makes the next launch refuse -- so without this
 # the pin's own fields render as a verification that succeeded. Returns non-zero when there is no mark, which is
-# the ordinary state.
+# the ordinary state. status_entrypoints checks the stale-path reader before the first agent.
 entrypoint_stale_mark() {
     local agent="$1" record reason version age
-    declare -F ai_tools_entrypoint_verify__get_stale_path >/dev/null 2>&1 || return 1
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -e "${record}" ]] || return 1
     [[ "$(ai_tools_services__read_stamp_field "${record}" STATE)" == stale ]] || return 1
@@ -2870,6 +2889,11 @@ status_labels() {
     report="$(ai_tools_relabel__list_agent_labels)" || rc=$?
     if [[ "${rc}" -eq 2 ]]; then
         st "n/a" "SELinux confinement is inactive here -- there is no agent label to carry"
+        return 0
+    fi
+    if [[ "${rc}" -eq 3 ]]; then
+        st UNREADABLE "live labels: a reader the label report calls did not load -- no agent label was read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
         return 0
     fi
     [[ -n "${report}" ]] || return 0
@@ -3274,8 +3298,10 @@ status_assets_summary() {
 # status_node_version: the Version section's Node line, from the same verdict the CLI renders
 # (ai_tools_toolchain__evaluate_node_versions, toolchain.lib.sh): the active version read off the enabled agents' stable
 # launcher links, and the version the updater's last run recorded shown beside it only where the two differ. Root could
-# read the toolchain itself; the link is read instead so the two reports have one source and one answer. Best-effort:
-# a host with neither a link nor a stamp gets no Node line, and Provisioning says why.
+# read the toolchain itself; the link is read instead so the two reports have one source and one answer. A host
+# with neither a link nor a stamp gets no Node line, and Provisioning says why. toolchain.lib.sh ships with base, so its
+# link readers missing is a reading this section could not make: reported under MSG-B5R6 and counted
+# in STATUS_UNREADABLE, with the stamp's version printed as the last update run's, since no link was read.
 status_node_version() {
     local rec stamp_node="" verdict kind version stamp_seen
     if declare -F ai_tools_services__read_stamp_field >/dev/null 2>&1; then
@@ -3291,10 +3317,12 @@ status_node_version() {
             && declare -F ai_tools_toolchain__evaluate_node_versions >/dev/null 2>&1; then
         verdict="$(ai_tools_toolchain__list_agent_link_node_versions "${LAUNCHER_LINK_DIR}" 2>/dev/null \
                        | ai_tools_toolchain__evaluate_node_versions "${stamp_node}")"
-    elif [[ -n "${stamp_node}" ]]; then
-        verdict=$'stamp\t'"${stamp_node}"     # no link reader: the stamp is the only reading left
     else
-        verdict=none
+        warn MSG-B5R6 "the toolchain library (${TOOLCHAIN_LIB}) did not load its link readers -- the active Node version was not read; reinstall ai-tools-base"
+        STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+        [[ -n "${stamp_node}" ]] \
+            && printf '    %-13s %s (the version the last update run recorded -- no launcher link was read)\n' "node" "${stamp_node}"
+        return 0
     fi
     IFS=$'\t' read -r kind version stamp_seen <<<"${verdict}"
     case "${kind}" in

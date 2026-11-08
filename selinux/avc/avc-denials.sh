@@ -27,6 +27,8 @@
 #   W    Lateral: raw IP socket, /dev/shm                  (goal 4)
 #   X    Network: privileged port bind (<1024)             (goal 5)
 #   Y    The account's own cgroups and user manager        (goals 2, 4)
+#   Z    A named FIFO of the domain's own type              (goal 2)
+#   TTY  A login terminal opened by path                    (goals 1, 4)
 #
 # Two modes, split by privilege like avc-testsuite.sh / avc-analyze.sh:
 #
@@ -52,15 +54,20 @@
 #   2. (in a confined claude, approved project) the printed `bash selinux/avc/avc-denials.sh probe ...`
 #        -> run it, let the turn finish.
 #
-# A check reads the errno of its attempt: EACCES/EPERM is a denial, a missing path a SKIP, and any other failure (an
-# absent tool, a refused connection, malformed input) INCONCLUSIVE, since the access was not exercised. No probe writes
-# to the host: a write check opens an existing file for append without writing, and a create check is access(2) W_OK
-# on the directory -- which SELinux does not audit by default, so its outcome is read from the errno alone.
+# A check reads the errno of its attempt: EACCES/EPERM is a denial, a missing path a SKIP, and any other failure (a
+# refused connection, malformed input) INCONCLUSIVE, since the access was not exercised. A tool bash's PATH search did
+# not find is read from a stat of its name in each PATH directory: EACCES on one is the policy refusing getattr on its
+# exec type, and ENOENT on every one an absent tool, a SKIP. A call to a D-Bus service that failed without an errno is
+# read from the bus: a refusal while the service's name has an owner, and an absent service, a SKIP, while it has none.
+# No probe writes to the host: a write check opens an existing file for append without writing, and a create check is
+# access(2) W_OK on the directory -- which SELinux does not audit by default, so its outcome is read from the errno
+# alone.
 #   3. (back in terminal 1)                     press Enter
 #        -> ausearch + classify, then the run result, then dontaudit is restored. The run exits 0 only when
-#           enforcement was confirmed, the window was searched, and the one trail carrying the run id started inside
-#           the window and records exit 0: the audit log alone does not show a probe that never ran or an access that
-#           succeeded.
+#           enforcement was confirmed, the window was searched, the denial of section TTY's open of the root half's
+#           pty is in it (the record that shows collection worked), and the one trail carrying the run id started
+#           inside the window and records exit 0: the audit log alone does not show a probe that never ran or an access
+#           that succeeded.
 #
 # NB: `semodule -DB` is SYSTEM-WIDE -- it unsilences every domain's dontaudit'd denials for the window, not just
 # ai_tools_t. That is fine for a short controlled run (avc-analyze.sh filters to `-su ai_tools_t` anyway); the trap puts
@@ -81,23 +88,27 @@ usage() {
 usage:
   sudo ${BASH_SOURCE[0]##*/}                  # ROOT: -DB bracket + analyze (default)
   bash ${BASH_SOURCE[0]##*/} probe            # AGENT: trigger denials; output -> audits/
-  bash ${BASH_SOURCE[0]##*/} probe --run-id <id> --groups <a,b|none> [--enforcing-confirmed]
+  bash ${BASH_SOURCE[0]##*/} probe --run-id <id> --groups <a,b|none> [--fips-mode on|off] [--login-pty <path>]
+                                   [--enforcing-confirmed]
                                              # AGENT: as printed by the root half -- its run, the
-                                             # loaded groups and the enforcement it verified
+                                             # loaded groups, fips_mode, the login-pty fixture and
+                                             # the enforcement it verified
   bash ${BASH_SOURCE[0]##*/} probe --force    # skip the enforcing+module safety check
 exit status (probe): 0 clean, 1 a check FAILED, 2 aborted before any check, 3 a check was INCONCLUSIVE
-exit status (run):   0 when enforcement was confirmed, the window was searched, and the probe bound to the run
-                     exited 0; 1 otherwise
+exit status (run):   0 when enforcement was confirmed, the window was searched, the login-pty fixture's denial
+                     is in it, and the probe bound to the run exited 0; 1 otherwise
   bash ${BASH_SOURCE[0]##*/} --check-results  # display the latest probe audit trail
 EOF
 }
 
-# avc_attempt_reason <status> <stderr>: print `allowed` for status 0, `denied` when the stderr names EACCES/EPERM (the
-# shape every tool here prints for a refused open, exec, connect or syscall), `absent` for a missing path, and otherwise
-# `exit <status>: <first stderr line>` -- an absent tool, a malformed input or a refused connection, none
-# of which exercised the access the check names.
+# avc_attempt_reason <status> <stderr> [<command>]: print `allowed` for status 0, `denied` when the stderr names
+# EACCES/EPERM (the shape every tool here prints for a refused open, exec, connect or syscall), `absent` for a missing
+# path, and otherwise `exit <status>: <first stderr line>` -- an absent tool, a malformed input or a refused connection,
+# none of which exercised the access the check names. A status 127 `command not found` for <command> takes
+# avc_command_lookup's reading where it gives one, since bash reports a tool whose exec type the policy refuses
+# `getattr` on the same way as a tool that is not installed.
 avc_attempt_reason() {
-  local status="$1" stderr="$2" first
+  local status="$1" stderr="$2" command="${3:-}" first lookup
   if [[ "${status}" -eq 0 ]]; then
     echo allowed
   elif grep -qiE 'permission denied|operation not permitted|EACCES|EPERM' <<<"${stderr}"; then
@@ -105,9 +116,69 @@ avc_attempt_reason() {
   elif grep -qiE '^ENOENT:|no such file or directory' <<<"${stderr}"; then
     echo absent
   else
+    if [[ "${status}" -eq 127 && -n "${command}" ]] && grep -q 'command not found' <<<"${stderr}"; then
+      lookup="$(avc_command_lookup "${command}")"
+      [[ -n "${lookup}" ]] && { echo "${lookup}"; return 0; }
+    fi
     first="$(head -n1 <<<"${stderr}")"
     echo "exit ${status}: ${first:-no message}"
   fi
+}
+
+# avc_command_lookup <name>: stat(2) <name> in each ${PATH} directory through python3, which reads the errno bash's PATH
+# search does not report, and print `denied` when any one returns EACCES, `absent` when every one returns ENOENT, and no
+# line for any other result -- another errno, a name found, a name holding a slash, python3 not found.
+avc_command_lookup() {
+  [[ -n "$1" && "$1" != */* ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 -I - "$1" "${PATH}" 2>/dev/null <<'PY' || true
+import errno, os, sys
+name, search = sys.argv[1], sys.argv[2]
+results = set()
+for directory in search.split(":"):
+    try:
+        os.stat(os.path.join(directory or ".", name))
+        results.add("found")
+    except OSError as e:
+        results.add(e.errno)
+if errno.EACCES in results:
+    print("denied")
+elif results == {errno.ENOENT}:
+    print("absent")
+PY
+}
+
+# avc_tcp_reason <reason>: print `allowed` for avc_attempt_reason's reading of a connect(2) that failed
+# with ECONNREFUSED or ETIMEDOUT, which SELinux lets through its name_connect check before a SYN leaves, and <reason>
+# otherwise.
+avc_tcp_reason() {
+  if [[ "$1" =~ ^exit\ [0-9]+:\ (ECONNREFUSED|ETIMEDOUT): ]]; then echo allowed; else echo "$1"; fi
+}
+
+# avc_bus_name_owner <name>: print `true` or `false` for whether <name> has an owner on the system bus, read
+# through busctl's NameHasOwner call to the bus daemon, and no line when the call fails or prints another shape.
+avc_bus_name_owner() {
+  local reply
+  reply="$(busctl --system call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus NameHasOwner s "$1" \
+    2>/dev/null)" || return 0
+  case "${reply}" in
+    "b true")  echo true ;;
+    "b false") echo false ;;
+  esac
+}
+
+# avc_dbus_reason <reason> <owner>: read a failed call to a D-Bus service. The bus broker enforces the policy's send_msg
+# check and logs a refusal as USER_AVC, and the tool reports it in its own words (nmcli prints that NetworkManager is
+# not running), so a <reason> other than `allowed`, `denied` or `absent` reads `denied` when <owner>,
+# avc_bus_name_owner's reading of the service's name, is `true`, `absent` when it is `false`, and stays <reason>
+# otherwise. The reading does not tell the policy's refusal from the D-Bus policy's or polkit's.
+avc_dbus_reason() {
+  case "$1" in allowed|denied|absent) echo "$1"; return 0 ;; esac
+  case "$2" in
+    true)  echo denied ;;
+    false) echo absent ;;
+    *)     echo "$1" ;;
+  esac
 }
 
 # avc_permissive_state <seinfo-status> <seinfo-output>: read `seinfo --permissive` output and print `yes` when it lists
@@ -257,7 +328,7 @@ do_probe() {
     [[ -n "${_uid:-}"  ]] && _s="${_s//${_uid}/[UID]}"
     printf '%s' "${_s}"
   }
-  _why="" _type="" _floor="" _group=""
+  _why="" _type="" _floor="" _group="" _bus_name=""
   N_PASS=0 N_FAIL=0 N_INCONCLUSIVE=0 N_SKIP=0 N_FLOOR=0 N_REPORTED=0
 
   # _attempt <cmd...>: run one access attempt with its output discarded and its stderr kept. Sets _rc to the attempt's
@@ -266,7 +337,7 @@ do_probe() {
     local _err
     _err="$("$@" </dev/null 2>&1 >/dev/null)"
     _rc=$?
-    _reason="$(_R "$(avc_attempt_reason "${_rc}" "${_err}")")"
+    _reason="$(_R "$(avc_attempt_reason "${_rc}" "${_err}" "$1")")"
   }
 
   # _result <verdict> <text>: print the result line and count it.
@@ -297,11 +368,22 @@ do_probe() {
   }
 
   # check: execute one access attempt that the policy must refuse. Set _group first for an access an optional group
-  # grants: the expected outcome then follows the loaded set the root half passed with `--groups`.
+  # grants: the expected outcome then follows the loaded set the root half passed with `--groups`. Set _bus_name
+  # for a call to a D-Bus service: a failure the tool reports without an errno is then read through avc_dbus_reason,
+  # with a `Read:` line naming the bus reading.
   check() {
-    local _c="$1" _tag="$2" _desc="$3"; shift 3
+    local _c="$1" _tag="$2" _desc="$3" _raw; shift 3
     _header "${_c}" "${_tag}" "${_desc}"
     _attempt "$@"
+    if [[ -n "${_bus_name}" ]]; then
+      _raw="${_reason}"
+      _reason="$(avc_dbus_reason "${_reason}" "$(avc_bus_name_owner "${_bus_name}")")"
+      case "${_reason}" in
+        "${_raw}") ;;
+        denied) printf '  Read:   %s -- the call failed while %s has an owner on the bus\n' "${_raw}" "${_bus_name}" ;;
+        absent) printf '  Read:   %s -- %s has no owner on the bus\n' "${_raw}" "${_bus_name}" ;;
+      esac
+    fi
     if [[ -n "${_group}" ]]; then
       local _exp=0; _group_expected || _exp=$?
       case "${_exp}:${_reason}" in
@@ -322,7 +404,7 @@ do_probe() {
         *)       _result INCONCLUSIVE "not exercised: ${_reason}" ;;
       esac
     fi
-    _why="" _type="" _floor="" _group=""
+    _why="" _type="" _floor="" _group="" _bus_name=""
   }
 
   # skip_check: record a skipped check (path/tool absent on this system).
@@ -355,8 +437,14 @@ do_probe() {
   #   tcp <port>                  connect(2) to 127.0.0.1:<port>; closed at once
   #   write <path>                open(2) O_WRONLY|O_APPEND without O_CREAT, closed without a write -- the write check
   #                               on an existing file, which neither truncates nor creates it
+  #   tty <path>                  open(2) O_RDWR|O_NOCTTY of a terminal, closed at once, so the terminal does not become
+  #                               the process's controlling terminal
   #   dirwrite <dir>              access(2) W_OK on a directory -- the write check a create would meet, with no entry
   #                               created
+  #   ownfifo <dir>               mkfifo(3) in <dir> under an fscreate context of the process's own domain type,
+  #                               the FIFO unlinked at once where the kernel made it, after a plain file's create
+  #                               and removal there as the control; a control or a context that failed is reported
+  #                               without an errno name, as not exercised, and a FIFO made and not removed exits 4
   # Exits 0 when the call succeeded, and on failure prints "<errno name>: <message>" to stderr and exits 1, so _attempt
   # reads EACCES/EPERM as a denial and every other errno as not exercised.
   _py() {
@@ -375,6 +463,42 @@ try:
         finally: s.close()
     elif op == "write":
         os.close(os.open(args[0], os.O_WRONLY | os.O_APPEND))
+    elif op == "tty":
+        os.close(os.open(args[0], os.O_RDWR | os.O_NOCTTY))
+    elif op == "ownfifo":
+        current = open("/proc/thread-self/attr/current").read().rstrip("\0\n")
+        user, _role, domain, level = current.split(":", 3)
+        path = os.path.join(args[0], ".avc-denials-ownfifo-%d" % os.getpid())
+        # The control: a plain file created and removed in the directory, so a denial below is not the directory's.
+        control = path + ".control"
+        try:
+            os.close(os.open(control, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            os.unlink(control)
+        except OSError as e:
+            print("the directory refused a plain file's create or removal (errno %d), so the FIFO's create was not"
+                  " reached" % e.errno, file=sys.stderr)
+            sys.exit(1)
+        # A refusal before mkfifo is reported by number, without the errno names avc_attempt_reason reads as
+        # a denial, so a check that never reached the FIFO's create reads as not exercised.
+        try:
+            fscreate = os.open("/proc/thread-self/attr/fscreate", os.O_WRONLY)
+            os.write(fscreate, ("%s:object_r:%s:%s" % (user, domain, level)).encode())
+        except OSError as e:
+            print("the creation context was not set (errno %d), so the FIFO's create was not reached" % e.errno,
+                  file=sys.stderr)
+            sys.exit(1)
+        try:
+            os.mkfifo(path)
+        finally:
+            os.write(fscreate, b"")
+            os.close(fscreate)
+        # Created: the removal's own failure exits 4 naming the path, apart from a denied create.
+        try:
+            os.unlink(path)
+        except OSError as e:
+            print("created %s, and its removal failed (errno %d) -- remove it by hand" % (path, e.errno),
+                  file=sys.stderr)
+            sys.exit(4)
     elif op == "dirwrite":
         if not os.path.isdir(args[0]):
             raise FileNotFoundError(errno.ENOENT, "no such directory", args[0])
@@ -398,7 +522,7 @@ PY
       _why="" _type="" _group=""; return
     fi
     _attempt _py tcp "${_port}"
-    [[ "${_reason}" == ECONNREFUSED:* || "${_reason}" == ETIMEDOUT:* ]] && _reason=allowed
+    _reason="$(avc_tcp_reason "${_reason}")"
     local _exp=1
     [[ -n "${_group}" ]] && { _exp=0; _group_expected || _exp=$?; }
     case "${_exp}:${_reason}" in
@@ -447,8 +571,8 @@ PY
   printf '  PRT=port  MTA=MTA exec  CRD=credentials  ESC=escalation\n'
   printf '  PRS=persistence  LAT=lateral/IPC  NET=network capability\n'
   printf '\nSections A-F: existing dontaudit boundary. AVCs visible under -DB.\n'
-  printf 'Sections G-X: extended surface (not yet dontaudit'"'"'d). AVCs log without -DB;\n'
-  printf '              will appear as NEW in avc-analyze until dontaudit rules are added.\n'
+  printf 'Sections G-X: extended surface, left audited (ai_tools.te section (6)). AVCs\n'
+  printf '              log without -DB; avc-analyze classifies a confirmed denial.\n'
   printf '================================================================\n'
 
   # ============================================================
@@ -479,18 +603,42 @@ boundary has a gap. These are plain deny (not dontaudit'd); AVCs log without -DB
 
   _type="bin_t (exec allowed); firewalld_t D-Bus (denied)"
   _why="Listing firewall zones reveals which ports and services are network-exposed. This is the first step in planning lateral movement, identifying targets for exploitation, and determining whether outbound exfiltration routes exist."
-  _group=netadmin
-  check GRP-004 SELinux "exec firewall-cmd --list-zones" firewall-cmd --list-zones
+  _group=netadmin _bus_name=org.fedoraproject.FirewallD1
+  check GRP-004 SELinux "exec firewall-cmd --get-zones" firewall-cmd --get-zones
 
   _type="NetworkManager_t D-Bus (denied)"
   _why="nmcli exposes all interfaces, IP addresses, active VPN tunnels, and DNS config -- mapping the full network topology from the agent's vantage point for lateral movement and exfiltration route planning."
-  _group=netadmin
+  _group=netadmin _bus_name=org.freedesktop.NetworkManager
   check GRP-005 SELinux "exec nmcli general status" nmcli -t general status
 
   _type="container_runtime_exec_t (exec)"
   _why="podman info reveals the container runtime config, storage driver, and registry list. Container runtime access is a known escape vector and the prerequisite for socket-API abuse (see LAT-002)."
   _group=podman
   check GRP-006 SELinux "exec podman info" podman info
+
+  _type="container_runtime_exec_t (exec)"
+  _why="podman ps lists the containers the session could start, stop or exec into under the sandbox account's own rootless store; with the podman group off the exec itself is refused."
+  _group=podman
+  check GRP-010 SELinux "exec podman ps --all (rootless, the sandbox account's store)" podman ps --all
+
+  # The two remote checks are not group checks: the podman group grants the exec, and the socket behind it stays refused
+  # either way -- the root service's by /run/podman's 0700 root mode, the operator's by /run/user/<uid>'s mode
+  # and user_tmp_t -- so a listing reads as FAIL whatever the loaded set. LAT-006 makes the operator socket's connect
+  # without the podman CLI.
+  _type="container_runtime_exec_t (exec), then /run/podman/podman.sock (connectto)"
+  _why="podman --remote against the root service's socket lists every root container, and the same API creates privileged containers that mount the host root filesystem."
+  check GRP-011 SELinux "exec podman --remote ps --all (root service socket)" \
+    podman --remote --url unix:///run/podman/podman.sock ps --all
+
+  if [[ -n "${_uid}" ]]; then
+    _type="container_runtime_exec_t (exec), then /run/user/[UID]/podman/podman.sock (connectto)"
+    _why="The operator's rootless podman socket controls every container the operator runs, with the operator's identity inside them."
+    check GRP-012 SELinux "$(_R "exec podman --remote ps --all (the operator's rootless socket)")" \
+      podman --remote --url "unix:///run/user/${_uid}/podman/podman.sock" ps --all
+  else
+    skip_check GRP-012 SELinux "exec podman --remote ps --all (the operator's rootless socket)" \
+      "could not determine invoking-user uid"
+  fi
 
   # tmpmap is a map grant, not an exec: create a /tmp file (born ai_tools_tmp_t) and mmap it. With the group off the map
   # is denied; a success means tmpmap is on.
@@ -640,8 +788,9 @@ under -DB. Existence check omitted (stat is dontaudit'd)."
     /usr/sbin/sendmail -bv root
 
   # ============================================================
-  # SECTIONS G-X: EXTENDED SURFACE (not yet dontaudit'd) AVCs log WITHOUT `-DB` and will appear as NEW in avc-analyze.
-  # For each confirmed denial: add dontaudit to ai_tools.te, add type to BOUNDARY_NAMED_RE, rebuild, re-run.
+  # SECTIONS G-X: EXTENDED SURFACE, left audited by ai_tools.te section (6). AVCs log WITHOUT `-DB`. For a confirmed
+  # denial, classify it in avc-analyze.sh; a dontaudit is only for an access verified benign on the host,
+  # as that section states.
   # ============================================================
 
   section "SECTION G: SHADOW / GROUP-SHADOW CREDENTIALS  [goal 1]" \
@@ -909,6 +1058,16 @@ the container_runtime_exec_t deny."
     "connect /run/podman/podman.sock (container_var_run_t; AVC if socket exists+labelled)" \
     _py unix /run/podman/podman.sock stream
 
+  if [[ -n "${_uid}" ]]; then
+    _type="user_tmp_t:dir search, then the socket's connectto"
+    _why="The operator's rootless podman socket answers the same container API for every container the operator runs. A connect needs no podman binary, so this holds even where the podman group grants the exec."
+    check LAT-006 SELinux \
+      "$(_R "connect /run/user/${_uid}/podman/podman.sock (the operator's rootless podman socket)")" \
+      _py unix "/run/user/${_uid}/podman/podman.sock" stream
+  else
+    skip_check LAT-006 SELinux "connect /run/user/[UID]/podman/podman.sock" "could not determine invoking-user uid"
+  fi
+
   section "SECTION V: SYSTEMD JOURNAL SOCKET  [goal 4]" \
 "The journal socket accepts structured log messages. Writing to it lets an agent
 forge entries, cover previous actions, and defeat forensic analysis.
@@ -986,7 +1145,7 @@ the SELinux gates."
   _own_uid="$(id -u 2>/dev/null || true)"
   if [[ -n "${_own_cgroup_path}" && -n "${_own_uid}" ]] && command -v python3 >/dev/null 2>&1; then
     _type="cgroup_t:file write"
-    _why="Writing a pid into a cgroup.procs moves that task into the cgroup. A session that could do it would move its own tasks into the manager's init.scope, which the relabel gate exempts by name, and the gate would read the account as idle while the session runs."
+    _why="Writing a pid into a cgroup.procs moves that task into the cgroup. A session that could do it would move its own tasks into the manager's init.scope, which the policy unload's session reading exempts by name, and the reading would read the account as idle while the session runs."
     check SES-001 SELinux "open this session's own cgroup.procs for write (no write made)" \
       _py write "/sys/fs/cgroup${_own_cgroup_path}/cgroup.procs"
 
@@ -1011,6 +1170,59 @@ the SELinux gates."
     skip_check SES-004 SELinux "the account's session bus" "no cgroup v2 line, no uid, or no python3"
   fi
 
+  section "SECTION Z: A NAMED FIFO OF THE DOMAIN'S OWN TYPE  [goal 2]" \
+"Under fips_mode the base policy grants every domain create, link and rename on FIFOs
+of its own type, so ai_tools_t may move such a FIFO into a tree the relabel walker
+labels. A pipe carries the type in pipefs, where no tree is; a named FIFO of it on
+the project's filesystem needs that filesystem's associate permission as well."
+
+  _type="ai_tools_t:fifo_file create (fips_mode) + ai_tools_t:filesystem associate (not granted)"
+  _why="A FIFO of the domain's own type in a claimed tree is the one inode outside the module's four types that the walker could reach and relabel; tests/integration/selinux.sh W3 lists the grant as a reviewed base-policy exception on the strength of this denial."
+  # The FIFO's create is granted under fips_mode alone, so with the Boolean off a denial comes from the create and says
+  # nothing about the filesystem check; the session cannot read the Boolean, so the root half passes it.
+  if [[ "${FIPS_MODE:-}" == off ]]; then
+    skip_check WLK-001 SELinux "create a named FIFO labelled ai_tools_t" \
+      "fips_mode is off, so the grant this check exists for is not in force"
+  elif [[ "${FIPS_MODE:-}" != on ]]; then
+    _header WLK-001 SELinux "create a named FIFO labelled ai_tools_t"
+    _result INCONCLUSIVE "not exercised: the root half did not pass --fips-mode, so a denial could be the create's"
+    _why="" _type=""
+  elif command -v python3 >/dev/null 2>&1; then
+    _header WLK-001 SELinux "create a named FIFO labelled ai_tools_t in the project (unlinked if made)"
+    _attempt _py ownfifo "${PWD}"
+    case "${_rc}:${_reason}" in
+      0:*)      _result FAIL "a FIFO labelled ai_tools_t was created and removed -- investigate" ;;
+      4:*)      _result FAIL "a FIFO labelled ai_tools_t was created and not removed -- ${_reason#exit 4: }" ;;
+      *:denied) _result PASS "denied as expected, after the directory's own create passed" ;;
+      *)        _result INCONCLUSIVE "not exercised: ${_reason}" ;;
+    esac
+    _why="" _type=""
+  else
+    skip_check WLK-001 SELinux "create a named FIFO labelled ai_tools_t" "python3 not available to attempt it"
+  fi
+
+  section "SECTION TTY: A LOGIN TERMINAL OPENED BY PATH  [goals 1, 4]" \
+"The domain holds a login terminal (user_devpts_t, user_tty_device_t) on the
+descriptors it inherits and does not hold open on either type, so a session
+cannot open an operator's terminal by its /dev/pts path. The root half
+allocates a pty of its own for the window, user_devpts_t at mode 0666, so DAC
+permits the open and a refusal is the policy's. TIOCSTI on the session's own
+terminal is read from the policy (tests/integration/selinux.sh): no process
+the probe runs holds that terminal."
+
+  _type="user_devpts_t:chr_file open (not granted)"
+  _why="An open of another account's login pty gives its reader the keystrokes typed there and its writer the screen; the pty's 0620 mode is the DAC half, and this is the type half, which holds whatever mode the pty carries."
+  if [[ -z "${LOGIN_PTY:-}" ]]; then
+    _header TTY-001 SELinux "open a login pty by path (no fixture)"
+    _result INCONCLUSIVE "not exercised: the root half did not pass --login-pty"
+    _why="" _type=""
+  elif command -v python3 >/dev/null 2>&1; then
+    check TTY-001 SELinux "open the root half's user_devpts_t pty ${LOGIN_PTY} at mode 0666 (closed at once)" \
+      _py tty "${LOGIN_PTY}"
+  else
+    skip_check TTY-001 SELinux "open a login pty by path" "python3 not available to attempt it"
+  fi
+
   # ── Audit footer ──────────────────────────────────────────────────────────
   printf '\n\n================================================================\n'
   printf 'END OF PROBE AUDIT TRAIL\n'
@@ -1023,7 +1235,7 @@ the SELinux gates."
   printf '\nNext steps:\n'
   printf '  1. Let this turn finish (Stop sweep AVCs land), then press Enter in root terminal.\n'
   printf '  2. Sections A-F: AVCs appear under -DB only (dontaudit'"'"'d). Expected.\n'
-  printf '  3. Sections G-Y: AVCs log without -DB. A confirmed boundary type is added to\n'
+  printf '  3. Sections G-Z: AVCs log without -DB. A confirmed boundary type is added to\n'
   printf '     BOUNDARY_NAMED_RE in avc-analyze.sh so it files as EXPECTED BOUNDARY. A\n'
   printf '     dontaudit is for a flood alone: the core policy keeps breach attempts\n'
   printf '     visible on purpose, and a silenced denial is not evidence the boundary holds.\n'
@@ -1090,7 +1302,7 @@ do_run() {
   # or a failed or malformed query leaves it unconfirmed, and the probe then warns before running.
   local enforcing_confirmed=0 permissive=unknown seinfo_out seinfo_rc
   if command -v seinfo >/dev/null 2>&1; then
-    seinfo_out="$(seinfo --permissive -x 2>&1)"; seinfo_rc=$?
+    seinfo_out="$(seinfo --permissive 2>&1)"; seinfo_rc=$?
     permissive="$(avc_permissive_state "${seinfo_rc}" "${seinfo_out}")"
     [[ "${permissive}" == unknown ]] \
       && err "seinfo --permissive exited ${seinfo_rc} or printed an unexpected listing; ${SUBJ}'s mode is unknown."
@@ -1106,8 +1318,10 @@ do_run() {
   note "groups loaded: ${groups:-none}"
   # The conditional Booleans that widen ai_tools_t without a module change (the confinement rule lists what each
   # grants), recorded so the run states the policy it verified.
-  note "booleans: $(getsebool nis_enabled domain_can_mmap_files authlogin_nsswitch_use_ldap kerberos_enabled 2>&1 \
-    | tr '\n' ';' || true)"
+  note "booleans: $(getsebool nis_enabled domain_can_mmap_files authlogin_nsswitch_use_ldap kerberos_enabled fips_mode \
+    2>&1 | tr '\n' ';' || true)"
+  local fips_mode
+  fips_mode="$(getsebool fips_mode 2>/dev/null | awk '{print $NF}' || true)"
 
   # auditd must be running; without it ausearch reports an empty result even when denials fire. The group-disabled exec
   # denials (systemctl, rpm, podman) are NOT dontaudit'd and should always appear -- an empty log for those is
@@ -1123,8 +1337,13 @@ do_run() {
   # dontaudit before the probe runs.
   [[ -e /dev/tty ]] || { err "run mode needs a terminal (it waits for the probe). Re-run interactively."; exit 1; }
 
-  # Disable dontaudit for the window; ALWAYS restore on exit (trap covers Ctrl-C).
-  restore_dontaudit() { note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."; }
+  # Disable dontaudit for the window; ALWAYS restore on exit (trap covers Ctrl-C). The same trap stops the login-pty
+  # fixture, which closes its pty. The fixture's PID is a global, since the EXIT trap runs after this function returns.
+  PTY_FIXTURE_PID=""
+  restore_dontaudit() {
+    [[ -n "${PTY_FIXTURE_PID:-}" ]] && kill "${PTY_FIXTURE_PID}" 2>/dev/null
+    note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."
+  }
   trap restore_dontaudit EXIT INT TERM
   # Capture START before `semodule -DB`: the policy reload can trigger a log rotation at the exact same second, causing
   # `ausearch -ts <START>` to miss the new log file. Date and time are kept as two words, the form ausearch takes,
@@ -1138,9 +1357,41 @@ do_run() {
   step "disabling dontaudit system-wide (semodule -DB) so boundary denials are logged"
   semodule -DB >/dev/null 2>&1 || { err "semodule -DB failed"; exit 1; }
   note "dontaudit disabled."
+
+  # The login-pty fixture for section TTY: a pty this process allocates, which an unconfined root login creates
+  # as user_devpts_t, at mode 0666 so DAC permits the probe's open. Its master stays open, and no process reads it,
+  # until the trap stops the process. The path is passed only once its type and mode read back as the section needs
+  # them.
+  local login_pty="" pty_fixture_file pty_context pty_mode
+  pty_fixture_file="$(mktemp)"
+  python3 -I -c '
+import os, signal, sys
+master, slave = os.openpty()
+path = os.ttyname(slave)
+os.chmod(path, 0o666)
+print(path, flush=True)
+signal.pause()' >"${pty_fixture_file}" 2>/dev/null &
+  PTY_FIXTURE_PID=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "${pty_fixture_file}" ]] && break; sleep 0.2; done
+  login_pty="$(head -n1 "${pty_fixture_file}")"; rm -f "${pty_fixture_file}"
+  if [[ "${login_pty}" =~ ^/dev/pts/[0-9]+$ ]]; then
+    pty_context="$(stat -c %C "${login_pty}" 2>/dev/null)"; pty_mode="$(stat -c %a "${login_pty}" 2>/dev/null)"
+    if [[ "${pty_context}" == *:user_devpts_t:* && "${pty_mode}" == 666 ]]; then
+      note "login-pty fixture: ${login_pty} (${pty_context}, mode ${pty_mode})"
+    else
+      err "login-pty fixture ${login_pty} reads '${pty_context:-unread}' mode ${pty_mode:-unread}, not user_devpts_t 0666;" \
+        "section TTY will report INCONCLUSIVE"
+      login_pty=""
+    fi
+  else
+    err "could not allocate the login-pty fixture; section TTY will report INCONCLUSIVE"
+    login_pty=""
+  fi
   echo
   step "ACTION REQUIRED -- in a CONFINED claude (approved project), run:"
   local probe_flags=" --run-id ${run_id} --groups ${groups:-none}"
+  [[ "${fips_mode}" == on || "${fips_mode}" == off ]] && probe_flags+=" --fips-mode ${fips_mode}"
+  [[ -n "${login_pty}" ]] && probe_flags+=" --login-pty ${login_pty}"
   (( enforcing_confirmed )) && probe_flags+=" --enforcing-confirmed"
   printf '\n      bash %s/avc-denials.sh probe%s\n\n' "${DIR}" "${probe_flags}"
   note "Let the claude turn finish (so any Stop-sweep AVCs land too)."
@@ -1152,7 +1403,9 @@ do_run() {
 
   step "analyzing ai_tools_t denials since ${START_DATE} ${START_TIME}"
   local analyze_rc probe_status probe_logs
-  "${DIR}/avc-analyze.sh" -ts "${START_DATE}" "${START_TIME}"
+  local -a analyze_flags=(--probe-run)
+  [[ -n "${login_pty}" ]] && analyze_flags+=(--login-pty "${login_pty}")
+  "${DIR}/avc-analyze.sh" "${analyze_flags[@]}" -ts "${START_DATE}" "${START_TIME}"
   analyze_rc=$?
 
   # The run passes only when the analysis searched the window and the probe bound to this run finished clean.
@@ -1180,9 +1433,25 @@ do_run() {
   else
     err "analysis: avc-analyze.sh exited ${analyze_rc}"
   fi
+  # The fixture's denial is the one record this run knows must be in the window, so it is the control that audit
+  # collection and the window worked: without it, an empty bucket in the analysis says nothing about the policy.
+  local collection_confirmed=0
+  if [[ -n "${login_pty}" ]]; then
+    if ausearch -m AVC -ts "${START_DATE}" "${START_TIME}" 2>/dev/null \
+        | grep -E 'avc:[[:space:]]*denied  \{ open \} ' \
+        | grep -E "path=\"${login_pty}\"|name=\"${login_pty##*/}\" dev=\"devpts\"" \
+        | grep -qE 'scontext=[^ ]*:ai_tools_t:[^ ]* tcontext=[^ ]*:user_devpts_t:'; then
+      collection_confirmed=1
+      note "collection: the login-pty fixture's open denial is in the window"
+    else
+      err "collection: no open denial on ${login_pty} in the window -- the audit trail of this run is not evidence"
+    fi
+  else
+    err "collection: no login-pty fixture, so the window has no control record"
+  fi
   (( enforcing_confirmed )) || err "enforcement: not confirmed by this run"
   # The EXIT trap restores dontaudit after the return.
-  [[ "${probe_status}" == 0 && "${analyze_rc}" -eq 0 ]] && (( enforcing_confirmed )) && return 0
+  [[ "${probe_status}" == 0 && "${analyze_rc}" -eq 0 ]] && (( enforcing_confirmed && collection_confirmed )) && return 0
   return 1
 }
 
@@ -1197,6 +1466,10 @@ case "${1:-}" in
     shift || true
     FORCE=0
     ENFORCING_CONFIRMED=0
+    # Set from `--fips-mode` and `--login-pty` alone; an inherited value would stand in for a reading the root half did
+    # not make.
+    FIPS_MODE=""
+    LOGIN_PTY=""
     while [[ "${1:-}" == --* ]]; do
       case "$1" in
         --force) FORCE=1; shift ;;
@@ -1204,6 +1477,14 @@ case "${1:-}" in
         --run-id)
           [[ "${2:-}" =~ ^[0-9a-f]{16}$ ]] || { err "--run-id takes the 16 hex digits the root half printed"; exit 1; }
           RUN_ID="$2"
+          shift 2 ;;
+        --fips-mode)
+          [[ "${2:-}" == on || "${2:-}" == off ]] || { err "--fips-mode takes on or off"; exit 1; }
+          FIPS_MODE="$2"
+          shift 2 ;;
+        --login-pty)
+          [[ "${2:-}" =~ ^/dev/pts/[0-9]+$ ]] || { err "--login-pty takes the /dev/pts/<n> path the root half printed"; exit 1; }
+          LOGIN_PTY="$2"
           shift 2 ;;
         --groups)
           [[ "${2:-}" =~ ^[a-z0-9_,]+$ ]] || { err "--groups takes a comma-separated list of group names (or 'none')"; exit 1; }

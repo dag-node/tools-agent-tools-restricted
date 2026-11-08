@@ -72,13 +72,12 @@ them without asking, are
 ai-tools: cannot resolve the parent directory: /home/you/Devlopment -- it does not exist, or a symbolic link on its path leads through a directory you cannot enter
 ```
 
-It creates exactly one directory, so the parent has to exist. A `mkdir -p`
-would have created `Devlopment/`, put the project inside it, claimed it
-and reported success — a claimed project in a directory nobody meant to make.
-The refusal names the missing parent, and a `mkdir -p` of your own, once you
-have checked the path, makes it. A symbolic link that leads through a directory
-you cannot enter looks the same as a missing directory from your account,
-so the refusal names both causes.
+It creates exactly one directory, so the parent has to exist
+([ref-section-x8s5](../../.claude/rules/cli.rule.md#ref-section-x8s5) states
+why). The refusal names the missing parent, and a `mkdir -p` of your own, once
+you have checked the path, makes it. A symbolic link that leads
+through a directory you cannot enter looks the same as a missing directory
+from your account, so the refusal names both causes.
 
 ```text
 ai-tools: this path already exists: /home/you/src/newproject

@@ -111,15 +111,15 @@ as it is. The helper directory the program sits in is root-only, so an operator 
 **`atr` is the command a reader types, and it adds a spelling, not a program.** `atr admin <command>` runs
 `ai-tools-admin` at its fixed path — directly as root, and otherwise through `sudo` after one line on stderr saying so —
 and every other `atr <command>` runs `ai-tools`, whose own refusals stand. `admin` is read as the first word alone,
-so `atr --for <operator> admin …` runs `ai-tools`, whose `--for` gate refuses it (`require_for_target` runs ahead
-of the dispatch, so the refusal is `MSG-U7R7` and not the unknown-command one), and `ai-tools` does not take an `admin`
-verb. For an operator, `atr` renders an admin help request, a bare `atr admin` and `atr admin --version` itself,
-from `help.lib.sh`, the library both programs render their help from, over the fixed domain directory, so none of them
-asks a password; a domain's own help, an unknown path's and every other admin command line take `sudo`, and so does
-the sandbox account's help request, which sudo refuses. `atr admin stop` without a help flag runs `ai-tools stop`
-for every caller, so its bare form reaches the stop helper's NOPASSWD rule, and that branch does not read a library.
-The dispatch lives in `atr.sh` rather than in `ai-tools.sh`, since the operator CLI is the file that refuses root
-for every writing verb ([cli](cli.rule.md)).
+so `atr --for <operator> admin …` runs `ai-tools`, which does not take an `admin` verb: on a provisioned host
+`require_for_target` refuses it as an unknown command (`MSG-S2H5`) ahead of its own `--for` refusal,
+and an unprovisioned host meets the bootstrap gate first. For an operator, `atr` renders an admin help request, a bare
+`atr admin` and `atr admin --version` itself, from `help.lib.sh`, the library both programs render their help
+from, over the fixed domain directory, so none of them asks a password; a domain's own help, an unknown path's and every
+other admin command line take `sudo`, and so does the sandbox account's help request, which sudo refuses.
+`atr admin stop` without a help flag runs `ai-tools stop` for every caller, so its bare form reaches the stop helper's
+NOPASSWD rule, and that branch does not read a library. The dispatch lives in `atr.sh` rather than in `ai-tools.sh`,
+since the operator CLI is the file that refuses root for every writing verb ([cli](cli.rule.md)).
 
 Two authorization shapes reach the admin program, and the first is the documented one. `atr admin X` has sudo authorize
 `/usr/local/libexec/ai-tools/ai-tools-admin X`, the command every grant and audit record for `ai-tools-admin` names.
@@ -173,10 +173,10 @@ The rules that bind that surface:
 **The root helpers under `/usr/local/libexec/ai-tools/` are outside this grammar.** `ai-tools-chown`,
 `ai-tools-setfacl`, `ai-tools-unclaim` and the rest are reached at a fixed path — by the CLI over `sudo`,
 or by the handback daemon — and never typed by a person. One of them, `ai-tools-stop`, carries a `%ai-ops` NOPASSWD rule
-in the sudoers drop-in, pinned to its zero-argument form; every other helper is reached over the caller's general sudo
-grant and validates its own arguments ([launch](launch.rule.md) holds the drop-in, [cli](cli.rule.md) the privilege
-model). They are an internal calling convention, and renaming one changes a security contract rather than a user
-surface.
+in the sudoers drop-in, pinned to its zero-argument form ([ref-section-r5r9](stop.rule.md#ref-section-r5r9)); every
+other helper is reached over the caller's general sudo grant and validates its own arguments ([launch](launch.rule.md)
+holds the drop-in, [cli](cli.rule.md) the privilege model). They are an internal calling convention, and renaming one
+changes a security contract rather than a user surface.
 
 ## When a resource takes the `system` domain
 
@@ -272,13 +272,13 @@ for an operator, as the rules ask of a bare domain.
 
 `ai-tools-admin` conforms: `operators [list|add|remove]`, `selinux groups [list|enable|disable]`,
 `system bootstrap [--scope minimal|full] [--agents NAME[,NAME...]]`, `system entrypoints relabel`,
-`system post-upgrade`, `status`, `assets [list|enable|disable|reconcile]`, `stop`, `--help`/`-h`/`help` after any
-command path, `--version`, plus one domain per installed provider — `dotnet bootstrap`, `dotnet tools install <pkg...>`,
-`dotnet status`. `ai-tools-admin(8)` documents the base surface and `tests/unit/man.sh` holds the page, the helper's
-rows in `help.lib.sh` and its dispatch arms in agreement, so a command renamed in one of the three fails the suite
-rather than going stale in the others. A contributed domain is outside that pairing by construction — its commands exist
-only where the package is installed — so the page documents the **seam**, `--help` lists the domains this host has,
-and each domain answers its own `--help`.
+`system post-upgrade`, `system layout [list|reconcile]`, `status`, `assets [list|enable|disable|reconcile]`, `stop`,
+`--help`/`-h`/`help` after any command path, `--version`, plus one domain per installed provider — `dotnet bootstrap`,
+`dotnet tools install <pkg...>`, `dotnet status`. `ai-tools-admin(8)` documents the base surface and `tests/unit/man.sh`
+holds the page, the helper's rows in `help.lib.sh` and its dispatch arms in agreement, so a command renamed in one
+of the three fails the suite rather than going stale in the others. A contributed domain is outside that pairing
+by construction — its commands exist only where the package is installed — so the page documents the **seam**, `--help`
+lists the domains this host has, and each domain answers its own `--help`.
 
 Three names carry a `%{_sbindir}` symlink so `sudo <name>` resolves through `secure_path`: `ai-tools`, `ai-tools-admin`,
 and `atr`, the one that is a spelling over the other two rather than a program of its own. Every other command in this
@@ -323,9 +323,8 @@ of the command being completed. It reads `admin` as the first word alone, as the
 stands, as `ai-tools` does, so a line completes as the program that will run it reads it.
 
 **The command words and the options are the completion's own data**, and `tests/unit/completion.sh` holds them to each
-program in both directions: the command paths to the rows `help.lib.sh` holds for it, and the options after each command
-to the tag line of its man page entry, with every option it offers one the page documents. A command added to a dispatch
-without a completion word fails that file beside `man.sh`.
+program's help rows and man page ([tests](tests.rule.md)), so a command added to a dispatch without a completion word
+fails the suite.
 
 **A Tab does not run a program of this project.** The names an option takes from the host — the enrolled operators,
 the installed agent manifests, the domains provider packages contribute, the SELinux groups — are read as text
@@ -333,8 +332,8 @@ from the root-owned file or directory that holds them, and each name is held to 
 `compgen -W`, which expands the words it is given. Running either program on each Tab would put its gates
 in an operator's prompt, and sourcing `help.lib.sh` would load the trust libraries into the completing shell.
 
-The completion's `atr` name is one of the names the short command takes, so `install.sh`'s `ATR_NAMES` and the base
-`%pre` replace and remove it only in this project's form, the header line its second line opens with.
+The completion's `atr` name is one of the names the short command takes, so the installers replace and remove it only
+in this project's form (`install.sh`'s `ATR_NAMES`).
 
 ## Why not
 

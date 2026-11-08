@@ -11,10 +11,10 @@
 # operator-only and off the handback socket.
 #
 # Each edit is a `git config --file` write, which renames a new inode over the file; the helper then restores the file's
-# owner, mode and SELinux type through control-plane.lib.sh, a by-path label write that is sound because /opt/ai-tools
-# does not carry group write (CP_HOME_MODE), so the sandbox account cannot place a name there.
+# owner, mode and SELinux type through control-plane.lib.sh, whose contract states the condition that keeps a by-path
+# label write sound.
 #
-# ADD requires the path to be an allowlisted project (resolve_owner); `--remove` does not take a registry gate,
+# ADD requires the path to be a registered project (resolve_owner); `--remove` does not take a registry gate,
 # so an entry is removable whatever the registry holds for the path, before or after its de-list, and it removes
 # the value as git holds it where the argument is that spelling, the canonical path of the directory otherwise. Both are
 # idempotent; the path defaults to cwd. A list git cannot read, and an entry the list still holds after its removal,

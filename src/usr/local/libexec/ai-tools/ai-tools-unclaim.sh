@@ -9,9 +9,9 @@
 #      the tree out of @SANDBOX_GROUP@;
 #   3. removes group WRITE: 660 -> 640, 770 -> 750, 400 stays 400; group read and traverse stay. Group
 #      execute comes off a data file alone, keyed on OWNER-execute (the bit git records): `setfacl -b`
-#      promotes the tree's `group::r-x` base into the mode, so a plain file the agent wrote can surface
-#      as 0650. On a DIRECTORY the setgid bit claim added is cleared too (`chmod g-w,g-s`; a numeric chmod
-#      leaves a directory's setgid standing). A file keeps its setuid/setgid bits.
+#      promotes the tree's `group::r-x` base into the mode, under the mask the path carried, so a plain file
+#      the agent wrote can surface as 0650. On a DIRECTORY the setgid bit claim added is cleared too
+#      (`chmod g-w,g-s`; a numeric chmod leaves a directory's setgid standing). A file keeps its setuid/setgid bits.
 # Net effect: the agent (group @SANDBOX_GROUP@) loses access through the group owner and the named ACL entry alike,
 # and the tree carries plain Unix permissions under the new group. `.git`, which the main walk skips with the other
 # heavy trees, is reverted by a dedicated pass, so git history is revoked with the rest.
@@ -23,8 +23,8 @@
 #
 # Two modes, differing ONLY in which paths they accept -- never in what they do to a path they accept, so one reversal
 # is described once and tested once:
-#   default      the whole tree is authorized by its allowlist entry, and every eligible path in it is reverted.
-#   `--unlisted` the tree is in NO allowlist (a claimed project copied or moved elsewhere and never unclaimed), so it
+#   default      the whole tree is authorized by its registry entry, and every eligible path in it is reverted.
+#   `--unlisted` the tree is in NO registry (a claimed project copied or moved elsewhere and never unclaimed), so it
 #                has no authorization of its own; a path is touched only while it still bears the ai-tools
 #                fingerprint (_is_residue: owned by the sandbox account, grouped to it, or carrying its named ACL
 #                entry), so a path that was never part of a claim is left byte for byte as it is. This mode also
@@ -34,7 +34,7 @@
 #
 # Owner guard: only the projects user's and the sandbox account's own files are touched, the rule the claim walks hold.
 # Under `--unlisted` the "projects user" is the operator who invoked sudo, validated against OPERATORS, since no
-# allowlist entry names the owner of an unlisted tree.
+# registry entry names the owner of an unlisted tree.
 #
 # Hardlink guard: a regular file with more than one name is refused in BOTH modes, the boundary ai-tools-chown holds too
 # -- chgrp and chmod act on the inode, which a second name reaches from outside the tree, so acting would change a path
@@ -337,10 +337,10 @@ _safe_unclaim() {
         chmod g-w,g-s "/proc/self/fd/${fd}" 2>/dev/null || rc=1
     else
         # Drop group WRITE; also drop a stray group EXECUTE on a data file. `setfacl -b` promoted the ACL's group:: base
-        # (r-x on a tree the agent wrote) into the mode, so a data file can land group-executable (0650); strip
-        # that, keyed on OWNER-execute (the bit git records) so a genuine script (owner rwx) keeps group r-x (-> 750)
-        # while a data file (owner rw) drops to 640. Relative g-w[,g-x] leaves any setuid/setgid bit on the file
-        # untouched (an sgid binary is not altered).
+        # (r-x on a tree the agent wrote) into the mode under the path's mask, so a data file can land group-executable
+        # (0650); strip that, keyed on OWNER-execute (the bit git records) so a genuine script (owner rwx) keeps group
+        # r-x (-> 750) while a data file (owner rw) drops to 640. Relative g-w[,g-x] leaves any setuid/setgid bit
+        # on the file untouched (an sgid binary is not altered).
         local fmode gxarg=""
         fmode="$(stat -L -c '%a' "/proc/self/fd/${fd}" 2>/dev/null)" || fmode=""
         if [[ -n "${fmode}" ]] && (( ( ( 8#${fmode} >> 6 ) & 1 ) == 0 )); then
@@ -442,37 +442,36 @@ if [[ -d "${gitdir}" ]] && ! _is_excluded "${gitdir}"; then
     fi
 fi
 
-# SELinux label reset (`--unlisted` only): a tree that was MOVED rather than copied keeps the ai_tools_project_t label
-# it was claimed with. No fcontext rule names the new path, so `ai-tools-relabel --remove` has no rule to remove;
-# a forced restorecon resets the tree to the default its location resolves to. Gated on the root actually carrying
-# the label, so a tree that never had it is not relabelled as a side effect of unclaiming. Best-effort: a label left
-# behind is a defence-in-depth gap, not an access grant -- the DAC reversal has already removed the agent's reach.
-# The tree was a claimed project, so the walk runs only while no process of the sandbox account is live, read
-# through sessions.lib.sh, and a reading that cannot be made skips it as a live one does (cli.rule.md,
-# ref-section-e6c6).
-if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" ]] \
-        && command -v restorecon >/dev/null 2>&1; then
-    if [[ "$(stat -c '%C' "${canonical}" 2>/dev/null)" == *:ai_tools_project_t:* ]]; then
-        sessions_state=unreadable
-        # shellcheck source=SCRIPTDIR/../../lib/ai-tools/sessions.lib.sh
-        if source /usr/local/lib/ai-tools/sessions.lib.sh 2>/dev/null \
-                && declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1; then
-            sessions_state="$(ai_tools_sessions__read_live_session_state)"
-        fi
-        if [[ "${sessions_state}" != none ]]; then
-            warn MSG-T6T2 "left the SELinux label under ${canonical} as it was: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then run: sudo restorecon -RF ${canonical}"
-            ai_tools_log__coded warning "${_warn_code}" \
-                "left the SELinux label under ${canonical}: a session of the sandbox account was live" \
-                "AI_TOOLS_RESULT=skipped"
-        elif restorecon -RF -- "${canonical}" 2>/dev/null; then
-            ai_tools_log__structured info \
-                "reset SELinux label under ${canonical} (was ai_tools_project_t)" "AI_TOOLS_RESULT=ok"
-        else
-            warn MSG-T4S2 "could not reset the SELinux label -- run: sudo restorecon -RF ${canonical}"
-            ai_tools_log__coded warning "${_warn_code}" \
-                "could not reset the SELinux label under ${canonical}" "AI_TOOLS_RESULT=failed"
-        fi
-    fi
+# reset_unlisted_label: the SELinux label reset (`--unlisted` only). A tree that was MOVED rather than copied keeps
+# the ai_tools_project_t label it was claimed with. No fcontext rule names the new path, so `ai-tools-relabel --remove`
+# has no rule to remove; a forced relabel resets the tree to the default its location resolves to. Gated on the root
+# actually carrying the label, so a tree that never had it is not relabelled as a side effect of unclaiming. The walk
+# runs through ai-tools-relabel-tree, the descriptor-pinned walker, which labels the entry it holds open and so walks
+# whatever process of the sandbox account is live (cli.rule.md, ref-section-e6c6); `canonical` is the path the walker
+# reads back. A walk that left hardlinked paths at the project type is warned under MSG-B7A8 naming each, with the find
+# that lists the tree's hardlinked files, since a path left on a type the agent reads and writes is more access --
+# the shape this helper's hand-back pass takes for a hardlink; any other non-zero exit is warned under MSG-T4S2
+# with the walker's line and the walk to re-run. Best-effort: a label left behind is a defence-in-depth gap, not
+# an access grant -- the DAC reversal has already removed the agent's reach.
+reset_unlisted_label() {
+    local lines rc=0 kept
+    [[ "$(stat -c '%C' "${canonical}" 2>/dev/null)" == *:ai_tools_project_t:* ]] || return 0
+    lines="$(/usr/local/libexec/ai-tools/ai-tools-relabel-tree -- "${canonical}" 2>&1 >/dev/null)" || rc=$?
+    kept="$(grep -v '^summary ' <<<"${lines}" | tr '\n' ';' | sed 's/;$//')"
+    case "${rc}" in
+        0) ai_tools_log__structured info \
+               "reset SELinux label under ${canonical} (was ai_tools_project_t)" "AI_TOOLS_RESULT=ok" ;;
+        4) warn MSG-B7A8 "reset the SELinux label under ${canonical} except these hardlinked paths, which keep ai_tools_project_t: ${kept:-the walker printed no detail}; list the hardlinked files the tree holds now with: find $(printf '%q' "${canonical}") -xdev -type f -links +1"
+           ai_tools_log__coded warning "${_warn_code}" \
+               "reset the SELinux label under ${canonical} except its hardlinked paths" "AI_TOOLS_RESULT=partial" ;;
+        *) warn MSG-T4S2 "could not reset the SELinux label under ${canonical} -- ${kept:-ai-tools-relabel-tree exited ${rc}}; run: sudo /usr/local/libexec/ai-tools/ai-tools-relabel-tree -- $(printf '%q' "${canonical}")"
+           ai_tools_log__coded warning "${_warn_code}" \
+               "could not reset the SELinux label under ${canonical}" "AI_TOOLS_RESULT=failed" ;;
+    esac
+    return 0
+}
+if ${UNLISTED} && [[ "$(getenforce 2>/dev/null || echo Disabled)" != "Disabled" ]]; then
+    reset_unlisted_label
 fi
 
 exit 0

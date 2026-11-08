@@ -30,6 +30,8 @@ BuildRequires:  systemd-rpm-macros
 BuildRequires:  selinux-policy-devel
 BuildRequires:  policycoreutils
 BuildRequires:  make
+# %%build rewrites the installed documentation's links into the source tree (packaging/rewrite-doc-links.py).
+BuildRequires:  python3
 
 # Shell/Python scripts only: no ELF, so suppress the debuginfo subpackage and the
 # binary build-root policy steps (ldconfig/strip) that do not apply to a noarch package.
@@ -125,6 +127,10 @@ Summary:        SELinux confinement policy for the ai-tools sandbox
 License:        GPL-2.0-or-later
 Requires:       ai-tools-base = %{version}-%{release}
 Requires(post): policycoreutils
+# The tree relabel ai-tools-base ships loads libselinux.so.1 through ctypes, which rpm's dependency generator does not
+# read. Base runs DAC-only without it, and the walker exits 3 there only when a label is asked for, which the helper
+# reports.
+Requires:       libselinux
 Requires(post): libselinux-utils
 Requires(postun): policycoreutils
 
@@ -305,6 +311,9 @@ grep -rlZ '@AI_TOOLS_VERSION@' src \
 # group or adding a layout module touches the registry or a manifest and no line of this spec.
 make -C selinux/policy \
     $(bash selinux/policy/shipped-modules.sh src/usr/local/lib/ai-tools/integrations.d | sed 's/$/.pp/')
+# The package installs docs/ and README.md alone, so each link they make into a rule, CLAUDE.md or a source file
+# is rewritten to the same path at this release's tag, and an installed link reaches the version installed.
+python3 -I packaging/rewrite-doc-links.py --base %{url} --version %{version} --release '%{?rpm_release}' .
 
 %install
 # The /opt control plane and the /var trees ship root:ai-tools and stay that way: root (not the
@@ -320,6 +329,7 @@ for h in ai-tools-chown ai-tools-setgid ai-tools-setfacl ai-tools-unclaim \
     install -m 0750 src%{ai_libexecdir}/${h}.sh %{buildroot}%{ai_libexecdir}/${h}
 done
 install -m 0750 src%{ai_libexecdir}/ai-tools-handback.py %{buildroot}%{ai_libexecdir}/ai-tools-handback
+install -m 0750 src%{ai_libexecdir}/ai-tools-relabel-tree.py %{buildroot}%{ai_libexecdir}/ai-tools-relabel-tree
 
 # ai-tools-admin is typed by an administrator (documented as a bare command) and is the one
 # base helper that is not daemon- or sudoers-invoked by fixed path, so it gets a symlink in
@@ -1103,8 +1113,8 @@ fi
 # optional groups ship compiled alongside it but stay OFF, toggled per host with
 # `atr admin selinux groups enable <name>` (experimental groups are not shipped).
 #
-# `semodule -i` loads into the RUNNING policy, not just the module store: the entrypoint is
-# labelled by the restorecon only once the module's types exist in the kernel, and
+# `semodule -i` loads into the RUNNING policy, not just the module store: an entrypoint takes
+# ai_tools_exec_t from its agent's rule only once the module's types exist in the kernel, and
 # ai-tools-run's preflight refuses to launch (`mislabel`) while it is unlabelled. The default
 # module priority puts this in the same slot selinux/install-selinux.sh and `ai-tools-admin
 # selinux groups enable` address, so one host holds one copy of each module and a package upgrade
@@ -1138,20 +1148,39 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         echo "ai-tools-selinux: WARNING could not load the ai_tools policy module: ${_semodule_error}" >&2
         echo "ai-tools-selinux: sessions run unconfined until it loads; re-run: sudo semodule -i %{_datadir}/selinux/packages/ai-tools/ai_tools.pp" >&2
     }
-    # The root-owned trees are restored unconditionally. /opt/ai-tools and the clone area hold trees the sandbox account
-    # writes, so they are restored only while no process of that account is live (cli.rule.md, ref-section-e6c6), read
-    # through sessions.lib.sh -- a library or reader this host lacks reads as live -- and a skip prints one WARNING
-    # naming the stop and the restorecon to run after it. A scriptlet must succeed, so the skip is not an error.
-    _sandbox_session_state=$(bash -c '. /usr/local/lib/ai-tools/sessions.lib.sh; declare -F ai_tools_sessions__read_live_session_state >/dev/null 2>&1 || { echo unreadable; exit 0; }; ai_tools_sessions__read_live_session_state' 2>/dev/null || :)
-    _sandbox_trees_skipped=0
+    # The root-owned trees take restorecon. /opt/ai-tools and the clone area hold trees the sandbox account writes,
+    # so each goes through ai-tools-relabel-tree, base's descriptor-pinned walker, which labels the entry it holds open
+    # and so walks while a session of that account runs (cli.rule.md, ref-section-e6c6), at the canonical path realpath
+    # resolves: the walker reads its root back through /proc/self/fd and refuses one whose path differs, which /opt
+    # as a symlink makes of the fixed path. A path realpath cannot resolve is named and not walked. The walker's stderr
+    # is kept and its status read, so the call does not carry `|| :`: a walk that left hardlinked paths at their type
+    # (exit 4) is one NOTE per path, since the walker does not write a hardlinked file whose label differs, and an agent
+    # entrypoint among them takes its type from the agent relabel this scriptlet runs after its walks; every other
+    # non-zero exit is one WARNING
+    # carrying the walker's lines and the walk to re-run. A scriptlet must succeed, so neither is an error.
+    _walk_account_tree() {
+        _walk_rc=0; _walk_lines=""
+        [ -d "$1" ] || return 0
+        if ! _canonical=$(realpath -e -- "$1" 2>/dev/null); then
+            echo "ai-tools-selinux: WARNING could not resolve $1 to a canonical path, so it was not walked" >&2
+            return 0
+        fi
+        _walk_lines=$(%{ai_libexecdir}/ai-tools-relabel-tree -- "${_canonical}" 2>&1 >/dev/null) || _walk_rc=$?
+        _walk_lines=$(printf '%s\n' "${_walk_lines}" | grep -v '^summary ' || :)
+        case "${_walk_rc}" in
+            0) ;;
+            4) printf '%s\n' "${_walk_lines}" | while IFS= read -r _line; do
+                   [ -z "${_line}" ] || echo "ai-tools-selinux: NOTE ${_canonical}: ${_line}" >&2
+               done
+               echo "ai-tools-selinux: NOTE an agent entrypoint among the paths listed takes its type from the agent relabel that follows" >&2 ;;
+            *) echo "ai-tools-selinux: WARNING the walk over ${_canonical} did not label every entry, or the walker could not run (exit ${_walk_rc}): $(printf '%s' "${_walk_lines}" | tr '\n' ';'); re-run: sudo %{ai_libexecdir}/ai-tools-relabel-tree -- ${_canonical}" >&2 ;;
+        esac
+        return 0
+    }
     if command -v restorecon >/dev/null 2>&1; then
         restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools >/dev/null 2>&1 || :
-        if [ "${_sandbox_session_state}" = none ]; then
-            restorecon -R /opt/ai-tools >/dev/null 2>&1 || :
-        else
-            _sandbox_trees_skipped=1
-        fi
     fi
+    _walk_account_tree /opt/ai-tools
     # A renamed or split optional group: the registry (selinux-groups.lib.sh) records the former
     # module name per current group, and a host that enabled the old module keeps it loaded
     # across this upgrade. Replace it with every current group whose rules it carried, in a
@@ -1186,22 +1215,21 @@ if [ "$(getenforce 2>/dev/null)" != "Disabled" ] && command -v semodule >/dev/nu
         esac
     done
     # The sandbox clones take their labels from the static clone rules and the layout modules'
-    # rules, so they are relabelled after both have loaded. /var/opt is outside the restorecon
+    # rules, so they are relabelled after both have loaded. /var/opt is outside the walk
     # of /opt/ai-tools that follows the core load, and on a host whose file_contexts.subs_dist does
     # not alias /var/opt to /opt (EL9) a clone created before this module version carries var_t
     # until it is relabelled.
-    if command -v restorecon >/dev/null 2>&1 && [ -d /var/opt/ai-tools/sandbox-projects ]; then
-        if [ "${_sandbox_session_state}" = none ]; then
-            restorecon -R /var/opt/ai-tools/sandbox-projects >/dev/null 2>&1 || :
-        else
-            _sandbox_trees_skipped=1
-        fi
-    fi
-    if [ "${_sandbox_trees_skipped}" = 1 ]; then
-        echo "ai-tools-selinux: WARNING left the labels under /opt/ai-tools and the sandbox clones as they were: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then restore the labels:" >&2
-        echo "ai-tools-selinux:   sudo restorecon -R /opt/ai-tools /var/opt/ai-tools/sandbox-projects" >&2
-    fi
+    _walk_account_tree /var/opt/ai-tools/sandbox-projects
     exec 9>&-
+    # The walks label the trees; an agent's entrypoint takes ai_tools_exec_t from the rule its own manifest declares,
+    # which ai-tools-relabel-agent registers and applies per path, since the walk does not write the hardlinked
+    # entrypoint. It runs here as each agent's %%post runs it, once the lock is released, since the helper takes
+    # the same lock. A run that did not complete is a WARNING naming the on-demand reconcile, and the scriptlet's status
+    # is untouched: a launch refuses on a mislabelled entrypoint on its own. Absent on a host without ai-tools-base.
+    if [ -x %{ai_libexecdir}/ai-tools-relabel-agent ]; then
+        AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 %{ai_libexecdir}/ai-tools-relabel-agent >/dev/null 2>&1 \
+            || echo "ai-tools-selinux: WARNING the entrypoint relabel did not complete; see 'journalctl -t ai-tools-relabel-agent', then re-run: atr admin system entrypoints relabel" >&2
+    fi
     if command -v systemctl >/dev/null 2>&1 \
        && systemctl is-active --quiet ai-tools-handback.socket 2>/dev/null; then
         systemctl daemon-reexec >/dev/null 2>&1 || :
@@ -1221,8 +1249,8 @@ fi
 # The erase -- the local rules naming a type of this policy dropped ahead of the unload, the unload
 # read back from the store, the trees restored once that read-back shows every module gone, and
 # each step's fail direction -- is stated in confinement.rule.md ("How the policy ships"). Local to
-# this scriptlet: both store writes wait on the reading %%post makes of the sandbox account's
-# sessions, taken once the relabel lock is held (%%post states the lock), since a session can start
+# this scriptlet: both store writes wait on a reading of the sandbox account's sessions
+# (sessions.lib.sh), taken once the relabel lock is held (%%post states the lock), since a session can start
 # during the wait; a scriptlet must succeed, so a reading that is not `none` and a lock not taken
 # are each reported and are not errors. A dropped project-shaped rule is named with its restorecon
 # and not walked, since this scriptlet holds neither the protected-paths backstop nor the literal
@@ -1243,9 +1271,37 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
         loaded_modules=$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | tr '\n' ' ' || :)
         echo "ai-tools-selinux: WARNING left the policy loaded and every local file-context rule in place: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read. Let each session end (/exit inside it) and the toolchain update finish, or end them all with atr stop, then re-run this step:" >&2
         echo "ai-tools-selinux:   sudo dnf install ai-tools-selinux && sudo dnf remove ai-tools-selinux" >&2
-        echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
+        echo "ai-tools-selinux:   or by hand: drop each rule 'sudo semanage fcontext -l -C | grep ai_tools' lists (sudo semanage fcontext -d -f <letter> -- <pattern>), unload with: sudo semodule -r ${loaded_modules:-<module>...}, then restore the labels: sudo restorecon -R %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /run/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects, and each project tree a dropped rule named" >&2
         exec 9>&-
     else
+    # Each installed agent's declared paths are reverted first, while the policy still defines their types, as
+    # install-selinux.sh's `remove` reverts them: ai_tools_relabel__unlabel_agent_paths (relabel.lib.sh) drops
+    # the agent's rules and returns each entrypoint path to its default type through a per-path `restorecon -F`.
+    # The walk over /opt/ai-tools after the unload does not write a hardlinked file whose label differs, so
+    # an entrypoint with a second name would be listed there and keep ai_tools_exec_t; reverted here, the inode is
+    # at its default type when that walk meets it. The function does not take the relabel lock, which this
+    # scriptlet holds; `ai-tools-relabel-agent --remove` takes it, so that helper is not the call. A launch started
+    # while this erase runs may start without the transition, as every launch after it does (cli.rule.md,
+    # ref-section-e6c6). An erase that leaves the policy loaded does not reach this branch. Each agent's config directory is walked twice on this path: here, under the loaded
+    # policy, and by the walk over /opt/ai-tools after the unload.
+    bash -c '
+        set -- /usr/local/lib/ai-tools/agents.d/*.conf
+        [ -e "$1" ] || exit 0
+        . /usr/local/lib/ai-tools/relabel.lib.sh 2>/dev/null
+        declare -F ai_tools_relabel__unlabel_agent_paths >/dev/null 2>&1 || { echo "ai-tools-selinux: relabel.lib.sh did not load, so the paths each agent declares keep their types until the walk after the unload"; exit 0; }
+        for manifest in "$@"; do
+            agent=${manifest##*/}; agent=${agent%%.conf}
+            rc=0; ai_tools_relabel__unlabel_agent_paths "${agent}" || rc=$?
+            case "${rc}" in
+                0) ;;
+                2) echo "ai-tools-selinux: ${agent}: the SELinux layer is inactive here, so no file-context rule was dropped" ;;
+                4) echo "ai-tools-selinux: ${agent}: the walk over its config directory left these entries at their type: ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-the walker printed no detail}" ;;
+                5) echo "ai-tools-selinux: ${agent}: dropped its file-context rules; a path they covered keeps its type -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" ;;
+                6) echo "ai-tools-selinux: ${agent}: dropped its file-context rules; the tree walker could not run over its config directory -- ${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS:-no detail}" ;;
+                *) echo "ai-tools-selinux: ${agent}: no file-context rules to drop" ;;
+            esac
+        done
+    ' >&2 || :
     if command -v semanage >/dev/null 2>&1; then
         semanage fcontext -l -C -n 2>/dev/null | awk '
             {
@@ -1309,11 +1365,43 @@ if [ "$1" -eq 0 ] && command -v semodule >/dev/null 2>&1; then
             "$(printf '%s' "${listing}" | tr '\n' ' ')" >&2
     fi
     exec 9>&-
-    if [ "${unloaded}" = 1 ] && command -v restorecon >/dev/null 2>&1; then
-        for tree in %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
+    # The trees the sandbox account writes go through ai-tools-relabel-tree, the walker %%post runs, while it is still
+    # executable: an erase that removes ai-tools-base in the same transaction may have removed it, and the tree then
+    # takes restorecon. The walk is over the canonical path, as the %%post's is, and a path realpath cannot resolve is
+    # named and not walked. A walk that left hardlinked paths at their type (exit 4) is a WARNING, since each keeps
+    # a type the policy no longer defines and the walker does not write it: the walker's line per path, and the find
+    # that lists the inode's names from the tree's mount. No restorecon of a path inside the toolchain is printed:
+    # a root write by a path the account owns. The root-owned trees take restorecon.
+    if [ "${unloaded}" = 1 ]; then
+        for tree in %{ai_libexecdir} %{ai_libdir} /var/log/ai-tools /run/ai-tools /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
             [ -e "${tree}" ] || continue
-            restorecon -R "${tree}" >/dev/null 2>&1 \
-                || echo "ai-tools-selinux: could not restore the default types under ${tree}; run: sudo restorecon -R ${tree}" >&2
+            case "${tree}" in
+                /opt/ai-tools|/var/opt/ai-tools/sandbox-projects) account_tree=1 ;;
+                *) account_tree=0 ;;
+            esac
+            if [ "${account_tree}" = 1 ] && [ -x %{ai_libexecdir}/ai-tools-relabel-tree ]; then
+                if ! canonical=$(realpath -e -- "${tree}" 2>/dev/null); then
+                    echo "ai-tools-selinux: WARNING could not resolve ${tree} to a canonical path, so its default types were not restored" >&2
+                    continue
+                fi
+                walk_rc=0
+                walk_lines=$(%{ai_libexecdir}/ai-tools-relabel-tree -- "${canonical}" 2>&1 >/dev/null) || walk_rc=$?
+                case "${walk_rc}" in
+                    0) ;;
+                    4) mount=$(stat -c '%%m' -- "${canonical}" 2>/dev/null || echo /)
+                       echo "ai-tools-selinux: WARNING these paths under ${canonical} keep a type the policy no longer defines; each is followed by the find that lists its inode's names:" >&2
+                       printf '%s\n' "${walk_lines}" | grep -v '^summary ' | while IFS= read -r line; do
+                           [ -n "${line}" ] || continue
+                           echo "ai-tools-selinux:   ${line}" >&2
+                           inode=$(printf '%s' "${line}" | sed -n 's/.*inode \([0-9][0-9]*\))$/\1/p')
+                           [ -z "${inode}" ] || echo "ai-tools-selinux:     sudo find ${mount} -xdev -inum ${inode} -ls" >&2
+                       done ;;
+                    *) echo "ai-tools-selinux: could not restore the default types under ${canonical}; run: sudo %{ai_libexecdir}/ai-tools-relabel-tree -- ${canonical}" >&2 ;;
+                esac
+            elif command -v restorecon >/dev/null 2>&1; then
+                restorecon -R "${tree}" >/dev/null 2>&1 \
+                    || echo "ai-tools-selinux: could not restore the default types under ${tree}; run: sudo restorecon -R ${tree}" >&2
+            fi
         done
     fi
     fi
@@ -1596,6 +1684,7 @@ fi
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-unclaim
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-lockdown
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel
+%attr(0750, root, root) %{ai_libexecdir}/ai-tools-relabel-tree
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-safedir
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-reclaim
 %attr(0750, root, root) %{ai_libexecdir}/ai-tools-allowlist
@@ -1850,7 +1939,82 @@ fi
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/requirements.toml
 %attr(0644, root, root) %{_datadir}/ai-tools/codex/managed_config.toml
 
+# A released entry cites the message codes live at its release, so the reftags check reads what follows as history.
+# ref-index: history
 %changelog
+* Sun Nov 08 2026 dagnode <tools@dagnode.com> - 0.29.0-1
+- CHANGE: Updates and claims are not blocked by running sessions. A claim, an unclaim, a removal,
+  an agent config directory's relabel after a toolchain update and the label walks of an install
+  or a 'dnf update' run beside a live session: the walker holds each entry by a descriptor, so a
+  session renaming a directory or planting a symlink cannot redirect a label. Only removing the
+  policy ('install-selinux.sh remove', erasing ai-tools-selinux) still waits for sessions to end.
+- CHANGE: A label walk leaves a hardlinked file at its type and names it, since through its other
+  name it may belong to another tree. A claim names up to 20 (MSG-R5F8); an unclaim or a removal
+  reports its label step failed over them with the 'find' that lists them, and a removal prints a
+  'sudo find ... -inum' for each once the tree is gone. An upgrade prints a NOTE per hardlinked
+  file its walks left; an agent's binary among them is labelled by the agent relabel after it.
+- CHANGE: 'ai-tools-relabel --remove' exits 4 for a revert that left hardlinked files and 6 where
+  the tree walker could not run, 'ai-tools-relabel' exits 5 where the host has no label to apply,
+  and 'install-selinux.sh remove' exits 1 when it names a path left on a removed type.
+  ai-tools-selinux requires libselinux, and no longer python3-libselinux.
+- CHANGE: A claim refuses a project root whose own mode is owner-only (700, 600, 500) before its
+  first write (MSG-H6J3; MSG-B5D2 for a listed project, its line kept), and no session starts in
+  such a directory (MSG-H2E2). Before, the claim reported success over a root that no grant
+  reached. 'atr projects create' without a path exits 2, where it exited 1.
+- CHANGE: 'atr status' exits 4 on a host that sets AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY and enables
+  an agent with no release manifest and no pin; that agent's launches were already refused.
+- CHANGE: A sandbox clone 0.28.x created holds its files in your group rather than ai-tools, so
+  the agent cannot read them; 0.29.0 creates a clone in that group. Re-run 'atr projects clone
+  <clone>' on one: it reports the clone not ready and prints the two commands that finish it,
+  'sudo /usr/local/libexec/ai-tools/ai-tools-setgid <clone>' and
+  'sudo /usr/local/libexec/ai-tools/ai-tools-setfacl --with-git <clone>'.
+- CHANGE: A project claimed on 0.22 or earlier whose path holds a '.', and not re-claimed since,
+  keeps a raw file-context rule this release does not retire. List it with
+  'sudo semanage fcontext -l -C | grep ai_tools_project', and drop it with
+  'sudo semanage fcontext -d '<pattern>''.
+- SECURITY: A command a session runs cannot type into the agent's prompt: the core policy module
+  0.11.0 refuses the TIOCSTI and TIOCLINUX ioctls on every terminal a session uses, with EACCES.
+  A session reaches its login terminal only through the descriptors it inherits, so it cannot
+  open your other login terminals by their /dev/pts name. Claude Code's start-up reopen of its own
+  terminal is refused that way and kept out of the audit log.
+- SECURITY: ai-tools unsets git's repository-selection variables (GIT_DIR, GIT_WORK_TREE and the
+  rest) and GIT_CONFIG before its first git call. Under GIT_DIR, a claim wrote core.filemode into
+  the repository the variable named and a create's 'git init' initialised it. GIT_CONFIG_GLOBAL,
+  GIT_CONFIG_COUNT and their kin pass through, so a clone and a push keep your credential helper.
+- SECURITY: The launch refuses a working directory whose path holds a control character
+  (MSG-P5X5), and a claim refuses such a path (MSG-V8Z5), so a directory name a session creates
+  cannot put a terminal escape on a screen the launch prints.
+- NEW: Claude Code background sessions ('/fork', '/background', 'claude --bg') run under SELinux
+  enforcing once 'atr admin selinux groups enable localipc' has loaded that group; without it a
+  background request prints its EACCES error and the session keeps running in the foreground.
+  Disable the group with no background session running, 'atr stop' first: a background session
+  started while it was loaded ends at the next background request made without it.
+- NEW: 'atr stop' shows who started each session, read from the kernel, and its PID, lists each
+  session's launch under it and the sessions by project, and asks about the agent sessions and
+  every process in the account's slice, which is what it stops. The default stays yes.
+- FIX: Removing the policy returns every path it typed to a default type -- the agent
+  entrypoints, /opt/ai-tools, the clone area, the logs, the root helpers and the handback runtime
+  directory -- or names the path with the 'find' that lists its other names.
+- FIX: 'install.sh' restarts the relabel watcher wherever it is enabled, and the remedy for a
+  stale unit file leads with 'sudo systemctl daemon-reload'. A symlinked /opt or /var/opt works.
+- FIX: A fresh bootstrap updates npm before installing the agents, as the nightly updater does.
+  An invalid npm registry signature is audited once more before it fails the run, and each
+  invalid entry names npm's code, key id, integrity and message.
+- FIX: 'atr status' reports the readings it skipped: run as root, its PATH ordering lines read
+  n/a with no remedy; a library it needs that did not load is named and exits 5, where a section
+  was left out or read as SELinux inactive; and an agent with no pin has its label record shown.
+- FIX: 'atr --for <operator>' with an unknown command is refused as one (MSG-S2H5, exit 2). 'atr
+  projects list' prints the safe.directory removal for a stale disabled line and reconciles
+  safe.directory without a registry file. 'atr projects remove' names 'cd' when the shell stood
+  in the removed tree, and a claim of a repository with no commits asks the .git question as a
+  create does.
+- FIX: When a session ends within five seconds on an enforcing host, the warning names a refused
+  access and its possible causes: the path's mode, its ACL and SELinux.
+- DOCS: Links in the installed documentation under /usr/share/doc/ai-tools point at the release's
+  tag, and ai-tools-messages(7) names a page by its installed path. docs/about/scope.md states a
+  session's terminal and network reach, and docs/agents/claude-code.md what background sessions
+  need.
+
 * Tue Nov 03 2026 dagnode <tools@dagnode.com> - 0.28.1-1
 - SECURITY: A source install ('selinux/install-selinux.sh') no longer gives a '!' path in your
   project registry the project's SELinux type; 0.28.0 registered one for each that exists. Where it

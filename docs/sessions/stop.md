@@ -2,6 +2,14 @@
 
 [Sessions](index.md) · **Stop** — [all docs](../index.md)
 
+How `atr stop` ends every agent session already running on this host
+and everything it spawned, what each outcome means, and what to do next.
+
+```bash
+atr stop              # terminate every agent session on this host
+atr stop --dry-run    # list what would be terminated, change nothing
+```
+
 `atr stop` terminates agent sessions that are **already running**,
 and everything they spawned. It is not how you finish a session you are done
 with — `/exit` inside the session is, and it lets the session run its own
@@ -21,11 +29,6 @@ written for a reviewer or a contributor in [the stop
 rule](../../.claude/rules/stop.rule.md).
 
 ## One form
-
-```
-atr stop              # terminate every agent session on this host
-atr stop --dry-run    # list what would be terminated, change nothing
-```
 
 Run it as yourself, not under `sudo` — the CLI reaches the root helper on its
 own, and the bare form runs without a password at all, so an unattended
@@ -71,32 +74,58 @@ cannot be read shows as `unknown` and is terminated like any other; attribution
 is for you to read, so a missing one costs you a label rather than costing
 the stop a target.
 
-**Agent sessions and the account's own plumbing are counted separately.**
-The slice holds more than sessions: the account's `systemd --user` and its
-`init.scope`, a dbus broker, a login session scope for every `sudo -u`
-that crossed `pam_systemd`, and a scope for each step a root command runs
-as the account, such as the npm install of `atr admin system bootstrap`,
-which a stop ends like the toolchain update and a re-run completes. All of them
-are terminated — no cgroup is exempt — but they are listed after the agent
-sessions and marked `(account plumbing)`, and the headline gives the two counts
-apart:
+**Agent sessions, steps run as the account and the account's own plumbing are
+counted separately.** The slice holds more than sessions. Each agent session
+has a launch scope: the `sudo` the launch ran through, drawn under its session
+with `\_`, marked `(launch)` and counted with its session. `PID` is the first
+process of each row, and for a launch row the `ai-tools-run` whose pid names
+the session's unit. `BY` is the account that started the launch, read
+from the kernel, so it holds even where the session reports the wrong project.
+A login session scope for every `sudo -u` or `runuser` that crossed
+`pam_systemd`, and a scope for each step a root command runs as the account,
+such as the npm install of `atr admin system bootstrap`, are steps run
+as the account: each row names the program its first process runs, without its
+arguments. The account's `systemd --user`, its `init.scope` and a dbus broker
+are the account's own plumbing, marked `(account plumbing)`. Only an agent
+session has a project, shown by its directory's name, or its full path
+where two listed projects share a name, and the sessions come in project order;
+every other row reads `-` there. The handback lines printed after the stop name
+each project by its full path. All of them are terminated — no cgroup is exempt
+— and they are listed after the agent sessions, steps first. The headline
+counts the agent sessions, and the two lines under the table say what the stop
+does beyond them:
 
 ```
-1 agent session(s) will be terminated, with everything they spawned. 3 unit(s) of the
-ai-tools account's own plumbing (marked below) go with them -- nothing in the account's
-slice is exempt -- and its user manager is restarted afterwards.
+#-- Terminate agent sessions ---------------------------------------------#
+# 1 agent session(s) will be terminated, each with 10s to exit before it #
+# is killed.                                                             #
+#------------------------------------------------------------------------#
+  SESSION                                        PID  PROCS  BY         PROJECT
+  ai-tools-claude-code-4711.service             4790      1  you        api
+   \_ session-c26.scope                         4711      4  you        (launch)
+  session-c27.scope                             5120      4  you        -  (a step run as ai-tools: bash)
+  init.scope                                    1802      2  -          -  (account plumbing)
+  dbus-broker.service                           1850      2  -          -  (account plumbing)
+  the processes in each: systemd-cgls --no-pager -u user-<uid>.slice
 
-            SESSION                              PROCS  PROJECT
-  stop      ai-tools-claude-code-4711.service        1  /home/<you>/projects/api
-  stop      session-c27.scope                        4  unknown        (account plumbing)
-  stop      dbus-broker.service                      2  /opt/ai-tools  (account plumbing)
-  stop      init.scope                               2  unknown        (account plumbing)
+  A stopped session does not run its session-end handback: reclaim the projects named above afterwards.
+  The stop ends every process in the ai-tools account's slice and restarts its user manager afterwards.
+Stop the 1 agent session(s) and every process in the ai-tools account's slice? [Y/n] (default: Yes):
 ```
+
+A stop ends a step like the toolchain update: a bootstrap step it ends fails,
+and re-running `atr admin system bootstrap` completes it. A command started
+by hand with `sudo -u` or `runuser` is ended wherever it was, and whether it
+left partial work is for whoever started it to check. Where no agent session is
+running, the headline leads with the steps rather than saying that no session
+is running. `systemd-cgls` shows the processes inside each row, the launch
+scope's `sudo` among them, which a `ps -u ai-tools` leaves out because it runs
+as root.
 
 The split is **advisory, exactly like attribution, and for the same reason**:
 a unit name inside the delegated subtree is the delegatee's to choose,
 so a session can name itself out of the agent class. That gains it no
-exemption: both classes are enumerated, listed and killed identically,
+exemption: every class is enumerated, listed and killed identically,
 and the sweep consults neither class to decide what it reaches. What the split
 buys is that the line you read first during an incident does not tell you four
 agents were running when one was.
@@ -114,9 +143,13 @@ The user manager the first run restored is itself inside the swept slice,
 so the second run finds it, terminates it, and restarts it again:
 
 ```
-No agent session is running. 1 unit(s) of the ai-tools account's own plumbing (marked below)
-are stopped regardless -- nothing in the account's slice is exempt -- and its user manager is
-restarted afterwards.
+No agent session is running.
+
+  SESSION                                        PID  PROCS  BY         PROJECT
+  init.scope                                    1802      2  -          -  (account plumbing)
+  the processes in each: systemd-cgls --no-pager -u user-<uid>.slice
+
+  The stop ends every process in the ai-tools account's slice and restarts its user manager afterwards.
 ```
 
 The command is idempotent in **end state** — no sessions, manager up — which is
