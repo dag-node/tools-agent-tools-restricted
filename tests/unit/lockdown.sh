@@ -358,7 +358,7 @@ fi
 assert_msg MSG-S4T9 "$(cat "${TESTDIR}/unread-out")" "the refusal names the unreadable file under the library's code"
 
 # A path the baseline exempts is left open while a secret inside it is locked: Angular's build package names a source
-# directory `private`, which the baseline matches by name. Driven with the baseline in force through the loader's file
+# directory `private`, which the baseline matches by name. Driven with the baseline alone through the loader's file
 # hook at an absent file, with the project as the target and then a subdirectory of it, since the exemption is matched
 # against the canonical path and not against the path relative to the walk's root.
 ng="${TESTDIR}/ng"

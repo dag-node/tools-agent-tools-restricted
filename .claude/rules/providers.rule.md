@@ -509,8 +509,8 @@ to the next line when it wraps a runtime message, and the rule the checker's opt
 to. The checker's `--config-header` mode reports both for a header; `tests/unit/man.sh` runs it over the shipped
 headers, holds the registry's seed to the marker alone, and reads each page's own examples through the reader that file
 is read with, so an example the manual shows is one the file accepts ([tests](tests.rule.md)). The one claim that stays
-in a header whatever its page says is the fail direction a reader must know before writing a line —
-for `secret-patterns`, that a pattern listed there **replaces** the built-in baseline
+in a header whatever its page says is the rule a reader must know before writing a line — for `secret-patterns`,
+that a pattern listed there is **added** to the built-in baseline and a `!` line keeps one path open
 ([secret-handling](secret-handling.rule.md)), which `tests/unit/secret-patterns.sh` asserts on the seeded text.
 
 ### Deferred: `operator.conf.d/`

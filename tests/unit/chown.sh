@@ -128,7 +128,7 @@ fi
 
 # (5b) A path the baseline exempts is handed back as an ordinary file, classified by its canonical path: Angular's
 #      environment file, which `ng build` reads, while a staging file beside it, matched by the same pattern and named
-#      by no exemption, is quarantined as the control. Driven with the baseline in force through the loader's file hook
+#      by no exemption, is quarantined as the control. Driven with the baseline alone through the loader's file hook
 #      at an absent file.
 envdir="${proj}/src/environments"
 mkdir -p "${envdir}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}/src" "${envdir}"; chmod 0755 "${proj}/src" "${envdir}"

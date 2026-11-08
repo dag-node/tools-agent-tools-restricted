@@ -341,12 +341,12 @@ check_providers_page
 # ── The seeded operator files: ai-tools-project-registry(5), ai-tools-secret-patterns(5) ──────────────────
 # The header each *_seed function in conf.lib.sh prints is written into an operator's file once, at enrolment, and no
 # upgrade rewrites it -- so the reference lives in the page, which the package replaces on every upgrade, and the header
-# stays a pointer. check_seed_header holds that shape for the secret-patterns header: the header is short (the cap is
-# what stops it regrowing into a second reference), it names its page, and it is comment-only, so a seeded file
+# stays a pointer. check_seed_header holds that shape for the secret-patterns header: the header is bounded (the cap
+# is what stops it regrowing into a second reference), it names its page, and it is comment-only, so a seeded file
 # registers no entry. The registry's seed is the format marker alone, and its page is its header.
 # Each page then has its EXAMPLES read through the parser its file is read with, so an example the manual shows is one
 # the file accepts, and its .TH version field checked.
-readonly SEED_HEADER_MAX_LINES=15
+readonly SEED_HEADER_MAX_LINES=25
 
 # man5_path <name>: the repo page, or the installed page (possibly gzipped) outside a checkout.
 man5_path() {
@@ -467,8 +467,9 @@ check_secret_patterns_page() {
     check_seed_header ai_tools_conf__get_secret_patterns_seed ai-tools-secret-patterns
 
     # The page's example lines load as what they are: the lines of EXAMPLES that are not CLI invocations are written
-    # to a file and read through the library's own loader. A pattern line must come back as a pattern, a basename glob
-    # with no '/'; an exemption line, `!` and a path, must come back as an exemption, with no line reported malformed.
+    # to a file and read through the library's own loader. A pattern line must come back as a pattern added
+    # after the baseline, a basename glob with no '/'; an exemption line, `!` and a path, must come back
+    # as an exemption, with no line reported malformed.
     local -a examples=() patterns=() exemptions=() loaded=() loaded_exemptions=(); local pattern bad=0 file err
     mapfile -t examples < <(man_examples "${SECRET_MAN}" | grep -vE '^(atr|ai-tools|#|$)' || true)
     for pattern in "${examples[@]}"; do
@@ -482,7 +483,7 @@ check_secret_patterns_page() {
     err="$(AI_TOOLS_SECRET_PATTERNS_FILE="${file}" ai_tools_secret_patterns__load 2>&1 >/dev/null; \
         printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}" > "${file}.patterns"; \
         printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS[@]}" > "${file}.exemptions")" || true
-    mapfile -t loaded < "${file}.patterns"
+    mapfile -t loaded < <(tail -n +"$(( ${#_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]} + 1 ))" "${file}.patterns")
     mapfile -t loaded_exemptions < <(grep -v '^$' "${file}.exemptions" || true)
     rm -f "${file}" "${file}.patterns" "${file}.exemptions"
     _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""

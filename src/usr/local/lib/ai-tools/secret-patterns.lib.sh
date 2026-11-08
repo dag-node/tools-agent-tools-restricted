@@ -3,22 +3,21 @@
 # /usr/local/lib/ai-tools/secret-patterns.lib.sh
 # The secret-name classifier for the ai-tools sandbox: one loader and one path predicate, *sourced* (never executed)
 # by every component that decides whether a path is a credential file -- the root helpers that change a tree,
-# the claim's advisory mark and the launch wrapper's drift line -- so the classification cannot drift between them.
-# Which consumer refuses on which loader outcome, and why the operator's file replaces the baseline, are
-# secret-handling.rule.md's.
+# the claim's advisory mark and the launch wrapper's journal line -- so the classification cannot drift between them.
+# Which consumer refuses on which loader outcome is secret-handling.rule.md's.
 #
 # The pattern list is the operator's `<PROJECTS_HOME>/.config/ai-tools/secret-patterns`, owned by the operator 600
 # inside the 700 .config/ai-tools (PROJECTS_HOME comes from the operator identity the caller resolves
-# via operator.lib.sh), which the root helpers read on the operator's behalf. It REPLACES the defaults
-# in _AI_TOOLS_SECRET_PATTERNS__DEFAULTS rather than adding to them. The loader has three outcomes: a file that is
-# absent or does not hold a pattern line loads the defaults at status 0; a readable file loads its own patterns
-# at status 0; a file that is PRESENT and cannot be read as a regular file loads the defaults and returns 1,
-# so a consumer that ignores the status never classifies on an empty set, and a helper that changes a tree refuses
-# rather than walking it on a set the operator did not write.
+# via operator.lib.sh), which the root helpers read on the operator's behalf. Its patterns are ADDED to the defaults
+# in _AI_TOOLS_SECRET_PATTERNS__DEFAULTS, so no file classifies fewer names than the baseline. The loader has two
+# outcomes: a file that is absent or readable loads the defaults and the file's patterns at status 0; a file that is
+# PRESENT and cannot be read as a regular file loads the defaults alone and returns 1, so a helper that changes a tree
+# refuses rather than walking it on a set without the names the operator wrote.
 #
-# Two lists leave a matched path open. The baseline's own, _AI_TOOLS_SECRET_PATTERNS__BASELINE_EXEMPT_PATHS, applies
-# while the defaults are in force and is dropped with them by an operator file that holds a pattern. The operator's `!`
-# lines name absolute paths and apply whichever set is in force. Each covers the path it names and not its subtree.
+# Two lists leave a matched path open, and each covers the path it names and not its subtree: the baseline's own,
+# _AI_TOOLS_SECRET_PATTERNS__BASELINE_EXEMPT_PATHS, and the operator's `!` lines, which name absolute paths. A pattern
+# of the operator's own that matches a baseline-exempt path locks it, since the operator named it after the baseline
+# did; a line repeating a baseline entry is the baseline's, and leaves the exemption in force.
 #
 # Do not edit these defaults on a deployed host. The file is rpm-owned and not %config, so an upgrade overwrites it
 # and a local edit is lost without a .rpmsave copy. The list is the PUBLIC baseline -- the names credential files carry
@@ -40,16 +39,15 @@ if [[ -n "${_AI_TOOLS_SECRET_PATTERNS__LOADED:-}" ]]; then
 fi
 readonly _AI_TOOLS_SECRET_PATTERNS__LOADED=1
 
-# The exemption state the loader fills, assigned here so a caller that reads before the first load does not read
-# an exemption.
-_AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE=0
+# The operator's exemptions and the operator's own patterns -- the file's patterns less those repeating a baseline entry
+# -- the loader fills, assigned here so a caller that reads before the first load does not read either.
 _AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS=()
+_AI_TOOLS_SECRET_PATTERNS__OPERATOR_PATTERNS=()
 
-# Built-in baseline, in force whenever the operator's config file is missing or parses to an empty set -- the state
-# on a host where that operator has never written a pattern. Basename-safe globs only (no bare 'config' that would match
-# innocuous files); matching is case-insensitive, so one stem covers its case variants. The .NET entries are anchored
-# to a name (appsettings/web/connectionstrings/…) or an environment segment rather than to an extension --
-# secret-handling.rule.md states what a broad '*.*.json' catch-all would quarantine.
+# Built-in baseline, in force for every operator, beside the patterns their own file adds. Basename-safe globs only (no
+# bare 'config' that would match innocuous files); matching is case-insensitive, so one stem covers its case variants.
+# The .NET entries are anchored to a name (appsettings/web/connectionstrings/…) or an environment segment rather than
+# to an extension -- secret-handling.rule.md states what a broad '*.*.json' catch-all would quarantine.
 #
 # An environment-segment pattern ends in this tail, so it leaves the web assets a build reads and writes alone --
 # a script, a stylesheet, a source map: a vendored bundle is named for its build (react.production.min.js), webpack's
@@ -129,24 +127,23 @@ _ai_tools_secret_patterns__is_exempt_path_valid() {
 }
 
 # ai_tools_secret_patterns__load: populate the global AI_TOOLS_SECRET_PATTERNS__PATTERNS array from the operator's
-# secret-patterns config (one pattern per line, '#' comments and blanks skipped, whitespace trimmed). The config path is
-# resolved at the call: AI_TOOLS_SECRET_PATTERNS_FILE overrides it (a test hook), else
+# secret-patterns config (one pattern per line, '#' comments and blanks skipped, whitespace trimmed), after the built-in
+# defaults. The config path is resolved at the call: AI_TOOLS_SECRET_PATTERNS_FILE overrides it (a test hook), else
 # `<PROJECTS_HOME>/.config/ai-tools/secret-patterns`, so a caller resolves the operator first
 # (ai_tools_operator__resolve_owner for the path's owner, or ai_tools_operator__load_operator) -- a load made
 # before the resolve reads the defaults and marks the set loaded, so the operator's file is never read. Returns 0
-# with the file's patterns, or with the built-in defaults when the file is absent or does not hold a pattern line.
-# Returns 1 when the path is present and is not a readable regular file -- a directory, a dangling symlink, a FIFO,
-# a read access(2) refuses -- with the defaults loaded all the same, AI_TOOLS_SECRET_PATTERNS__UNREADABLE naming
-# the file, and MSG-S4T9 printed. _AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE is 1 wherever the defaults were loaded,
-# which turns the baseline's exemptions on. The file's `!` lines fill _AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS
-# and do not count as patterns; each malformed one prints MSG-T4W8 with its line number and leaves the status as it is.
-# Re-callable: each call reloads.
+# with the defaults and the file's patterns, the defaults alone when the file is absent. Returns 1 when the path is
+# present and is not a readable regular file -- a directory, a dangling symlink, a FIFO, a read access(2) refuses --
+# with the defaults alone, AI_TOOLS_SECRET_PATTERNS__UNREADABLE naming the file, and MSG-S4T9 printed. The file's `!`
+# lines fill _AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS; each malformed one prints MSG-T4W8 with its line number
+# and leaves the status as it is. Each pattern that is not a baseline entry, compared case-insensitively, also fills
+# _AI_TOOLS_SECRET_PATTERNS__OPERATOR_PATTERNS. Re-callable: each call reloads.
 ai_tools_secret_patterns__load() {
-    AI_TOOLS_SECRET_PATTERNS__PATTERNS=()
+    AI_TOOLS_SECRET_PATTERNS__PATTERNS=("${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}")
     AI_TOOLS_SECRET_PATTERNS__UNREADABLE=""
     _AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS=()
-    _AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE=0
-    local line status=0
+    _AI_TOOLS_SECRET_PATTERNS__OPERATOR_PATTERNS=()
+    local line default status=0
     local -i line_number=0
     local -a malformed_line_numbers=()
     local file="${AI_TOOLS_SECRET_PATTERNS_FILE:-${PROJECTS_HOME:-}/.config/ai-tools/secret-patterns}"
@@ -169,24 +166,25 @@ ai_tools_secret_patterns__load() {
                         continue
                     fi
                     AI_TOOLS_SECRET_PATTERNS__PATTERNS+=("${line}")
+                    for default in "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}"; do
+                        [[ "${line,,}" == "${default,,}" ]] && continue 2
+                    done
+                    _AI_TOOLS_SECRET_PATTERNS__OPERATOR_PATTERNS+=("${line}")
                 done < "${file}"
             } 2>/dev/null; then
             :
         else
-            AI_TOOLS_SECRET_PATTERNS__PATTERNS=()
+            AI_TOOLS_SECRET_PATTERNS__PATTERNS=("${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}")
             _AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS=()
+            _AI_TOOLS_SECRET_PATTERNS__OPERATOR_PATTERNS=()
             malformed_line_numbers=()
             AI_TOOLS_SECRET_PATTERNS__UNREADABLE="${file}"
             status=1
         fi
     fi
-    if [[ "${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}" -eq 0 ]]; then
-        AI_TOOLS_SECRET_PATTERNS__PATTERNS=("${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}")
-        _AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE=1
-    fi
     _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=1
     if (( status )); then
-        _ai_tools_secret_patterns__error MSG-S4T9 "the secret-patterns file ${file} is present and cannot be read as a regular file -- the shipped baseline classifies instead, and a helper that changes a tree refuses; make it a readable file, or remove it to keep the baseline"
+        _ai_tools_secret_patterns__error MSG-S4T9 "the secret-patterns file ${file} is present and cannot be read as a regular file -- the shipped baseline classifies alone, and a helper that changes a tree refuses; make it a readable file, or remove it"
     fi
     for line_number in "${malformed_line_numbers[@]}"; do
         _ai_tools_secret_patterns__warn MSG-T4W8 "line ${line_number} of ${file} opens with '!' and does not name a canonical absolute path -- the line is ignored and the path it meant stays locked; write '!' and the path realpath prints, without * ? or ["
@@ -201,83 +199,53 @@ ai_tools_secret_patterns__get_file_path() {
     printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS_FILE:-${PROJECTS_HOME:-}/.config/ai-tools/secret-patterns}"
 }
 
-# ai_tools_secret_patterns__format_drift: print how the set in force differs from the shipped baseline, as one line
-# naming the file, what it ADDS, and what of the baseline it DROPS. Prints nothing and returns 1 when the baseline is
-# the set in force -- the case of a missing file and of a file without a pattern line, since the loader falls back
-# to the baseline there, so a host that has written no patterns is silent. A `!` line is not a pattern and is not
-# compared. What the difference costs a host, and where the launch wrapper records it, are
-# secret-handling.rule.md's.
-#
-# Compared as a SET (sorted, de-duplicated). A file whose set equals the baseline's, reordered or repeated, prints
-# a line of its own and returns 0: it holds the baseline's patterns, and its patterns replace the baseline's path
-# exemptions, which the loader applies only while the defaults are in force. Each list is capped, because the report is
-# a prompt to re-read the file rather than a replacement for reading it. A file that is present and cannot be read
-# prints its own line and returns 0: the baseline is in force, which is not what the operator wrote, and every helper
-# that acts on that operator's trees is refusing until it is fixed.
-ai_tools_secret_patterns__format_drift() {
+# ai_tools_secret_patterns__format_unreadable_report: print one line naming the operator's secret-patterns file when it
+# is present and cannot be read, and return 0; print nothing and return 1 otherwise. That is the one state
+# in which the set in force lacks the operator's patterns: the baseline classifies alone for that operator's sessions,
+# and every helper that acts on that operator's trees refuses until the file is fixed. Where the launch wrapper records
+# the line is secret-handling.rule.md's.
+ai_tools_secret_patterns__format_unreadable_report() {
     [[ -n "${_AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED:-}" ]] || ai_tools_secret_patterns__load 2>/dev/null || true
-    if [[ -n "${AI_TOOLS_SECRET_PATTERNS__UNREADABLE:-}" ]]; then
-        printf 'secret patterns: %s is present and cannot be read -- the shipped baseline is in force, and the claim, handback and lockdown helpers refuse until it is a readable file or removed\n' \
-            "${AI_TOOLS_SECRET_PATTERNS__UNREADABLE}"
-        return 0
-    fi
-    local -a live baseline added dropped
-    mapfile -t live < <(printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}" | LC_ALL=C sort -u)
-    mapfile -t baseline < <(printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}" | LC_ALL=C sort -u)
-    if [[ "${live[*]}" == "${baseline[*]}" ]]; then
-        (( _AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE )) && return 1
-        printf "secret patterns: %s lists the shipped baseline's patterns and replaces its path exemptions -- remove the file to restore them, or keep a path open with a '!' line\n" \
-            "$(ai_tools_secret_patterns__get_file_path)"
-        return 0
-    fi
-    mapfile -t added < <(LC_ALL=C comm -23 <(printf '%s\n' "${live[@]}") <(printf '%s\n' "${baseline[@]}"))
-    mapfile -t dropped < <(LC_ALL=C comm -13 <(printf '%s\n' "${live[@]}") <(printf '%s\n' "${baseline[@]}"))
-    printf 'secret patterns: %s replaces the shipped baseline and its path exemptions -- adds %d%s; drops %d%s\n' \
-        "$(ai_tools_secret_patterns__get_file_path)" \
-        "${#added[@]}"   "$(_ai_tools_secret_patterns__format_list added)" \
-        "${#dropped[@]}" "$(_ai_tools_secret_patterns__format_list dropped)"
-    return 0
-}
-
-# Render an array name as " (a, b, c, +N more)", or nothing when it is empty. Capped at 12: a journald line is read
-# at a glance, and the file itself is the place to read the whole set.
-_ai_tools_secret_patterns__format_list() {
-    local -n _arr="$1"
-    local -i cap=12 n="${#_arr[@]}"
-    (( n )) || return 0
-    local shown
-    shown="$(printf '%s, ' "${_arr[@]:0:cap}")"; shown="${shown%, }"
-    if (( n > cap )); then
-        printf ' (%s, +%d more)' "${shown}" "$(( n - cap ))"
-    else
-        printf ' (%s)' "${shown}"
-    fi
+    [[ -n "${AI_TOOLS_SECRET_PATTERNS__UNREADABLE:-}" ]] || return 1
+    printf 'secret patterns: %s is present and cannot be read -- the shipped baseline classifies alone, and the claim, handback and lockdown helpers refuse until it is a readable file or removed\n' \
+        "${AI_TOOLS_SECRET_PATTERNS__UNREADABLE}"
 }
 
 # ai_tools_secret_patterns__is_secret_path <path>: return 0 when the last component of <path> matches a loaded secret
 # pattern and <path> is not exempt, 1 otherwise. A consumer passes the canonical path it acts on, absolute,
 # or the canonical path of each component it classifies: an operator's `!` line is compared with the whole path,
-# and a baseline exemption with its last components. Loads patterns on first call.
+# and a baseline exemption with its last components. A baseline exemption does not open a path one of the operator's own
+# patterns matches. Loads patterns on first call.
 ai_tools_secret_patterns__is_secret_path() {
     local path="$1"
     _ai_tools_secret_patterns__is_secret_basename "${path##*/}" || return 1
     _ai_tools_secret_patterns__is_operator_exempt_path "${path}" && return 1
-    (( _AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE )) && _ai_tools_secret_patterns__is_baseline_exempt_path "${path}" \
-        && return 1
+    if _ai_tools_secret_patterns__is_baseline_exempt_path "${path}" \
+            && ! _ai_tools_secret_patterns__is_basename_matched "${path##*/}" \
+                "${_AI_TOOLS_SECRET_PATTERNS__OPERATOR_PATTERNS[@]}"; then
+        return 1
+    fi
     return 0
 }
 
 # _ai_tools_secret_patterns__is_secret_basename <basename>: return 0 if the basename matches any loaded secret pattern
-# (case-insensitive glob), 1 otherwise. Loads patterns on first call. Saves and restores the caller's nocasematch
-# setting so callers that rely on case-sensitive [[ ]]/case statements are unaffected.
+# (case-insensitive glob), 1 otherwise. Loads patterns on first call.
 _ai_tools_secret_patterns__is_secret_basename() {
-    local base="$1" pat rc=1 _prev
     [[ -n "${_AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED:-}" ]] || ai_tools_secret_patterns__load
+    _ai_tools_secret_patterns__is_basename_matched "$1" "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}"
+}
+
+# _ai_tools_secret_patterns__is_basename_matched <basename> [<pattern>...]: return 0 if the basename matches one
+# of the patterns (case-insensitive glob), 1 otherwise, and 1 for an empty list. Saves and restores the caller's
+# nocasematch setting so callers that rely on case-sensitive [[ ]]/case statements are unaffected.
+_ai_tools_secret_patterns__is_basename_matched() {
+    local base="$1" pat rc=1 _prev
+    shift
     # `shopt -p nocasematch` exits non-zero when the option is OFF (the default); `|| true` keeps the snapshot without
     # tripping the caller's `set -e`.
     _prev="$(shopt -p nocasematch || true)"
     shopt -s nocasematch
-    for pat in "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}"; do
+    for pat in "$@"; do
         if [[ "${base}" == ${pat} ]]; then
             rc=0
             break

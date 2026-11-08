@@ -2245,25 +2245,34 @@ ai_tools_conf__get_allowlist_seed() {
 }
 
 # ai_tools_conf__get_secret_patterns_seed : print the header a fresh secret-patterns file carries. It carries the header
-#   alone, which leaves the built-in baseline in secret-patterns.lib.sh in force -- so seeding this file changes what is
-#   classified as a secret only once the operator writes a pattern into it. The replace rule stays in the header
-#   whatever the page says, since it is the one fact a reader needs before writing a line. The reference is
-#   ai-tools-secret-patterns(5).
+#   alone, so seeding this file leaves the built-in baseline in secret-patterns.lib.sh as the set in force until
+#   the operator adds a pattern to it. The additive rule and the `!` line form stay in the header whatever the page
+#   says, since a reader needs both before writing a line, and each example sits under a comment line of its own,
+#   so uncommenting either line leaves a valid one. The reference is ai-tools-secret-patterns(5).
 ai_tools_conf__get_secret_patterns_seed() {
     printf '%s\n' \
-        "# Secret-name patterns for the ai-tools sandbox, one basename glob" \
-        "# per line, matched case-insensitively. A file whose name matches is" \
-        "# a credential: the root helpers quarantine one the agent writes" \
-        "# and seal one already in a project, on your behalf." \
+        "# Secret-name patterns for the ai-tools sandbox." \
         "#" \
-        "# A pattern listed here REPLACES the built-in baseline in the shared" \
-        "# library (/usr/local/lib/ai-tools/secret-patterns.lib.sh) rather" \
-        "# than adding to it. This file lists none, so the baseline classifies" \
-        "# until you write a pattern; then copy the baseline entries you keep," \
-        "# alongside your own." \
+        "# One basename glob per line, matched case-insensitively." \
+        "# A matching file is treated as a credential: the root helpers" \
+        "# quarantine any such file the agent writes and seal any that" \
+        "# already exist in the project." \
         "#" \
-        "#   .env              *.pem             appsettings.*.json" \
+        "# The built-in baseline always applies. Patterns listed here are" \
+        "# additive; they extend the baseline rather than replace it." \
         "#" \
-        "# Full reference: \`man 5 ai-tools-secret-patterns\`" \
+        "# Exclusion" \
+        "# A line beginning with ! followed by a full path keeps that" \
+        "# specific path open (it is never treated as a credential)." \
+        "#" \
+        "# Examples:" \
+        "#   # rclone config (holds remote credentials)" \
+        "#   rclone.conf" \
+        "#   # sops-encrypted files (db.sops.json, prod.sops.yaml, …)" \
+        "#   *.sops.*" \
+        "#   # keep this one file open" \
+        "#   !/home/op/src/api/appsettings.Development.json" \
+        "#" \
+        "# Full reference: man 5 ai-tools-secret-patterns" \
         ""
 }

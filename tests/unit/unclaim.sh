@@ -499,7 +499,7 @@ fi
 # ── A baseline exemption ─────────────────────────────────────────────────────
 # The walk classifies each path by its canonical path, so a file the baseline exempts is handed back like any other
 # while its unexempted sibling, matched by the same pattern, keeps the agent's entry as the control. Driven
-# with the baseline in force through the loader's file hook at an absent file.
+# with the baseline alone through the loader's file hook at an absent file.
 section "ai-tools-unclaim: a baseline-exempt path is handed back"
 ng="${TESTDIR}/ng"
 mkdir -p "${ng}/src/environments"

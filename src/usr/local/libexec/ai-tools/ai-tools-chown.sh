@@ -87,8 +87,8 @@ if ! source "${LOG_LIB}"; then
     die_unsourced "${LOG_LIB}"
 fi
 
-# Shared secret-name matcher, sourced (not executed) so every helper classifies a path by the same patterns
-# from the same config file (the operator's secret-patterns, resolved via the operator identity). Required
+# Shared secret-name matcher, sourced (not executed) so every helper classifies a path by the same set: the built-in
+# baseline and the patterns the operator's secret-patterns file adds, resolved via the operator identity. Required
 # and fail-closed: exiting non-zero here skips this path's handback, which secret-handling.rule.md states is the safe
 # outcome -- the path stays ai-tools-owned instead of being handed back unclassified.
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"

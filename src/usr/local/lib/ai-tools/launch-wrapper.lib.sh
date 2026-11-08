@@ -737,13 +737,11 @@ ai_tools_launch_wrapper__run_gates() {
 # on a healthy host. Each down service names its consequence (framed) and its exact remedy (plain, under the box
 # so the command stays copy-pasteable -- see messaging.rule.md).
 #
-# Secret-pattern drift, journald only: the operator's own file REPLACES the shipped baseline (secret-handling.rule.md
-# states the cost), and the wrapper is the one point per session where that file is both readable (it runs
-# as the operator, before the drop) and attributable to a launch, so the difference is recorded here -- to the journal,
-# never to the terminal, since it is not a launch decision and the operator did not ask a question. A missing lib
-# or an absent `logger` skips it; an empty or missing file is the baseline in force and does not print a line; a present
-# file the loader cannot read prints a line saying so, since the baseline then classifies for this session while
-# the operator's helpers refuse.
+# An unreadable secret-patterns file, journald only: the baseline then classifies alone for this session while
+# the operator's helpers refuse (secret-handling.rule.md), and the wrapper is the one point per session where that file
+# is both readable (it runs as the operator, before the drop) and attributable to a launch, so the state is recorded
+# here -- to the journal, never to the terminal, since it is not a launch decision and the operator did not ask
+# a question. A missing lib or an absent `logger` skips it, and any other state of the file does not print a line.
 #
 # Unreadable ancestor configuration: a build toolchain collects configuration from a project's ancestor directories,
 # and a file it opens there that the DAC mode or the SELinux label denies the sandbox account fails the build
@@ -752,7 +750,7 @@ ai_tools_launch_wrapper__run_gates() {
 # reaches outside the project. It sits here rather than in the claim guard because each of that guard's findings is
 # closed by `atr projects claim`, which does not close this one.
 _ai_tools_launch_wrapper__print_notices() {
-    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" svc drift config
+    local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" svc unreadable_report config
     # shellcheck source=SCRIPTDIR/services.lib.sh
     if source /usr/local/lib/ai-tools/services.lib.sh 2>/dev/null \
             && declare -F ai_tools_services__scan >/dev/null 2>&1 \
@@ -767,15 +765,15 @@ _ai_tools_launch_wrapper__print_notices() {
     # shellcheck source=SCRIPTDIR/secret-patterns.lib.sh
     if command -v logger >/dev/null 2>&1 \
             && source /usr/local/lib/ai-tools/secret-patterns.lib.sh 2>/dev/null \
-            && declare -F ai_tools_secret_patterns__format_drift >/dev/null 2>&1; then
+            && declare -F ai_tools_secret_patterns__format_unreadable_report >/dev/null 2>&1; then
         # The loader resolves the config under PROJECTS_HOME; the wrapper runs as the operator, so their own ${HOME} is
         # the operator whose set this launch will be classified against.
         PROJECTS_HOME="${HOME}"
-        drift="$(ai_tools_secret_patterns__format_drift 2>/dev/null)" || drift=""
+        unreadable_report="$(ai_tools_secret_patterns__format_unreadable_report 2>/dev/null)" || unreadable_report=""
         # A plain `[[ ]] && cmd` as the block's last command would exit the wrapper under `set -e` whenever the test is
         # false -- which is the healthy host, every launch.
-        if [[ -n "${drift}" ]]; then
-            logger -t "${name}" -p user.notice -- "${drift}"
+        if [[ -n "${unreadable_report}" ]]; then
+            logger -t "${name}" -p user.notice -- "${unreadable_report}"
         fi
     fi
 

@@ -70,7 +70,7 @@ arrange that improves its own position, only states that shut it down.
 | which providers it gets | manifests and fragments root owns and no one else can write | the default set, never every provider |
 | which shared skills and subagents it loads | `AI_TOOLS_ASSETS`, and each set's signature by the key its package pins | the set is not linked |
 | which files the handback may change | the sandbox account's ownership, checked again as root | the file is left as it is |
-| which names count as secrets | your `secret-patterns` file, or the shipped baseline where you have none | an unreadable file keeps the baseline, and every command that changes a tree refuses |
+| which names count as secrets | the shipped baseline and the names your `secret-patterns` file adds | an unreadable file leaves the baseline alone, and every command that changes a tree refuses |
 | which toolchain is activated | npm registry signatures | the previous version stays |
 | which agent binary may start a session | its checksum against a root-owned pin | no launch |
 

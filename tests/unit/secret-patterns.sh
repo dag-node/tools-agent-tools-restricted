@@ -29,7 +29,7 @@ fi
 force_baseline() {
     AI_TOOLS_SECRET_PATTERNS__PATTERNS=("${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}")
     _AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS=()
-    _AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE=1
+    _AI_TOOLS_SECRET_PATTERNS__OPERATOR_PATTERNS=()
     _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=1
 }
 force_baseline
@@ -90,9 +90,8 @@ done
 ${bundle_ok} && pass "environment-segment patterns leave scripts, stylesheets and source maps alone, and lock the rest"
 
 # (5) The seeded config file leaves classification unchanged. `ai-tools-admin operators add` writes that file
-# at enrolment, before the operator has decided anything, so what it writes must parse to an empty set and leave
-# the built-in baseline in force -- a seed that parsed to even one pattern would REPLACE the baseline and silently stop
-# quarantining every name it dropped.
+# at enrolment, before the operator has decided anything, so what it writes must parse to no pattern and leave
+# the built-in baseline classifying alone -- a seed that parsed to a pattern would lock a name the operator never chose.
 CONF_LIB="/usr/local/lib/ai-tools/conf.lib.sh"
 if [[ -r "${CONF_LIB}" ]]; then
     # shellcheck source=/dev/null
@@ -108,12 +107,12 @@ if declare -F ai_tools_conf__get_secret_patterns_seed >/dev/null 2>&1; then
     else
         fail "the seeded config changed the loaded pattern set (${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} patterns)"
     fi
-    # The one claim the seeded header must always carry, asserted by the grep that follows it: an operator's pattern
-    # REPLACES the baseline rather than adding to it, so a file holding one name classifies on that name alone.
-    if grep -qi 'REPLACES the built-in baseline' "${seed_file}"; then
-        pass "the seeded header states that a pattern replaces the baseline"
+    # The one claim the seeded header must always carry, asserted by the grep that follows it: the baseline always
+    # applies, and an operator's pattern is added to it.
+    if grep -qi 'baseline always applies' "${seed_file}" && grep -qi 'additive' "${seed_file}"; then
+        pass "the seeded header states that the baseline always applies and a pattern adds to it"
     else
-        fail "the seeded header does not state the replace rule: $(cat "${seed_file}")"
+        fail "the seeded header does not state the additive rule: $(cat "${seed_file}")"
     fi
     rm -f "${seed_file}"
     # Restore the shipped defaults for the next case, which the operator-file load overwrote.
@@ -122,82 +121,48 @@ else
     skip "seeded secret-patterns config" "conf.lib.sh defines no seed function"
 fi
 
-# (6) The drift report, which the launch wrapper logs once per session. What it exists to catch is a file written once
-# and never re-read: because an operator's set REPLACES the baseline, such a file keeps this host on the patterns it
-# listed then and drops every one added upstream since. So the assertions are about the two silent directions -- no file
-# and an empty file must read as agreement (the baseline is in force, and a host that has decided nothing should not be
-# nagged), while a real file must name what it DROPS, that being the half that stops quarantining anything.
-if declare -F ai_tools_secret_patterns__format_drift >/dev/null 2>&1; then
-    # The preceding cases need no fixture on disk; this section is the first here that does, so it creates the testdir
-    # the harness tears down.
-    mktestdir
-    _drift_file="${TESTDIR}/drift-patterns"
-
+# (6) The additive set. The baseline is always in force and an operator's file adds to it, so a file naming one pattern,
+# a baseline name among them, classifies every baseline name as well as its own and does not narrow the set to that one
+# name. The launch wrapper's journal line, which reports an unreadable file alone, stays silent for every readable
+# state. The preceding cases need no fixture on disk; this section is the first here that does, so it creates
+# the testdir the harness tears down.
+mktestdir
+baseline_count="${#_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}"
+additive_case() {  # <label> <expected-added-count> <line...> -- load the lines, expect the baseline plus the additions
+    local label="$1" want="$2" rc=0 out; shift 2
+    printf '%s\n' "$@" > "${TESTDIR}/patterns-additive"
     # shellcheck disable=SC2034  # read by ai_tools_secret_patterns__load in the sourced library
-    AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-file"
-    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
-    if ! out="$(ai_tools_secret_patterns__format_drift)" && [[ -z "${out}" ]]; then
-        pass "a missing config reports no drift (the baseline is what is in force)"
+    AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-additive"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+    ai_tools_secret_patterns__load 2>/dev/null || rc=$?
+    if (( rc == 0 )) && (( ${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} == baseline_count + want )) \
+            && ai_tools_secret_patterns__is_secret_path /home/op/src/api/.env \
+            && ai_tools_secret_patterns__is_secret_path /home/op/src/api/server.pem \
+            && ! out="$(ai_tools_secret_patterns__format_unreadable_report)" && [[ -z "${out}" ]]; then
+        pass "${label}: every baseline name stays a secret beside the file's own, and the journal line is silent"
     else
-        fail "a missing config reported drift: ${out}"
+        fail "${label}: rc=${rc} patterns=${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} (want ${baseline_count} + ${want}) report='${out:-}'"
     fi
-
-    printf '# only comments and blanks\n\n' > "${_drift_file}"
-    # shellcheck disable=SC2034  # read by ai_tools_secret_patterns__load in the sourced library
-    AI_TOOLS_SECRET_PATTERNS_FILE="${_drift_file}"
-    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
-    if ! out="$(ai_tools_secret_patterns__format_drift)" && [[ -z "${out}" ]]; then
-        pass "a config that parses empty reports no drift (the loader fell back to the baseline)"
-    else
-        fail "an empty config reported drift: ${out}"
-    fi
-
-    # A copy of the baseline, reordered and with one line repeated: the same SET, so no pattern is added or dropped,
-    # and the report names the one difference it makes -- a file with patterns replaces the baseline's path exemptions,
-    # which leaves the paths they kept open locked.
-    printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}" | LC_ALL=C sort -r > "${_drift_file}"
-    printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[0]}" >> "${_drift_file}"
-    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
-    if out="$(ai_tools_secret_patterns__format_drift)" && [[ "${out}" == *"${_drift_file}"*"path exemptions"* ]] \
-            && [[ "${out}" != *adds* && "${out}" != *drops* ]]; then
-        pass "a reordered, duplicated copy of the baseline reports the path exemptions it replaces, and no pattern drift"
-    else
-        fail "a set-identical config: the report did not name the replaced path exemptions alone: '${out}'"
-    fi
-
-    # The real case, driven as ONE pattern in and one out, so both lists are named in full and the assertion does not
-    # depend on where a name falls against the cap. The dropped half is the one an operator acts on: that pattern is
-    # a credential name this host stopped quarantining.
-    printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}" | grep -vxF '*.pem' > "${_drift_file}"
-    printf '*.asc\n' >> "${_drift_file}"
-    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
-    out="$(ai_tools_secret_patterns__format_drift)" || true
-    if [[ "${out}" == *"${_drift_file}"* ]] \
-       && [[ "${out}" == *"adds 1 (*.asc)"* ]] \
-       && [[ "${out}" == *"drops 1 (*.pem)"* ]]; then
-        pass "a config that differs by one pattern names the file, the addition, and the drop"
-    else
-        fail "the drift report did not name the file, the addition, or the dropped pattern: ${out}"
-    fi
-
-    # A wide difference stays ONE line: the report is read at a glance in the journal, and the file itself is
-    # where the whole set is read. Driven with a config that keeps two patterns, so the dropped list runs well past
-    # the cap.
-    printf '.env\n*.asc\n' > "${_drift_file}"
-    _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
-    out="$(ai_tools_secret_patterns__format_drift)" || true
-    if [[ "$(printf '%s' "${out}" | wc -l)" -eq 0 ]] && [[ "${out}" == *"more)"* ]]; then
-        pass "the report stays one line, capping the list it prints"
-    else
-        fail "the drift report is not a single capped line: ${out}"
-    fi
-
-    rm -f "${_drift_file}"
-    unset AI_TOOLS_SECRET_PATTERNS_FILE
-    force_baseline
+}
+additive_case "a file of comments" 0 '# only comments and blanks' ''
+additive_case "a file naming one baseline name" 1 '.env'
+additive_case "a file naming one name of its own" 1 'rclone.conf'
+if ai_tools_secret_patterns__is_secret_path /home/op/.config/rclone/rclone.conf; then
+    pass "an operator's own pattern classifies its name"
 else
-    skip "secret-pattern drift report" "the library defines no ai_tools_secret_patterns__format_drift"
+    fail "an operator's own pattern did not classify rclone.conf"
 fi
+# shellcheck disable=SC2034  # read by ai_tools_secret_patterns__load in the sourced library
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-file"
+# Loaded in this shell first: the report runs in a `$(...)`, whose load would not reach this shell's set.
+ai_tools_secret_patterns__load 2>/dev/null || true
+if ! out="$(ai_tools_secret_patterns__format_unreadable_report)" && [[ -z "${out}" ]] \
+        && (( ${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} == baseline_count )); then
+    pass "an absent file loads the baseline alone, and the journal line is silent"
+else
+    fail "an absent file: patterns=${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} report='${out}'"
+fi
+unset AI_TOOLS_SECRET_PATTERNS_FILE
+force_baseline
 
 # (7) The classifier restores the caller's nocasematch setting (it flips it on internally).
 shopt -u nocasematch
@@ -208,14 +173,12 @@ else
     fail "classifier left nocasematch enabled -- leaks case-insensitive matching to the caller"
 fi
 
-# (8) A configured file that is PRESENT and the loader refuses to read is a third state, apart from absent and empty:
-# the loader returns 1 under its code with the baseline loaded, so a caller ignoring the status classifies
-# on the baseline (never an empty set) and a helper that reads it refuses. The suite is root, which DAC lets read a file
-# of any mode; the states a root reader meets are a directory, a dangling symlink and a FIFO, which the `-f` check
-# refuses before an open that would block. Absent and empty stay status 0, which is what keeps a fresh enrolment
+# (8) A configured file that is PRESENT and the loader refuses to read is a state of its own, apart from absent
+# and readable: the loader returns 1 under its code with the baseline alone loaded, so a caller ignoring the status
+# classifies on the baseline and a helper that reads it refuses. The suite is root, which DAC lets read a file of any
+# mode; the states a root reader meets are a directory, a dangling symlink and a FIFO, which the `-f` check refuses
+# before an open that would block. Absent and readable stay status 0, which is what keeps a fresh enrolment
 # walking.
-[[ -n "${TESTDIR:-}" ]] || mktestdir
-baseline_count="${#_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[@]}"
 unreadable_case() {  # <label> <path> -- drive the loader at <path>, expect status 1, the code, and the baseline loaded
     local label="$1" path="$2" rc=0 err
     AI_TOOLS_SECRET_PATTERNS_FILE="${path}"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
@@ -239,7 +202,7 @@ if mkfifo "${TESTDIR}/patterns-fifo" 2>/dev/null; then
 else
     skip "a FIFO at the path" "mkfifo failed in ${TESTDIR}"
 fi
-# The two readable states stay status 0: absent and empty load the baseline, a real file loads its own patterns.
+# The readable states stay status 0: an absent file loads the baseline, a real file the baseline and its own patterns.
 AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-file"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
 if ai_tools_secret_patterns__load 2>/dev/null && [[ -z "${AI_TOOLS_SECRET_PATTERNS__UNREADABLE}" ]] \
         && (( ${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} == baseline_count )); then
@@ -249,28 +212,28 @@ else
 fi
 printf 'only-this\n' > "${TESTDIR}/patterns-one"
 AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-one"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
-if ai_tools_secret_patterns__load 2>/dev/null && [[ "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}" == only-this ]]; then
-    pass "a readable file loads its own patterns at status 0"
+if ai_tools_secret_patterns__load 2>/dev/null \
+        && [[ "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}" == "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[*]} only-this" ]]; then
+    pass "a readable file loads the baseline and its own patterns at status 0"
 else
-    fail "a readable file: patterns='${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}' (want only-this)"
+    fail "a readable file: patterns='${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}' (want the baseline, then only-this)"
 fi
-# The drift report names an unreadable file, since the baseline is then in force for the operator's sessions while their
-# helpers refuse -- the one state the wrapper's journal line would otherwise read as silent agreement.
-if declare -F ai_tools_secret_patterns__format_drift >/dev/null 2>&1; then
-    AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
-    if out="$(ai_tools_secret_patterns__format_drift 2>/dev/null)" && [[ "${out}" == *"cannot be read"* ]]; then
-        pass "the drift report names an unreadable file at status 0"
-    else
-        fail "the drift report over an unreadable file: '${out}'"
-    fi
+# The journal line names an unreadable file, since the baseline then classifies alone for the operator's sessions while
+# their helpers refuse.
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+if out="$(ai_tools_secret_patterns__format_unreadable_report 2>/dev/null)" && [[ "${out}" == *"cannot be read"* ]] \
+        && [[ "${out}" == *"${TESTDIR}/patterns-dir"* ]]; then
+    pass "the journal line names an unreadable file at status 0"
+else
+    fail "the journal line over an unreadable file: '${out}'"
 fi
 unset AI_TOOLS_SECRET_PATTERNS_FILE
 
-# (9) The path predicate every consumer classifies with. With the baseline in force, each exempt path is open where it
-# is the tail of the canonical path -- under a project root, a nested client directory and pnpm's layout -- while
-# a lookalike stays locked: a sibling name, a case variant, the exempt path as a parent of the path classified, the same
-# last component outside the entry, and the bare name elsewhere. An exemption covers the path and not its subtree,
-# so a credential beneath an exempt directory is locked by its own name.
+# (9) The path predicate every consumer classifies with. Each exempt path is open where it is the tail of the canonical
+# path -- under a project root, a nested client directory and pnpm's layout -- while a lookalike stays locked: a sibling
+# name, a case variant, the exempt path as a parent of the path classified, the same last component outside the entry,
+# and the bare name elsewhere. An exemption covers the path and not its subtree, so a credential beneath an exempt
+# directory is locked by its own name.
 section "secret classifier: path exemptions (unit)"
 if ! declare -F ai_tools_secret_patterns__is_secret_path >/dev/null 2>&1; then
     skip "secret classifier path exemptions" "the library defines no ai_tools_secret_patterns__is_secret_path"
@@ -297,7 +260,7 @@ open_ok=true
 for entry in "${exempt_paths[@]}"; do
     for path in "/home/op/web/${entry}" "/home/op/api/ClientApp/${entry}" \
                 "/home/op/web/node_modules/.pnpm/@angular+build@22.2.6/${entry}"; do
-        is_open "${path}" || { fail "an exempt path stays locked with the baseline in force: ${path}"; open_ok=false; }
+        is_open "${path}" || { fail "an exempt path stays locked: ${path}"; open_ok=false; }
     done
 done
 ${open_ok} && pass "each exempt path is open under a project root, a nested client and pnpm's layout"
@@ -331,19 +294,44 @@ else
 fi
 shopt -u nocasematch
 
-# An operator's file with a pattern replaces the baseline and its exemptions with it. Driven through the loader,
-# which is what records the set in force.
+# An operator's file adds to the baseline and leaves its exemptions in force, the same names among its patterns
+# included. Driven through the loader, which builds the set in force.
 printf 'private\ntokens\n' > "${TESTDIR}/patterns-private"
 AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-private"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
 ai_tools_secret_patterns__load 2>/dev/null || true
 operator_set_ok=true
 for entry in node_modules/@angular/build/private node_modules/@angular/material/core/tokens \
              node_modules/@angular/material/core/density/private; do
-    if is_open "/home/op/web/${entry}"; then
-        fail "an operator's pattern set left a baseline exemption open: ${entry}"; operator_set_ok=false
-    fi
+    is_open "/home/op/web/${entry}" \
+        || { fail "an operator's pattern set locked a baseline exemption: ${entry}"; operator_set_ok=false; }
 done
-${operator_set_ok} && pass "an operator's file holding 'private' and 'tokens' keeps every baseline exemption locked"
+is_open /home/op/web/private && { fail "an operator's 'private' pattern left /home/op/web/private open"; operator_set_ok=false; }
+${operator_set_ok} && pass "an operator's file holding 'private' and 'tokens' leaves every baseline exemption open"
+
+# A pattern of the operator's own locks a baseline-exempt path it matches, while a baseline entry the file repeats
+# in another case leaves its exemption open, an exempt path the pattern does not match stays open, and the operator's
+# `!` line still opens the path the pattern locked.
+env_prod=/home/op/web/src/environments/environment.prod.ts
+printf 'environment.prod.ts\nPRIVATE\n' > "${TESTDIR}/patterns-own"
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-own"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+ai_tools_secret_patterns__load 2>/dev/null || true
+if is_open "${env_prod}"; then
+    fail "an operator's own 'environment.prod.ts' pattern left the baseline-exempt ${env_prod} open"
+elif ! is_open /home/op/web/node_modules/@angular/build/private; then
+    fail "an operator's 'PRIVATE', a baseline entry in another case, locked a baseline exemption"
+elif ! is_open /home/op/web/src/environments/environment.development.ts; then
+    fail "an operator's 'environment.prod.ts' pattern locked an exempt path it does not match"
+else
+    pass "an operator's own pattern locks a baseline-exempt path, and a repeated baseline entry does not"
+fi
+printf 'environment.prod.ts\n!%s\n' "${env_prod}" > "${TESTDIR}/patterns-own-keep"
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-own-keep"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
+ai_tools_secret_patterns__load 2>/dev/null || true
+if is_open "${env_prod}"; then
+    pass "a '!' line opens the path the operator's own pattern locked"
+else
+    fail "a '!' line beside the operator's own pattern left ${env_prod} locked"
+fi
 
 # (10) Operator `!` lines: an exact canonical absolute path, open whichever set is in force; its sibling, parent, child
 # and case variant stay locked. A malformed line is reported under its code by line number, its path stays locked,
@@ -354,10 +342,10 @@ printf '# exemptions\n!%s\n' "${keep}" > "${TESTDIR}/patterns-keep"
 AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-keep"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
 rc=0; ai_tools_secret_patterns__load 2>"${TESTDIR}/keep-err" || rc=$?
 if (( rc == 0 )) && (( ${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} == baseline_count )) && [[ ! -s "${TESTDIR}/keep-err" ]] \
-        && ! out="$(ai_tools_secret_patterns__format_drift)" && [[ -z "${out}" ]]; then
-    pass "a file of '!' lines and comments loads the baseline at status 0, and the drift report is silent"
+        && ! out="$(ai_tools_secret_patterns__format_unreadable_report)" && [[ -z "${out}" ]]; then
+    pass "a file of '!' lines and comments loads the baseline at status 0, and the journal line is silent"
 else
-    fail "a file of '!' lines: rc=${rc} patterns=${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} err='$(cat "${TESTDIR}/keep-err")' drift='${out:-}'"
+    fail "a file of '!' lines: rc=${rc} patterns=${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} err='$(cat "${TESTDIR}/keep-err")' report='${out:-}'"
 fi
 bang_case() {  # <label> -- with the file loaded, the named path is open and its neighbours are locked
     local label="$1" path ok=true
@@ -368,11 +356,11 @@ bang_case() {  # <label> -- with the file loaded, the named path is open and its
     done
     ${ok} && pass "${label}: the '!' path is open, and a sibling, a case variant, a child and another secret stay locked"
 }
-bang_case "with the baseline in force"
+bang_case "with the baseline alone"
 printf 'appsettings.*.json\nsecrets\n.env\n!%s\n' "${keep}" > "${TESTDIR}/patterns-keep-set"
 AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-keep-set"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
 ai_tools_secret_patterns__load 2>/dev/null || true
-bang_case "with an operator pattern set"
+bang_case "with patterns of the operator's own"
 # A parent named by a `!` line opens the parent alone.
 printf '!/home/op/src/api/private\n' > "${TESTDIR}/patterns-parent"
 AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-parent"; _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
@@ -393,7 +381,7 @@ rc=0; ai_tools_secret_patterns__load 2>"${TESTDIR}/malformed-err" || rc=$?
 err="$(cat "${TESTDIR}/malformed-err")"
 assert_msg MSG-T4W8 "${err}" "a malformed '!' line is reported under its code"
 reported="$(command grep -c '^MSG-T4W8$' <<< "${err}" || true)"
-if (( rc == 0 )) && [[ "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}" == '*.pem' ]] \
+if (( rc == 0 )) && [[ "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}" == "${_AI_TOOLS_SECRET_PATTERNS__DEFAULTS[*]} *.pem" ]] \
         && (( reported == ${#malformed_lines[@]} )) && [[ "${err}" == *"line 2 of ${TESTDIR}/patterns-malformed"* ]] \
         && (( ${#_AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS[@]} == 0 )); then
     pass "each malformed '!' form is reported by line and ignored, with the status and the pattern set the file states"
@@ -405,8 +393,8 @@ if ! is_open /home/op/src/api/x.pem; then
 else
     fail "a malformed '!' line opened a path"
 fi
-# A line opening with `!(` is a negation glob an operator's file already holds, and stays a pattern: alone it is
-# the whole set in force, and beside another pattern it is one of the two.
+# A line opening with `!(` is a negation glob an operator's file already holds, and stays a pattern: alone it is the one
+# pattern the file adds to the baseline, and beside another pattern it is one of the two.
 negation_case() {  # <label> <expected-pattern-count> <line...>
     local label="$1" want="$2" rc=0 err; shift 2
     printf '%s\n' "$@" > "${TESTDIR}/patterns-negation"
@@ -415,15 +403,14 @@ negation_case() {  # <label> <expected-pattern-count> <line...>
     ai_tools_secret_patterns__load 2>"${TESTDIR}/negation-err" || rc=$?
     err="$(cat "${TESTDIR}/negation-err")"
     if (( rc == 0 )) && [[ -z "${err}" ]] && (( ${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} == want )) \
-            && (( _AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE == 0 )) \
             && ! is_open /home/op/src/api/database.conf && is_open /home/op/src/api/public.conf; then
         pass "${label}: a '!(' line loads as a negation pattern, with no line reported"
     else
-        fail "${label}: rc=${rc} patterns='${AI_TOOLS_SECRET_PATTERNS__PATTERNS[*]}' baseline=${_AI_TOOLS_SECRET_PATTERNS__BASELINE_IN_FORCE} err='${err}'"
+        fail "${label}: rc=${rc} patterns=${#AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]} err='${err}'"
     fi
 }
-negation_case "alone" 1 '!(public).conf'
-negation_case "beside another pattern" 2 '*.pem' '!(public).conf'
+negation_case "alone" "$(( baseline_count + 1 ))" '!(public).conf'
+negation_case "beside another pattern" "$(( baseline_count + 2 ))" 'rclone.conf' '!(public).conf'
 unset AI_TOOLS_SECRET_PATTERNS_FILE
 force_baseline
 

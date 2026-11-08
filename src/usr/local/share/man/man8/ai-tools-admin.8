@@ -1285,9 +1285,9 @@ migrates.
 .I ~/.config/ai-tools/secret-patterns
 The same account's secret\-name patterns, seeded by
 .BR "operators add" .
-A pattern listed here replaces the built\-in baseline in
-.I /usr/local/lib/ai-tools/secret-patterns.lib.sh
-rather than adding to it; the seeded file lists none, so the baseline applies.
+A pattern listed here is added to the built\-in baseline in
+.IR /usr/local/lib/ai-tools/secret-patterns.lib.sh ,
+which applies whatever the file holds.
 .TP
 .I /opt/ai-tools
 The sandbox account's home, holding the nvm tree, the installed agents and the

@@ -489,7 +489,7 @@ fi
 
 # ── A baseline exemption ─────────────────────────────────────────────────────
 # The walk classifies each path by its canonical path, so a file the baseline exempts takes the project ACL while its
-# unexempted sibling, matched by the same pattern, is skipped as the control. Driven with the baseline in force
+# unexempted sibling, matched by the same pattern, is skipped as the control. Driven with the baseline alone
 # through the loader's file hook at an absent file.
 section "ai-tools-setfacl: a baseline-exempt path takes the project ACL"
 ng="${TESTDIR}/ng"

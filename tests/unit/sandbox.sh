@@ -853,7 +853,7 @@ else
     else
         fail "projects inspect still listed entries after the walk's state: '$(grep -e '^narrow-acl-entry-path' -e '^scan|entries' <<<"${in_out}" | tr '\n' '~')'"
     fi
-    # The scan drops a secret-named path by the classification the walk makes, so with the baseline in force a narrow
+    # The scan drops a secret-named path by the classification the walk makes, so with the baseline alone a narrow
     # file the baseline exempts is a record, while its unexempted sibling, matched by the same pattern, is dropped.
     in_ng="${in_work}/ng-entries"
     mkdir -p "${in_ng}/src/environments"

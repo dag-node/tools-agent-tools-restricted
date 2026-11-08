@@ -92,11 +92,10 @@ which a claim then leaves alone, or exclude it with a `!` line in your project
 registry, which the hand-back and the claim's permission walks skip whatever
 its mode.
 
-Your own list lives at `~/.config/ai-tools/secret-patterns` and **replaces**
-the baseline rather than adding to it, so a file written once holds this host
-to the set it named then. Each launch records the difference to journald,
-naming the baseline patterns your file drops. The file's grammar and the full
-baseline are in `man 5 ai-tools-secret-patterns`.
+Your own list lives at `~/.config/ai-tools/secret-patterns` and **adds**
+to the baseline: your file cannot remove a name from it, so a path the baseline
+matches stays locked unless an exemption names that path. The file's grammar
+and the full baseline are in `man 5 ai-tools-secret-patterns`.
 
 ## A matched file the agent must read
 
@@ -117,21 +116,20 @@ Keep such a file open only after reading it. What the agent reads can reach
 the model provider with its requests, so the file should hold only settings you
 are content to send there; keep a password or a key in user secrets
 or an environment variable instead. The line in your secret-patterns file, `!`
-and a full path as `realpath` prints it, keeps that one path open whichever
-patterns are in force, and does not cover a path inside it. A copy a build
-writes is matched at its own path, so name each output path the session's
-builds write to as well: `bin/Release/…` for a Release build, another directory
-for another target framework. The line names the path, not what the file holds:
-a credential written into the file later is not locked. A line that does not
-name a full path, or that carries `*`, `?` or `[`, is ignored and reported,
-and the file stays locked.
+and a full path as `realpath` prints it, keeps that one path open, and does not
+cover a path inside it. A copy a build writes is matched at its own path,
+so name each output path the session's builds write to as well: `bin/Release/…`
+for a Release build, another directory for another target framework. The line
+names the path, not what the file holds: a credential written into the file
+later is not locked. A line that does not name a full path, or that carries
+`*`, `?` or `[`, is ignored and reported, and the file stays locked.
 
 The baseline itself leaves open a few paths that a package or a project
 template ships under a matching name, such as the `private` source directories
 of Angular's build packages and an Angular project's
 `src/environments/environment.prod.ts`; `man 5 ai-tools-secret-patterns` lists
-them. A secret-patterns file of your own with a pattern line replaces those
-along with the baseline.
+them. To lock one of these paths, add a pattern of your own that matches it,
+such as `environment.prod.ts`.
 
 A path a claim or a lockdown has already locked stays locked when you add
 a line, and so does one the baseline now leaves open, such as an Angular
@@ -139,9 +137,9 @@ a line, and so does one the baseline now leaves open, such as an Angular
 and open it yourself, a directory without `-R` so a secret locked inside it
 stays locked. You are not in the `ai-tools` group, so the group change takes
 `sudo`. `getfacl -e` shows the access the agent then has. The next claim, clone
-or lockdown leaves a path the baseline exempts open while the baseline is
-in force, leaves any path open while a `!` line in your secret-patterns file
-names it, and locks it again otherwise. A copy a build wrote under `bin/`
+or lockdown leaves a path open while a `!` line in your secret-patterns file
+names it, or while the baseline exempts it and none of your own patterns
+matches it, and locks it again otherwise. A copy a build wrote under `bin/`
 or `obj/` before the `!` line stays locked, and a copy the session's build
 writes once the line names its path is handed back open.
 

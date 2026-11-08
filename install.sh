@@ -2390,7 +2390,7 @@ do_install() {
         /usr/local/share/man/man5/ai-tools-project-registry.5
 
     # ai-tools-secret-patterns(5). The operator's secret-name patterns: the glob grammar, what a match does,
-    # and the replace-the-baseline rule. Seeded once like the allowlist, so its header points here too.
+    # and the additive rule. Seeded once like the allowlist, so its header points here too.
     log "/usr/local/share/man/man5/ai-tools-secret-patterns.5"
     install_subst 644 root root \
         "${SCRIPT_DIR}/src/usr/local/share/man/man5/ai-tools-secret-patterns.5" \
@@ -2975,9 +2975,8 @@ do_install() {
         fi
     fi
     # Secret-name patterns: user-owned 600, from the same conf.lib.sh header `atr admin operators add` seeds. The seeded
-    # file carries the header alone, so classification keeps using the baseline in secret-patterns.lib.sh until this
-    # operator writes a pattern; an existing file holds their edits, so a re-install keeps it unless they consent
-    # to re-seed.
+    # file carries the header alone, so it adds no pattern to the baseline in secret-patterns.lib.sh until this operator
+    # writes one; an existing file holds their edits, so a re-install keeps it unless they consent to re-seed.
     local patternfile="${PROJECTS_HOME}/.config/ai-tools/secret-patterns"
     local secret_existed=0; [[ -f "${patternfile}" ]] && secret_existed=1
     if keep_existing "${patternfile}"; then
