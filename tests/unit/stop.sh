@@ -521,6 +521,76 @@ for stub_case in "!/srv/p:/srv/p" "-/srv/p:/srv/p" "/srv/p:/srv/p" "~:" "!~:" "r
 done
 unset -f systemctl timeout
 
+# A LOGIN SESSION SCOPE IS A STEP RUN AS THE ACCOUNT, NOT PLUMBING. logind places one directly under the account's slice
+# for a `sudo -u` or a `runuser` that crossed pam_systemd, outside the user manager, and the policy unload reads it
+# as live. The table names it as a step with what its first process runs, the manager's init.scope beside it stays
+# account plumbing, and the headline counts the step apart and does not say that no session is running. A fixture pid
+# has no /proc entry, so the command reads `unknown`; cgroup_first_command is driven over a real process further down.
+CG3="${TESTDIR}/cgroup2d/user.slice/user-4242.slice"
+point_at "${CG3}" 4242
+mkcg "${CG3}"
+mkcg "${CG3}/session-c142.scope" 130 131
+mkcg "${CG3}/user@4242.service"
+mkcg "${CG3}/user@4242.service/init.scope" 120
+sync_events "${TESTDIR}/cgroup2d"
+run_main true
+if (( MAIN_STATUS == 0 )) \
+        && grep -q "session-c142.scope.*(a step run as ${SANDBOX_USER}: unknown)" <<< "${MAIN_OUTPUT}" \
+        && grep -q 'init.scope.*(account plumbing)' <<< "${MAIN_OUTPUT}" \
+        && grep -q "1 step(s) run as the ${SANDBOX_USER} account" <<< "${MAIN_OUTPUT}" \
+        && ! grep -qi 'no agent session is running' <<< "${MAIN_OUTPUT}"; then
+    pass "a login session scope is listed as a step run as the account, counted apart, and the headline names it"
+else
+    fail "the session scope's row or headline: status ${MAIN_STATUS}, output: ${MAIN_OUTPUT}"
+fi
+# Beside an agent session, the step is counted in a clause of its own and listed after the agent rows.
+mkcg "${CG3}/user@4242.service/app.slice"
+mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-31.service" 140
+sync_events "${TESTDIR}/cgroup2d"
+FIXTURE_WORKING_DIR[ai-tools-claude-code-31.service]="${TESTDIR}/proj/alpha"
+run_main true
+table_order="$(grep -oE 'ai-tools-claude-code-31.service|session-c142.scope|init.scope' <<< "${MAIN_OUTPUT}" | tr '\n' ' ')"
+if (( MAIN_STATUS == 0 )) && grep -q '1 agent session(s) would be terminated' <<< "${MAIN_OUTPUT}" \
+        && grep -q "1 step(s) run as the ${SANDBOX_USER} account (marked below) go with them" <<< "${MAIN_OUTPUT}" \
+        && [[ "${table_order}" == "ai-tools-claude-code-31.service session-c142.scope init.scope " ]]; then
+    pass "beside an agent session the step is counted in its own clause, listed after the agent rows and before the plumbing"
+else
+    fail "agent plus step: status ${MAIN_STATUS}, order '${table_order}', output: ${MAIN_OUTPUT}"
+fi
+# The program a step's first process runs is the account's data: argv[0] alone, read from /proc as root, reduced
+# to printable ASCII and capped. Real processes stand in: one whose argv[0] carries an escape byte and runs past
+# the cap, and one whose arguments must not be printed, since a command line can carry a credential. A cgroup with no
+# process is the control that reads `unknown`.
+( exec -a step-short sleep 30 31 ) &
+step_pid=$!
+step_cg="${TESTDIR}/step-real"; mkdir -p "${step_cg}"; printf '%s\n' "${step_pid}" > "${step_cg}/cgroup.procs"
+sleep 0.2
+step_command="$(cgroup_first_command "${step_cg}")"
+kill "${step_pid}" 2>/dev/null || true; wait "${step_pid}" 2>/dev/null || true
+if [[ "${step_command}" == step-short ]]; then
+    pass "a step's command is its argv[0] alone, without the arguments"
+else
+    fail "cgroup_first_command printed more than argv[0]: '$(printf '%q' "${step_command}")'"
+fi
+( exec -a $'step\e[2J'"$(printf 'x%.0s' {1..100})" sleep 30 31 ) &
+step_pid=$!
+printf '%s\n' "${step_pid}" > "${step_cg}/cgroup.procs"
+sleep 0.2
+step_command="$(cgroup_first_command "${step_cg}")"
+kill "${step_pid}" 2>/dev/null || true; wait "${step_pid}" 2>/dev/null || true
+if [[ "${step_command}" == 'step?[2Jxxx'* && "${step_command}" == *'~' && ${#step_command} -eq 80 \
+        && "${step_command}" != *$'\e'* ]]; then
+    pass "a step's command is read from /proc, its escape byte reduced, and capped at 80 characters"
+else
+    fail "cgroup_first_command over a real process read: '$(printf '%q' "${step_command}")'"
+fi
+: > "${step_cg}/cgroup.procs"
+if [[ "$(cgroup_first_command "${step_cg}")" == unknown ]]; then
+    pass "control: a cgroup with no process reads unknown"
+else
+    fail "cgroup_first_command over an empty cgroup read: '$(cgroup_first_command "${step_cg}")'"
+fi
+
 # An empty slice is not an error: no session running is a successful stop.
 point_at "${TESTDIR}/cgroup2c/user.slice/user-4242.slice" 4242
 mkcg "${SANDBOX_SLICE}"
@@ -587,6 +657,19 @@ check_question() {
 check_question 2 0 "Terminate the 2 agent session(s) listed above?"
 check_question 0 3 "Terminate the 3 unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
 check_question 2 3 "the 2 agent session(s) listed above, and 3 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
+# A step run as the account is named in the question too, leading where no agent session is listed.
+check_question_steps() {
+    CONFIRM_QUESTION=""; ASSUME_YES=false
+    confirm_stop "$1" "$2" "$3" >/dev/null 2>&1
+    if [[ "${CONFIRM_QUESTION}" == "$4" ]]; then
+        pass "$1 session(s) + $3 step(s) + $2 plumbing unit(s) is asked as: '$4'"
+    else
+        fail "confirm_stop $1 $2 $3 asked: '${CONFIRM_QUESTION}'"
+    fi
+}
+check_question_steps 0 1 1 "Terminate the 1 step(s) run as the ${SANDBOX_USER} account listed above, and 1 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
+check_question_steps 2 1 1 "Terminate the 2 agent session(s) listed above, 1 step(s) run as the ${SANDBOX_USER} account, and 1 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
+unset -f check_question_steps
 unset -f ai_tools_msg__confirm check_question
 
 # And a deliberate decline stops the stop, at exit 6 -- the code ai-tools(1) reserves for an operator's explicit

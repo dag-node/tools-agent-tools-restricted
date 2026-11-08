@@ -663,12 +663,16 @@ and verified gone from its
 .BR cgroup ;
 it does not mean none can start afterwards, and it does not describe the manager.
 .IP
-The report counts agent sessions apart from the account's own plumbing \(em its user manager, its
-dbus broker, and a login session scope per
+The report counts agent sessions apart from the steps run as the account \(em a login session
+scope per
 .BR sudo (8)
-that crossed pam_systemd. All are terminated; the plumbing is listed after the sessions and marked
-.IR "(account plumbing)" ,
-so the headline does not report four units of scaffolding as four agent sessions. The split is
+or
+.BR runuser (1)
+that crossed pam_systemd, and a root command's run as the account, each row naming the program its first process runs, without its arguments \(em and apart from the account's own plumbing, its user manager and dbus broker,
+marked
+.IR "(account plumbing)" .
+All are terminated, listed after the sessions, so the headline does not report four units
+of scaffolding as four agent sessions, nor say that no session is running while a step is listed. The split is
 presentational \(em it labels and orders rows and decides which get a handback command, without
 selecting any target. Because the restarted manager is itself inside the swept slice, running the command twice
 in a row is not silent: the second run reports zero agent sessions, then terminates and restarts the

@@ -111,13 +111,18 @@ A final sweep re-enumerates after the run and reports a cgroup that became live 
 
 Attribution is best-effort and display-only: a `WorkingDirectory` is read from the account's own user manager,
 so a rogue unit can misreport it, and all that buys is a wrong label in the table and a missing `projects handback`
-line. It cannot affect what is terminated, because the sweep does not consult it. The split between agent sessions
-and the account's own plumbing (its user manager, dbus, login session scopes) is advisory in the same sense: the class
-comes from a unit name, which inside a delegated subtree is the delegatee's to choose, so a session can name itself
-out of the agent class and does not gain an exemption by it. The split orders the table, separates the two counts,
-and decides which rows carry a `projects handback` line; both classes are enumerated, listed and killed identically.
-Only an agent session gets a `projects handback` line: the account's dbus broker reports `/opt/ai-tools` as its working
-directory, the control plane, which the protected-paths backstop refuses.
+line. It cannot affect what is terminated, because the sweep does not consult it. The split into agent sessions, steps
+run as the account and the account's own plumbing (its user manager's `init.scope` and dbus broker) is advisory
+in the same sense: the agent class comes from a unit name, which inside a delegated subtree is the delegatee's
+to choose, so a session can name itself out of the agent class and does not gain an exemption by it. A step is a scope
+directly under the account's slice, outside its user manager: a login session scope (a `sudo -u`, `runuser`
+or `systemctl --user -M` that crossed `pam_systemd`), or a root caller's run as the account. Its row names the program
+its first process runs, its `argv[0]` alone since a command line can carry a credential, read as root from `/proc`
+and reduced to printable ASCII, and the words are the ones the policy unload's refusal uses for that process,
+so a headline that counts zero agent sessions still names the steps it lists. The split orders the table, separates
+the counts, and decides which rows carry a `projects handback` line; every class is enumerated, listed and killed
+identically. Only an agent session gets a `projects handback` line: the account's dbus broker reports `/opt/ai-tools`
+as its working directory, the control plane, which the protected-paths backstop refuses.
 
 ## Residual failure modes
 
@@ -135,8 +140,8 @@ Stated so the guarantee is bounded rather than overstated.
 - **Blast radius.** Everything in the account's slice is in scope, including an in-flight toolchain update, a step
   a bootstrap or an uninstall runs as the account, and the account's own user manager. The updater is fail-closed
   on interruption and leaves the previous, trusted version active ([updater](updater.rule.md)), a bootstrap whose step
-  was ended fails and is re-run, and the manager is restarted afterwards. Such a step reads as account plumbing
-  with an `unknown` project: the account's user manager does not know a system-manager scope.
+  was ended fails and is re-run, and the manager is restarted afterwards. Such a step is listed as a step run
+  as the account with an `unknown` project: the account's user manager does not know a system-manager scope.
 - **The manager does not come back.** The restart is best-effort and reported separately. Until it succeeds no *new*
   session starts, since `ai-tools-run` launches each one as a transient unit of that manager, which is nearer
   to the point of this command than against it; the message names the command that fixes it.
@@ -184,7 +189,7 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
   │        NOTHING is exempt -- init.scope is enumerated like anything else    │
   │  attribute each unit via WorkingDirectory  (best-effort, DISPLAY ONLY:     │
   │        it selects nothing, so `unknown` costs a label, not a target)       │
-  │  classify agent session vs account plumbing  (advisory, DISPLAY ONLY:      │
+  │  classify agent session / step / plumbing  (advisory, DISPLAY ONLY:        │
   │        splits the counts and orders the table; selects nothing)            │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 3. confirm ────────────────────────────────────────────────────────────────┐
@@ -277,7 +282,7 @@ the guarantee its row names.
 | The restart runs after verification and is reported on its own, outside the exit status | the invariant is that the *stop* happened; the manager is a separate fact ([Where containment ends](#where-containment-ends)) |
 | Liveness comes from cgroups only | systemd never decides whether something is running ([The decisions inside those phases](#the-decisions-inside-those-phases)) |
 | Attribution is best-effort and display-only | the sweep does not consult it, so a misreported project costs a label rather than a target ([Where containment ends](#where-containment-ends)) |
-| Agent sessions and account plumbing are counted apart, advisorily | the class comes from a unit name, so it is the account's word; it labels a row and never selects one, and a headline that counted four units of scaffolding as four agent sessions misread the incident ([Where containment ends](#where-containment-ends)) |
+| Agent sessions, steps run as the account and account plumbing are counted apart, advisorily | the agent class comes from a unit name, so it is the account's word; it labels a row and never selects one, a headline that counted four units of scaffolding as four agent sessions misread the incident, and one that called a login session scope plumbing hid a process someone started ([Where containment ends](#where-containment-ends)) |
 | A second run terminates and restarts the manager again | idempotence is in end state; a silent rerun costs either an exemption or a name-decided sweep ([Where containment ends](#where-containment-ends)) |
 
 ## Quirks
