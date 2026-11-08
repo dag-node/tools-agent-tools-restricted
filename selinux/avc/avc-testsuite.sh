@@ -313,7 +313,7 @@ exercise_group() {
 exercise_group systemd  systemctl    "systemctl status"       systemctl --no-pager status
 exercise_group systemd  journalctl   "a journal read"         journalctl --no-pager -n 3
 exercise_group pkgmgmt  rpm          "rpm -qa"                rpm -qa --queryformat '%{NAME}\n'
-exercise_group netadmin firewall-cmd "firewall-cmd zone list" firewall-cmd --list-zones
+exercise_group netadmin firewall-cmd "firewall-cmd zone list" firewall-cmd --get-zones
 exercise_group podman   podman       "podman info"            podman info
 
 # memfdexec: the double-mapped W^X JIT path -- write generated code through a read-write mapping of an anonymous memfd,

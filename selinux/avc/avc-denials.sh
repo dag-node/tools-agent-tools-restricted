@@ -146,6 +146,13 @@ elif results == {errno.ENOENT}:
 PY
 }
 
+# avc_tcp_reason <reason>: print `allowed` for avc_attempt_reason's reading of a connect(2) that failed
+# with ECONNREFUSED or ETIMEDOUT, which SELinux lets through its name_connect check before a SYN leaves, and <reason>
+# otherwise.
+avc_tcp_reason() {
+  if [[ "$1" =~ ^exit\ [0-9]+:\ (ECONNREFUSED|ETIMEDOUT): ]]; then echo allowed; else echo "$1"; fi
+}
+
 # avc_permissive_state <seinfo-status> <seinfo-output>: read `seinfo --permissive` output and print `yes` when it lists
 # ai_tools_t, `no` when it is well formed and omits it, and `unknown` for a failed query or output without its
 # `Permissive Types: <n>` header or with a type count other than <n>. Only `no` lets the root half confirm enforcement.
@@ -476,7 +483,7 @@ PY
       _why="" _type="" _group=""; return
     fi
     _attempt _py tcp "${_port}"
-    [[ "${_reason}" == ECONNREFUSED:* || "${_reason}" == ETIMEDOUT:* ]] && _reason=allowed
+    _reason="$(avc_tcp_reason "${_reason}")"
     local _exp=1
     [[ -n "${_group}" ]] && { _exp=0; _group_expected || _exp=$?; }
     case "${_exp}:${_reason}" in
@@ -558,7 +565,7 @@ boundary has a gap. These are plain deny (not dontaudit'd); AVCs log without -DB
   _type="bin_t (exec allowed); firewalld_t D-Bus (denied)"
   _why="Listing firewall zones reveals which ports and services are network-exposed. This is the first step in planning lateral movement, identifying targets for exploitation, and determining whether outbound exfiltration routes exist."
   _group=netadmin
-  check GRP-004 SELinux "exec firewall-cmd --list-zones" firewall-cmd --list-zones
+  check GRP-004 SELinux "exec firewall-cmd --get-zones" firewall-cmd --get-zones
 
   _type="NetworkManager_t D-Bus (denied)"
   _why="nmcli exposes all interfaces, IP addresses, active VPN tunnels, and DNS config -- mapping the full network topology from the agent's vantage point for lateral movement and exfiltration route planning."

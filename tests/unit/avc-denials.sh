@@ -24,7 +24,7 @@ _ifs="${IFS}"
 source "${SCRIPT}"
 IFS="${_ifs}"
 set -e
-for fn in avc_attempt_reason avc_permissive_state avc_loaded_groups avc_probe_status; do
+for fn in avc_attempt_reason avc_tcp_reason avc_permissive_state avc_loaded_groups avc_probe_status; do
     declare -F "${fn}" >/dev/null || { fail "${SCRIPT} does not define ${fn}"; finish; exit; }
 done
 
@@ -81,6 +81,15 @@ else
     present_rc=0; PATH="${TESTDIR}/present:${PATH}" "${TOOL}" || present_rc=$?
     expect "the present tool runs (control)" allowed "$(avc_attempt_reason "${present_rc}" "" "${TOOL}")"
 fi
+
+section "connect reasons"
+# Each input is avc_attempt_reason's own reading of the _py tcp stderr, as check_tcp receives it.
+expect "refused connection (no listener) is permitted" allowed \
+    "$(avc_tcp_reason "$(avc_attempt_reason 1 "ECONNREFUSED: Connection refused")")"
+expect "timed-out connection is permitted" allowed "$(avc_tcp_reason "$(avc_attempt_reason 1 "ETIMEDOUT: timed out")")"
+expect "EACCES stays denied" denied "$(avc_tcp_reason "$(avc_attempt_reason 1 "EACCES: Permission denied")")"
+expect "another errno stays not exercised" "exit 1: EHOSTUNREACH: No route to host" \
+    "$(avc_tcp_reason "$(avc_attempt_reason 1 "EHOSTUNREACH: No route to host")")"
 
 section "permissive state from seinfo"
 nl=$'\n'
