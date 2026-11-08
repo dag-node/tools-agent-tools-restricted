@@ -56,13 +56,15 @@ remove_workdir() {
 
 # Import GPG_SIGNING_KEY into <gnupghome> and echo the signer fingerprint (%_gpg_name).
 import_signing_key() {
-    local gnupghome="$1" fpr
+    local gnupghome="$1" fpr listing
     install -d -m 0700 "${gnupghome}"
     printf '%s\n' "${GPG_SIGNING_KEY}" \
         | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
         || die "could not import GPG_SIGNING_KEY"
-    fpr="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys \
-            | awk -F: '$1 == "fpr" { print $10; exit }')"
+    # Listed whole, then searched: under pipefail, awk's early exit would send gpg a SIGPIPE on its next line.
+    listing="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys)" \
+        || die "gpg could not list the imported secret keys"
+    fpr="$(awk -F: '$1 == "fpr" { print $10; exit }' <<<"${listing}")"
     [[ -n "${fpr}" ]] || die "no secret key present after import"
     printf '%s\n' "${fpr}"
 }
