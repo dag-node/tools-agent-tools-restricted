@@ -910,7 +910,9 @@ decision:
 3. *Reachability* — the traverse opt-in, its question alone ([Reachability](#reachability)).
 4. *Secret lockdown* — the gate, before any access-granting step ([Secret pre-check](#secret-pre-check-on-claimclone));
    it fails the claim closed.
-5. *`.git` history* — the `--with-git` opt-in, shown when a `.git` tree is present and not yet normalized.
+5. *`.git` history* — the `--with-git` opt-in, shown when a `.git` tree is present and not yet normalized. Over a tree
+   the owner-side read finds pristine (`is_project_tree_pristine`) it is asked under the create's no-history headline,
+   and otherwise under the history-exposure warning.
 6. *Apply* — one result line per step, the traverse grant first, closed by `claimed`, which appears only when every
    access-granting step applied and carries the ✓ only when the report state is clean.
 

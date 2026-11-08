@@ -1280,6 +1280,20 @@ drive_rows() {
     expect "and pins core.filemode in the project's own repository" \
         test "$(git config --file "${encl}/sub-gitdir/.git/config" --get core.filemode)" = true
     expect "and leaves the repository GIT_DIR names byte-identical"  test "$(sha "${decoy}/.git/config")" = "${decoy_sha}"
+    # The .git question's headline follows the owner-side read's pristine reading: a claim of a repository with no
+    # commits takes the no-history headline, and one with a commit, the control, the history-exposure headline.
+    git init -q "${R}/git-fresh"
+    git init -q "${R}/git-committed"
+    git -C "${R}/git-committed" -c user.name=cli-flags -c user.email=cli-flags@example.invalid -c commit.gpgsign=false \
+        commit -q --allow-empty -m "history"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${R}/git-fresh" "${R}/git-committed"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/git-fresh"
+    expect "a claim of a repository with no commits asks under the no-history headline" \
+        out_has_text "Git history: a new repository"
+    expect "and not under the history-exposure headline"             out_lacks_text "git history exposure"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/git-committed"
+    expect "control: a claim of a repository with a commit asks under the history-exposure headline" \
+        out_has_text "git history exposure"
     # The reading a 0700 root refuses one account and allows its owner, made by the owner-side read itself: run as the
     # target over its own tree, and as the projects user over the same tree. Each run does not read a registry or reach
     # a helper, so it is the installed command alone, with a copy of the fixture operator.conf naming both accounts.

@@ -3906,6 +3906,11 @@ cmd_project_claim() {
         elif ${fresh}; then
             headline_warn "Git history: a new repository" \
                 "This repository has no commits yet. Normalizing .git lets the agent read the commits made here from now on. The create could not set .git to its owner's group and modes (the warning above), so declining leaves .git as git made it, which the agent may be able to read."
+        elif [[ "${inspect_pristine}" == true ]]; then
+            # A claim of an existing tree the owner-side read found pristine: its object store is empty, so there is no
+            # history yet to expose.
+            headline_warn "Git history: a new repository" \
+                "This repository has no commits yet. Normalizing .git lets the agent read the commits made here from now on."
         else
             headline_warn "WARNING: git history exposure" \
                 "normalizing .git lets the agent read this repo's full git history"
