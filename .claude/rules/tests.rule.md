@@ -553,16 +553,18 @@ toward the exit status, then a mark saying anything but `stale` leaving the line
 deciding, rather than the file's presence. Each reader the section's lines call — the pin, the stale mark, the pin's
 kind, the label record — is removed after the CLI loaded it, through `cmd_status`, which must exit 5 under the section's
 code with no tier line and the later sections still printed, beside the same run with every reader as the control;
-the label reader is removed for an agent with no manifest URL and no pin as well, which no label line reaches,
-the verification-policy reader for an unpinned agent on a host requiring verification, which must not read as not
-blocked, and the label line's own guard keeps its code when it is called alone. A further section drives the Version
-section's Node line against fixture links: the version a link points into is the one named, two links naming different
-versions are reported as such, and a link outside the versioned shape claims none. Its closing section drives
-`cmd_status` whole, the host-reading sections stubbed to a known answer, over the exit fold `ai-tools-records(5)`
-states: a section that read a fault exits 4, the service registry's readers removed after the CLI loaded them exits 5
-under its code with the later sections still printed, a section returning its unreadable status exits 5, a fault beside
-an unreadable reading exits 5, and the PATH ordering reader and the managed-files reader each removed exit 5 under their
-section's code. Its last section drives the Caches section over fixture state files: each verdict the library counts
+the label reader is removed for an agent with no manifest URL and no pin as well, whose failed label record is reported
+and counted and an applied one reported, the verification-policy reader for an unpinned agent on a host requiring
+verification, which must not read as not blocked, and the label line's own guard keeps its code when it is called alone.
+A further section drives the Version section's Node line against fixture links: the version a link points into is
+the one named, two links naming different versions are reported as such, and a link outside the versioned shape claims
+none. Its closing section drives `cmd_status` whole, the host-reading sections stubbed to a known answer, over the exit
+fold `ai-tools-records(5)` states: a section that read a fault exits 4, the service registry's readers removed
+after the CLI loaded them exits 5 under its code with the later sections still printed, a section returning its
+unreadable status exits 5, a fault beside an unreadable reading exits 5, and the PATH ordering reader, the provider
+lister it reads launchers from and the managed-files reader each removed exit 5 under their section's code. The PATH
+ordering section run as root prints each launcher `n/a` and no remedy, beside the projects user's run naming the remedy
+as the control. Its last section drives the Caches section over fixture state files: each verdict the library counts
 returns 1 with the library's remedy under the line, an overdue cache returns 0 with the line its recorded reason
 selects, and an empty file and a value forged with a control byte read as `?` and are not counted.
 

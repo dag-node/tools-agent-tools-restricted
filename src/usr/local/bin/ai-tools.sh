@@ -6092,8 +6092,12 @@ status_sandbox_unit_commands() {
 # command that repairs it. What each state means is launch.rule.md's PATH ordering section; what this report says about
 # each is cli.rule.md.
 #
-# path-order.lib.sh ships with base, so a reader it did not define is a broken install: reported under MSG-N9Q3
-# and returned as STATUS_UNREADABLE, the later sections still printed.
+# path-order.lib.sh and providers.lib.sh ship with base, so a reader either did not define is a broken install: reported
+# under MSG-N9Q3 and returned as STATUS_UNREADABLE, the later sections still printed. The launcher list comes
+# from the provider resolver, and without it the reader does not list a launcher and the section would print nothing.
+#
+# Run as root, the CLI reads root's PATH, which is not an operator's shell, and the remedy `atr admin operators add`
+# refuses root (MSG-C4Y4): each launcher prints n/a and the section does not count.
 status_path_order() {
     local path_order_lib=/usr/local/lib/ai-tools/path-order.lib.sh
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
@@ -6101,9 +6105,10 @@ status_path_order() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/path-order.lib.sh
     source "${path_order_lib}" 2>/dev/null || true
-    if ! declare -F ai_tools_path_order__read_here >/dev/null 2>&1; then
+    if ! declare -F ai_tools_path_order__read_here >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
         section "PATH ordering"
-        warn MSG-N9Q3 "the PATH ordering library (${path_order_lib}) did not load -- no launcher was resolved in this shell; reinstall the ai-tools package"
+        warn MSG-N9Q3 "the PATH ordering or provider library (${path_order_lib}, ${providers_lib}) did not load -- no launcher was resolved in this shell; reinstall the ai-tools package"
         return "${STATUS_UNREADABLE}"
     fi
 
@@ -6113,6 +6118,10 @@ status_path_order() {
     for pair in "${AI_TOOLS_PATH_ORDER__WINNERS[@]+"${AI_TOOLS_PATH_ORDER__WINNERS[@]}"}"; do
         launcher="${pair%%=*}"; winner="${pair#*=}"
         (( seen++ == 0 )) && section "PATH ordering"
+        if [[ "${INVOKING_USER}" == root ]]; then
+            printf '  %-28s %sn/a (root is not an operator -- run status as one)%s\n' "${launcher}" "${C_DIM}" "${C_RST}"
+            continue
+        fi
         case "${winner}" in
             # This host does not install a wrapper of that name, so its PATH has no ordering to get wrong here --
             # reported, and not a fault.
@@ -6126,6 +6135,7 @@ status_path_order() {
         esac
     done
     (( seen )) || return 0
+    [[ "${INVOKING_USER}" != root ]] || return 0
 
     case "${state}" in
         shadowed)
@@ -6173,15 +6183,21 @@ status_entrypoint_pins() {
     ai_tools_entrypoint_verify__is_required && strict=yes
 
     local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0 unreadable=0 label_status
+    local label_record unpinned
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
-        # what is installed for it instead, so it is reported once that pin exists and left out while there is nothing
+        # what is installed for it instead, so it is reported once that pin exists. Before then its label record is
+        # still read where one exists: ai-tools-relabel-agent files a label outcome for every enabled agent, one it
+        # could not pin included, and a failed one stops that agent's launch. With neither, there is nothing
         # yet to report.
         pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
+        unpinned=""
         if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
               && ! -e "${pin}" ]]; then
-            continue
+            label_record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
+            [[ -n "${label_record}" && -e "${label_record}" ]] || continue
+            unpinned=yes
         fi
         (( seen++ == 0 )) && section "Entrypoint verification"
         version="$(ai_tools_services__read_stamp_field "${pin}" VERSION)"
@@ -6189,7 +6205,9 @@ status_entrypoint_pins() {
         # leaves the pin exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still
         # carries a version and a date and would otherwise render as a fresh, successful verification beside the line
         # saying it no longer describes the installed binary.
-        if status_entrypoint_stale "${agent}"; then
+        if [[ -n "${unpinned}" ]]; then
+            printf '  %-28s %sno pin recorded%s\n' "${agent}" "${C_DIM}" "${C_RST}"
+        elif status_entrypoint_stale "${agent}"; then
             stale=$(( stale + 1 ))
         elif [[ -n "${version}" ]]; then
             verified="$(ai_tools_services__read_stamp_age "${pin}" VERIFIED)"
