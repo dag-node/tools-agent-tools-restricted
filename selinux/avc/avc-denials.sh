@@ -54,10 +54,12 @@
 #   2. (in a confined claude, approved project) the printed `bash selinux/avc/avc-denials.sh probe ...`
 #        -> run it, let the turn finish.
 #
-# A check reads the errno of its attempt: EACCES/EPERM is a denial, a missing path a SKIP, and any other failure (an
-# absent tool, a refused connection, malformed input) INCONCLUSIVE, since the access was not exercised. No probe writes
-# to the host: a write check opens an existing file for append without writing, and a create check is access(2) W_OK
-# on the directory -- which SELinux does not audit by default, so its outcome is read from the errno alone.
+# A check reads the errno of its attempt: EACCES/EPERM is a denial, a missing path a SKIP, and any other failure (a
+# refused connection, malformed input) INCONCLUSIVE, since the access was not exercised. A tool bash's PATH search did
+# not find is read from a stat of its name in each PATH directory: EACCES on one is the policy refusing getattr on its
+# exec type, and ENOENT on every one an absent tool, a SKIP. No probe writes to the host: a write check opens
+# an existing file for append without writing, and a create check is access(2) W_OK on the directory -- which SELinux
+# does not audit by default, so its outcome is read from the errno alone.
 #   3. (back in terminal 1)                     press Enter
 #        -> ausearch + classify, then the run result, then dontaudit is restored. The run exits 0 only when
 #           enforcement was confirmed, the window was searched, the denial of section TTY's open of the root half's
@@ -97,12 +99,14 @@ exit status (run):   0 when enforcement was confirmed, the window was searched, 
 EOF
 }
 
-# avc_attempt_reason <status> <stderr>: print `allowed` for status 0, `denied` when the stderr names EACCES/EPERM (the
-# shape every tool here prints for a refused open, exec, connect or syscall), `absent` for a missing path, and otherwise
-# `exit <status>: <first stderr line>` -- an absent tool, a malformed input or a refused connection, none
-# of which exercised the access the check names.
+# avc_attempt_reason <status> <stderr> [<command>]: print `allowed` for status 0, `denied` when the stderr names
+# EACCES/EPERM (the shape every tool here prints for a refused open, exec, connect or syscall), `absent` for a missing
+# path, and otherwise `exit <status>: <first stderr line>` -- an absent tool, a malformed input or a refused connection,
+# none of which exercised the access the check names. A status 127 `command not found` for <command> takes
+# avc_command_lookup's reading where it gives one, since bash reports a tool whose exec type the policy refuses
+# `getattr` on the same way as a tool that is not installed.
 avc_attempt_reason() {
-  local status="$1" stderr="$2" first
+  local status="$1" stderr="$2" command="${3:-}" first lookup
   if [[ "${status}" -eq 0 ]]; then
     echo allowed
   elif grep -qiE 'permission denied|operation not permitted|EACCES|EPERM' <<<"${stderr}"; then
@@ -110,9 +114,36 @@ avc_attempt_reason() {
   elif grep -qiE '^ENOENT:|no such file or directory' <<<"${stderr}"; then
     echo absent
   else
+    if [[ "${status}" -eq 127 && -n "${command}" ]] && grep -q 'command not found' <<<"${stderr}"; then
+      lookup="$(avc_command_lookup "${command}")"
+      [[ -n "${lookup}" ]] && { echo "${lookup}"; return 0; }
+    fi
     first="$(head -n1 <<<"${stderr}")"
     echo "exit ${status}: ${first:-no message}"
   fi
+}
+
+# avc_command_lookup <name>: stat(2) <name> in each ${PATH} directory through python3, which reads the errno bash's PATH
+# search does not report, and print `denied` when any one returns EACCES, `absent` when every one returns ENOENT, and no
+# line for any other result -- another errno, a name found, a name holding a slash, python3 not found.
+avc_command_lookup() {
+  [[ -n "$1" && "$1" != */* ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 -I - "$1" "${PATH}" 2>/dev/null <<'PY' || true
+import errno, os, sys
+name, search = sys.argv[1], sys.argv[2]
+results = set()
+for directory in search.split(":"):
+    try:
+        os.stat(os.path.join(directory or ".", name))
+        results.add("found")
+    except OSError as e:
+        results.add(e.errno)
+if errno.EACCES in results:
+    print("denied")
+elif results == {errno.ENOENT}:
+    print("absent")
+PY
 }
 
 # avc_permissive_state <seinfo-status> <seinfo-output>: read `seinfo --permissive` output and print `yes` when it lists
@@ -271,7 +302,7 @@ do_probe() {
     local _err
     _err="$("$@" </dev/null 2>&1 >/dev/null)"
     _rc=$?
-    _reason="$(_R "$(avc_attempt_reason "${_rc}" "${_err}")")"
+    _reason="$(_R "$(avc_attempt_reason "${_rc}" "${_err}" "$1")")"
   }
 
   # _result <verdict> <text>: print the result line and count it.

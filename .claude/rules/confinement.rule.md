@@ -530,9 +530,11 @@ and §4.
 An agent half does not gate a section on whether an optional group is loaded. That fact lives in the root-only module
 store, and `semodule -l` is refused in a session, so a `semodule -l` gate takes its skip branch every time the half runs
 as the agent, and the section it guards never executes. Each group section exercises its path and reports the outcome:
-a stable group asserts it, an experimental one reports it. A tool a disabled group gates reads as absent rather than
-refused, because `command -v` runs `access(X_OK)`, which the kernel checks as `execute` on the tool's own exec type.
-The report names both readings, since the domain cannot tell them apart.
+a stable group asserts it, an experimental one reports it. bash's PATH search does not find a tool whose exec type
+the policy refuses `getattr` on, a type a disabled group gates or `kmod_exec_t`: the search `stat`s each candidate,
+and bash reports the refusal as `command not found`, as it does a tool that is not installed. `avc-testsuite.sh` names
+both readings. `avc-denials.sh` reads a `stat` of the name in each `PATH` directory through `python3`: `EACCES` on one
+is the refusal, `ENOENT` on every one an absent tool, and any other result leaves the check not exercised.
 
 ## References
 

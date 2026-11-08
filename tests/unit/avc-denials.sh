@@ -45,6 +45,43 @@ expect "refused connection is not a denial" "exit 1: ConnectionRefusedError: [Er
     "$(avc_attempt_reason 1 "ConnectionRefusedError: [Errno 111] Connection refused")"
 expect "silent failure" "exit 2: no message" "$(avc_attempt_reason 2 "")"
 
+section "attempt reasons: a command bash's PATH search did not find"
+mktestdir
+# Each case puts one fixture directory ahead of the inherited PATH, which does not hold the fixture name, and reads
+# the reason as an account DAC holds to a directory's mode: the projects user under root, which reads through any mode,
+# and the invoker otherwise. A directory at mode 000 refuses the stat with EACCES, as the policy refuses getattr.
+readonly TOOL="avc-fixture-tool-$$"
+for d in refused empty present; do mkdir "${TESTDIR}/${d}"; done
+ln -s "$(type -P true)" "${TESTDIR}/present/${TOOL}"
+printf 'not a directory\n' > "${TESTDIR}/notdir"
+[[ "${EUID}" -eq 0 ]] && chown -h -R "${PROJECTS_USER}:" "${TESTDIR}/refused" "${TESTDIR}/empty" \
+    "${TESTDIR}/present" "${TESTDIR}/notdir"
+chmod 000 "${TESTDIR}/refused"
+# reason_with_path <directory> <status> <stderr>: avc_attempt_reason's reading of <status>/<stderr> for the fixture
+# name, with <directory> first on PATH.
+reason_with_path() {
+    local -a as_user=()
+    [[ "${EUID}" -eq 0 ]] && as_user=(runuser -u "${PROJECTS_USER}" --)
+    "${as_user[@]}" bash -c 'source "$1" >/dev/null; PATH="$2:${PATH}" avc_attempt_reason "$3" "$4" "$5"' \
+        _ "${SCRIPT}" "$1" "$2" "$3" "${TOOL}"
+}
+not_found="bash: ${TOOL}: command not found"
+if ! command -v python3 >/dev/null 2>&1; then
+    skip "a command bash's PATH search did not find" "python3 absent (the lookup reads the stat errno through it)"
+else
+    expect "the fixture directory refuses the stat" denied "$(reason_with_path "${TESTDIR}/refused" 127 "${not_found}")"
+    expect "no PATH directory holds the name" absent "$(reason_with_path "${TESTDIR}/empty" 127 "${not_found}")"
+    expect "a PATH entry that is a file (ENOTDIR) keeps its status" "exit 127: ${not_found}" \
+        "$(reason_with_path "${TESTDIR}/notdir" 127 "${not_found}")"
+    expect "a name found keeps its status" "exit 127: ${not_found}" \
+        "$(reason_with_path "${TESTDIR}/present" 127 "${not_found}")"
+    expect "another status keeps it" "exit 1: ${not_found}" \
+        "$(reason_with_path "${TESTDIR}/refused" 1 "${not_found}")"
+    # The control: the present, permitted tool runs through the same PATH.
+    present_rc=0; PATH="${TESTDIR}/present:${PATH}" "${TOOL}" || present_rc=$?
+    expect "the present tool runs (control)" allowed "$(avc_attempt_reason "${present_rc}" "" "${TOOL}")"
+fi
+
 section "permissive state from seinfo"
 nl=$'\n'
 expect "query refused" unknown "$(avc_permissive_state 1 "[Errno 13] Permission denied: '/sys/fs/selinux/policy'")"
@@ -68,7 +105,6 @@ expect "a name outside the charset is dropped" "tmpmap" \
     "$(avc_loaded_groups "ai_tools_tmpmap${nl}ai_tools_x;rm${nl}ai_tools_")"
 
 section "probe trail bound to the run"
-mktestdir
 run_id=0123456789abcdef
 window=1000
 # trail <file> <run-id-line> <started> <exit-line>: write a probe trail; an empty argument omits that line.
@@ -150,6 +186,7 @@ else
     done <<EOF
 search|ls|system_u:object_r:container_var_lib_t:s0|dir|sh|read
 getattr|bash|system_u:object_r:kmod_exec_t:s0|file|sh|execute
+getattr|python3|system_u:object_r:kmod_exec_t:s0|file|sh|execute
 prog_load|bpftool|${SELF_CONTEXT}|bpf|python3|map_create
 create|python3|${SELF_CONTEXT}|rawip_socket|perl|getopt
 name_bind|python3|system_u:object_r:http_port_t:s0|tcp_socket|node|name_connect

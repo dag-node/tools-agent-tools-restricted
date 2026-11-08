@@ -307,14 +307,14 @@ _p5="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:etc_t:' | grep -E 'den
 
 # Category 6, with `--probe-run` alone: the accesses avc-denials.sh attempts on purpose that no other category files,
 # each matched on the command, the permission, the target type and the class together -- the container-storage listing
-# (section D), the PATH search for insmod and modprobe (O), the eBPF call (P), the raw socket (W), the privileged-port
-# bind (X), and the probe's own enforcement read (`getenforce`, then `cat /sys/fs/selinux/enforce`). Without the flag
-# each stays NEW: ai_tools.te section (6) leaves an attempt like these audited so that an ordinary session making one is
-# reported, and only a window the probe ran in explains it.
+# (section D), the PATH search for insmod and modprobe and the probe's stat of each name it did not find (O), the eBPF
+# call (P), the raw socket (W), the privileged-port bind (X), and the probe's own enforcement read (`getenforce`, then
+# `cat /sys/fs/selinux/enforce`). Without the flag each stays NEW: ai_tools.te section (6) leaves an attempt like these
+# audited so that an ordinary session making one is reported, and only a window the probe ran in explains it.
 _p6=""
 if [[ "${PROBE_RUN}" -eq 1 ]]; then
   _p6_re='denied  \{ search \} .* comm="ls" .*tcontext=[^ ]*:container_var_lib_t:[^ ]* tclass=dir( |$)'
-  _p6_re+='|denied  \{ getattr \} .* comm="bash" .*tcontext=[^ ]*:kmod_exec_t:[^ ]* tclass=file( |$)'
+  _p6_re+='|denied  \{ getattr \} .* comm="(bash|python3)" .*tcontext=[^ ]*:kmod_exec_t:[^ ]* tclass=file( |$)'
   _p6_re+='|denied  \{ prog_load \} .* comm="bpftool" .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=bpf( |$)'
   _p6_re+='|denied  \{ create \} .* comm="python3" .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=rawip_socket( |$)'
   _p6_re+='|denied  \{ name_bind \} .* comm="python3" .*tcontext=[^ ]*:http_port_t:[^ ]* tclass=tcp_socket( |$)'
