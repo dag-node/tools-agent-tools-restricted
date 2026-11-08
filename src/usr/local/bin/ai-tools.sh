@@ -6855,11 +6855,14 @@ status_services() {
 # a stale path that no longer exists, or a project listed but never fully claimed). All read-only, reusing existing
 # predicates and verbs -- no recovery machinery of its own. A removal is offered only for an entry this run can
 # attribute to the registry it reads; a reading the invoker cannot make withholds the removal and is counted or named
-# instead.
+# instead. An absent registry is the listing's body, and the safe.directory reconciliation still runs, over an empty
+# entry set: read_path_class reads an absent file as unregistered, so a registry removed by hand leaves its
+# safe.directory entries reported.
 cmd_project_list() {
     [[ "$#" -eq 0 ]] || die_usage MSG-E2A5 "projects list takes no arguments"
     load_target_registry_snapshot
-    [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || { say "no registry at ${ALLOWLIST}"; return 0; }
+    local registry_source="${ALLOWLIST}"
+    [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || registry_source=/dev/null
     # Name the operator on a --for run: the listed entries are that account's launch gate, not the invoker's,
     # and an unlabelled listing of someone else's projects reads as your own.
     if [[ -n "${FOR_OPERATOR}" ]]; then
@@ -7004,6 +7007,7 @@ cmd_project_list() {
                 cleanup+=( "  % ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale disabled project); remove it:" \
                     "          $(format_registry_line_removal "${raw}" disabled "${excl}")" )
+                ${sd} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${excl}")" )
             fi
             continue
         fi
@@ -7024,8 +7028,12 @@ cmd_project_list() {
         [[ "${CLASS_STATE}" != enabled || "${CLASS_BLOCKED}" == - ]] \
             || say "           ${C_YEL}blocked${C_RST} ${C_DIM}by: ${CLASS_BLOCKED}${C_RST}"
         _reconcile "${entry}" "${kind}" "${sd}" "${raw}"
-    done < "${ALLOWLIST}"
-    (( shown )) || say "  (none)"
+    done < "${registry_source}"
+    if [[ "${registry_source}" == /dev/null ]]; then
+        say "  no registry at ${REGISTRY_DISPLAY_PATH}"
+    elif (( ! shown )); then
+        say "  (none)"
+    fi
 
     # Reverse reconciliation: a git safe.directory entry no registry entry names is an ORPHAN -- git still trusts
     # the tree though no line names it (the line was hand-deleted, or an unclaim was interrupted before the safedir

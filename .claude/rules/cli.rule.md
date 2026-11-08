@@ -501,18 +501,20 @@ being the authoritative one.
   and `ai-tools-safedir --remove` removes a value as git holds it, so a stored spelling is removed as stored. The list
   is read once, with git run from `/`, since git exits on a working directory that was deleted, the one a shell keeps
   after `atr projects remove .`; a list git cannot read is named under the cleanup, and each row's status reads `?`.
-  A registry line under a directory the invoker cannot enter is reported as one it cannot read, without a removal,
-  and on a `--for` run names the target's own listing as the one that reads it. The `sed` line deletes the verbatim
-  line, comment and all, from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line
-  is removed through `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line,
-  which that removal leaves standing, and a protected path, which the helper's backstop refuses, read in the form
-  that backstop reads, `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry
-  through the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow
-  line among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
-  under a banner naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing
-  predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command, never
-  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational, so it
-  stays open to a non-operator.
+  An absent registry is the listing's body, `no registry at <path>`, and the reconciliation still runs, over an empty
+  entry set, so the `safe.directory` entries a registry removed by hand leaves are reported. A registry line
+  under a directory the invoker cannot enter is reported as one it cannot read, without a removal, and on a `--for` run
+  names the target's own listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all,
+  from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed
+  through `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
+  standing, and a protected path, which the helper's backstop refuses, read in the form that backstop reads,
+  `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry through the registry
+  gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line among the lines
+  that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed under a banner
+  naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing predicates and verbs
+  only (no recovery machinery), stays **read-only** (every fix is an emitted command, never an in-place rewrite),
+  and closes with a compact **Maintenance** pointer to the per-project verbs. Informational, so it stays open
+  to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree).
 - `--help`, `-h` and the bare word `help` — a **help request**, answered after the principal guards and ahead of every
   gate from the bootstrap gate on, so it does not run the command, call `sudo` or take a `--for` snapshot: the top help,

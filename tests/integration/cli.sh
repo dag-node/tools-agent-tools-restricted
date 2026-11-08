@@ -1022,6 +1022,8 @@ ${REG_MARKER}
 % ${lst}/disabled-proj
 @ ${lst}/disabled-proj/child
 @ ${lst}/sealed/listed
+% ${lst}/disabled-stale-entry
+% ${lst}/disabled-stale-bare
 EOF
     chown "${PROJECTS_USER}:${PROJECTS_USER}" "${lal}"
     lgc="${TESTDIR}/list-gitconfig"
@@ -1030,6 +1032,7 @@ EOF
 	directory = ${lst}/partial
 	directory = ${lst}/orphan
 	directory = ${lst}/disabled-proj
+	directory = ${lst}/disabled-stale-entry
 	directory = ${lst}/alias
 	directory = ${lst}/orphan/../partial
 	directory = /opt/ai-tools
@@ -1065,6 +1068,13 @@ EOF
     list_has "safe.dir:yes"           "ai-tools.projects.list shows safe.dir:yes for an entry present in git safe.directory"
     list_has "${lst}/eol-comment"     "ai-tools.projects.list renders an entry carrying an end-of-line comment"
     list_has "${lst}/quoted dir"      "ai-tools.projects.list renders a quoted entry"
+    # A stale disabled line takes the safe.directory removal the enabled arm prints, where git safe.directory holds its
+    # path; a stale disabled line without an entry is the control.
+    list_has "stale disabled project" "ai-tools.projects.list flags a stale disabled line"
+    list_has "ai-tools-safedir --remove ${lst}/disabled-stale-entry" \
+        "and names the safe.directory removal for a stale disabled line git safe.directory holds"
+    list_lacks "ai-tools-safedir --remove ${lst}/disabled-stale-bare" \
+        "control: a stale disabled line git safe.directory does not hold takes no safe.directory removal"
     # Only the gone exclusion is reconciled as stale; the live one is left alone.
     n_stale_excl="$(grep -cF 'stale excluded path' <<<"${lout}" || true)"
     if [[ "${n_stale_excl}" -eq 1 ]] && grep -qF "! ${lst}/excluded-stale-gone" <<<"${lout}"; then
@@ -1227,6 +1237,24 @@ EOF
         fail "ai-tools.projects.list offers a removal for an entry it cannot read: $(brief "${lcleanup}" 'sealed')"
     else
         pass "ai-tools.projects.list offers no removal for an entry it cannot read"
+    fi
+    # An absent registry is the listing's body, and the safe.directory reconciliation runs over an empty entry set,
+    # so a registry removed by hand leaves its entries reported: the stale one with its removal, the sandbox account's
+    # named as such, and the two it cannot attribute counted. `lout`, over the fixture registry, is the control.
+    lal_absent="${TESTDIR}/list-allowlist-absent"
+    [[ ! -e "${lal_absent}" ]] || fail "fixture: ${lal_absent} exists, so the absent-registry run reads a registry"
+    rc=0
+    aout="$(runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" \
+            AI_TOOLS_OPERATOR_CONF="${oconf}" AI_TOOLS_ALLOWLIST="${lal_absent}" \
+            AI_TOOLS_GITCONFIG="${lgc}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF "no registry at ${lal_absent}" <<<"${aout}" \
+            && grep -qF "ai-tools-safedir --remove ${lst}/stale-safedir" <<<"${aout}" \
+            && grep -qF "held by the sandbox account" <<<"${aout}" \
+            && grep -qF "2 git safe.directory entries are in trees" <<<"${aout}" \
+            && grep -qF "Maintenance" <<<"${aout}"; then
+        pass "ai-tools.projects.list without a registry names it and still reports the stale, foreign and unattributed safe.directory entries"
+    else
+        fail "ai-tools.projects.list without a registry (rc ${rc}): $(brief "${aout}")"
     fi
 
     # (8) ai-tools.projects.handback and ai-tools.projects.lockdown refuse a path outside every claimed project,
