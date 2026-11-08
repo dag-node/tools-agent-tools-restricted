@@ -1291,7 +1291,7 @@ signal.pause()' >"${pty_fixture_file}" 2>/dev/null &
 
   step "analyzing ai_tools_t denials since ${START_DATE} ${START_TIME}"
   local analyze_rc probe_status probe_logs
-  local -a analyze_flags=()
+  local -a analyze_flags=(--probe-run)
   [[ -n "${login_pty}" ]] && analyze_flags+=(--login-pty "${login_pty}")
   "${DIR}/avc-analyze.sh" "${analyze_flags[@]}" -ts "${START_DATE}" "${START_TIME}"
   analyze_rc=$?

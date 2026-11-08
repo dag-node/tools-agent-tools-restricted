@@ -6,7 +6,9 @@
 # as denied, a seinfo query that failed or printed an unexpected listing must not confirm enforcement, a module list
 # must not yield a group name the store does not hold, and a probe trail must be bound to the root half's run, started
 # inside its window, and finished before its exit status is believed. Sources the checkout's script (its dispatch is
-# guarded for that), needs no SELinux host and no privilege.
+# guarded for that), needs no SELinux host and no privilege. Its last section runs a copy of avc-analyze.sh over one
+# fixture record at a time: each of the probe's deliberate attempts files as a probe with `--probe-run` and as NEW
+# without it, and a record differing in its command or its permission stays NEW with the flag.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -100,5 +102,60 @@ expect "no exit status (the probe did not finish)" refused "$(status_of "${TESTD
 ln -s "${TESTDIR}/clean.log" "${TESTDIR}/link.log"
 expect "a symlink to a clean trail" refused "$(status_of "${TESTDIR}/link.log")"
 expect "no file" refused "$(status_of "${TESTDIR}/absent.log")"
+
+section "analyzer: the probe's own attempts (avc-analyze.sh --probe-run)"
+# avc-analyze.sh refuses a non-root caller on one line before it reads anything, so a copy without that line runs here
+# unprivileged, with ausearch a shell function serving the one record a case writes as the whole window.
+readonly ANALYZER="${ROOT}/selinux/avc/avc-analyze.sh"
+readonly ROOT_CHECK='^\[\[ "\$\{EUID\}" -eq 0 \]\] \|\|'
+analyzer="${TESTDIR}/avc-analyze.sh"
+if [[ "$(grep -cE "${ROOT_CHECK}" "${ANALYZER}")" -ne 1 ]]; then
+    fail "${ANALYZER} does not hold its root check on exactly one line; the unprivileged copy cannot be made"
+else
+    grep -vE "${ROOT_CHECK}" "${ANALYZER}" > "${analyzer}"
+    export AVC_RECORD_FILE="${TESTDIR}/record"
+    ausearch() { cat "${AVC_RECORD_FILE}"; }
+    audit2allow() { :; }
+    export -f ausearch audit2allow
+
+    readonly SELF_CONTEXT="unconfined_u:unconfined_r:ai_tools_t:s0-s0:c0.c1023"
+    # bucket_of <permission> <comm> <tcontext> <class> [<analyzer flag>]: the bucket the analyzer files one denial
+    # under -- `probe` or `NEW` when that bucket alone counts it, otherwise the counts line.
+    bucket_of() {
+        local counts
+        printf 'type=AVC msg=audit(1762637261.100:4242): avc:  denied  { %s } for  pid=4242 comm="%s" dev="dm-0"' \
+            "$1" "$2" > "${AVC_RECORD_FILE}"
+        printf ' ino=42 scontext=%s tcontext=%s tclass=%s permissive=0\n' "${SELF_CONTEXT}" "$3" "$4" \
+            >> "${AVC_RECORD_FILE}"
+        counts="$(bash "${analyzer}" ${5:+"$5"} -ts today 2>&1 | sed -n 's/^counts: //p')"
+        case "${counts}" in
+            *"boundary=0  group-disabled=0  probe=1  NEW=0"*) echo probe ;;
+            *"boundary=0  group-disabled=0  probe=0  NEW=1"*) echo NEW ;;
+            *) echo "${counts:-no counts line}" ;;
+        esac
+    }
+
+    # One row per deliberate attempt: permission, command, target context, class, then another command and another
+    # permission, each of which must leave the record NEW under the flag.
+    while IFS='|' read -r perm comm tcontext class other_comm other_perm; do
+        what="${tcontext##*:object_r:}"; what="${what%%:*}"; [[ "${tcontext}" == "${SELF_CONTEXT}" ]] && what=self
+        what="${comm} { ${perm} } ${what}:${class}"
+        expect "${what}, no flag (the record is read)" NEW "$(bucket_of "${perm}" "${comm}" "${tcontext}" "${class}")"
+        expect "${what}, --probe-run" probe \
+            "$(bucket_of "${perm}" "${comm}" "${tcontext}" "${class}" --probe-run)"
+        expect "${what} as ${other_comm}, --probe-run" NEW \
+            "$(bucket_of "${perm}" "${other_comm}" "${tcontext}" "${class}" --probe-run)"
+        expect "${what} as { ${other_perm} }, --probe-run" NEW \
+            "$(bucket_of "${other_perm}" "${comm}" "${tcontext}" "${class}" --probe-run)"
+    done <<EOF
+search|ls|system_u:object_r:container_var_lib_t:s0|dir|sh|read
+getattr|bash|system_u:object_r:kmod_exec_t:s0|file|sh|execute
+prog_load|bpftool|${SELF_CONTEXT}|bpf|python3|map_create
+create|python3|${SELF_CONTEXT}|rawip_socket|perl|getopt
+name_bind|python3|system_u:object_r:http_port_t:s0|tcp_socket|node|name_connect
+read|getenforce|system_u:object_r:security_t:s0|file|python3|write
+read|cat|system_u:object_r:security_t:s0|file|head|write
+EOF
+fi
 
 finish
