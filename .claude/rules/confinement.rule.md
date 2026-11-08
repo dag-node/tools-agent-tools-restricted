@@ -514,14 +514,18 @@ with `semodule -DB` … `semodule -B`, since a `dontaudit` suppresses the audit 
 would otherwise be indistinguishable from a probe that never ran; a trap restores dontaudit on any exit, Ctrl-C
 included. The probe reads each attempt's errno rather than its exit status: only `EACCES`/`EPERM` counts as a denial,
 and an attempt that failed for another reason is reported as not exercised and makes the probe exit non-zero, since
-a missing tool or a refused connection says nothing about the policy. A socket check makes a real `connect(2)`,
-and the write checks open an existing file for append without writing or ask `access(2)` of a directory, so a probe run
-against a broken boundary does not change the host. The loaded groups and the enforcement state come from the root half,
-which prints them into the probe command, because the session can read neither; a failed module-store read stops
-the run, and enforcement is confirmed only from a `seinfo --permissive` query that succeeded and printed the listing it
-documents. The root half also prints a run id, which the probe writes into its trail with its start time and exit
-status, and the run passes only on the one trail carrying that id: the audit log cannot show a probe that never ran,
-or an access that succeeded.
+a missing tool or a refused connection says nothing about the policy. A call to a D-Bus service is the exception the bus
+decides: the bus broker enforces the domain's `send_msg` and logs a refusal as `USER_AVC`, which `avc-analyze.sh` does
+not search, and the tool reports it in its own words (`nmcli` prints that NetworkManager is not running), so a failed
+call reads as a refusal while the service's name has an owner on the bus (`NameHasOwner`) and as an absent service while
+it has none. That reading does not tell the policy's refusal from the D-Bus policy's or polkit's. A socket check makes
+a real `connect(2)`, and the write checks open an existing file for append without writing or ask `access(2)`
+of a directory, so a probe run against a broken boundary does not change the host. The loaded groups and the enforcement
+state come from the root half, which prints them into the probe command, because the session can read neither; a failed
+module-store read stops the run, and enforcement is confirmed only from a `seinfo --permissive` query that succeeded
+and printed the listing it documents. The root half also prints a run id, which the probe writes into its trail with its
+start time and exit status, and the run passes only on the one trail carrying that id: the audit log cannot show a probe
+that never ran, or an access that succeeded.
 
 Both agent halves **abort unless the calling process is in `ai_tools_t`**: run unconfined they log no `ai_tools_t`
 denial at all, and that empty result reads as success. The procedure for running either is in `selinux/README.md` §2
@@ -530,9 +534,11 @@ and §4.
 An agent half does not gate a section on whether an optional group is loaded. That fact lives in the root-only module
 store, and `semodule -l` is refused in a session, so a `semodule -l` gate takes its skip branch every time the half runs
 as the agent, and the section it guards never executes. Each group section exercises its path and reports the outcome:
-a stable group asserts it, an experimental one reports it. A tool a disabled group gates reads as absent rather than
-refused, because `command -v` runs `access(X_OK)`, which the kernel checks as `execute` on the tool's own exec type.
-The report names both readings, since the domain cannot tell them apart.
+a stable group asserts it, an experimental one reports it. bash's PATH search does not find a tool whose exec type
+the policy refuses `getattr` on, a type a disabled group gates or `kmod_exec_t`: the search `stat`s each candidate,
+and bash reports the refusal as `command not found`, as it does a tool that is not installed. `avc-testsuite.sh` names
+both readings. `avc-denials.sh` reads a `stat` of the name in each `PATH` directory through `python3`: `EACCES` on one
+is the refusal, `ENOENT` on every one an absent tool, and any other result leaves the check not exercised.
 
 ## References
 

@@ -4,8 +4,8 @@
 # into four buckets: EXPECTED BOUNDARY (an access the policy refuses on purpose -- silenced by a dontaudit, or left
 # visible as a breach attempt -- and grants no allow rule for), EXPECTED GROUP-DISABLED (accesses only an optional
 # policy group would allow, so the fix is enable-group, not a core change), BENIGN PROBE (a call whose refusal changes
-# nothing the caller does, classified and left audited), and NEW (the candidates to fold into the policy). NEW must be 0
-# to pass. RUN AS ROOT (it reads the audit log).
+# nothing the caller does, classified and left audited; with `--probe-run`, also avc-denials.sh's deliberate attempts),
+# and NEW (the candidates to fold into the policy). NEW must be 0 to pass. RUN AS ROOT (it reads the audit log).
 #
 # Usage:
 #   sudo ./avc-analyze.sh                             # from the marker avc-testsuite.sh wrote
@@ -34,9 +34,12 @@ command -v audit2allow >/dev/null || { echo "avc-analyze: audit2allow not found 
 
 # Flags: `--suggest` appends the (verbose) `audit2allow -R` policy proposal; off by default so the report stays short.
 # `--login-pty /dev/pts/<n>` names avc-denials.sh's login-pty fixture, whose open denial then files as the expected
-# boundary (category 5); avc-denials.sh passes it, and a value of any other shape is refused.
+# boundary (category 5); avc-denials.sh passes it, and a value of any other shape is refused. `--probe-run` states
+# that the window holds an avc-denials.sh probe, whose deliberate attempts then file as probe category 6; avc-denials.sh
+# passes it.
 SUGGEST=0
 LOGIN_PTY_NUMBER=""
+PROBE_RUN=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --suggest)  SUGGEST=1; shift ;;
@@ -44,7 +47,8 @@ while [[ "${1:-}" == --* ]]; do
       [[ "${2:-}" =~ ^/dev/pts/([0-9]+)$ ]] \
         || { echo "avc-analyze: --login-pty takes /dev/pts/<n>, not '${2:-}'" >&2; exit 1; }
       LOGIN_PTY_NUMBER="${BASH_REMATCH[1]}"; shift 2 ;;
-    -h|--help)  echo "usage: $0 [--suggest] [--login-pty /dev/pts/<n>] [-ts <when>] [-te <when>]"; exit 0 ;;
+    --probe-run) PROBE_RUN=1; shift ;;
+    -h|--help)  echo "usage: $0 [--suggest] [--login-pty /dev/pts/<n>] [--probe-run] [-ts <when>] [-te <when>]"; exit 0 ;;
     *)          echo "avc-analyze: unknown flag '$1'" >&2; exit 1 ;;
   esac
 done
@@ -300,7 +304,24 @@ _p4b="$(printf '%s\n' "${LINES}" | grep -F 'comm="emacs"' | grep -E 'denied[^}]*
         | grep -E 'tcontext=[^ ]*:mail_spool_t:' | grep -E 'tclass=lnk_file\b' || true)"
 _p5="$(printf '%s\n' "${LINES}" | grep -E 'tcontext=[^ ]*:etc_t:' | grep -E 'denied[^}]*\bwatch\b' \
         | grep -E 'path="/etc/claude-code(/managed-settings\.json)?"' || true)"
-probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" "${_p5}" | sort -u | grep -v '^$' || true)"
+
+# Category 6, with `--probe-run` alone: the accesses avc-denials.sh attempts on purpose that no other category files,
+# each matched on the command, the permission, the target type and the class together -- the container-storage listing
+# (section D), the PATH search for insmod and modprobe and the probe's stat of each name it did not find (O), the eBPF
+# call (P), the raw socket (W), the privileged-port bind (X), and the probe's own enforcement read (`getenforce`, then
+# `cat /sys/fs/selinux/enforce`). Without the flag each stays NEW: ai_tools.te section (6) leaves an attempt like these
+# audited so that an ordinary session making one is reported, and only a window the probe ran in explains it.
+_p6=""
+if [[ "${PROBE_RUN}" -eq 1 ]]; then
+  _p6_re='denied  \{ search \} .* comm="ls" .*tcontext=[^ ]*:container_var_lib_t:[^ ]* tclass=dir( |$)'
+  _p6_re+='|denied  \{ getattr \} .* comm="(bash|python3)" .*tcontext=[^ ]*:kmod_exec_t:[^ ]* tclass=file( |$)'
+  _p6_re+='|denied  \{ prog_load \} .* comm="bpftool" .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=bpf( |$)'
+  _p6_re+='|denied  \{ create \} .* comm="python3" .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=rawip_socket( |$)'
+  _p6_re+='|denied  \{ name_bind \} .* comm="python3" .*tcontext=[^ ]*:http_port_t:[^ ]* tclass=tcp_socket( |$)'
+  _p6_re+='|denied  \{ read \} .* comm="(getenforce|cat)" .*tcontext=[^ ]*:security_t:[^ ]* tclass=file( |$)'
+  _p6="$(printf '%s\n' "${LINES}" | grep -E "${_p6_re}" || true)"
+fi
+probe="$(printf '%s\n' "${_p1}" "${_p2}" "${_p3}" "${_p4a}" "${_p4b}" "${_p5}" "${_p6}" | sort -u | grep -v '^$' || true)"
 
 # Everything intentionally denied (boundary + group-disabled + benign probe), to subtract from NEW.
 excluded="$(printf '%s\n' "${boundary}" "${groupdis}" "${probe}" | sort -u | grep -v '^$' || true)"
@@ -358,6 +379,7 @@ echo
 hr
 echo "BENIGN PROBE denials (left audited on purpose -- the caller falls back, and a"
 echo "dontaudit would silence the same access for every command; do NOT grant):"
+[[ "${PROBE_RUN}" -eq 0 ]] || echo "With --probe-run, also avc-denials.sh's own deliberate attempts."
 hr
 if [[ -n "${probe}" ]]; then
   printf '%s\n' "${probe}" | fmt

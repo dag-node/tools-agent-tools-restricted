@@ -289,12 +289,12 @@ step "optional group surfaces"
 # and report the outcome.
 #
 # A tool an optional group gates does not resolve on PATH while that group is off, and the resolution itself is
-# the denial: `command -v` runs access(X_OK), the kernel checks that as `execute` on the tool's own exec type
+# the denial: `command -v` stats each candidate, the kernel checks that as `getattr` on the tool's own exec type
 # (systemd_systemctl_exec_t, rpm_exec_t, container_runtime_exec_t), and the core module grants none of them --
-# so a binary that is present reads as one that is absent. The two are not distinguishable from inside the domain,
-# and the report names both rather than picking one. The record this pass exists to produce is written either way, since
-# the refused access(X_OK) is itself the audited denial. firewall-cmd is the other shape: it is bin_t and resolves, then
-# fails at the D-Bus call netadmin grants.
+# so a binary that is present reads as one that is absent. `command -v` does not report the errno, and the report names
+# both readings rather than picking one. The record this pass exists to produce is written either way, since the refused
+# stat is itself the audited denial. firewall-cmd is the other shape: it is bin_t and resolves, then fails at the D-Bus
+# call netadmin grants.
 exercise_group() {
     local group="$1" tool="$2" desc="$3"; shift 3
     if ! command -v "${tool}" >/dev/null 2>&1; then
@@ -313,7 +313,7 @@ exercise_group() {
 exercise_group systemd  systemctl    "systemctl status"       systemctl --no-pager status
 exercise_group systemd  journalctl   "a journal read"         journalctl --no-pager -n 3
 exercise_group pkgmgmt  rpm          "rpm -qa"                rpm -qa --queryformat '%{NAME}\n'
-exercise_group netadmin firewall-cmd "firewall-cmd zone list" firewall-cmd --list-zones
+exercise_group netadmin firewall-cmd "firewall-cmd zone list" firewall-cmd --get-zones
 exercise_group podman   podman       "podman info"            podman info
 
 # memfdexec: the double-mapped W^X JIT path -- write generated code through a read-write mapping of an anonymous memfd,
