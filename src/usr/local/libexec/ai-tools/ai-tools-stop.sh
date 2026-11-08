@@ -850,17 +850,17 @@ restore_user_manager() {
 }
 
 # ── Confirmation ─────────────────────────────────────────────────────────────────────────────
-# confirm_stop <agent-count> <plumbing-count> -- succeed unless the operator deliberately declines. Inverted convention
-# 2 in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or a bare Enter all proceed, and only
+# confirm_stop <agent-count> <step-count> -- succeed unless the operator deliberately declines. Inverted convention 2
+# in the header: the default is YES, so no terminal, no msg.lib.sh, a pipe, or a bare Enter all proceed, and only
 # an explicit `n` stops the stop.
 #
-# THE QUESTION NAMES BOTH CLASSES, for the reason the table separates them: consent given to "4 sessions" that were one
-# session and three units of the account's own plumbing was not informed consent about either number.
+# THE QUESTION NAMES THE WHOLE SLICE, since that is what the sweep reaches: consent given to "4 sessions" when the stop
+# also ends the account's plumbing and every step run as it was not informed consent about what was stopped.
 #
 # THE ARITY IS DEFAULTED, and that is inverted convention 1 rather than defensive habit. This file runs under `set -u`,
 # where reading an argument a caller did not pass aborts the shell outright -- here, mid-question, after the table has
 # been printed and before anything has been signalled: a stop that was asked for and did not happen, which is the one
-# outcome this file exists to prevent. main() always passes both counts, so the default is not an expected path; it is
+# outcome this file exists to prevent. main() always passes the counts, so the default is not an expected path; it is
 # the guarantee that a caller's slip costs the wording of a question and never the answer to it.
 #
 # WHICH PATH GAVE CONSENT IS RECORDED, because the paths are not equally strong and a reader of the trail must not have
@@ -869,23 +869,17 @@ restore_user_manager() {
 # carried the run. The last is legitimate -- it is the whole point of defaulting YES -- but it is the one an operator
 # would want to see when asking why a cron job stopped a session at 4am.
 confirm_stop() {
-    local agent_count="${1:-0}" plumbing_count="${2:-0}" step_count="${3:-0}"
-    # The question names each class that is there and none that is not, leading with the agent sessions, then the steps
-    # run as the account. main() reaches this only with at least one cgroup selected, so "no class at all" cannot occur.
+    local agent_count="${1:-0}" step_count="${2:-0}"
+    # The question names the blast radius, every process in the account's slice, which is what the sweep reaches, led
+    # by the agent sessions or, where none is listed, the steps run as the account. main() reaches this only
+    # with at least one cgroup selected.
     local question lead=""
-    local -a rest=()
     if (( agent_count )); then
-        lead="the ${agent_count} agent session(s) listed above"
-        (( step_count )) && rest+=("${step_count} step(s) run as the ${SANDBOX_USER} account")
+        lead="the ${agent_count} agent session(s) and "
     elif (( step_count )); then
-        lead="the ${step_count} step(s) run as the ${SANDBOX_USER} account listed above"
+        lead="the ${step_count} step(s) run as the ${SANDBOX_USER} account and "
     fi
-    (( plumbing_count )) && rest+=("${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing")
-    if   [[ -z "${lead}" ]];  then question="Terminate the ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
-    elif (( ${#rest[@]} == 0 )); then question="Terminate ${lead}?"
-    elif (( ${#rest[@]} == 1 )); then question="Terminate ${lead}, and ${rest[0]} with them?"
-    else                              question="Terminate ${lead}, ${rest[0]}, and ${rest[1]} with them?"
-    fi
+    question="Stop ${lead}every process in the ${SANDBOX_USER} account's slice?"
     if ${ASSUME_YES}; then
         log_event info "stop confirmed by ${CALLER} via --yes" "AI_TOOLS_CONSENT=flag"
         return 0
@@ -911,8 +905,9 @@ confirm_stop() {
 }
 
 # ── Reporting ────────────────────────────────────────────────────────────────────────────────
-# print_session_table <verb> -- the detail the confirmation is answered against. An operator agreeing to stop "3
-# sessions" without seeing which projects they are in is not consenting to
+# print_session_table -- the detail the confirmation is answered against, without a verb column, since the headline's
+# title states whether the run stops or previews. An operator agreeing to stop "3 sessions" without seeing
+# which projects they are in is not consenting to
 # anything.
 #
 # Reads the parallel selection arrays directly rather than taking packed records. Nothing in this file joins fields
@@ -923,43 +918,55 @@ confirm_stop() {
 # with rows that are always there. Order is presentation only; every selected cgroup is ended by the loop in main()
 # in its own order, and no cgroup is dropped from either pass.
 print_session_table() {
-    local verb="$1" index child class
-    printf '  %-11s %-40s %7s %6s  %-10s %s\n' "" "SESSION" "PID" "PROCS" "BY" "PROJECT"
+    local index child class
+    printf '  %-42s %7s %6s  %-10s %s\n' "SESSION" "PID" "PROCS" "BY" "PROJECT"
     for index in "${!selected_cgroups[@]}"; do
         [[ "${selected_classes[index]}" == agent ]] || continue
-        print_session_row "${verb}" "${index}" ""
+        print_session_row "${index}" ""
         for child in "${!selected_cgroups[@]}"; do
-            [[ "${selected_parents[child]}" == "${index}" ]] && print_session_row "${verb}" "${child}" '  + '
+            [[ "${selected_parents[child]}" == "${index}" ]] && print_session_row "${child}" '  + '
         done
     done
     for class in step plumbing; do
         for index in "${!selected_cgroups[@]}"; do
-            [[ "${selected_classes[index]}" == "${class}" ]] && print_session_row "${verb}" "${index}" ""
+            [[ "${selected_classes[index]}" == "${class}" ]] && print_session_row "${index}" ""
         done
     done
-    # The rows are cgroups, which is what a stop ends; the process tree inside them is the kernel's other view, and `ps`
-    # gives it unfiltered.
-    printf '  %s\n' "the processes in each: sudo ps -o pid,ppid,user,stat,cmd --forest -u ${SANDBOX_USER}"
+    # The rows are cgroups, which is what a stop ends, and systemd-cgls prints the same cgroups with every process
+    # in each, the root-owned sudo of a launch scope among them, which a `ps -u` of the account leaves out.
+    printf '  %s\n' "the processes in each: systemd-cgls --no-pager -u user-${SANDBOX_UID:-<uid>}.slice"
     return 0
 }
 
-# print_session_row <verb> <index> <prefix> -- one table row, the session name after <prefix>: `  + ` places a launch
-# scope under the session it belongs to. The marker is not `ps --forest`'s `\_`, since neither row's processes are
-# the other's children: the user manager starts the session unit, and the launch only asks it to. A launch row's own
-# note is `(launch)`, since the session row it sits under names the unit; the result lines keep the full note, since
-# they print without the table beside them.
+# print_session_row <index> <prefix> -- one table row, the session name after <prefix>: `  + ` places a launch scope
+# under the session it belongs to. The marker is not `ps --forest`'s `\_`, since neither row's processes are the other's
+# children: the user manager starts the session unit, and the launch only asks it to. PROJECT is an agent session's
+# alone: a launch row reads `(launch)`, since the session row it sits under names the unit, and a step or a unit
+# of plumbing reads `-` and its note, since it has no project (the dbus broker's working directory is the control
+# plane). The result lines keep the full note, since they print without the table beside them.
 print_session_row() {
-    local verb="$1" index="$2" prefix="$3" project note
+    local index="$1" prefix="$2" project note
     note="${selected_notes[index]}"
-    if [[ "${selected_classes[index]}" == launch ]]; then
-        project=""; note="(launch)"
-    else
-        project="$(sanitize "${selected_dirs[index]:-unknown}")"
-    fi
-    printf '  %-11s %-40s %7s %6s  %-10s %s\n' "${verb}" \
+    case "${selected_classes[index]}" in
+        agent)  project="$(sanitize "${selected_dirs[index]:-unknown}")" ;;
+        launch) project="(launch)"; note="" ;;
+        *)      project="-" ;;
+    esac
+    printf '  %-42s %7s %6s  %-10s %s\n' \
         "${prefix}$(sanitize "${selected_units[index]:-unattributed cgroup}")" \
         "${selected_pids[index]:--}" "${selected_counts[index]}" "$(sanitize "${selected_by[index]:--}")" \
-        "${project}${project:+${note:+  }}${note}"
+        "${project}${note:+  ${note}}"
+}
+
+# print_stop_consequences <agent-count> -- the two facts the question qualifies, printed under the table and ahead
+# of the question: a stopped session does not run its session-end handback, and the stop ends every process
+# in the account's slice, whatever the table's classes, and restarts the user manager.
+print_stop_consequences() {
+    printf '\n'
+    if (( ${1:-0} )); then
+        printf '  %s\n' "A stopped session does not run its session-end handback: reclaim the projects named above afterwards."
+    fi
+    printf '  %s\n' "The stop ends every process in the ${SANDBOX_USER} account's slice and restarts its user manager afterwards."
 }
 
 # print_reclaim_guidance <dir>... -- name the reclaim per project actually stopped. A stop cannot run the agent's
@@ -1082,54 +1089,36 @@ main() {
         return 0
     fi
 
-    # The two counts are reported separately everywhere, never summed into one "session" figure. See the classification
-    # block for why, and for why the split is advisory.
-    #
-    # Two wordings, because "go with them" has no antecedent when no agent session and no step was found -- the shape
-    # a RERUN always takes, the manager having been restarted by the run before it. A step run as the account is named
-    # apart from the plumbing: the headline does not say that no session is running while one is listed.
-    local launch_clause="" step_clause="" plumbing_clause=""
-    if (( launch_count )); then
-        launch_clause=" ${launch_count} launch scope(s) (marked below), the sudo each session was started through, go with them."
-    fi
-    if (( step_count && agent_count )); then
-        step_clause=" ${step_count} step(s) run as the ${SANDBOX_USER} account (marked below) go with them."
-    fi
-    if (( plumbing_count && ( agent_count || step_count ) )); then
-        plumbing_clause=" ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing (marked below) go with them -- nothing in the account's slice is exempt -- and its user manager is restarted afterwards."
-    elif (( plumbing_count )); then
-        plumbing_clause=" ${plumbing_count} unit(s) of the ${SANDBOX_USER} account's own plumbing (marked below) are stopped regardless -- nothing in the account's slice is exempt -- and its user manager is restarted afterwards."
+    # The headline says what happens to the agent sessions, and the table lists every cgroup, each class marked.
+    # The steps and the plumbing are counted in the table and named in the closing lines, where the slice-wide scope
+    # of the command sits next to the question it qualifies. A step run as the account leads the headline where no agent
+    # session is listed: the headline does not say that no session is running while one is listed.
+    local headline
+    if (( agent_count )) && ${DRY_RUN}; then
+        headline="${agent_count} agent session(s) would be terminated. Nothing was changed."
+    elif (( agent_count )) && ${FORCE_KILL}; then
+        headline="${agent_count} agent session(s) will be KILLED immediately (--force): no grace period, and unsaved work in the current turn is lost."
+    elif (( agent_count )); then
+        headline="${agent_count} agent session(s) will be terminated, each with ${GRACE_SECONDS}s to exit before it is killed."
+    elif (( step_count )); then
+        headline="${step_count} step(s) run as the ${SANDBOX_USER} account $(${DRY_RUN} && printf 'would' || printf 'will') be terminated, and no agent session.$(${DRY_RUN} && printf ' Nothing was changed.')"
+    else
+        headline="No agent session is running.$(${DRY_RUN} && printf ' Nothing was changed.')"
     fi
 
     if ${DRY_RUN}; then
-        local dry_headline
-        if (( agent_count )); then
-            dry_headline="${agent_count} agent session(s) would be terminated.${launch_clause}${step_clause}${plumbing_clause} Nothing was changed."
-        elif (( step_count )); then
-            dry_headline="${step_count} step(s) run as the ${SANDBOX_USER} account (marked below) would be terminated, and no agent session.${plumbing_clause} Nothing was changed."
-        else
-            dry_headline="No agent session is running.${plumbing_clause} Nothing was changed."
-        fi
-        say_headline "Stop (dry run)" "${dry_headline}"
-        print_session_table "would stop"
+        say_headline "Stop (dry run)" "${headline}"
+        print_session_table
+        print_stop_consequences "${agent_count}"
         log_event info "dry run: ${agent_count} agent session(s) with ${launch_count} launch scope(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) would be stopped in ${scope} for ${CALLER}"
         return 0
     fi
 
-    local headline
-    if (( agent_count == 0 && step_count )); then
-        headline="${step_count} step(s) run as the ${SANDBOX_USER} account (marked below) will be terminated, with everything they spawned, and no agent session.${plumbing_clause}"
-    elif (( agent_count == 0 )); then
-        headline="No agent session is running.${plumbing_clause}"
-    elif ${FORCE_KILL}; then
-        headline="${agent_count} agent session(s) will be KILLED immediately (--force): no grace period, no session-end handback, and unsaved work in the current turn is lost.${launch_clause}${step_clause}${plumbing_clause}"
-    else
-        headline="${agent_count} agent session(s) will be terminated, with everything they spawned. Each gets ${GRACE_SECONDS}s to exit before it is killed. No session runs its session-end handback, so reclaim the projects named below afterwards.${launch_clause}${step_clause}${plumbing_clause}"
-    fi
     say_headline "Terminate agent sessions" "${headline}"
-    print_session_table "stop"
+    print_session_table
+    print_stop_consequences "${agent_count}"
 
-    if ! confirm_stop "${agent_count}" "${plumbing_count}" "${step_count}"; then
+    if ! confirm_stop "${agent_count}" "${step_count}"; then
         say_notice MSG-J3U9 "Nothing was stopped"
         log_event notice \
             "${CALLER} declined the stop of ${agent_count} agent session(s) with ${launch_count} launch scope(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \

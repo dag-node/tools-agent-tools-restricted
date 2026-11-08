@@ -668,8 +668,9 @@ The report lists each agent session's launch scope, the
 the launch ran through, under its session and counts it with them. Each row names its first process id and, under
 .BR BY ,
 the account that started the launch or the step, read from the kernel; the table closes with the
-.BR ps (1)
-command that shows the processes inside each. It counts agent sessions apart from the steps run as the account \(em a login session
+.BR systemd-cgls (1)
+command that shows the processes inside each, and the question names every process in the account's slice, which
+is what the command stops. It counts agent sessions apart from the steps run as the account \(em a login session
 scope per
 .BR sudo (8)
 or

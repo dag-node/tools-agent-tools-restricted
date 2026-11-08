@@ -127,11 +127,14 @@ starts the session unit), and counted with its session, and a scope no listed un
 carries the first pid its cgroup lists, a launch row the `ai-tools-run` pid that named the unit, and a `BY` column:
 the real uid of the parent of a scope's entry process, the one listed process whose parent is outside the scope, read
 as root from `/proc` and named from `/etc/passwd`. That uid is a kernel credential, the one attribution in the table
-the account cannot write; a session takes its launch scope's. The table closes with the `ps --forest` command that shows
-the processes inside each cgroup. The split orders the table, separates the counts, and decides which rows carry
-a `projects handback` line; every class is enumerated, listed and killed identically. Only an agent session gets
-a `projects handback` line: the account's dbus broker reports `/opt/ai-tools` as its working directory, the control
-plane, which the protected-paths backstop refuses.
+the account cannot write; a session takes its launch scope's. The table closes with the `systemd-cgls` command
+that shows the same cgroups with every process in each, a launch scope's root-owned `sudo` among them. Only an agent row
+carries a project; every other row reads `-`. The headline counts the agent sessions, or the steps where none is listed,
+and the two lines under the table and the question state the rest: a stopped session does not run its session-end
+handback, and the stop ends every process in the account's slice and restarts its user manager. The split orders
+the table, separates the counts, and decides which rows carry a `projects handback` line; every class is enumerated,
+listed and killed identically. Only an agent session gets a `projects handback` line: the account's dbus broker reports
+`/opt/ai-tools` as its working directory, the control plane, which the protected-paths backstop refuses.
 
 ## Residual failure modes
 
@@ -202,7 +205,8 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
   │        ONLY: splits the counts and orders the table; selects nothing)      │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 3. confirm ────────────────────────────────────────────────────────────────┐
-  │  the table, then a question that DEFAULTS TO YES; consent path recorded    │
+  │  the table, then a question naming the whole slice that DEFAULTS TO YES;   │
+  │        consent path recorded                                               │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 4. end each session ───────────────────────────────────────────────────────┐
   │  SIGTERM pass, deepest-first, re-collected each second, up to 10s          │

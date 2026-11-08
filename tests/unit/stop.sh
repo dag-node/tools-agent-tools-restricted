@@ -471,8 +471,8 @@ fi
 # init.scope, and the four of them are stopped identically -- but the line an operator reads first during an incident,
 # and answers the confirmation against, must not call four cgroups four agent sessions. The plumbing row is still
 # in the table: separated, not omitted.
-if grep -q "1 unit(s) of the ${SANDBOX_USER} account's own plumbing" <<< "${MAIN_OUTPUT}" \
-        && grep -q 'init.scope.*(account plumbing)' <<< "${MAIN_OUTPUT}"; then
+if grep -q '^3 agent session(s) would be terminated' <<< "${MAIN_OUTPUT}" \
+        && grep -qE '^  init\.scope .* -  \(account plumbing\)$' <<< "${MAIN_OUTPUT}"; then
     pass "the account's own plumbing is counted apart from the agent sessions, and still listed"
 else
     fail "the plumbing split is missing from the dry run: ${MAIN_OUTPUT}"
@@ -551,9 +551,10 @@ FIXTURE_WORKING_DIR[ai-tools-claude-code-31.service]="${TESTDIR}/proj/alpha"
 run_main true
 table_order="$(grep -oE 'ai-tools-claude-code-31.service|session-c142.scope|init.scope' <<< "${MAIN_OUTPUT}" | tr '\n' ' ')"
 if (( MAIN_STATUS == 0 )) && grep -q '1 agent session(s) would be terminated' <<< "${MAIN_OUTPUT}" \
-        && grep -q "1 step(s) run as the ${SANDBOX_USER} account (marked below) go with them" <<< "${MAIN_OUTPUT}" \
+        && grep -qE "^  session-c142\.scope .* -  \(a step run as ${SANDBOX_USER}: unknown\)$" <<< "${MAIN_OUTPUT}" \
+        && grep -qF "The stop ends every process in the ${SANDBOX_USER} account's slice" <<< "${MAIN_OUTPUT}" \
         && [[ "${table_order}" == "ai-tools-claude-code-31.service session-c142.scope init.scope " ]]; then
-    pass "beside an agent session the step is counted in its own clause, listed after the agent rows and before the plumbing"
+    pass "beside an agent session the step is listed after the agent rows and before the plumbing, and the closing line names the slice"
 else
     fail "agent plus step: status ${MAIN_STATUS}, order '${table_order}', output: ${MAIN_OUTPUT}"
 fi
@@ -569,22 +570,21 @@ mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-9${near_pid}.servi
 mkcg "${CG3}/session-c151.scope" 170
 sync_events "${TESTDIR}/cgroup2d"
 run_main true
-table_classes="$(awk '/^  would stop / { print ($3 == "+" ? $4 : $3) }' <<< "${MAIN_OUTPUT}" \
+table_classes="$(awk '/^  SESSION / { rows = 1; next } /^  the processes in each:/ { rows = 0 } rows { print ($1 == "+" ? $2 : $1) }' <<< "${MAIN_OUTPUT}" \
     | sed -e 's/^ai-tools-claude-code-.*/A/' -e 's/^session-c150\.scope$/L/' -e 's/^session-c1.*/S/' -e 's/^init\.scope$/P/' \
     | tr '\n' ' ')"
 if (( MAIN_STATUS == 0 )) \
-        && grep -q "3 agent session(s) would be terminated. 1 launch scope(s) (marked below)" <<< "${MAIN_OUTPUT}" \
+        && grep -q "^3 agent session(s) would be terminated. Nothing was changed.$" <<< "${MAIN_OUTPUT}" \
         && [[ "${table_classes}" == "A A L A S S P " ]] \
-        && grep -A1 "^  would stop  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}" \
-            | grep -qE "^  would stop    \\+ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
-        && grep -qF "the processes in each: sudo ps -o pid,ppid,user,stat,cmd --forest -u ${SANDBOX_USER}" <<< "${MAIN_OUTPUT}"; then
+        && grep -A1 "^  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}" \
+            | grep -qE "^    \\+ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
+        && grep -qF "the processes in each: systemd-cgls --no-pager -u user-4242.slice" <<< "${MAIN_OUTPUT}"; then
     pass "a scope holding the pid an agent unit is named for is that session's launch scope, placed under it with that pid, and the table names the process view"
 else
     fail "the launch scope: status ${MAIN_STATUS}, classes '${table_classes}', output: ${MAIN_OUTPUT}"
 fi
-if grep -q "session-c151.scope.*(a step run as ${SANDBOX_USER}: unknown)" <<< "${MAIN_OUTPUT}" \
-        && grep -q "2 step(s) run as the ${SANDBOX_USER} account (marked below) go with them" <<< "${MAIN_OUTPUT}"; then
-    pass "a scope whose pid is only the tail of an agent unit's number stays a step, counted with the unpaired one"
+if grep -qE "^  session-c151\.scope .* -  \(a step run as ${SANDBOX_USER}: unknown\)$" <<< "${MAIN_OUTPUT}"; then
+    pass "a scope whose pid is only the tail of an agent unit's number stays a step"
 else
     fail "the near-match scope: output: ${MAIN_OUTPUT}"
 fi
@@ -701,37 +701,24 @@ else
     fail "a missing count abandoned the confirmation: ${consent_out}"
 fi
 
-# THE QUESTION NAMES BOTH CLASSES AND SUMS NEITHER INTO THE OTHER. This is the consent half of the split the table
-# makes: agreement to "5 sessions" that were two sessions and three units of the account's own plumbing is not informed
-# consent about either number. Each shape is asserted against the counts it was given, so a branch that names a class
-# that is not there fails here.
+# THE QUESTION NAMES THE WHOLE SLICE. The sweep ends every process in the account's slice, so the question says so, led
+# by the agent sessions or, where none is listed, the steps run as the account. Each shape is asserted whole
+# against the counts it was given, so a branch that names a class that is not there fails here.
 CONFIRM_QUESTION=""
 ai_tools_msg__confirm() { CONFIRM_QUESTION="$1"; return 0; }
 check_question() {
     CONFIRM_QUESTION=""; ASSUME_YES=false
     confirm_stop "$1" "$2" >/dev/null 2>&1
-    if [[ "${CONFIRM_QUESTION}" == *"$3"* ]]; then
-        pass "$1 session(s) + $2 plumbing unit(s) is asked as: '$3'"
+    if [[ "${CONFIRM_QUESTION}" == "$3" ]]; then
+        pass "$1 session(s) + $2 step(s) is asked as: '$3'"
     else
         fail "confirm_stop $1 $2 asked: '${CONFIRM_QUESTION}'"
     fi
 }
-check_question 2 0 "Terminate the 2 agent session(s) listed above?"
-check_question 0 3 "Terminate the 3 unit(s) of the ${SANDBOX_USER} account's own plumbing listed above?"
-check_question 2 3 "the 2 agent session(s) listed above, and 3 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
-# A step run as the account is named in the question too, leading where no agent session is listed.
-check_question_steps() {
-    CONFIRM_QUESTION=""; ASSUME_YES=false
-    confirm_stop "$1" "$2" "$3" >/dev/null 2>&1
-    if [[ "${CONFIRM_QUESTION}" == "$4" ]]; then
-        pass "$1 session(s) + $3 step(s) + $2 plumbing unit(s) is asked as: '$4'"
-    else
-        fail "confirm_stop $1 $2 $3 asked: '${CONFIRM_QUESTION}'"
-    fi
-}
-check_question_steps 0 1 1 "Terminate the 1 step(s) run as the ${SANDBOX_USER} account listed above, and 1 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
-check_question_steps 2 1 1 "Terminate the 2 agent session(s) listed above, 1 step(s) run as the ${SANDBOX_USER} account, and 1 unit(s) of the ${SANDBOX_USER} account's own plumbing with them?"
-unset -f check_question_steps
+check_question 2 0 "Stop the 2 agent session(s) and every process in the ${SANDBOX_USER} account's slice?"
+check_question 2 1 "Stop the 2 agent session(s) and every process in the ${SANDBOX_USER} account's slice?"
+check_question 0 1 "Stop the 1 step(s) run as the ${SANDBOX_USER} account and every process in the ${SANDBOX_USER} account's slice?"
+check_question 0 0 "Stop every process in the ${SANDBOX_USER} account's slice?"
 unset -f ai_tools_msg__confirm check_question
 
 # And a deliberate decline stops the stop, at exit 6 -- the code ai-tools(1) reserves for an operator's explicit
