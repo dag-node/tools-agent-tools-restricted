@@ -5021,6 +5021,8 @@ cmd_project_remove() {
 
     local d; d="$(resolve_existing_path "${path}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    # Read while the directory exists: getcwd fails once it is deleted.
+    local cwd_real; cwd_real="$(pwd -P 2>/dev/null)" || cwd_real=""
     # The path checks of either kind read the path alone, so they run ahead of the snapshot, a `--for` run's first
     # `sudo`; the snapshot comes ahead of the clone branch, whose removal reaches the registry too.
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
@@ -5030,7 +5032,7 @@ cmd_project_remove() {
     fi
     load_target_registry_snapshot
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
-        remove_clone "${d}" "${assume_yes}"
+        remove_clone "${d}" "${assume_yes}" "${cwd_real}"
         return
     fi
 
@@ -5207,8 +5209,7 @@ cmd_project_remove() {
     else
         ok "removed ${d}"
     fi
-    [[ "${PWD}" == "${d}" || "${PWD}" == "${d}/"* ]] \
-        && say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
+    report_cwd_in_removed_tree "${d}" "${cwd_real}"
     (( ROOT_STEP_FAILURES == 0 ))
 }
 
@@ -5560,17 +5561,26 @@ cmd_project_push() {
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
-# remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: unregister a sandbox clone, then delete it.
-# A clone is authorized by its place, its owner and its shape (require_sandbox_clone_shape), and its own lines go
-# with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then the tree.
-# The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it was: on disk,
-# registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes> true
-# pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made over the clone
-# (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets instead
-# of counting them. The registry record is read for what a failed deletion's warning names alone: whether the clone had
-# an entry of its own and which entry still covers it; the authorization stays require_sandbox_clone_shape.
+# report_cwd_in_removed_tree <dir> <cwd>  -- after a removal of <dir>, name `cd` when <cwd>, the canonical current
+# directory read before the deletion, was <dir> or under it. The CLI cannot change its parent shell's directory,
+# and every later command in that shell prints bash's shell-init and job-working-directory errors.
+report_cwd_in_removed_tree() {
+    [[ -n "$2" && ( "$2" == "$1" || "$2" == "$1/"* ) ]] || return 0
+    say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
+}
+
+# remove_clone <dir> <assume-yes> <cwd>  -- the clone kind of `projects remove`: unregister a sandbox clone, then
+# delete it. A clone is authorized by its place, its owner and its shape (require_sandbox_clone_shape), and its own
+# lines go with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then
+# the tree. The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it
+# was: on disk, registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes>
+# true pre-answers the one default-NO confirm, and <cwd> is the canonical current directory read before the deletion.
+# The remote branch is left intact. No git read is made over the clone (cmd_project_remove states why), so a line ahead
+# of the confirm states what an unpushed commit meets instead of counting them. The registry record is read
+# for what a failed deletion's warning names alone: whether the clone had an entry of its own and which entry still
+# covers it; the authorization stays require_sandbox_clone_shape.
 remove_clone() {
-    local d="$1" assume_yes="$2" own_entry=none covering_entry
+    local d="$1" assume_yes="$2" cwd_real="$3" own_entry=none covering_entry
     require_sandbox_clone_shape "${d}"
     read_path_class "${d}"
     [[ "${CLASS_STATE}" != enabled && "${CLASS_STATE}" != disabled ]] || own_entry=removed
@@ -5594,6 +5604,7 @@ remove_clone() {
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
+    report_cwd_in_removed_tree "${d}" "${cwd_real}"
 }
 
 # cmd_project_lockdown [path] [--dry-run] [-y]  -- run ai-tools-lockdown (via sudo) on the project, or the one

@@ -1050,9 +1050,10 @@ drive_rows() {
 
     # ── E. Remove ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.remove.inplace"
-    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested"
-    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp"
-    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rmp" "@ ${R}/rmp/nested"
+    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested" "${R}/rmcd/sub" "${R}/rmcd2"
+    ln -s "${R}/rmcd2" "${R}/rmcd-link"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp" "${R}/rmcd" "${R}/rmcd2"
+    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rmp" "@ ${R}/rmp/nested" "@ ${R}/rmcd" "@ ${R}/rmcd2"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -1070,6 +1071,7 @@ drive_rows() {
     expect "remove --yes drops the entry"                             st_is "${R}/rm1" absent
     expect "remove --yes drops safe.directory"                        cli_called ai-tools-safedir "^--remove${T}${R}/rm1$"
     expect "remove does not run the filesystem hand-back"             not_called ai-tools-unclaim
+    expect "a removal run from outside the tree does not name cd"     out_lacks_text "cd somewhere else"
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm2"
     expect "a disabled entry authorizes its removal"                  test ! -e "${R}/rm2"
     expect "the disabled line goes with the tree"                     st_is "${R}/rm2" absent
@@ -1084,6 +1086,15 @@ drive_rows() {
     expect "remove refuses an entry containing another claimed project" rc_not0
     expect "the containing tree stands"                               test -d "${R}/rmp/nested"
     expect "that refusal reaches no helper"                           cli_log_empty
+    # The CLI cannot change its parent shell's directory, so a removal run from inside the tree names `cd`:
+    # from a subdirectory, and from the tree reached through a symlink, which the canonical current directory resolves.
+    # The rm1 removal, run from outside, is the control.
+    cli_stub_reset; drive cli_in "${R}/rmcd/sub" ai-tools.projects.remove.inplace "$(f yes)" "${R}/rmcd"
+    expect "a removal run from inside the tree deletes it"            test ! -e "${R}/rmcd"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
+    cli_stub_reset; drive cli_in "${R}/rmcd-link" ai-tools.projects.remove.inplace "$(f yes)" "${R}/rmcd2"
+    expect "a removal run from the tree through a symlink deletes it" test ! -e "${R}/rmcd2"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
     # The label reversal's statuses, with SELinux reported enforcing as in the unclaim rows.
     RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
     # 5: no label to apply on this host, so the removal completes; 4: the revert left hardlinked paths, 6: the tree
@@ -1738,6 +1749,10 @@ EOF
     expect "the clone removal --yes drops the entry"                  st_is "${SBROOT}/${N_C2}" absent
     expect "the clone removal --yes drops safe.directory"             cli_called ai-tools-safedir "^--remove${T}${SBROOT}/${N_C2}$"
     expect "the clone removal runs no typed-name challenge and no hand-back" not_called ai-tools-unclaim
+    expect "a clone removal run from outside the clone does not name cd" out_lacks_text "cd somewhere else"
+    cli_stub_reset; drive cli_in "${SBROOT}/${N_C3}" ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_C3}"
+    expect "a clone removal run from inside the clone deletes it"     test ! -e "${SBROOT}/${N_C3}"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f yes)" "${R}/pa"
     expect "the clone kind is decided by the path: a project in place takes the registry gate" rc_not0
     expect "that refusal leaves the tree"                             test -d "${R}/pa"

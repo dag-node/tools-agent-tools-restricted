@@ -1248,8 +1248,10 @@ by a run with no terminal or by `AI_TOOLS_ASSUME_YES`. The path is required, wit
 the verb deletes the directory it acts on, so that directory is named rather than inherited from where the command ran,
 and `atr projects remove .` is the spelling for the one the caller is in. The unknown-option refusal does not enumerate
 `-y`: a caller who mistyped a flag is not who a both-prompts bypass is for, and `ai-tools(1)` documents it
-where reaching it is deliberate. The only inline `projects clone` cross-reference in the claim flows is the Reachability
-blocked case, where an in-place claim cannot work.
+where reaching it is deliberate. The CLI cannot change its parent shell's directory, so each kind closes with a line
+naming `cd` when the canonical current directory, read before the deletion, was inside the removed tree. The only inline
+`projects clone` cross-reference in the claim flows is the Reachability blocked case, where an in-place claim cannot
+work.
 
 ## Unclaim <a id="ref-section-m5n5"></a>
 
