@@ -6035,11 +6035,22 @@ cmd_providers() {
 # list_maintenance_note  -- the compact pointer to the existing per-project verbs, printed under the listing
 # so `projects list` doubles as a reconciliation/maintenance view.
 list_maintenance_note() {
+    local -a rows=(
+        "atr projects claim DIRECTORY"$'\t'"claim a project / finish claiming one"
+        "atr projects unclaim DIRECTORY"$'\t'"release a project (revoke agent access)"
+        "atr projects handback [--full] DIRECTORY"$'\t'"take back ownership; project stays claimed"
+        "atr projects lockdown DIRECTORY"$'\t'"lock down secret-named files"
+    )
+    local row command width=0
+    # The description column follows the longest command, so a row added or reworded keeps the block aligned.
+    for row in "${rows[@]}"; do
+        command="${row%%$'\t'*}"
+        if (( ${#command} > width )); then width="${#command}"; fi
+    done
     section "Maintenance"
-    say "  atr projects claim DIRECTORY             claim a project / finish claiming one"
-    say "  atr projects unclaim DIRECTORY           release a project (revoke agent access)"
-    say "  atr projects handback [--full] DIRECTORY  take back ownership; project stays claimed"
-    say "  atr projects lockdown DIRECTORY          lock down secret-named files"
+    for row in "${rows[@]}"; do
+        printf '  %-*s  %s\n' "${width}" "${row%%$'\t'*}" "${row#*$'\t'}"
+    done
 }
 
 # status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"). The wording is single-sourced

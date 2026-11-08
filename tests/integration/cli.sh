@@ -1059,6 +1059,16 @@ EOF
     list_lacks() { if grep -qF -- "$1" <<<"${lout}"; then fail "$2 -- unexpectedly present in ai-tools.projects.list output"; else pass "$2"; fi; }
 
     list_has "Maintenance"            "ai-tools.projects.list reaches its footer past an early stale+protected entry (no set -e truncation)"
+    # Every Maintenance row's description starts at one column: the first character after the run of spaces that ends
+    # the command, a command being words joined by single spaces.
+    lmaint_columns="$(sed -n '/^Maintenance$/,$p' <<<"${lout}" | awk '/^  atr / {
+            rest = substr($0, 3); gap = index(rest, "  "); if (gap == 0) { print "none"; next }
+            col = gap + 2; while (substr(rest, col, 1) == " ") col++; print col }' | sort -u)"
+    if [[ -n "${lmaint_columns}" && "$(wc -l <<<"${lmaint_columns}")" -eq 1 && "${lmaint_columns}" != none ]]; then
+        pass "every Maintenance row's description starts at one column"
+    else
+        fail "the Maintenance rows' descriptions start at columns: $(tr '\n' ' ' <<<"${lmaint_columns:-none read}")"
+    fi
     list_has "stale entry"            "ai-tools.projects.list flags a stale allow entry"
     list_has "protected system path"  "ai-tools.projects.list flags a protected system path (/etc)"
     list_has "listed but not fully claimed" "ai-tools.projects.list flags a listed-but-unclaimed project"
