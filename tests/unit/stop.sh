@@ -643,8 +643,11 @@ fi
 # The program a step's first process runs is the account's data: argv[0] alone, read from /proc as root, reduced
 # to printable ASCII and capped. Real processes stand in: one whose argv[0] carries an escape byte and runs past
 # the cap, and one whose arguments must not be printed, since a command line can carry a credential. A cgroup with no
-# process is the control that reads `unknown`.
-( exec -a step-short sleep 30 31 ) &
+# process is the control that reads `unknown`. The stand-in is bash, which is an ELF binary on every host, so /proc shows
+# the argv[0] `exec -a` gives it; a coreutils program can be a script whose interpreter replaces argv[0], as the multi-call
+# coreutils of an EL10 container image is. It reads a FIFO it holds open both ways, which never ends, until the timeout.
+step_fifo="${TESTDIR}/step-fifo"; mkfifo "${step_fifo}"
+( exec -a step-short bash -c 'read -r -t 30 line <> "$1"' _ "${step_fifo}" 31 ) &
 step_pid=$!
 step_cg="${TESTDIR}/step-real"; mkdir -p "${step_cg}"; printf '%s\n' "${step_pid}" > "${step_cg}/cgroup.procs"
 sleep 0.2
@@ -655,7 +658,7 @@ if [[ "${step_command}" == step-short ]]; then
 else
     fail "cgroup_first_command printed more than argv[0]: '$(printf '%q' "${step_command}")'"
 fi
-( exec -a $'step\e[2J'"$(printf 'x%.0s' {1..100})" sleep 30 31 ) &
+( exec -a $'step\e[2J'"$(printf 'x%.0s' {1..100})" bash -c 'read -r -t 30 line <> "$1"' _ "${step_fifo}" 31 ) &
 step_pid=$!
 printf '%s\n' "${step_pid}" > "${step_cg}/cgroup.procs"
 sleep 0.2
