@@ -1251,6 +1251,24 @@ drive_rows() {
     expect "control: a project with its own repository takes the core.filemode pin" \
         test "$(git config --file "${encl}/sub-own/.git/config" --get core.filemode)" = true
     expect "and the enclosing .git/config stays byte-identical"      test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    # GIT_DIR in the invoker's environment, naming another repository the projects user can write: the claim pins
+    # core.filemode in the project's own repository and leaves that one byte-identical. The setup check reads
+    # the decoy's marker key through the variable as the projects user, so the variable does redirect that account's
+    # git; the sub-own claim is the run without it.
+    local decoy="${R}/gitdir-decoy" decoy_sha
+    git init -q "${decoy}"; git -C "${decoy}" config core.filemode false; git -C "${decoy}" config test.marker decoy
+    git init -q "${encl}/sub-gitdir"; git -C "${encl}/sub-gitdir" config core.filemode false
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${decoy}" "${encl}/sub-gitdir"
+    decoy_sha="$(sha "${decoy}/.git/config")"
+    expect "setup: GIT_DIR redirects the projects user's git to the decoy" \
+        test "$(runuser -u "${PROJECTS_USER}" -- env GIT_DIR="${decoy}/.git" git -C "${encl}/sub-gitdir" config --local --get test.marker)" = decoy
+    RUN_EXTRA_ENV=(GIT_DIR="${decoy}/.git")
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-gitdir"
+    RUN_EXTRA_ENV=()
+    expect "a claim under GIT_DIR exits 0"                           rc_is 0
+    expect "and pins core.filemode in the project's own repository" \
+        test "$(git config --file "${encl}/sub-gitdir/.git/config" --get core.filemode)" = true
+    expect "and leaves the repository GIT_DIR names byte-identical"  test "$(sha "${decoy}/.git/config")" = "${decoy_sha}"
     # The reading a 0700 root refuses one account and allows its owner, made by the owner-side read itself: run as the
     # target over its own tree, and as the projects user over the same tree. Each run does not read a registry or reach
     # a helper, so it is the installed command alone, with a copy of the fixture operator.conf naming both accounts.

@@ -29,7 +29,10 @@ and reaches the root-owned git `safe.directory` list in `/opt/ai-tools/.gitconfi
 root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside its other root operations. Each
 `git config --file` write renames a new inode over that file, so the helper restores its owner, mode and SELinux type
 after it (`ai_tools_control_plane__restore_file_attributes`), and a claim or an unclaim does not leave layout drift
-on the row. It refuses to run as the sandbox account (the agent must not manage its own registry).
+on the row. It refuses to run as the sandbox account (the agent must not manage its own registry). It unsets git's
+repository-selection and configuration variables (`GIT_DIR`, `GIT_WORK_TREE`, the `GIT_CONFIG` family and the rest its
+header lists) before its first git call, so each call acts on the repository its path names: under `GIT_DIR`,
+`config --local` writes the repository the variable names and `init` initialises it.
 
 How its commands are **spelled**, and how each option spelling an earlier release wrote maps onto a command path, is
 in [cli-grammar](cli-grammar.rule.md). This rule covers what each verb does.

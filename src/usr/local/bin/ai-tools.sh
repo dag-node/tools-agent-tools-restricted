@@ -39,6 +39,17 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# git's repository-selection and configuration variables, cleared before the first git call. The CLI runs
+# in the operator's own shell, where `GIT_DIR` makes `git -C <project> rev-parse --show-toplevel` name the project while
+# `config --local` writes the repository the variable names, so a claim's core.filemode pin would land there,
+# and a create's `git init` would initialise that repository. Every git call here names its repository by path (`-C`,
+# `--file`, or the directory `init` and `clone` take); AI_TOOLS_GITCONFIG is this CLI's own hook and stays.
+# The `GIT_CONFIG` prefix covers GIT_CONFIG_GLOBAL, _SYSTEM, _NOSYSTEM, _COUNT and its KEY/VALUE pairs.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    GIT_NAMESPACE GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG_PARAMETERS
+for _git_config_variable in $(compgen -v GIT_CONFIG); do unset "${_git_config_variable}"; done
+unset _git_config_variable
+
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 # The file this run executes, resolved once: the claim re-executes it as the project's owner for the owner-side read
