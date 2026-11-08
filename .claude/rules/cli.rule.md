@@ -409,10 +409,12 @@ being the authoritative one.
   accessors** as the unit records — the pin is written in that grammar — so the charset clamp and the age calculation
   have one implementation. An agent whose package does not declare a release manifest is not reported as perpetually
   unverified: it is reported once root has recorded its pin, and before then only where a label record exists,
-  under a dim `no pin recorded` line, since a failed record stops that agent's launch. Unpinned counts toward the **exit
-  status only where the operator required verification** (`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`), since that is exactly
-  when it will refuse a launch; everywhere else it is a legitimate state — an air-gapped host, a release the vendor
-  published no manifest for — and must not alarm, the same rule the unqueryable units follow.
+  under a dim `no pin recorded` line, since a failed record stops that agent's launch; where the operator required
+  verification it reads `UNVERIFIED` and counts, label record or not, since its launch is refused until a reconcile
+  records the pin. Unpinned counts toward the **exit status only where the operator required verification**
+  (`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`), since that is exactly when it will refuse a launch; everywhere else it is
+  a legitimate state — an air-gapped host, a release the vendor published no manifest for — and must not alarm, the same
+  rule the unqueryable units follow.
 
   **A pin a reconciliation refused to re-record is reported in place of that line**, from the mark the refusal writes
   beside the pin ([ref-section-b3k5](updater.rule.md#ref-section-b3k5)). It replaces that agent's tier line instead

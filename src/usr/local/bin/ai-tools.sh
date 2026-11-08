@@ -6215,8 +6215,9 @@ status_entrypoint_pins() {
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
-        # what is installed for it instead, so it is reported once that pin exists. Before then its label record is
-        # still read where one exists: ai-tools-relabel-agent files a label outcome for every enabled agent, one it
+        # what is installed for it instead, so it is reported once that pin exists. Before then it is reported
+        # where the operator required verification, since its launch is refused until a reconcile records the pin,
+        # and where a label record exists: ai-tools-relabel-agent files a label outcome for every enabled agent, one it
         # could not pin included, and a failed one stops that agent's launch. With neither, there is nothing
         # yet to report.
         pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
@@ -6224,7 +6225,7 @@ status_entrypoint_pins() {
         if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
               && ! -e "${pin}" ]]; then
             label_record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
-            [[ -n "${label_record}" && -e "${label_record}" ]] || continue
+            [[ "${strict}" == yes || ( -n "${label_record}" && -e "${label_record}" ) ]] || continue
             unpinned=yes
         fi
         (( seen++ == 0 )) && section "Entrypoint verification"
@@ -6233,7 +6234,12 @@ status_entrypoint_pins() {
         # leaves the pin exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still
         # carries a version and a date and would otherwise render as a fresh, successful verification beside the line
         # saying it no longer describes the installed binary.
-        if [[ -n "${unpinned}" ]]; then
+        if [[ -n "${unpinned}" && "${strict}" == yes ]]; then
+            blocking=$(( blocking + 1 ))
+            printf '  %-28s %sUNVERIFIED%s %s(no pin recorded)%s\n' "${agent}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${C_RST}"
+            say "      this host requires verification, so its sessions will not launch"
+            say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(records the entrypoint as installed)${C_RST}"
+        elif [[ -n "${unpinned}" ]]; then
             printf '  %-28s %sno pin recorded%s\n' "${agent}" "${C_DIM}" "${C_RST}"
         elif status_entrypoint_stale "${agent}"; then
             stale=$(( stale + 1 ))

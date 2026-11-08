@@ -363,6 +363,20 @@ else
     fail "an applied label record for an unpinned agent without a manifest URL (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
 fi
 rm -f "${LABELS}"/*
+# Where the operator required verification, the same agent's launch is refused until a reconcile records its pin, so it
+# is reported as unverified and counted, with no label record and with an applied one. The same agent's runs without
+# the requirement are the control.
+operator_conf "AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes"
+for label_case in none ok; do
+    [[ "${label_case}" == none ]] || label_record alpha ok ""
+    rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+    if [[ "${rc}" -eq 4 ]] && grep -qF 'UNVERIFIED' <<<"${out}" && grep -qF 'sessions will not launch' <<<"${out}"; then
+        pass "an agent with no manifest URL and no pin, on a host requiring verification, label record ${label_case}, is named blocked and status exits 4"
+    else
+        fail "an unpinned agent without a manifest URL on a host requiring verification, label record ${label_case} (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+rm -f "${LABELS}"/*; operator_conf
 rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__get_label_path')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
     pass "the label reader missing for an agent with no manifest URL and no pin exits 5 under MSG-E5C3, the later sections still printed"
