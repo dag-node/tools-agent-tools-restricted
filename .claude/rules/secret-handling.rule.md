@@ -119,12 +119,8 @@ itself, and the wrapper does not write a line for it.
 
 **The patterns are name- or environment-anchored** (`appsettings.*.json`, `web.*.config`, `*.Production.*`, …), **not**
 broad `*.*.json`/`*.*.config` catch-alls: those would also match build artifacts the toolchain must read (`*.deps.json`,
-`*.runtimeconfig.json`, `project.assets.json`, `*.dll.config`), and quarantining them breaks builds. An environment
-segment is followed by an extended-glob tail that leaves a script, a stylesheet and a source map alone (`.js`, `.mjs`,
-`.cjs`, `.css`, `.map`), since a vendored bundle is named for its build (`react.production.min.js`) and a build or test
-that loads a locked one fails; every other extension after the segment stays locked. The matcher's `[[ == ]]` reads
-the tail whether or not `extglob` is set, so an operator's file that copies the baseline carries the same exclusion.
-The set uses basename-safe globs only, no bare `config`.
+`*.runtimeconfig.json`, `project.assets.json`, `*.dll.config`), and quarantining them breaks builds. The set uses
+basename-safe globs only, no bare `config`.
 
 ## Quirks
 
