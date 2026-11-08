@@ -644,14 +644,15 @@ so the invoker must be enrolled before the target is looked up). It accepts the 
 effect is decided by *which* operator's registry covers the path — the verbs `FOR_ALLOWED_VERBS` names, which is every
 `projects` verb but `clone`, `push` and the internal `inspect` — and **refuses it elsewhere rather than ignoring it**:
 a `projects clone --for` that silently cloned as the invoker would leave the tree owned by the wrong operator, with no
-output to show the flag was disregarded. The target must be **enrolled in `OPERATORS`**, since the ownership helpers
-resolve a path's owner over that list and an entry written for an unenrolled name would be a launch gate no helper can
-act on; the sandbox account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact
-`atr admin operators add` writes: the target's launch wrapper refuses a caller outside the group, and a create
-in the clone area writes through that area's `g:ai-ops` ACL. The membership is read without a password
-and before the snapshot, and an account whose groups cannot be read is refused like one outside the group. The snapshot
-then refuses a target with no registry file, at the run's first `sudo` and before the run writes anything, naming
-the same enrolment command.
+output to show the flag was disregarded. A command path the dispatch does not have is refused as an unknown command
+(`MSG-S2H5`) ahead of that refusal, read from the union of the gating tables, which `tests/unit/cli-verbs.sh` holds
+to the dispatch. The target must be **enrolled in `OPERATORS`**, since the ownership helpers resolve a path's owner
+over that list and an entry written for an unenrolled name would be a launch gate no helper can act on; the sandbox
+account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact `atr admin operators add`
+writes: the target's launch wrapper refuses a caller outside the group, and a create in the clone area writes
+through that area's `g:ai-ops` ACL. The membership is read without a password and before the snapshot, and an account
+whose groups cannot be read is refused like one outside the group. The snapshot then refuses a target with no registry
+file, at the run's first `sudo` and before the run writes anything, naming the same enrolment command.
 
 `--for` is **refused with `projects unclaim --force`**. That mode reaches a tree no registry names,
 so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk to the **invoking uid** instead —

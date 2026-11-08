@@ -1602,6 +1602,21 @@ EOF
     expect "create --for over an existing path is refused before the snapshot" quiet_rc 1
     expect "under its code, naming the claim with --for"              out_has_text MSG-T4B9
     expect "and the claim it names carries --for" out_has_text "atr projects claim --for ${FOR_USER} ${R}/for1"
+    # A command path no dispatch arm holds is refused as an unknown command under `--for`, exit 2 with no helper, ahead
+    # of the `--for` refusal: a word, an unknown verb of a collection, and `admin`, which atr reads as its own first
+    # word. A dispatched command outside FOR_ALLOWED_VERBS is the control, refused under the `--for` refusal at exit 1.
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" bogus
+    expect "--for before an unknown command exits 2 with no helper"   quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before an unknown command is the unknown-command refusal"
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" projects bogus
+    expect "--for before an unknown projects verb exits 2 with no helper" quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before an unknown projects verb is the unknown-command refusal"
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" admin status
+    expect "--for before admin exits 2 with no helper"                quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before admin is the unknown-command refusal"
+    cli_stub_reset; drive cli_for_first ai-tools.status
+    expect "control: --for before a command it does not apply to exits 1 with no helper" quiet_rc 1
+    assert_msg MSG-U7R7 "${out}" "control: --for before ai-tools.status is the --for refusal"
 
     # ── H. Clone ──────────────────────────────────────────────────────────────────────
     # The clone rows run only against an installed CLI that honours the clone-area override; an older deployment would

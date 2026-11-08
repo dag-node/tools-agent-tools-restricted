@@ -7520,8 +7520,14 @@ remove_run_files() {
 # refuses a caller outside the group, and a create under the clone area writes through that area's `g:ai-ops` ACL.
 # `id -nG` reads the group database without a password, so an account in OPERATORS and not in the group -- a name
 # written into operator.conf by hand -- is refused before the snapshot, rather than after the run's first writes.
+#
+# A command path the dispatch does not have is refused as an unknown command first (MSG-S2H5), so `--for op bogus` names
+# the typo rather than a flag. The gating tables together classify every dispatched path, which tests/unit/cli-verbs.sh
+# holds them to, so their union is the set read here.
 require_for_target() {
     [[ -n "${FOR_OPERATOR}" ]] || return 0
+    verb_in "${COMMAND}" "${OPERATOR_VERBS[@]}" "${ROOT_ALLOWED_VERBS[@]}" "${BOOTSTRAP_EXEMPT_VERBS[@]}" \
+        || unknown_command "${COMMAND}"
     verb_in "${COMMAND}" "${FOR_ALLOWED_VERBS[@]}" \
         || die MSG-U7R7 "--for is not accepted on ${COMMAND}" \
                "it applies to: $(join_paths "${FOR_ALLOWED_VERBS[@]}")"

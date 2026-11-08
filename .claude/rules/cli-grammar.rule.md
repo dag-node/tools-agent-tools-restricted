@@ -111,15 +111,15 @@ as it is. The helper directory the program sits in is root-only, so an operator 
 **`atr` is the command a reader types, and it adds a spelling, not a program.** `atr admin <command>` runs
 `ai-tools-admin` at its fixed path — directly as root, and otherwise through `sudo` after one line on stderr saying so —
 and every other `atr <command>` runs `ai-tools`, whose own refusals stand. `admin` is read as the first word alone,
-so `atr --for <operator> admin …` runs `ai-tools`, whose `--for` gate refuses it (`require_for_target` runs ahead
-of the dispatch, so on a provisioned host the refusal is `MSG-U7R7` and not the unknown-command one; an unprovisioned
-host meets the bootstrap gate first), and `ai-tools` does not take an `admin` verb. For an operator, `atr` renders
-an admin help request, a bare `atr admin` and `atr admin --version` itself, from `help.lib.sh`, the library both
-programs render their help from, over the fixed domain directory, so none of them asks a password; a domain's own help,
-an unknown path's and every other admin command line take `sudo`, and so does the sandbox account's help request,
-which sudo refuses. `atr admin stop` without a help flag runs `ai-tools stop` for every caller, so its bare form reaches
-the stop helper's NOPASSWD rule, and that branch does not read a library. The dispatch lives in `atr.sh` rather than
-in `ai-tools.sh`, since the operator CLI is the file that refuses root for every writing verb ([cli](cli.rule.md)).
+so `atr --for <operator> admin …` runs `ai-tools`, which does not take an `admin` verb: on a provisioned host
+`require_for_target` refuses it as an unknown command (`MSG-S2H5`) ahead of its own `--for` refusal,
+and an unprovisioned host meets the bootstrap gate first. For an operator, `atr` renders an admin help request, a bare
+`atr admin` and `atr admin --version` itself, from `help.lib.sh`, the library both programs render their help
+from, over the fixed domain directory, so none of them asks a password; a domain's own help, an unknown path's and every
+other admin command line take `sudo`, and so does the sandbox account's help request, which sudo refuses.
+`atr admin stop` without a help flag runs `ai-tools stop` for every caller, so its bare form reaches the stop helper's
+NOPASSWD rule, and that branch does not read a library. The dispatch lives in `atr.sh` rather than in `ai-tools.sh`,
+since the operator CLI is the file that refuses root for every writing verb ([cli](cli.rule.md)).
 
 Two authorization shapes reach the admin program, and the first is the documented one. `atr admin X` has sudo authorize
 `/usr/local/libexec/ai-tools/ai-tools-admin X`, the command every grant and audit record for `ai-tools-admin` names.
