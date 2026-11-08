@@ -1942,6 +1942,79 @@ fi
 # A released entry cites the message codes live at its release, so the reftags check reads what follows as history.
 # ref-index: history
 %changelog
+* Sun Nov 08 2026 dagnode <tools@dagnode.com> - 0.29.0-1
+- CHANGE: Updates and claims are not blocked by running sessions. A claim, an unclaim, a removal,
+  an agent config directory's relabel after a toolchain update and the label walks of an install
+  or a 'dnf update' run beside a live session: the walker holds each entry by a descriptor, so a
+  session renaming a directory or planting a symlink cannot redirect a label. Only removing the
+  policy ('install-selinux.sh remove', erasing ai-tools-selinux) still waits for sessions to end.
+- CHANGE: A label walk leaves a hardlinked file at its type and names it, since through its other
+  name it may belong to another tree. A claim names up to 20 (MSG-R5F8); an unclaim or a removal
+  reports its label step failed over them with the 'find' that lists them, and a removal prints a
+  'sudo find ... -inum' for each once the tree is gone. An upgrade prints a NOTE per hardlinked
+  file its walks left; an agent's binary among them is labelled by the agent relabel after it.
+- CHANGE: 'ai-tools-relabel --remove' exits 4 for a revert that left hardlinked files and 6 where
+  the tree walker could not run, 'ai-tools-relabel' exits 5 where the host has no label to apply,
+  and 'install-selinux.sh remove' exits 1 when it names a path left on a removed type.
+  ai-tools-selinux requires libselinux, and no longer python3-libselinux.
+- CHANGE: A claim refuses a project root whose own mode is owner-only (700, 600, 500) before its
+  first write (MSG-H6J3; MSG-B5D2 for a listed project, its line kept), and no session starts in
+  such a directory (MSG-H2E2). Before, the claim reported success over a root that no grant
+  reached. 'atr projects create' without a path exits 2, where it exited 1.
+- CHANGE: 'atr status' exits 4 on a host that sets AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY and enables
+  an agent with no release manifest and no pin; that agent's launches were already refused.
+- CHANGE: A sandbox clone 0.28.x created holds its files in your group rather than ai-tools, so
+  the agent cannot read them; 0.29.0 creates a clone in that group. Re-run 'atr projects clone
+  <clone>' on one: it reports the clone not ready and prints the two commands that finish it,
+  'sudo /usr/local/libexec/ai-tools/ai-tools-setgid <clone>' and
+  'sudo /usr/local/libexec/ai-tools/ai-tools-setfacl --with-git <clone>'.
+- CHANGE: A project claimed on 0.22 or earlier whose path holds a '.', and not re-claimed since,
+  keeps a raw file-context rule this release does not retire. List it with
+  'sudo semanage fcontext -l -C | grep ai_tools_project', and drop it with
+  'sudo semanage fcontext -d '<pattern>''.
+- SECURITY: A command a session runs cannot type into the agent's prompt: the core policy module
+  0.11.0 refuses the TIOCSTI and TIOCLINUX ioctls on every terminal a session uses, with EACCES.
+  A session reaches its login terminal only through the descriptors it inherits, so it cannot
+  open your other login terminals by their /dev/pts name. Claude Code's start-up reopen of its own
+  terminal is refused that way and kept out of the audit log.
+- SECURITY: ai-tools unsets git's repository-selection variables (GIT_DIR, GIT_WORK_TREE and the
+  rest) and GIT_CONFIG before its first git call. Under GIT_DIR, a claim wrote core.filemode into
+  the repository the variable named and a create's 'git init' initialised it. GIT_CONFIG_GLOBAL,
+  GIT_CONFIG_COUNT and their kin pass through, so a clone and a push keep your credential helper.
+- SECURITY: The launch refuses a working directory whose path holds a control character
+  (MSG-P5X5), and a claim refuses such a path (MSG-V8Z5), so a directory name a session creates
+  cannot put a terminal escape on a screen the launch prints.
+- NEW: Claude Code background sessions ('/fork', '/background', 'claude --bg') run under SELinux
+  enforcing once 'atr admin selinux groups enable localipc' has loaded that group; without it a
+  background request prints its EACCES error and the session keeps running in the foreground.
+  Disable the group with no background session running, 'atr stop' first: a background session
+  started while it was loaded ends at the next background request made without it.
+- NEW: 'atr stop' shows who started each session, read from the kernel, and its PID, lists each
+  session's launch under it and the sessions by project, and asks about the agent sessions and
+  every process in the account's slice, which is what it stops. The default stays yes.
+- FIX: Removing the policy returns every path it typed to a default type -- the agent
+  entrypoints, /opt/ai-tools, the clone area, the logs, the root helpers and the handback runtime
+  directory -- or names the path with the 'find' that lists its other names.
+- FIX: 'install.sh' restarts the relabel watcher wherever it is enabled, and the remedy for a
+  stale unit file leads with 'sudo systemctl daemon-reload'. A symlinked /opt or /var/opt works.
+- FIX: A fresh bootstrap updates npm before installing the agents, as the nightly updater does.
+  An invalid npm registry signature is audited once more before it fails the run, and each
+  invalid entry names npm's code, key id, integrity and message.
+- FIX: 'atr status' reports the readings it skipped: run as root, its PATH ordering lines read
+  n/a with no remedy; a library it needs that did not load is named and exits 5, where a section
+  was left out or read as SELinux inactive; and an agent with no pin has its label record shown.
+- FIX: 'atr --for <operator>' with an unknown command is refused as one (MSG-S2H5, exit 2). 'atr
+  projects list' prints the safe.directory removal for a stale disabled line and reconciles
+  safe.directory without a registry file. 'atr projects remove' names 'cd' when the shell stood
+  in the removed tree, and a claim of a repository with no commits asks the .git question as a
+  create does.
+- FIX: When a session ends within five seconds on an enforcing host, the warning names a refused
+  access and its possible causes: the path's mode, its ACL and SELinux.
+- DOCS: Links in the installed documentation under /usr/share/doc/ai-tools point at the release's
+  tag, and ai-tools-messages(7) names a page by its installed path. docs/about/scope.md states a
+  session's terminal and network reach, and docs/agents/claude-code.md what background sessions
+  need.
+
 * Tue Nov 03 2026 dagnode <tools@dagnode.com> - 0.28.1-1
 - SECURITY: A source install ('selinux/install-selinux.sh') no longer gives a '!' path in your
   project registry the project's SELinux type; 0.28.0 registered one for each that exists. Where it
