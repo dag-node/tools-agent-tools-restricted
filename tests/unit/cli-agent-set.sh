@@ -335,16 +335,48 @@ for reader in ai_tools_entrypoint_verify__get_pin_path ai_tools_entrypoint_verif
         fail "status_entrypoint_pins without ${reader} exited ${rc}, expected 5 with MSG-E5C3, no tier line and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
     fi
 done
-# An enabled agent with no release_manifest_url and no pin takes `continue` before its label line, so the label reader
-# is reached at the head alone. The same run with the reader in place is the control: it exits 0 and does not print a
-# tier line.
+# An enabled agent with no release_manifest_url and no pin reads its label record and no tier line, so the label reader
+# is reached at the head alone. The same run with the reader in place and no record is the control: it exits 0 and does
+# not print the agent.
 rm -f "${PINS}"/* "${LABELS}"/*
 rc=0; out="$(call_status_entrypoints ':')" || rc=$?
-if [[ "${rc}" -eq 0 ]] && ! grep -qx MSG-E5C3 <<<"${out}"; then
-    pass "control: an agent with no manifest URL and no pin, every reader loaded, exits 0"
+if [[ "${rc}" -eq 0 ]] && ! grep -qx MSG-E5C3 <<<"${out}" && ! grep -qF 'no pin recorded' <<<"${out}"; then
+    pass "control: an agent with no manifest URL, no pin and no label record, every reader loaded, exits 0 and is not printed"
 else
     fail "control: an agent with no manifest URL and no pin (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
 fi
+# The same agent with a label record: a failed one, which stops its launch at the label preflight, is reported
+# under the agent and counted; an applied one is reported and not counted.
+label_record alpha failed rule-not-registered
+rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+if [[ "${rc}" -eq 4 ]] && grep -qF 'no pin recorded' <<<"${out}" && grep -qF 'NOT LABELLED' <<<"${out}"; then
+    pass "an agent with no manifest URL and no pin reports its failed label record, and status exits 4"
+else
+    fail "a failed label record for an unpinned agent without a manifest URL (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+label_record alpha ok ""
+rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+if [[ "${rc}" -eq 0 ]] && grep -qF 'no pin recorded' <<<"${out}" && grep -qF 'labelled' <<<"${out}" \
+        && ! grep -qF 'NOT LABELLED' <<<"${out}"; then
+    pass "an agent with no manifest URL and no pin reports an applied label record and exits 0"
+else
+    fail "an applied label record for an unpinned agent without a manifest URL (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+fi
+rm -f "${LABELS}"/*
+# Where the operator required verification, the same agent's launch is refused until a reconcile records its pin, so it
+# is reported as unverified and counted, with no label record and with an applied one. The same agent's runs without
+# the requirement are the control.
+operator_conf "AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes"
+for label_case in none ok; do
+    [[ "${label_case}" == none ]] || label_record alpha ok ""
+    rc=0; out="$(call_status_entrypoints ':')" || rc=$?
+    if [[ "${rc}" -eq 4 ]] && grep -qF 'UNVERIFIED' <<<"${out}" && grep -qF 'sessions will not launch' <<<"${out}"; then
+        pass "an agent with no manifest URL and no pin, on a host requiring verification, label record ${label_case}, is named blocked and status exits 4"
+    else
+        fail "an unpinned agent without a manifest URL on a host requiring verification, label record ${label_case} (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+done
+rm -f "${LABELS}"/*; operator_conf
 rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__get_label_path')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
     pass "the label reader missing for an agent with no manifest URL and no pin exits 5 under MSG-E5C3, the later sections still printed"
@@ -506,6 +538,7 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
         fail "control: the PATH ordering and managed-files readers loaded (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
     fi
     for row in "ai_tools_path_order__read_here MSG-N9Q3 status_path_order" \
+               "ai_tools_providers__list_enabled_agents MSG-N9Q3 status_path_order" \
                "ai_tools_providers__list_agent_managed_files MSG-K9T3 status_managed_files" \
                "ai_tools_providers__evaluate_managed_file MSG-K9T3 status_managed_files"; do
         read -r reader code section_fn <<<"${row}"
@@ -516,6 +549,34 @@ if runuser -u "${PROJECTS_USER}" -- bash -c \
             fail "${section_fn} without ${reader} exited ${rc}, expected 5 with ${code} and the rest of the page: $(tail -c 400 <<<"${out}" | tr '\n' '|')"
         fi
     done
+    # Root's PATH is not an operator's shell, and `atr admin operators add root` is refused (MSG-C4Y4),
+    # so status_path_order run as root prints each launcher n/a with no remedy and returns 0. The fixture launcher has
+    # no wrapper on this host and the fixture home has no PATH ordering line, the state in which the projects user's run
+    # names the remedy: that run is the control. Root sources the CLI with `status` as its command, a verb root may run.
+    # call_path_order <user> : status_path_order as <user>, over the fixture manifests and an empty home.
+    # shellcheck disable=SC2016  # the $1 is for the inner `bash -c`, not this shell -- do not expand here
+    call_path_order() {
+        runuser -u "$1" -- env HOME="${PO_HOME}" \
+            AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
+            AI_TOOLS_MSG_PLAIN=1 \
+            bash -c 'cli="$1"; set -- status; source "${cli}" >/dev/null 2>&1 || exit 99; status_path_order' \
+            _ "${CLI}" 2>&1
+    }
+    PO_HOME="${TESTDIR}/path-order-home"; mkdir -m 0755 "${PO_HOME}"
+    reset_fixtures; manifest alpha la yes; link la
+    rc=0; out="$(call_path_order "${PROJECTS_USER}")" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF "atr admin operators add ${PROJECTS_USER}" <<<"${out}"; then
+        pass "control: status_path_order as the projects user, with no ordering line in its home, names the remedy"
+    else
+        fail "control: status_path_order as the projects user (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+    rc=0; out="$(call_path_order root)" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF 'n/a (root is not an operator' <<<"${out}" \
+            && ! grep -qF 'operators add' <<<"${out}"; then
+        pass "status_path_order as root prints its launcher n/a, names no remedy, and returns 0"
+    else
+        fail "status_path_order as root (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
     # The registry section reads the file as the launch gate does: an exclusion through a link in a directory
     # the sandbox group can write passes the grammar and is refused by the loader (MSG-Y5N6), so status exits 4 naming
     # it; the same exclusion written as the real path reads ok.

@@ -29,7 +29,12 @@ and reaches the root-owned git `safe.directory` list in `/opt/ai-tools/.gitconfi
 root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside its other root operations. Each
 `git config --file` write renames a new inode over that file, so the helper restores its owner, mode and SELinux type
 after it (`ai_tools_control_plane__restore_file_attributes`), and a claim or an unclaim does not leave layout drift
-on the row. It refuses to run as the sandbox account (the agent must not manage its own registry).
+on the row. It refuses to run as the sandbox account (the agent must not manage its own registry). It unsets git's
+repository-selection variables (`GIT_DIR`, `GIT_WORK_TREE` and the rest its header lists) and `GIT_CONFIG` before its
+first git call, so each call acts on the repository its path names: under `GIT_DIR`, `config --local` writes
+the repository the variable names and `init` initialises it, and under `GIT_CONFIG` `config --local` refuses.
+The configuration variables (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_COUNT` and their kin) pass through, so `projects clone`
+and `projects push` use the credential helper or URL rewrite the operator's shell sets.
 
 How its commands are **spelled**, and how each option spelling an earlier release wrote maps onto a command path, is
 in [cli-grammar](cli-grammar.rule.md). This rule covers what each verb does.
@@ -326,8 +331,9 @@ being the authoritative one.
   and counts toward the non-zero exit. A launcher reaching the wrapper with no ordering line wired is right today
   and says so dimly, since that shell is sandboxed until the next thing that prepends to PATH takes it away. A launcher
   this host does not install a wrapper for, and a name `command -v` does not resolve in this shell, are reported and are
-  not faults — the same rule the unqueryable units follow. The states and the reading behind them are
-  [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
+  not faults — the same rule the unqueryable units follow. Run as root, the report reads root's PATH, which is not
+  an operator's shell, and `atr admin operators add` refuses root, so each launcher reads `n/a` with no remedy and does
+  not count. The states and the reading behind them are [ref-section-p3k8](launch.rule.md#ref-section-p3k8).
 
   <a id="ref-section-r8u5"></a>**Sandbox-user units and the `?` line**
 
@@ -401,8 +407,11 @@ being the authoritative one.
   with the pinned version and how long ago, or `unverified`, or `?` when this account cannot read the pin at all
   (`status` stays open to a non-operator, who cannot traverse the state directory). It reads through the **same stamp
   accessors** as the unit records — the pin is written in that grammar — so the charset clamp and the age calculation
-  have one implementation. An agent whose package does not declare a release manifest is omitted, not reported
-  as perpetually unverified. Unpinned counts toward the **exit status only where the operator required verification**
+  have one implementation. An agent whose package does not declare a release manifest is not reported as perpetually
+  unverified: it is reported once root has recorded its pin, and before then only where a label record exists,
+  under a dim `no pin recorded` line, since a failed record stops that agent's launch; where the operator required
+  verification it reads `UNVERIFIED` and counts, label record or not, since its launch is refused until a reconcile
+  records the pin. Unpinned counts toward the **exit status only where the operator required verification**
   (`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`), since that is exactly when it will refuse a launch; everywhere else it is
   a legitimate state — an air-gapped host, a release the vendor published no manifest for — and must not alarm, the same
   rule the unqueryable units follow.
@@ -496,18 +505,20 @@ being the authoritative one.
   and `ai-tools-safedir --remove` removes a value as git holds it, so a stored spelling is removed as stored. The list
   is read once, with git run from `/`, since git exits on a working directory that was deleted, the one a shell keeps
   after `atr projects remove .`; a list git cannot read is named under the cleanup, and each row's status reads `?`.
-  A registry line under a directory the invoker cannot enter is reported as one it cannot read, without a removal,
-  and on a `--for` run names the target's own listing as the one that reads it. The `sed` line deletes the verbatim
-  line, comment and all, from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line
-  is removed through `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line,
-  which that removal leaves standing, and a protected path, which the helper's backstop refuses, read in the form
-  that backstop reads, `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry
-  through the registry gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow
-  line among the lines that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed
-  under a banner naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing
-  predicates and verbs only (no recovery machinery), stays **read-only** (every fix is an emitted command, never
-  an in-place rewrite), and closes with a compact **Maintenance** pointer to the per-project verbs. Informational, so it
-  stays open to a non-operator.
+  An absent registry is the listing's body, `no registry at <path>`, and the reconciliation still runs, over an empty
+  entry set, so the `safe.directory` entries a registry removed by hand leaves are reported. A registry line
+  under a directory the invoker cannot enter is reported as one it cannot read, without a removal, and on a `--for` run
+  names the target's own listing as the one that reads it. The `sed` line deletes the verbatim line, comment and all,
+  from the file a message names (`REGISTRY_DISPLAY_PATH`); on a `--for` run an `@` or a `%` line is removed
+  through `ai-tools-allowlist --operator <target> --remove` instead, while an excluded line, which that removal leaves
+  standing, and a protected path, which the helper's backstop refuses, read in the form that backstop reads,
+  `realpath -m`, keep the `sed` form, run as the target (`sudo -u <target>`). It reads the registry through the registry
+  gate ([The registry gate](#the-registry-gate)), so a file no reader accepts — a glob on an allow line among the lines
+  that make one — is refused under `MSG-Y7K5` after the library's line, and a legacy file is listed under a banner
+  naming `atr admin system post-upgrade`, every `!` line read as an exclusion. It reuses existing predicates and verbs
+  only (no recovery machinery), stays **read-only** (every fix is an emitted command, never an in-place rewrite),
+  and closes with a compact **Maintenance** pointer to the per-project verbs. Informational, so it stays open
+  to a non-operator.
 - `--version` (the deploy-stamped package version; `dev` from a raw source tree).
 - `--help`, `-h` and the bare word `help` — a **help request**, answered after the principal guards and ahead of every
   gate from the bootstrap gate on, so it does not run the command, call `sudo` or take a `--for` snapshot: the top help,
@@ -641,14 +652,15 @@ so the invoker must be enrolled before the target is looked up). It accepts the 
 effect is decided by *which* operator's registry covers the path — the verbs `FOR_ALLOWED_VERBS` names, which is every
 `projects` verb but `clone`, `push` and the internal `inspect` — and **refuses it elsewhere rather than ignoring it**:
 a `projects clone --for` that silently cloned as the invoker would leave the tree owned by the wrong operator, with no
-output to show the flag was disregarded. The target must be **enrolled in `OPERATORS`**, since the ownership helpers
-resolve a path's owner over that list and an entry written for an unenrolled name would be a launch gate no helper can
-act on; the sandbox account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact
-`atr admin operators add` writes: the target's launch wrapper refuses a caller outside the group, and a create
-in the clone area writes through that area's `g:ai-ops` ACL. The membership is read without a password
-and before the snapshot, and an account whose groups cannot be read is refused like one outside the group. The snapshot
-then refuses a target with no registry file, at the run's first `sudo` and before the run writes anything, naming
-the same enrolment command.
+output to show the flag was disregarded. A command path the dispatch does not have is refused as an unknown command
+(`MSG-S2H5`) ahead of that refusal, read from the union of the gating tables, which `tests/unit/cli-verbs.sh` holds
+to the dispatch. The target must be **enrolled in `OPERATORS`**, since the ownership helpers resolve a path's owner
+over that list and an entry written for an unenrolled name would be a launch gate no helper can act on; the sandbox
+account and `root` are refused outright. It must also be **in `ai-ops`**, the second fact `atr admin operators add`
+writes: the target's launch wrapper refuses a caller outside the group, and a create in the clone area writes
+through that area's `g:ai-ops` ACL. The membership is read without a password and before the snapshot, and an account
+whose groups cannot be read is refused like one outside the group. The snapshot then refuses a target with no registry
+file, at the run's first `sudo` and before the run writes anything, naming the same enrolment command.
 
 `--for` is **refused with `projects unclaim --force`**. That mode reaches a tree no registry names,
 so `ai-tools-unclaim` cannot resolve an owner from an entry and binds the walk to the **invoking uid** instead —
@@ -902,7 +914,9 @@ decision:
 3. *Reachability* — the traverse opt-in, its question alone ([Reachability](#reachability)).
 4. *Secret lockdown* — the gate, before any access-granting step ([Secret pre-check](#secret-pre-check-on-claimclone));
    it fails the claim closed.
-5. *`.git` history* — the `--with-git` opt-in, shown when a `.git` tree is present and not yet normalized.
+5. *`.git` history* — the `--with-git` opt-in, shown when a `.git` tree is present and not yet normalized. Over a tree
+   the owner-side read finds pristine (`is_project_tree_pristine`) it is asked under the create's no-history headline,
+   and otherwise under the history-exposure warning.
 6. *Apply* — one result line per step, the traverse grant first, closed by `claimed`, which appears only when every
    access-granting step applied and carries the ✓ only when the report state is clean.
 
@@ -1240,8 +1254,10 @@ by a run with no terminal or by `AI_TOOLS_ASSUME_YES`. The path is required, wit
 the verb deletes the directory it acts on, so that directory is named rather than inherited from where the command ran,
 and `atr projects remove .` is the spelling for the one the caller is in. The unknown-option refusal does not enumerate
 `-y`: a caller who mistyped a flag is not who a both-prompts bypass is for, and `ai-tools(1)` documents it
-where reaching it is deliberate. The only inline `projects clone` cross-reference in the claim flows is the Reachability
-blocked case, where an in-place claim cannot work.
+where reaching it is deliberate. The CLI cannot change its parent shell's directory, so each kind closes with a line
+naming `cd` when the canonical current directory, read before the deletion, was inside the removed tree. The only inline
+`projects clone` cross-reference in the claim flows is the Reachability blocked case, where an in-place claim cannot
+work.
 
 ## Unclaim <a id="ref-section-m5n5"></a>
 

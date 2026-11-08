@@ -11,10 +11,10 @@
 # through `declare -f`. The comments explaining each body stay in the helper.
 #
 # What this file adds is an exemption by name, which the stop helper does not have: the user manager's own plumbing, its
-# init.scope and the dbus broker it starts on first use, a subset of what `atr stop` labels plumbing, since the stop
-# helper labels every non-agent unit so. A login session scope (session-N.scope) is not exempt here: it holds a process
-# of the account that a `sudo -u` started. Why the name is sound where the unload reads it, and which process it is not
-# sound against, are cli.rule.md's.
+# init.scope and the dbus broker it starts on first use, which `atr stop` labels plumbing. A login session scope
+# (session-N.scope) is not exempt here: it holds a process of the account that a `sudo -u` started, which `atr stop`
+# labels a step run as the account. Why the name is sound where the unload reads it, and which process it is not sound
+# against, are cli.rule.md's.
 #
 # Sourced, not executed. Deployed 644 root:root: shipped logic alone, sourced by root (the %postun's child shell,
 # install-selinux.sh) and by tests/unit/sessions.sh unprivileged, since the cgroup files it reads are world-readable.

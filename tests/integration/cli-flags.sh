@@ -1050,9 +1050,10 @@ drive_rows() {
 
     # ── E. Remove ─────────────────────────────────────────────────────────────────────
     section "ai-tools.projects.remove.inplace"
-    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested"
-    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp"
-    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rmp" "@ ${R}/rmp/nested"
+    mkdir -p "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp/nested" "${R}/rmcd/sub" "${R}/rmcd2"
+    ln -s "${R}/rmcd2" "${R}/rmcd-link"
+    chown -R "${PROJECTS_USER}:${PROJECTS_USER}" "${R}/rm1" "${R}/rm2" "${R}/rm3" "${R}/rmp" "${R}/rmcd" "${R}/rmcd2"
+    seed "@ ${R}/rm1" "% ${R}/rm2" "@ ${R}/rm3" "@ ${R}/rmp" "@ ${R}/rmp/nested" "@ ${R}/rmcd" "@ ${R}/rmcd2"
     seed_gc "${R}/rm1" "${R}/rm2"
     drive cli ai-tools.projects.remove.inplace "${R}/rm1"
     expect "remove without --yes declines at the confirm"             rc_not0
@@ -1070,6 +1071,7 @@ drive_rows() {
     expect "remove --yes drops the entry"                             st_is "${R}/rm1" absent
     expect "remove --yes drops safe.directory"                        cli_called ai-tools-safedir "^--remove${T}${R}/rm1$"
     expect "remove does not run the filesystem hand-back"             not_called ai-tools-unclaim
+    expect "a removal run from outside the tree does not name cd"     out_lacks_text "cd somewhere else"
     cli_stub_reset; drive cli ai-tools.projects.remove.inplace "$(f yes)" "${R}/rm2"
     expect "a disabled entry authorizes its removal"                  test ! -e "${R}/rm2"
     expect "the disabled line goes with the tree"                     st_is "${R}/rm2" absent
@@ -1084,6 +1086,15 @@ drive_rows() {
     expect "remove refuses an entry containing another claimed project" rc_not0
     expect "the containing tree stands"                               test -d "${R}/rmp/nested"
     expect "that refusal reaches no helper"                           cli_log_empty
+    # The CLI cannot change its parent shell's directory, so a removal run from inside the tree names `cd`:
+    # from a subdirectory, and from the tree reached through a symlink, which the canonical current directory resolves.
+    # The rm1 removal, run from outside, is the control.
+    cli_stub_reset; drive cli_in "${R}/rmcd/sub" ai-tools.projects.remove.inplace "$(f yes)" "${R}/rmcd"
+    expect "a removal run from inside the tree deletes it"            test ! -e "${R}/rmcd"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
+    cli_stub_reset; drive cli_in "${R}/rmcd-link" ai-tools.projects.remove.inplace "$(f yes)" "${R}/rmcd2"
+    expect "a removal run from the tree through a symlink deletes it" test ! -e "${R}/rmcd2"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
     # The label reversal's statuses, with SELinux reported enforcing as in the unclaim rows.
     RUN_EXTRA_ENV=(PATH="${R}/selinux-on-bin:${CLI_STUB_PATH}:/usr/local/bin:/usr/bin:/bin")
     # 5: no label to apply on this host, so the removal completes; 4: the revert left hardlinked paths, 6: the tree
@@ -1251,6 +1262,47 @@ drive_rows() {
     expect "control: a project with its own repository takes the core.filemode pin" \
         test "$(git config --file "${encl}/sub-own/.git/config" --get core.filemode)" = true
     expect "and the enclosing .git/config stays byte-identical"      test "$(sha "${encl}/.git/config")" = "${encl_sha}"
+    # GIT_DIR in the invoker's environment, naming another repository the projects user can write: the claim pins
+    # core.filemode in the project's own repository and leaves that one byte-identical. The setup check reads
+    # the decoy's marker key through the variable as the projects user, so the variable does redirect that account's
+    # git; the sub-own claim is the run without it.
+    local decoy="${R}/gitdir-decoy" decoy_sha
+    git init -q "${decoy}"; git -C "${decoy}" config core.filemode false; git -C "${decoy}" config test.marker decoy
+    git init -q "${encl}/sub-gitdir"; git -C "${encl}/sub-gitdir" config core.filemode false
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${decoy}" "${encl}/sub-gitdir"
+    decoy_sha="$(sha "${decoy}/.git/config")"
+    expect "setup: GIT_DIR redirects the projects user's git to the decoy" \
+        test "$(runuser -u "${PROJECTS_USER}" -- env GIT_DIR="${decoy}/.git" git -C "${encl}/sub-gitdir" config --local --get test.marker)" = decoy
+    RUN_EXTRA_ENV=(GIT_DIR="${decoy}/.git")
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-gitdir"
+    RUN_EXTRA_ENV=()
+    expect "a claim under GIT_DIR exits 0"                           rc_is 0
+    expect "and pins core.filemode in the project's own repository" \
+        test "$(git config --file "${encl}/sub-gitdir/.git/config" --get core.filemode)" = true
+    expect "and leaves the repository GIT_DIR names byte-identical"  test "$(sha "${decoy}/.git/config")" = "${decoy_sha}"
+    # GIT_CONFIG makes `git config --local` refuse, so a claim under it would not pin core.filemode; the CLI clears it.
+    git init -q "${encl}/sub-gitconfig"; git -C "${encl}/sub-gitconfig" config core.filemode false
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${encl}/sub-gitconfig"
+    RUN_EXTRA_ENV=(GIT_CONFIG="${decoy}/.git/config")
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-gitconfig"
+    RUN_EXTRA_ENV=()
+    expect "a claim under GIT_CONFIG pins core.filemode in the project's own repository" \
+        test "$(git config --file "${encl}/sub-gitconfig/.git/config" --get core.filemode)" = true
+    expect "and leaves the file GIT_CONFIG names byte-identical"     test "$(sha "${decoy}/.git/config")" = "${decoy_sha}"
+    # The .git question's headline follows the owner-side read's pristine reading: a claim of a repository with no
+    # commits takes the no-history headline, and one with a commit, the control, the history-exposure headline.
+    git init -q "${R}/git-fresh"
+    git init -q "${R}/git-committed"
+    git -C "${R}/git-committed" -c user.name=cli-flags -c user.email=cli-flags@example.invalid -c commit.gpgsign=false \
+        commit -q --allow-empty -m "history"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${R}/git-fresh" "${R}/git-committed"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/git-fresh"
+    expect "a claim of a repository with no commits asks under the no-history headline" \
+        out_has_text "Git history: a new repository"
+    expect "and not under the history-exposure headline"             out_lacks_text "git history exposure"
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${R}/git-committed"
+    expect "control: a claim of a repository with a commit asks under the history-exposure headline" \
+        out_has_text "git history exposure"
     # The reading a 0700 root refuses one account and allows its owner, made by the owner-side read itself: run as the
     # target over its own tree, and as the projects user over the same tree. Each run does not read a registry or reach
     # a helper, so it is the installed command alone, with a copy of the fixture operator.conf naming both accounts.
@@ -1584,6 +1636,21 @@ EOF
     expect "create --for over an existing path is refused before the snapshot" quiet_rc 1
     expect "under its code, naming the claim with --for"              out_has_text MSG-T4B9
     expect "and the claim it names carries --for" out_has_text "atr projects claim --for ${FOR_USER} ${R}/for1"
+    # A command path no dispatch arm holds is refused as an unknown command under `--for`, exit 2 with no helper, ahead
+    # of the `--for` refusal: a word, an unknown verb of a collection, and `admin`, which atr reads as its own first
+    # word. A dispatched command outside FOR_ALLOWED_VERBS is the control, refused under the `--for` refusal at exit 1.
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" bogus
+    expect "--for before an unknown command exits 2 with no helper"   quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before an unknown command is the unknown-command refusal"
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" projects bogus
+    expect "--for before an unknown projects verb exits 2 with no helper" quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before an unknown projects verb is the unknown-command refusal"
+    cli_stub_reset; drive run_in "${R}" "$(f for)" "${FOR_USER}" admin status
+    expect "--for before admin exits 2 with no helper"                quiet_rc 2
+    assert_msg MSG-S2H5 "${out}" "--for before admin is the unknown-command refusal"
+    cli_stub_reset; drive cli_for_first ai-tools.status
+    expect "control: --for before a command it does not apply to exits 1 with no helper" quiet_rc 1
+    assert_msg MSG-U7R7 "${out}" "control: --for before ai-tools.status is the --for refusal"
 
     # ── H. Clone ──────────────────────────────────────────────────────────────────────
     # The clone rows run only against an installed CLI that honours the clone-area override; an older deployment would
@@ -1705,6 +1772,10 @@ EOF
     expect "the clone removal --yes drops the entry"                  st_is "${SBROOT}/${N_C2}" absent
     expect "the clone removal --yes drops safe.directory"             cli_called ai-tools-safedir "^--remove${T}${SBROOT}/${N_C2}$"
     expect "the clone removal runs no typed-name challenge and no hand-back" not_called ai-tools-unclaim
+    expect "a clone removal run from outside the clone does not name cd" out_lacks_text "cd somewhere else"
+    cli_stub_reset; drive cli_in "${SBROOT}/${N_C3}" ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_C3}"
+    expect "a clone removal run from inside the clone deletes it"     test ! -e "${SBROOT}/${N_C3}"
+    expect "and names cd"                                             out_has_text "cd somewhere else"
     cli_stub_reset; drive cli ai-tools.projects.remove.clone "$(f yes)" "${R}/pa"
     expect "the clone kind is decided by the path: a project in place takes the registry gate" rc_not0
     expect "that refusal leaves the tree"                             test -d "${R}/pa"

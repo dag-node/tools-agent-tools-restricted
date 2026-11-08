@@ -39,6 +39,18 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# git's repository-selection variables, and GIT_CONFIG, cleared before the first git call. The CLI runs
+# in the operator's own shell, where `GIT_DIR` makes `git -C <project> rev-parse --show-toplevel` name the project while
+# `config --local` writes the repository the variable names, so a claim's core.filemode pin would land there,
+# and a create's `git init` would initialise that repository. GIT_CONFIG makes `config --local` refuse ("only one config
+# file at a time"), so the pin would not be written. Every git call here names its repository by path (`-C`, `--file`,
+# or the directory `init` and `clone` take); AI_TOOLS_GITCONFIG is this CLI's own hook and stays. The configuration
+# variables -- GIT_CONFIG_GLOBAL, _SYSTEM, _NOSYSTEM, _COUNT with its KEY/VALUE pairs, _PARAMETERS -- pass through: they
+# do not select a repository, and `projects clone` and `projects push` run with the credential helper or URL rewrite
+# they set.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    GIT_NAMESPACE GIT_CEILING_DIRECTORIES GIT_DISCOVERY_ACROSS_FILESYSTEM GIT_CONFIG
+
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
 # The file this run executes, resolved once: the claim re-executes it as the project's owner for the owner-side read
@@ -3895,6 +3907,11 @@ cmd_project_claim() {
         elif ${fresh}; then
             headline_warn "Git history: a new repository" \
                 "This repository has no commits yet. Normalizing .git lets the agent read the commits made here from now on. The create could not set .git to its owner's group and modes (the warning above), so declining leaves .git as git made it, which the agent may be able to read."
+        elif [[ "${inspect_pristine}" == true ]]; then
+            # A claim of an existing tree the owner-side read found pristine: its object store is empty, so there is no
+            # history yet to expose.
+            headline_warn "Git history: a new repository" \
+                "This repository has no commits yet. Normalizing .git lets the agent read the commits made here from now on."
         else
             headline_warn "WARNING: git history exposure" \
                 "normalizing .git lets the agent read this repo's full git history"
@@ -5010,6 +5027,8 @@ cmd_project_remove() {
 
     local d; d="$(resolve_existing_path "${path}")"
     [[ -d "${d}" ]] || die "not a directory: ${d}"
+    # Read while the directory exists: getcwd fails once it is deleted.
+    local cwd_real; cwd_real="$(pwd -P 2>/dev/null)" || cwd_real=""
     # The path checks of either kind read the path alone, so they run ahead of the snapshot, a `--for` run's first
     # `sudo`; the snapshot comes ahead of the clone branch, whose removal reaches the registry too.
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
@@ -5019,7 +5038,7 @@ cmd_project_remove() {
     fi
     load_target_registry_snapshot
     if [[ "${d}" == "${SANDBOX_ROOT}/"* ]]; then
-        remove_clone "${d}" "${assume_yes}"
+        remove_clone "${d}" "${assume_yes}" "${cwd_real}"
         return
     fi
 
@@ -5196,8 +5215,7 @@ cmd_project_remove() {
     else
         ok "removed ${d}"
     fi
-    [[ "${PWD}" == "${d}" || "${PWD}" == "${d}/"* ]] \
-        && say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
+    report_cwd_in_removed_tree "${d}" "${cwd_real}"
     (( ROOT_STEP_FAILURES == 0 ))
 }
 
@@ -5549,17 +5567,26 @@ cmd_project_push() {
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
 }
 
-# remove_clone <dir> <assume-yes>  -- the clone kind of `projects remove`: unregister a sandbox clone, then delete it.
-# A clone is authorized by its place, its owner and its shape (require_sandbox_clone_shape), and its own lines go
-# with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then the tree.
-# The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it was: on disk,
-# registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes> true
-# pre-answers the one default-NO confirm. The remote branch is left intact. No git read is made over the clone
-# (cmd_project_remove states why), so a line ahead of the confirm states what an unpushed commit meets instead
-# of counting them. The registry record is read for what a failed deletion's warning names alone: whether the clone had
-# an entry of its own and which entry still covers it; the authorization stays require_sandbox_clone_shape.
+# report_cwd_in_removed_tree <dir> <cwd>  -- after a removal of <dir>, name `cd` when <cwd>, the canonical current
+# directory read before the deletion, was <dir> or under it. The CLI cannot change its parent shell's directory,
+# and every later command in that shell prints bash's shell-init and job-working-directory errors.
+report_cwd_in_removed_tree() {
+    [[ -n "$2" && ( "$2" == "$1" || "$2" == "$1/"* ) ]] || return 0
+    say "  ${C_DIM}your shell is still in the deleted directory -- cd somewhere else${C_RST}"
+}
+
+# remove_clone <dir> <assume-yes> <cwd>  -- the clone kind of `projects remove`: unregister a sandbox clone, then
+# delete it. A clone is authorized by its place, its owner and its shape (require_sandbox_clone_shape), and its own
+# lines go with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then
+# the tree. The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it
+# was: on disk, registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes>
+# true pre-answers the one default-NO confirm, and <cwd> is the canonical current directory read before the deletion.
+# The remote branch is left intact. No git read is made over the clone (cmd_project_remove states why), so a line ahead
+# of the confirm states what an unpushed commit meets instead of counting them. The registry record is read
+# for what a failed deletion's warning names alone: whether the clone had an entry of its own and which entry still
+# covers it; the authorization stays require_sandbox_clone_shape.
 remove_clone() {
-    local d="$1" assume_yes="$2" own_entry=none covering_entry
+    local d="$1" assume_yes="$2" cwd_real="$3" own_entry=none covering_entry
     require_sandbox_clone_shape "${d}"
     read_path_class "${d}"
     [[ "${CLASS_STATE}" != enabled && "${CLASS_STATE}" != disabled ]] || own_entry=removed
@@ -5583,6 +5610,7 @@ remove_clone() {
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
     say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
+    report_cwd_in_removed_tree "${d}" "${cwd_real}"
 }
 
 # cmd_project_lockdown [path] [--dry-run] [-y]  -- run ai-tools-lockdown (via sudo) on the project, or the one
@@ -6013,11 +6041,22 @@ cmd_providers() {
 # list_maintenance_note  -- the compact pointer to the existing per-project verbs, printed under the listing
 # so `projects list` doubles as a reconciliation/maintenance view.
 list_maintenance_note() {
+    local -a rows=(
+        "atr projects claim DIRECTORY"$'\t'"claim a project / finish claiming one"
+        "atr projects unclaim DIRECTORY"$'\t'"release a project (revoke agent access)"
+        "atr projects handback [--full] DIRECTORY"$'\t'"take back ownership; project stays claimed"
+        "atr projects lockdown DIRECTORY"$'\t'"lock down secret-named files"
+    )
+    local row command width=0
+    # The description column follows the longest command, so a row added or reworded keeps the block aligned.
+    for row in "${rows[@]}"; do
+        command="${row%%$'\t'*}"
+        if (( ${#command} > width )); then width="${#command}"; fi
+    done
     section "Maintenance"
-    say "  atr projects claim DIRECTORY             claim a project / finish claiming one"
-    say "  atr projects unclaim DIRECTORY           release a project (revoke agent access)"
-    say "  atr projects handback [--full] DIRECTORY  take back ownership; project stays claimed"
-    say "  atr projects lockdown DIRECTORY          lock down secret-named files"
+    for row in "${rows[@]}"; do
+        printf '  %-*s  %s\n' "${width}" "${row%%$'\t'*}" "${row#*$'\t'}"
+    done
 }
 
 # status_fmt_age <seconds>  -- render an age the way an operator reads it ("3 days ago"). The wording is single-sourced
@@ -6081,8 +6120,12 @@ status_sandbox_unit_commands() {
 # command that repairs it. What each state means is launch.rule.md's PATH ordering section; what this report says about
 # each is cli.rule.md.
 #
-# path-order.lib.sh ships with base, so a reader it did not define is a broken install: reported under MSG-N9Q3
-# and returned as STATUS_UNREADABLE, the later sections still printed.
+# path-order.lib.sh and providers.lib.sh ship with base, so a reader either did not define is a broken install: reported
+# under MSG-N9Q3 and returned as STATUS_UNREADABLE, the later sections still printed. The launcher list comes
+# from the provider resolver, and without it the reader does not list a launcher and the section would print nothing.
+#
+# Run as root, the CLI reads root's PATH, which is not an operator's shell, and the remedy `atr admin operators add`
+# refuses root (MSG-C4Y4): each launcher prints n/a and the section does not count.
 status_path_order() {
     local path_order_lib=/usr/local/lib/ai-tools/path-order.lib.sh
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
@@ -6090,9 +6133,10 @@ status_path_order() {
     source "${providers_lib}" 2>/dev/null || true
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/path-order.lib.sh
     source "${path_order_lib}" 2>/dev/null || true
-    if ! declare -F ai_tools_path_order__read_here >/dev/null 2>&1; then
+    if ! declare -F ai_tools_path_order__read_here >/dev/null 2>&1 \
+            || ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1; then
         section "PATH ordering"
-        warn MSG-N9Q3 "the PATH ordering library (${path_order_lib}) did not load -- no launcher was resolved in this shell; reinstall the ai-tools package"
+        warn MSG-N9Q3 "the PATH ordering or provider library (${path_order_lib}, ${providers_lib}) did not load -- no launcher was resolved in this shell; reinstall the ai-tools package"
         return "${STATUS_UNREADABLE}"
     fi
 
@@ -6102,6 +6146,10 @@ status_path_order() {
     for pair in "${AI_TOOLS_PATH_ORDER__WINNERS[@]+"${AI_TOOLS_PATH_ORDER__WINNERS[@]}"}"; do
         launcher="${pair%%=*}"; winner="${pair#*=}"
         (( seen++ == 0 )) && section "PATH ordering"
+        if [[ "${INVOKING_USER}" == root ]]; then
+            printf '  %-28s %sn/a (root is not an operator -- run status as one)%s\n' "${launcher}" "${C_DIM}" "${C_RST}"
+            continue
+        fi
         case "${winner}" in
             # This host does not install a wrapper of that name, so its PATH has no ordering to get wrong here --
             # reported, and not a fault.
@@ -6115,6 +6163,7 @@ status_path_order() {
         esac
     done
     (( seen )) || return 0
+    [[ "${INVOKING_USER}" != root ]] || return 0
 
     case "${state}" in
         shadowed)
@@ -6162,15 +6211,22 @@ status_entrypoint_pins() {
     ai_tools_entrypoint_verify__is_required && strict=yes
 
     local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0 unreadable=0 label_status
+    local label_record unpinned
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
-        # what is installed for it instead, so it is reported once that pin exists and left out while there is nothing
+        # what is installed for it instead, so it is reported once that pin exists. Before then it is reported
+        # where the operator required verification, since its launch is refused until a reconcile records the pin,
+        # and where a label record exists: ai-tools-relabel-agent files a label outcome for every enabled agent, one it
+        # could not pin included, and a failed one stops that agent's launch. With neither, there is nothing
         # yet to report.
         pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
+        unpinned=""
         if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
               && ! -e "${pin}" ]]; then
-            continue
+            label_record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
+            [[ "${strict}" == yes || ( -n "${label_record}" && -e "${label_record}" ) ]] || continue
+            unpinned=yes
         fi
         (( seen++ == 0 )) && section "Entrypoint verification"
         version="$(ai_tools_services__read_stamp_field "${pin}" VERSION)"
@@ -6178,7 +6234,14 @@ status_entrypoint_pins() {
         # leaves the pin exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still
         # carries a version and a date and would otherwise render as a fresh, successful verification beside the line
         # saying it no longer describes the installed binary.
-        if status_entrypoint_stale "${agent}"; then
+        if [[ -n "${unpinned}" && "${strict}" == yes ]]; then
+            blocking=$(( blocking + 1 ))
+            printf '  %-28s %sUNVERIFIED%s %s(no pin recorded)%s\n' "${agent}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${C_RST}"
+            say "      this host requires verification, so its sessions will not launch"
+            say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(records the entrypoint as installed)${C_RST}"
+        elif [[ -n "${unpinned}" ]]; then
+            printf '  %-28s %sno pin recorded%s\n' "${agent}" "${C_DIM}" "${C_RST}"
+        elif status_entrypoint_stale "${agent}"; then
             stale=$(( stale + 1 ))
         elif [[ -n "${version}" ]]; then
             verified="$(ai_tools_services__read_stamp_age "${pin}" VERIFIED)"
@@ -6826,11 +6889,14 @@ status_services() {
 # a stale path that no longer exists, or a project listed but never fully claimed). All read-only, reusing existing
 # predicates and verbs -- no recovery machinery of its own. A removal is offered only for an entry this run can
 # attribute to the registry it reads; a reading the invoker cannot make withholds the removal and is counted or named
-# instead.
+# instead. An absent registry is the listing's body, and the safe.directory reconciliation still runs, over an empty
+# entry set: read_path_class reads an absent file as unregistered, so a registry removed by hand leaves its
+# safe.directory entries reported.
 cmd_project_list() {
     [[ "$#" -eq 0 ]] || die_usage MSG-E2A5 "projects list takes no arguments"
     load_target_registry_snapshot
-    [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || { say "no registry at ${ALLOWLIST}"; return 0; }
+    local registry_source="${ALLOWLIST}"
+    [[ -e "${ALLOWLIST}" || -L "${ALLOWLIST}" ]] || registry_source=/dev/null
     # Name the operator on a --for run: the listed entries are that account's launch gate, not the invoker's,
     # and an unlabelled listing of someone else's projects reads as your own.
     if [[ -n "${FOR_OPERATOR}" ]]; then
@@ -6975,6 +7041,7 @@ cmd_project_list() {
                 cleanup+=( "  % ${entry}" \
                     "      ${C_YEL}no longer exists${C_RST} (stale disabled project); remove it:" \
                     "          $(format_registry_line_removal "${raw}" disabled "${excl}")" )
+                ${sd} && cleanup+=( "          sudo ${SAFEDIR_BIN} --remove $(_quote_path "${excl}")" )
             fi
             continue
         fi
@@ -6995,8 +7062,12 @@ cmd_project_list() {
         [[ "${CLASS_STATE}" != enabled || "${CLASS_BLOCKED}" == - ]] \
             || say "           ${C_YEL}blocked${C_RST} ${C_DIM}by: ${CLASS_BLOCKED}${C_RST}"
         _reconcile "${entry}" "${kind}" "${sd}" "${raw}"
-    done < "${ALLOWLIST}"
-    (( shown )) || say "  (none)"
+    done < "${registry_source}"
+    if [[ "${registry_source}" == /dev/null ]]; then
+        say "  no registry at ${REGISTRY_DISPLAY_PATH}"
+    elif (( ! shown )); then
+        say "  (none)"
+    fi
 
     # Reverse reconciliation: a git safe.directory entry no registry entry names is an ORPHAN -- git still trusts
     # the tree though no line names it (the line was hand-deleted, or an unclaim was interrupted before the safedir
@@ -7509,8 +7580,14 @@ remove_run_files() {
 # refuses a caller outside the group, and a create under the clone area writes through that area's `g:ai-ops` ACL.
 # `id -nG` reads the group database without a password, so an account in OPERATORS and not in the group -- a name
 # written into operator.conf by hand -- is refused before the snapshot, rather than after the run's first writes.
+#
+# A command path the dispatch does not have is refused as an unknown command first (MSG-S2H5), so `--for op bogus` names
+# the typo rather than a flag. The gating tables together classify every dispatched path, which tests/unit/cli-verbs.sh
+# holds them to, so their union is the set read here.
 require_for_target() {
     [[ -n "${FOR_OPERATOR}" ]] || return 0
+    verb_in "${COMMAND}" "${OPERATOR_VERBS[@]}" "${ROOT_ALLOWED_VERBS[@]}" "${BOOTSTRAP_EXEMPT_VERBS[@]}" \
+        || unknown_command "${COMMAND}"
     verb_in "${COMMAND}" "${FOR_ALLOWED_VERBS[@]}" \
         || die MSG-U7R7 "--for is not accepted on ${COMMAND}" \
                "it applies to: $(join_paths "${FOR_ALLOWED_VERBS[@]}")"
