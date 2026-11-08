@@ -1280,6 +1280,15 @@ drive_rows() {
     expect "and pins core.filemode in the project's own repository" \
         test "$(git config --file "${encl}/sub-gitdir/.git/config" --get core.filemode)" = true
     expect "and leaves the repository GIT_DIR names byte-identical"  test "$(sha "${decoy}/.git/config")" = "${decoy_sha}"
+    # GIT_CONFIG makes `git config --local` refuse, so a claim under it would not pin core.filemode; the CLI clears it.
+    git init -q "${encl}/sub-gitconfig"; git -C "${encl}/sub-gitconfig" config core.filemode false
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${encl}/sub-gitconfig"
+    RUN_EXTRA_ENV=(GIT_CONFIG="${decoy}/.git/config")
+    cli_stub_reset; drive cli ai-tools.projects.claim "$(f yes)" "${encl}/sub-gitconfig"
+    RUN_EXTRA_ENV=()
+    expect "a claim under GIT_CONFIG pins core.filemode in the project's own repository" \
+        test "$(git config --file "${encl}/sub-gitconfig/.git/config" --get core.filemode)" = true
+    expect "and leaves the file GIT_CONFIG names byte-identical"     test "$(sha "${decoy}/.git/config")" = "${decoy_sha}"
     # The .git question's headline follows the owner-side read's pristine reading: a claim of a repository with no
     # commits takes the no-history headline, and one with a commit, the control, the history-exposure headline.
     git init -q "${R}/git-fresh"

@@ -30,9 +30,11 @@ root-write-only) through the `ai-tools-safedir` root helper (`sudo`), alongside 
 `git config --file` write renames a new inode over that file, so the helper restores its owner, mode and SELinux type
 after it (`ai_tools_control_plane__restore_file_attributes`), and a claim or an unclaim does not leave layout drift
 on the row. It refuses to run as the sandbox account (the agent must not manage its own registry). It unsets git's
-repository-selection and configuration variables (`GIT_DIR`, `GIT_WORK_TREE`, the `GIT_CONFIG` family and the rest its
-header lists) before its first git call, so each call acts on the repository its path names: under `GIT_DIR`,
-`config --local` writes the repository the variable names and `init` initialises it.
+repository-selection variables (`GIT_DIR`, `GIT_WORK_TREE` and the rest its header lists) and `GIT_CONFIG` before its
+first git call, so each call acts on the repository its path names: under `GIT_DIR`, `config --local` writes
+the repository the variable names and `init` initialises it, and under `GIT_CONFIG` `config --local` refuses.
+The configuration variables (`GIT_CONFIG_GLOBAL`, `GIT_CONFIG_COUNT` and their kin) pass through, so `projects clone`
+and `projects push` use the credential helper or URL rewrite the operator's shell sets.
 
 How its commands are **spelled**, and how each option spelling an earlier release wrote maps onto a command path, is
 in [cli-grammar](cli-grammar.rule.md). This rule covers what each verb does.
