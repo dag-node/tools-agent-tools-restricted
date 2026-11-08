@@ -557,6 +557,35 @@ if (( MAIN_STATUS == 0 )) && grep -q '1 agent session(s) would be terminated' <<
 else
     fail "agent plus step: status ${MAIN_STATUS}, order '${table_order}', output: ${MAIN_OUTPUT}"
 fi
+# A LAUNCH SCOPE PAIRS WITH ITS SESSION. ai-tools-run names its unit for its own pid, and runs inside the scope
+# the launch wrapper's `sudo -u` opened, so a scope holding a pid that is the complete numeric suffix of a selected
+# agent unit is that session's launch scope: labelled with the unit, listed after the agent rows, and counted with its
+# session rather than as a step. A scope holding a pid that is only the tail of a unit's number does not pair and stays
+# a step, as session-c142.scope does, whose pids are not in any unit's name.
+launch_pid="$(fixture_pid 160)"; near_pid="$(fixture_pid 170)"
+mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-${launch_pid}.service" 161
+mkcg "${CG3}/session-c150.scope" 160 162
+mkcg "${CG3}/user@4242.service/app.slice/ai-tools-claude-code-9${near_pid}.service" 171
+mkcg "${CG3}/session-c151.scope" 170
+sync_events "${TESTDIR}/cgroup2d"
+run_main true
+table_classes="$(awk '/^  would stop / { print $3 }' <<< "${MAIN_OUTPUT}" \
+    | sed -e 's/^ai-tools-claude-code-.*/A/' -e 's/^session-c150\.scope$/L/' -e 's/^session-c1.*/S/' -e 's/^init\.scope$/P/' \
+    | tr '\n' ' ')"
+if (( MAIN_STATUS == 0 )) \
+        && grep -q "session-c150.scope.*(launch of ai-tools-claude-code-${launch_pid}.service)" <<< "${MAIN_OUTPUT}" \
+        && grep -q "3 agent session(s) would be terminated. 1 launch scope(s) (marked below)" <<< "${MAIN_OUTPUT}" \
+        && [[ "${table_classes}" == "A A A L S S P " ]]; then
+    pass "a scope holding the pid an agent unit is named for is that session's launch scope, listed after the agent rows"
+else
+    fail "the launch scope: status ${MAIN_STATUS}, classes '${table_classes}', output: ${MAIN_OUTPUT}"
+fi
+if grep -q "session-c151.scope.*(a step run as ${SANDBOX_USER}: unknown)" <<< "${MAIN_OUTPUT}" \
+        && grep -q "2 step(s) run as the ${SANDBOX_USER} account (marked below) go with them" <<< "${MAIN_OUTPUT}"; then
+    pass "a scope whose pid is only the tail of an agent unit's number stays a step, counted with the unpaired one"
+else
+    fail "the near-match scope: output: ${MAIN_OUTPUT}"
+fi
 # The program a step's first process runs is the account's data: argv[0] alone, read from /proc as root, reduced
 # to printable ASCII and capped. Real processes stand in: one whose argv[0] carries an escape byte and runs past
 # the cap, and one whose arguments must not be printed, since a command line can carry a credential. A cgroup with no

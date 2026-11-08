@@ -119,10 +119,13 @@ directly under the account's slice, outside its user manager: a login session sc
 or `systemctl --user -M` that crossed `pam_systemd`), or a root caller's run as the account. Its row names the program
 its first process runs, its `argv[0]` alone since a command line can carry a credential, read as root from `/proc`
 and reduced to printable ASCII, and the words are the ones the policy unload's refusal uses for that process,
-so a headline that counts zero agent sessions still names the steps it lists. The split orders the table, separates
-the counts, and decides which rows carry a `projects handback` line; every class is enumerated, listed and killed
-identically. Only an agent session gets a `projects handback` line: the account's dbus broker reports `/opt/ai-tools`
-as its working directory, the control plane, which the protected-paths backstop refuses.
+so a headline that counts zero agent sessions still names the steps it lists. A step scope holding a pid that is
+the complete numeric suffix of a listed agent unit's name is that session's launch scope instead: the launch wrapper's
+`sudo -u` opens it, and `ai-tools-run`, inside it, names the unit for its own pid. It is labelled with that unit, listed
+after the agent rows and counted with its session, and a scope no listed unit pairs with stays a step. The split orders
+the table, separates the counts, and decides which rows carry a `projects handback` line; every class is enumerated,
+listed and killed identically. Only an agent session gets a `projects handback` line: the account's dbus broker reports
+`/opt/ai-tools` as its working directory, the control plane, which the protected-paths backstop refuses.
 
 ## Residual failure modes
 
@@ -189,8 +192,8 @@ confirm_stop → end_session → terminate_gracefully → kill_outright → rest
   │        NOTHING is exempt -- init.scope is enumerated like anything else    │
   │  attribute each unit via WorkingDirectory  (best-effort, DISPLAY ONLY:     │
   │        it selects nothing, so `unknown` costs a label, not a target)       │
-  │  classify agent session / step / plumbing  (advisory, DISPLAY ONLY:        │
-  │        splits the counts and orders the table; selects nothing)            │
+  │  classify agent session / launch / step / plumbing  (advisory, DISPLAY     │
+  │        ONLY: splits the counts and orders the table; selects nothing)      │
   └────────────────────────────────────────────────────────────────────────────┘
   ┌ 3. confirm ────────────────────────────────────────────────────────────────┐
   │  the table, then a question that DEFAULTS TO YES; consent path recorded    │
@@ -282,7 +285,7 @@ the guarantee its row names.
 | The restart runs after verification and is reported on its own, outside the exit status | the invariant is that the *stop* happened; the manager is a separate fact ([Where containment ends](#where-containment-ends)) |
 | Liveness comes from cgroups only | systemd never decides whether something is running ([The decisions inside those phases](#the-decisions-inside-those-phases)) |
 | Attribution is best-effort and display-only | the sweep does not consult it, so a misreported project costs a label rather than a target ([Where containment ends](#where-containment-ends)) |
-| Agent sessions, steps run as the account and account plumbing are counted apart, advisorily | the agent class comes from a unit name, so it is the account's word; it labels a row and never selects one, a headline that counted four units of scaffolding as four agent sessions misread the incident, and one that called a login session scope plumbing hid a process someone started ([Where containment ends](#where-containment-ends)) |
+| Agent sessions with their launch scopes, steps run as the account and account plumbing are counted apart, advisorily | the agent class comes from a unit name, so it is the account's word; it labels a row and never selects one, a headline that counted four units of scaffolding as four agent sessions misread the incident, one that called a login session scope plumbing hid a process someone started, and one that counted each session's launch scope as a step doubled the work it reported ([Where containment ends](#where-containment-ends)) |
 | A second run terminates and restarts the manager again | idempotence is in end state; a silent rerun costs either an exemption or a name-decided sweep ([Where containment ends](#where-containment-ends)) |
 
 ## Quirks

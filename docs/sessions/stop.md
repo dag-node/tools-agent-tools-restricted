@@ -75,24 +75,29 @@ is for you to read, so a missing one costs you a label rather than costing
 the stop a target.
 
 **Agent sessions, steps run as the account and the account's own plumbing are
-counted separately.** The slice holds more than sessions. A login session scope
+counted separately.** The slice holds more than sessions. Each agent session
+has a launch scope: the `sudo` the launch ran through, marked
+`(launch of <unit>)` and counted with its session. A login session scope
 for every `sudo -u` or `runuser` that crossed `pam_systemd`, and a scope
 for each step a root command runs as the account, such as the npm install
 of `atr admin system bootstrap`, are steps run as the account: each row names
 the program its first process runs, without its arguments. The account's
 `systemd --user`, its `init.scope` and a dbus broker are the account's own
 plumbing, marked `(account plumbing)`. All of them are terminated — no cgroup
-is exempt — and they are listed after the agent sessions, steps first,
-with the headline giving each count apart:
+is exempt — and they are listed after the agent sessions, launch scopes first
+and then steps, with the headline giving each count apart:
 
 ```
 1 agent session(s) will be terminated, with everything they spawned. [...]
-1 step(s) run as the ai-tools account (marked below) go with them. 2 unit(s) of
-the ai-tools account's own plumbing (marked below) go with them -- nothing in
-the account's slice is exempt -- and its user manager is restarted afterwards.
+1 launch scope(s) (marked below), the sudo each session was started through, go
+with them. 1 step(s) run as the ai-tools account (marked below) go with them.
+2 unit(s) of the ai-tools account's own plumbing (marked below) go with them --
+nothing in the account's slice is exempt -- and its user manager is restarted
+afterwards.
 
             SESSION                              PROCS  PROJECT
   stop      ai-tools-claude-code-4711.service        1  /home/<you>/projects/api
+  stop      session-c26.scope                        4  unknown  (launch of ai-tools-claude-code-4711.service)
   stop      session-c27.scope                        4  unknown  (a step run as ai-tools: bash)
   stop      dbus-broker.service                      2  /opt/ai-tools  (account plumbing)
   stop      init.scope                               2  unknown  (account plumbing)

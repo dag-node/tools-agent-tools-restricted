@@ -865,14 +865,14 @@ confirm_stop() {
 # Reads the parallel selection arrays directly rather than taking packed records. Nothing in this file joins fields
 # into a delimited string any more: a WorkingDirectory is an arbitrary pathname and may contain the delimiter,
 # which would split one session into two garbled rows -- in the very table whose job is to be exact. Agent sessions are
-# listed FIRST, then the steps run as the account, then the account's plumbing, because the table is read under time
-# pressure and the rows that answer "what was running" must not be interleaved with rows that are always there. Order is
-# presentation only; every selected cgroup is ended by the loop in main() in its own order, and no cgroup is dropped
-# from either pass.
+# listed FIRST with their launch scopes after them, then the steps run as the account, then the account's plumbing,
+# because the table is read under time pressure and the rows that answer "what was running" must not be interleaved
+# with rows that are always there. Order is presentation only; every selected cgroup is ended by the loop in main()
+# in its own order, and no cgroup is dropped from either pass.
 print_session_table() {
     local verb="$1" index class
     printf '  %-11s %-40s %6s  %s\n' "" "SESSION" "PROCS" "PROJECT"
-    for class in agent step plumbing; do
+    for class in agent launch step plumbing; do
         for index in "${!selected_cgroups[@]}"; do
             [[ "${selected_classes[index]}" == "${class}" ]] || continue
             printf '  %-11s %-40s %6s  %s%s\n' "${verb}" \
@@ -957,6 +957,31 @@ main() {
         fi
     done < <(find_session_cgroups)
 
+    # A LAUNCH SCOPE IS ITS SESSION'S, NOT A STEP. The launch wrapper's `sudo -u` crosses pam_systemd, so logind opens
+    # a scope in the account's slice holding sudo and ai-tools-run, which waits on the session unit it starts and names
+    # that unit `<SANDBOX_USER>-<agent>-<its own pid>.service`. A step scope holding a pid that is the complete numeric
+    # suffix of a selected agent unit's name is therefore that session's launch scope: listed after the agent rows,
+    # counted with its session, and not as a step. A scope whose pids name no selected unit stays a step. The unit name
+    # is the account's word, so this pairing is a label like the agent class, and does not decide what is stopped.
+    local -A agent_unit_by_pid=()
+    local index unit_pid scope_pid launch_count=0
+    for index in "${!selected_cgroups[@]}"; do
+        [[ "${selected_classes[index]}" == agent ]] || continue
+        unit_pid="${selected_units[index]%.service}"
+        unit_pid="${unit_pid##*-}"
+        [[ "${unit_pid}" =~ ^[0-9]+$ ]] && agent_unit_by_pid["${unit_pid}"]="${selected_units[index]}"
+    done
+    for index in "${!selected_cgroups[@]}"; do
+        [[ "${selected_classes[index]}" == step ]] || continue
+        while read -r scope_pid; do
+            [[ -n "${scope_pid}" && -n "${agent_unit_by_pid[${scope_pid}]:-}" ]] || continue
+            selected_classes[index]=launch
+            selected_notes[index]="(launch of $(sanitize "${agent_unit_by_pid[${scope_pid}]}"))"
+            step_count=$(( step_count - 1 )); launch_count=$(( launch_count + 1 ))
+            break
+        done < <(cgroup_pids "${selected_cgroups[index]}")
+    done
+
     if (( ${#selected_cgroups[@]} == 0 )); then
         say_headline "Stop" "No agent session is running."
         log_event info "no session matched ${scope} for ${CALLER} -- nothing stopped"
@@ -969,7 +994,10 @@ main() {
     # Two wordings, because "go with them" has no antecedent when no agent session and no step was found -- the shape
     # a RERUN always takes, the manager having been restarted by the run before it. A step run as the account is named
     # apart from the plumbing: the headline does not say that no session is running while one is listed.
-    local step_clause="" plumbing_clause=""
+    local launch_clause="" step_clause="" plumbing_clause=""
+    if (( launch_count )); then
+        launch_clause=" ${launch_count} launch scope(s) (marked below), the sudo each session was started through, go with them."
+    fi
     if (( step_count && agent_count )); then
         step_clause=" ${step_count} step(s) run as the ${SANDBOX_USER} account (marked below) go with them."
     fi
@@ -982,7 +1010,7 @@ main() {
     if ${DRY_RUN}; then
         local dry_headline
         if (( agent_count )); then
-            dry_headline="${agent_count} agent session(s) would be terminated.${step_clause}${plumbing_clause} Nothing was changed."
+            dry_headline="${agent_count} agent session(s) would be terminated.${launch_clause}${step_clause}${plumbing_clause} Nothing was changed."
         elif (( step_count )); then
             dry_headline="${step_count} step(s) run as the ${SANDBOX_USER} account (marked below) would be terminated, and no agent session.${plumbing_clause} Nothing was changed."
         else
@@ -990,7 +1018,7 @@ main() {
         fi
         say_headline "Stop (dry run)" "${dry_headline}"
         print_session_table "would stop"
-        log_event info "dry run: ${agent_count} agent session(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) would be stopped in ${scope} for ${CALLER}"
+        log_event info "dry run: ${agent_count} agent session(s) with ${launch_count} launch scope(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) would be stopped in ${scope} for ${CALLER}"
         return 0
     fi
 
@@ -1000,9 +1028,9 @@ main() {
     elif (( agent_count == 0 )); then
         headline="No agent session is running.${plumbing_clause}"
     elif ${FORCE_KILL}; then
-        headline="${agent_count} agent session(s) will be KILLED immediately (--force): no grace period, no session-end handback, and unsaved work in the current turn is lost.${step_clause}${plumbing_clause}"
+        headline="${agent_count} agent session(s) will be KILLED immediately (--force): no grace period, no session-end handback, and unsaved work in the current turn is lost.${launch_clause}${step_clause}${plumbing_clause}"
     else
-        headline="${agent_count} agent session(s) will be terminated, with everything they spawned. Each gets ${GRACE_SECONDS}s to exit before it is killed. No session runs its session-end handback, so reclaim the projects named below afterwards.${step_clause}${plumbing_clause}"
+        headline="${agent_count} agent session(s) will be terminated, with everything they spawned. Each gets ${GRACE_SECONDS}s to exit before it is killed. No session runs its session-end handback, so reclaim the projects named below afterwards.${launch_clause}${step_clause}${plumbing_clause}"
     fi
     say_headline "Terminate agent sessions" "${headline}"
     print_session_table "stop"
@@ -1010,7 +1038,7 @@ main() {
     if ! confirm_stop "${agent_count}" "${plumbing_count}" "${step_count}"; then
         say_notice MSG-J3U9 "Nothing was stopped"
         log_event notice \
-            "${CALLER} declined the stop of ${agent_count} agent session(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
+            "${CALLER} declined the stop of ${agent_count} agent session(s) with ${launch_count} launch scope(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) in ${scope} -- nothing stopped" \
             "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" "AI_TOOLS_RESULT=declined"
         return 6
     fi
@@ -1129,7 +1157,7 @@ main() {
         return 1
     fi
     log_event notice \
-        "stopped ${agent_count} agent session(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) in ${scope} for ${CALLER}, verified empty via cgroup.procs and a final slice sweep" \
+        "stopped ${agent_count} agent session(s) with ${launch_count} launch scope(s), ${step_count} step(s) run as the account and ${plumbing_count} account unit(s) in ${scope} for ${CALLER}, verified empty via cgroup.procs and a final slice sweep" \
         "AI_TOOLS_CALLER=${CALLER}" "AI_TOOLS_SCOPE=${scope}" \
         "AI_TOOLS_COUNT=${#selected_cgroups[@]}" "AI_TOOLS_AGENT_COUNT=${agent_count}"
     # Agent sessions only -- the account's plumbing has no project to reclaim. See the function.

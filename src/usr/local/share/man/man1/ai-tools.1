@@ -663,7 +663,9 @@ and verified gone from its
 .BR cgroup ;
 it does not mean none can start afterwards, and it does not describe the manager.
 .IP
-The report counts agent sessions apart from the steps run as the account \(em a login session
+The report lists each agent session's launch scope, the
+.BR sudo (8)
+the launch ran through, after the sessions and counts it with them. It counts agent sessions apart from the steps run as the account \(em a login session
 scope per
 .BR sudo (8)
 or
