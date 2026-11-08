@@ -525,8 +525,9 @@ dontaudit ai_tools_t unconfined_t:unix_stream_socket connectto;
 # INTENTIONALLY LEFT COMMENTED. Unlike sections (1)-(5) which silence operational noise that is safe to suppress (proc
 # table walks, USB probes, startup statfs), the accesses in this section are SECURITY-RELEVANT BREACH ATTEMPTS. Leaving
 # them active in the audit log means any attempt by the agent to read credentials, escalate privilege, install
-# persistence, or move laterally produces a visible AVC and is caught by avc-analyze.sh as NEW. That is the desired
-# default behaviour.
+# persistence, or move laterally produces a visible AVC. avc-analyze.sh files one on a type its BOUNDARY_NAMED_RE names
+# as expected boundary in every window, and any other as NEW outside an avc-denials.sh probe run and under the probe
+# category inside one (`--probe-run`). That is the desired default behaviour.
 #
 # To suppress a specific line (e.g. because you have verified why the agent reaches that path and have accepted
 # the access as benign in your environment), uncomment it. Never uncomment wholesale -- each suppressed line is a breach

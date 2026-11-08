@@ -525,8 +525,8 @@ PY
   printf '  PRT=port  MTA=MTA exec  CRD=credentials  ESC=escalation\n'
   printf '  PRS=persistence  LAT=lateral/IPC  NET=network capability\n'
   printf '\nSections A-F: existing dontaudit boundary. AVCs visible under -DB.\n'
-  printf 'Sections G-X: extended surface (not yet dontaudit'"'"'d). AVCs log without -DB;\n'
-  printf '              will appear as NEW in avc-analyze until dontaudit rules are added.\n'
+  printf 'Sections G-X: extended surface, left audited (ai_tools.te section (6)). AVCs\n'
+  printf '              log without -DB; avc-analyze classifies a confirmed denial.\n'
   printf '================================================================\n'
 
   # ============================================================
@@ -718,8 +718,9 @@ under -DB. Existence check omitted (stat is dontaudit'd)."
     /usr/sbin/sendmail -bv root
 
   # ============================================================
-  # SECTIONS G-X: EXTENDED SURFACE (not yet dontaudit'd) AVCs log WITHOUT `-DB` and will appear as NEW in avc-analyze.
-  # For each confirmed denial: add dontaudit to ai_tools.te, add type to BOUNDARY_NAMED_RE, rebuild, re-run.
+  # SECTIONS G-X: EXTENDED SURFACE, left audited by ai_tools.te section (6). AVCs log WITHOUT `-DB`. For a confirmed
+  # denial, classify it in avc-analyze.sh; a dontaudit is only for an access verified benign on the host,
+  # as that section states.
   # ============================================================
 
   section "SECTION G: SHADOW / GROUP-SHADOW CREDENTIALS  [goal 1]" \

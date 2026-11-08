@@ -120,7 +120,10 @@ The SELinux AVC bring-up tooling is **not** part of this suite: it lives with th
 under `selinux/avc/` (`run.sh` does not dispatch it). `unit/avc-denials.sh` is the exception for the readers
 `avc-denials.sh` judges a run by, which it sources from the checkout: each is driven in the direction that would pass
 a run it should not — an unexercised attempt read as denied, a failed `seinfo` read as enforcing, a trail from another
-run or one without an exit status read as clean.
+run or one without an exit status read as clean. A tool bash's PATH search did not find reads as denied from a fixture
+`PATH` directory that refuses the `stat`, and as absent from one that does not hold the name. A copy of `avc-analyze.sh`
+runs over one fixture record at a time: each of the probe's deliberate attempts files as a probe under `--probe-run`
+and as NEW without it, and a record differing in its command or its permission stays NEW under the flag.
 
 ## What a test asserts about a message
 
@@ -606,7 +609,7 @@ executable. `integration/cli.sh` holds the installed wrapper to the same argv th
 and `boundary/access.sh` holds the account's `atr admin` to a refusal with no admin output. The same file proves
 `projects remove` does not run git over the tree ([ref-section-k3v7](cli.rule.md#ref-section-k3v7)) by driving it
 over a partial clone whose missing `HEAD` object fetches through a `core.sshCommand` that writes a marker, with a direct
-`git rev-list` as the control that the fixture arms it.
+`git rev-list` as the control that the fixture sets up the state.
 
 `help.sh` pins the help library (`help.lib.sh`) over the checkout: the rows' form, every rendered help and hint within
 80 columns, the admin's domain block over a root-owned fixture directory and its refusal line beside a group-writable
