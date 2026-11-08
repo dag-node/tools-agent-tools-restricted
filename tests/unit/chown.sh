@@ -126,6 +126,27 @@ else
     fail "user-owned secret altered: $(stat -c '%U:%G' "${us}") $(perm "${us}")"
 fi
 
+# (5b) A path the baseline exempts is handed back as an ordinary file, classified by its canonical path: Angular's
+#      environment file, which `ng build` reads, while a staging file beside it, matched by the same pattern and named
+#      by no exemption, is quarantined as the control. Driven with the baseline in force through the loader's file hook
+#      at an absent file.
+envdir="${proj}/src/environments"
+mkdir -p "${envdir}"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${proj}/src" "${envdir}"; chmod 0755 "${proj}/src" "${envdir}"
+for name in environment.prod.ts environment.staging.ts; do
+    : > "${envdir}/${name}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${envdir}/${name}"; chmod 0644 "${envdir}/${name}"
+    AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-patterns" setsid "${HELPER}" "${envdir}/${name}" < /dev/null \
+        > /dev/null 2>"${TESTDIR}/err-${name}" || true
+done
+if [[ "$(stat -c '%U:%G' "${envdir}/environment.prod.ts")" == "${PROJECTS_USER}:${SANDBOX_GROUP}" \
+        && "$(perm "${envdir}/environment.prod.ts")" == 640 ]] \
+        && ! grep -qxF -- MSG-A6D8 "${TESTDIR}/err-environment.prod.ts" \
+        && [[ "$(stat -c '%U:%G' "${envdir}/environment.staging.ts")" == "${PROJECTS_USER}:${PROJECTS_GROUP}" \
+              && "$(perm "${envdir}/environment.staging.ts")" == 600 ]]; then
+    pass "a baseline-exempt path is handed back as an ordinary file, and its unexempted sibling is quarantined"
+else
+    fail "baseline exemption: environment.prod.ts $(stat -c '%U:%G' "${envdir}/environment.prod.ts") $(perm "${envdir}/environment.prod.ts"), environment.staging.ts $(stat -c '%U:%G' "${envdir}/environment.staging.ts") $(perm "${envdir}/environment.staging.ts") (want ${PROJECTS_USER}:${SANDBOX_GROUP} 640, ${PROJECTS_USER}:${PROJECTS_GROUP} 600)"
+fi
+
 # (6) '!'-excluded subtree: an agent file there keeps its ownership.
 ex="${excl}/build.out"; : > "${ex}"; chown "${SANDBOX_USER}:${SANDBOX_GROUP}" "${ex}"
 run "${ex}"

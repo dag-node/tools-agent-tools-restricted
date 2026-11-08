@@ -146,7 +146,7 @@ ai_tools_safe_paths__assert_safe_target "${canonical}" "ACL grant" || exit 3
 ai_tools_operator__resolve_owner "${canonical}" || exit 0
 readonly ALLOWLIST="${AI_TOOLS_OPERATOR__RESOLVED_ALLOWLIST}" PROJECTS_UID
 
-# Secret-name matcher (defense in depth): the walk skips every path whose basename matches the secret patterns
+# Secret-name matcher (defense in depth): the walk skips every path the shared library classifies as a secret
 # (_is_secret_name), so a private file such as .env is not re-exposed to the agent group even if the operator forgot
 # to '!'-exclude it. Loaded after the owner resolve, which names the operator's file (ai_tools_secret_patterns__load
 # states what an earlier load reads). Fail-closed: a walk with no matcher would grant the agent's group every path
@@ -163,7 +163,7 @@ if ! ai_tools_secret_patterns__load; then
     exit 3
 fi
 _is_secret_name() {
-    ai_tools_secret_patterns__is_secret_basename "$(basename -- "$1")"
+    ai_tools_secret_patterns__is_secret_path "$1"
 }
 
 # This run grants one project for one operator, so the operator and the project ride as per-run log context

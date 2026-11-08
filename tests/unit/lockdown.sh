@@ -357,6 +357,31 @@ else
 fi
 assert_msg MSG-S4T9 "$(cat "${TESTDIR}/unread-out")" "the refusal names the unreadable file under the library's code"
 
+# A path the baseline exempts is left open while a secret inside it is locked: Angular's build package names a source
+# directory `private`, which the baseline matches by name. Driven with the baseline in force through the loader's file
+# hook at an absent file, with the project as the target and then a subdirectory of it, since the exemption is matched
+# against the canonical path and not against the path relative to the walk's root.
+ng="${TESTDIR}/ng"
+ng_private="${ng}/node_modules/@angular/build/private"
+for ng_target in "${ng}" "${ng}/node_modules/@angular"; do
+    rm -rf "${ng}"
+    mkdir -p "${ng_private}"
+    : > "${ng_private}/index.js"; : > "${ng_private}/.env"
+    chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ng}"
+    find "${ng}" -type d -exec chmod 0755 {} +
+    chmod 0644 "${ng_private}/index.js" "${ng_private}/.env"
+    mk_allowlist "@ ${ng}"
+    export AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-patterns"
+    run_ld "${ng_target}" "${TESTDIR}/ng-out" --yes
+    unset AI_TOOLS_SECRET_PATTERNS_FILE
+    if (( LD_RC == 0 )) && [[ "$(perm "${ng_private}")" == 755 && "$(perm "${ng_private}/index.js")" == 644 \
+            && "$(perm "${ng_private}/.env")" == 600 ]]; then
+        pass "a baseline-exempt directory stays open and the .env inside it is locked (target ${ng_target#"${TESTDIR}"/})"
+    else
+        fail "a baseline-exempt directory (target ${ng_target#"${TESTDIR}"/}): rc=${LD_RC}, private $(perm "${ng_private}"), index.js $(perm "${ng_private}/index.js"), .env $(perm "${ng_private}/.env") (want 0, 755, 644, 600): $(tr '\n' '|' < "${TESTDIR}/ng-out")"
+    fi
+done
+
 # ── A pinned path whose ancestor is a symlink ────────────────────────────────
 # The state ai_tools_safe_paths__is_pinned_fd_at_path refuses (safe-paths.lib.sh), driven through _safe_apply read
 # out of the installed helper as text, since the walk never emits it. The directory outside keeps its mode; the same

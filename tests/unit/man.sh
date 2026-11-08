@@ -466,27 +466,36 @@ check_secret_patterns_page() {
     fi
     check_seed_header ai_tools_conf__get_secret_patterns_seed ai-tools-secret-patterns
 
-    # The page's example patterns load as patterns: the pattern-shaped lines of EXAMPLES (not the CLI invocations) are
-    # written to a file, read through the library's own loader, and must come back one for one, each a basename glob
-    # with no '/'.
-    local -a examples=() loaded=(); local pattern bad=0 file
+    # The page's example lines load as what they are: the lines of EXAMPLES that are not CLI invocations are written
+    # to a file and read through the library's own loader. A pattern line must come back as a pattern, a basename glob
+    # with no '/'; an exemption line, `!` and a path, must come back as an exemption, with no line reported malformed.
+    local -a examples=() patterns=() exemptions=() loaded=() loaded_exemptions=(); local pattern bad=0 file err
     mapfile -t examples < <(man_examples "${SECRET_MAN}" | grep -vE '^(atr|ai-tools|#|$)' || true)
-    if (( ${#examples[@]} == 0 )); then
+    for pattern in "${examples[@]}"; do
+        if [[ "${pattern}" == '!'* ]]; then exemptions+=("${pattern}"); else patterns+=("${pattern}"); fi
+    done
+    if (( ${#patterns[@]} == 0 )); then
         fail "ai-tools-secret-patterns(5) EXAMPLES carry no pattern line to check"; return
     fi
     file="$(mktemp)"
     printf '%s\n' "${examples[@]}" > "${file}"
-    AI_TOOLS_SECRET_PATTERNS_FILE="${file}" ai_tools_secret_patterns__load
-    loaded=( "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}" )
-    rm -f "${file}"
+    err="$(AI_TOOLS_SECRET_PATTERNS_FILE="${file}" ai_tools_secret_patterns__load 2>&1 >/dev/null; \
+        printf '%s\n' "${AI_TOOLS_SECRET_PATTERNS__PATTERNS[@]}" > "${file}.patterns"; \
+        printf '%s\n' "${_AI_TOOLS_SECRET_PATTERNS__OPERATOR_EXEMPT_PATHS[@]}" > "${file}.exemptions")" || true
+    mapfile -t loaded < "${file}.patterns"
+    mapfile -t loaded_exemptions < <(grep -v '^$' "${file}.exemptions" || true)
+    rm -f "${file}" "${file}.patterns" "${file}.exemptions"
     _AI_TOOLS_SECRET_PATTERNS__PATTERNS_LOADED=""
-    for pattern in "${examples[@]}"; do
+    for pattern in "${patterns[@]}"; do
         [[ "${pattern}" == */* ]] && { fail "ai-tools-secret-patterns(5) example carries a '/', which a basename glob never matches: ${pattern}"; bad=1; }
     done
-    if (( ${#loaded[@]} != ${#examples[@]} )); then
-        fail "ai-tools-secret-patterns(5) EXAMPLES: ${#examples[@]} pattern lines loaded as ${#loaded[@]} patterns"; bad=1
+    if (( ${#loaded[@]} != ${#patterns[@]} )); then
+        fail "ai-tools-secret-patterns(5) EXAMPLES: ${#patterns[@]} pattern lines loaded as ${#loaded[@]} patterns"; bad=1
     fi
-    (( bad )) || pass "every pattern line in ai-tools-secret-patterns(5) EXAMPLES loads through the shared matcher (${#examples[@]} patterns)"
+    if (( ${#loaded_exemptions[@]} != ${#exemptions[@]} )) || [[ -n "${err}" ]]; then
+        fail "ai-tools-secret-patterns(5) EXAMPLES: ${#exemptions[@]} exemption lines loaded as ${#loaded_exemptions[@]} exemptions: ${err}"; bad=1
+    fi
+    (( bad )) || pass "every line in ai-tools-secret-patterns(5) EXAMPLES loads through the shared loader (${#patterns[@]} patterns, ${#exemptions[@]} exemptions)"
     th_version "${SECRET_MAN}" AI-TOOLS-SECRET-PATTERNS
 }
 check_secret_patterns_page

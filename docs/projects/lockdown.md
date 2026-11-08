@@ -101,24 +101,61 @@ baseline are in `man 5 ai-tools-secret-patterns`.
 ## A matched file the agent must read
 
 ```bash
-cat ~/src/api/appsettings.Development.json   # read what the agent would read
-chgrp ai-tools ~/src/api/appsettings.Development.json
-chmod 660 ~/src/api/appsettings.Development.json
+cd ~/src/api
+cat appsettings.Development.json   # read what the agent would read
+printf '!%s\n' "$(realpath appsettings.Development.json)" \
+    "$(realpath -m bin/Debug/net10.0/appsettings.Development.json)" \
+    >> ~/.config/ai-tools/secret-patterns
 ```
 
 A pattern also matches some files a build or a run reads. A web project's
 `appsettings.Development.json` is one: `dotnet build` copies it into `bin/`,
-and the app reads it when it starts in Development, so with the file locked
-both fail inside a session with `Access to the path … is denied`. A build you
-run yourself works, and its copy in `bin/` keeps the file's mode, so it stays
-yours.
+and the app reads that copy when it starts in Development, so with either file
+locked both fail inside a session with `Access to the path … is denied`.
 
-Unlock such a file only after reading it. What the agent reads can reach
+Keep such a file open only after reading it. What the agent reads can reach
 the model provider with its requests, so the file should hold only settings you
 are content to send there; keep a password or a key in user secrets
-or an environment variable instead. The `chgrp` and `chmod` pair unlocks
-the file so the sandboxed agent can access it. The next claim, clone
-or `projects lockdown` over the project locks it again.
+or an environment variable instead. The line in your secret-patterns file, `!`
+and a full path as `realpath` prints it, keeps that one path open whichever
+patterns are in force, and does not cover a path inside it. A copy a build
+writes is matched at its own path, so name each output path the session's
+builds write to as well: `bin/Release/…` for a Release build, another directory
+for another target framework. The line names the path, not what the file holds:
+a credential written into the file later is not locked. A line that does not
+name a full path, or that carries `*`, `?` or `[`, is ignored and reported,
+and the file stays locked.
+
+The baseline itself leaves open a few paths that a package or a project
+template ships under a matching name, such as the `private` source directories
+of Angular's build packages and an Angular project's
+`src/environments/environment.prod.ts`; `man 5 ai-tools-secret-patterns` lists
+them. A secret-patterns file of your own with a pattern line replaces those
+along with the baseline.
+
+A path a claim or a lockdown has already locked stays locked when you add
+a line, and so does one the baseline now leaves open, such as an Angular
+`private` directory an earlier release locked to `700`. Review each one
+and open it yourself, a directory without `-R` so a secret locked inside it
+stays locked. You are not in the `ai-tools` group, so the group change takes
+`sudo`. `getfacl -e` shows the access the agent then has. The next claim, clone
+or lockdown leaves a path the baseline exempts open while the baseline is
+in force, leaves any path open while a `!` line in your secret-patterns file
+names it, and locks it again otherwise. A copy a build wrote under `bin/`
+or `obj/` before the `!` line stays locked, and a copy the session's build
+writes once the line names its path is handed back open.
+
+```bash
+sudo chgrp ai-tools appsettings.Development.json
+chmod 660 appsettings.Development.json
+find ~/src/web -type d -perm 700 -user "$USER" \
+    \( -path '*/node_modules/@angular/build/private' \
+    -o -path '*/node_modules/@angular/material/core/tokens' \
+    -o -path '*/node_modules/@angular/material/core/density/private' \)
+sudo chgrp ai-tools ~/src/web/node_modules/@angular/build/private   # each one listed
+chmod 770 ~/src/web/node_modules/@angular/build/private
+getfacl -e ~/src/web/node_modules/@angular/build/private
+```
 
 ## Git history is a separate exposure
 

@@ -205,7 +205,7 @@ fi
 ai_tools_secret_patterns__load \
     || die "the operator's secret-patterns file could not be read, so nothing under ${canonical} was changed"
 _is_secret_name() {
-    ai_tools_secret_patterns__is_secret_basename "$(basename -- "$1")"
+    ai_tools_secret_patterns__is_secret_path "$1"
 }
 
 # This run reverts one project for one operator, so the operator and the project ride as per-run log context

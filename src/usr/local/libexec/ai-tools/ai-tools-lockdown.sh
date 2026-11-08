@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-lockdown
 # Revokes ai-tools' read access to credential files under a project ahead of a session. Walks the project directory --
-# the DIRECTORY argument, or the working directory without one -- and, for every path whose basename matches a secret
-# pattern -- the set ai-tools-chown uses, from the shared library and the operator's config file -- applies:
+# the DIRECTORY argument, or the working directory without one -- and, for every path the shared library classifies
+# as a secret -- the classification ai-tools-chown uses, by name with the exempt paths left open -- applies:
 #       regular file -> 600        directory -> 700        owner -> <you>:<you>
 # and strips the path's sandbox residue (owner-only.lib.sh). A second pass strips the same residue from every path
 # already owner-only under the target, whatever its name, without a confirmation, since it removes the sandbox's reach
@@ -277,7 +277,7 @@ declare -a hits=()
 _scan "${SCAN_DIR}/hits" "${expr[@]}"
 while IFS= read -r -d '' path; do
     _is_excluded "${path}" && continue
-    ai_tools_secret_patterns__is_secret_basename "${path##*/}" || continue
+    ai_tools_secret_patterns__is_secret_path "${path}" || continue
     hits+=("${path}")
 done < "${SCAN_DIR}/hits"
 
@@ -307,7 +307,7 @@ _scan "${SCAN_DIR}/sealed" "${target}" -xdev "${git_prune[@]}" \
 while IFS= read -r -d '' path; do
     [[ "${path}" == "${target}" ]] && continue
     _is_excluded "${path}" && continue
-    ai_tools_secret_patterns__is_secret_basename "${path##*/}" && continue
+    ai_tools_secret_patterns__is_secret_path "${path}" && continue
     sealed+=("${path}")
 done < "${SCAN_DIR}/sealed"
 

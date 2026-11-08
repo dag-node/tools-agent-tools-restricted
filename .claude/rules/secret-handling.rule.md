@@ -11,13 +11,13 @@ paths:
 
 # Secret-named file handling
 
-Two consumers classify basenames against one shared pattern set and revoke `SANDBOX_USER`'s read: `ai-tools-chown`
+Two consumers classify paths against one shared pattern set and revoke `SANDBOX_USER`'s read: `ai-tools-chown`
 reactively (per agent-written path, see [ownership-and-hooks](ownership-and-hooks.rule.md)) and `ai-tools-lockdown`
 proactively (over a whole project).
 
 ## Reactive: `ai-tools-chown`
 
-A secret-named file the agent wrote is breached. `ai-tools-chown` classifies the basename against the shared pattern set
+A secret-named file the agent wrote is breached. `ai-tools-chown` classifies the path against the shared pattern set
 (`.env`, `*.key`, `*.pem`, `id_*`, `kubeconfig`, `*.jks`, `.pgpass`, the name-anchored .NET config patterns, …)
 and chowns a match (when `SANDBOX_USER`-owned, per the agent-written-paths rule) to `<you>:<you> 600`, so `SANDBOX_USER`
 — neither owner nor group member — cannot read the contents. `<you>` is the operator that owns the path:
@@ -67,17 +67,17 @@ and `ai-tools-secret-patterns(5)`, the page that holds the reference ([providers
 header is a pointer) — so the baseline stays in force and each upgrade's additions reach that operator until they write
 a pattern of their own.
 
-**The library.** Every component that classifies a basename sources `/usr/local/lib/ai-tools/secret-patterns.lib.sh`
-(`644 root:root`, in a directory `SANDBOX_USER` cannot write) for one loader and one matcher over that file, so no two
-of them drift apart. Its built-in list is the **public baseline** — the credential names software writes in general —
-and ships in the source repo, so read is open: the installed copy holds only what is already published. Root-only
-**write** is the boundary, since an agent that could edit the matcher would decide its own classification;
-`tests/boundary/access.sh` asserts that as the agent. `ai-tools-chown` reads it from `ai_tools_handback_t` (inherited
-from the handback daemon, no transition), which the policy grants `libs_read_lib_files` for the `lib_t`-labelled
-library. The baseline is incomplete by construction, since it tracks conventions that keep appearing:
-a deployment-specific name belongs in the operator's file, alongside the baseline entries they still want, and a general
-one missing from the baseline goes upstream, since the library is rpm-owned and not `%config`, so an edit there is lost
-on upgrade.
+**The library.** Every component that classifies a path sources `/usr/local/lib/ai-tools/secret-patterns.lib.sh`
+(`644 root:root`, in a directory `SANDBOX_USER` cannot write) for one loader and one path predicate over that file,
+`ai_tools_secret_patterns__is_secret_path`, so no two of them drift apart. Its built-in list is the **public baseline**
+— the credential names software writes in general — and ships in the source repo, so read is open: the installed copy
+holds only what is already published. Root-only **write** is the boundary, since an agent that could edit the matcher
+would decide its own classification; `tests/boundary/access.sh` asserts that as the agent. `ai-tools-chown` reads it
+from `ai_tools_handback_t` (inherited from the handback daemon, no transition), which the policy grants
+`libs_read_lib_files` for the `lib_t`-labelled library. The baseline is incomplete by construction, since it tracks
+conventions that keep appearing: a deployment-specific name belongs in the operator's file, alongside the baseline
+entries they still want, and a general one missing from the baseline goes upstream, since the library is rpm-owned
+and not `%config`, so an edit there is lost on upgrade.
 
 **The loader has three outcomes, and the file replaces the baseline.** `ai_tools_secret_patterns__load` builds
 the file's path from the resolved operator's home, so every consumer calls it after the owner resolve (its doc comment
@@ -87,7 +87,7 @@ states what a load made earlier reads). An operator's file **replaces** the base
 
 | the file | the set in force | status |
 |---|---|---|
-| absent, or holds only comments | the baseline | 0 |
+| absent, or does not hold a pattern line | the baseline | 0 |
 | a readable regular file with a pattern | its patterns alone | 0 |
 | present and not a readable regular file — a directory, a dangling symlink, a FIFO, a read `access(2)` refuses | the baseline, the path in `AI_TOOLS_SECRET_PATTERNS__UNREADABLE`, and `MSG-S4T9` printed | 1 |
 
@@ -110,12 +110,13 @@ to the set it listed then, and every pattern added upstream since is absent from
 since the agent cannot read the file and a quarantine that did not happen does not write a line to any log.
 `ai_tools_secret_patterns__format_drift` compares the set in force against the baseline as a set and prints one line
 naming the file, what it adds, and — the half that matters — which baseline patterns it drops, each one a credential
-name this host no longer quarantines; a present file the loader cannot read prints a line saying so, since the baseline
-is then in force for the operator's sessions while their helpers refuse. The launch wrapper logs that line to journald
-once per launch, for every agent ([launch](launch.rule.md)): the wrapper runs as the operator before the privilege drop,
-so it is the one point per session where the file is both readable and attributable to a launch, and the line is
-a record to act on later, so it goes to the journal and not the terminal. A missing or empty file is the baseline
-itself, and the wrapper does not write a line for it.
+name this host no longer quarantines; a file whose set equals the baseline's prints a line naming the path exemptions it
+replaces, which it drops while adding and dropping no pattern; a present file the loader cannot read prints a line
+saying so, since the baseline is then in force for the operator's sessions while their helpers refuse. The launch
+wrapper logs that line to journald once per launch, for every agent ([launch](launch.rule.md)): the wrapper runs
+as the operator before the privilege drop, so it is the one point per session where the file is both readable
+and attributable to a launch, and the line is a record to act on later, so it goes to the journal and not the terminal.
+A missing or empty file is the baseline itself, and the wrapper does not write a line for it.
 
 **The patterns are name- or environment-anchored** (`appsettings.*.json`, `web.*.config`, `*.Production.*`, …), **not**
 broad `*.*.json`/`*.*.config` catch-alls: those would also match build artifacts the toolchain must read (`*.deps.json`,
@@ -126,9 +127,33 @@ that loads a locked one fails; every other extension after the segment stays loc
 the tail whether or not `extglob` is set, so an operator's file that copies the baseline carries the same exclusion.
 The set uses basename-safe globs only, no bare `config`.
 
+**Two lists leave a matched path open, and neither covers a subtree.** The predicate matches the path's last component
+against the set in force, then leaves the path open where an exemption names it; a file or directory under an exempt
+path is classified by its own name, so a `.env` inside an exempt directory is locked.
+
+- **The baseline's exemptions** are the paths a package or a project generator ships under a name the baseline matches
+  and a build reads: Angular's `private` and `tokens` source directories, its library schematic's template,
+  the environment files its application template writes. The registry is
+  `_AI_TOOLS_SECRET_PATTERNS__BASELINE_EXEMPT_PATHS` in the library. An entry is literal path components compared
+  case-sensitively with the last components of the path, so it matches under any project root, a nested client directory
+  and pnpm's `.pnpm` layout, and does not take a glob. They apply only while the baseline is in force, which the loader
+  records in each row of the set-in-force table where it loads the defaults: an operator's file with a pattern replaces
+  the baseline, its exemptions with it.
+- **The operator's `!` lines** each name one canonical absolute path (a line opening with `!(` is a negation glob,
+  a pattern like any other), compared byte for byte with the canonical path the consumer holds, and apply whichever set
+  is in force. A `!` line is not a pattern: a file of `!` lines and comments keeps the baseline, and the drift report
+  does not compare them. A line that does not name a canonical absolute path (a relative path, a glob character, a `.`
+  or `..` component, a doubled or trailing `/`) is ignored and reported under `MSG-T4W8`, its path stays locked,
+  and the loader's status stays the one the rest of the file decides. The exemption is on the path, not the content:
+  the operator states the path after reading the file, and the exemption holds whatever the file later holds.
+
+An exemption changes classification and does not reverse a lock already applied: a path an earlier lockdown made
+owner-only stays so, since the claim walks leave an owner-only path as it is, and the operator widens it by hand;
+a later lockdown does not lock it again.
+
 ## Quirks
 
-A file the agent writes whose basename matches the secret patterns is quarantined the instant it is written —
+A file the agent writes whose path the shared set classifies as a secret is quarantined the instant it is written —
 `ai-tools-chown` chowns it to `<you>:<you> 600`, which also catches files merely *named* after the topic, not just real
 secrets: a doc or rule file called `secrets.md` matches `secrets.*` and becomes unreadable to the agent. This is
 why rule files use a non-matching stem (`secret-handling.rule.md`, not `secrets.rule.md`; see

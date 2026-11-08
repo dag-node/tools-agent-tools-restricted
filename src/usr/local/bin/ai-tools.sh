@@ -2457,18 +2457,21 @@ path_detail_lines() {
     done
 }
 
-# is_secret_drift_path <root> <path>  -- 0 when a component of <path> under the project root <root> matches a secret
-# pattern, the match ai-tools-lockdown makes before any repair runs; 1 when none does or the patterns library is not
-# loaded. The owner-side read calls it only once its load of the owner's own patterns file succeeded, the file
+# is_secret_drift_path <root> <path>  -- 0 when <path> or a directory containing it under the project root <root> is
+# a secret, the classification ai-tools-lockdown makes before any repair runs; 1 when none is or the patterns library is
+# not loaded. Each prefix is classified as the path it is under <root>, so a directory the library exempts is exempt
+# here too. The owner-side read calls it only once its load of the owner's own patterns file succeeded, the file
 # ai-tools-lockdown reads for that owner's project.
 is_secret_drift_path() {
-    declare -F ai_tools_secret_patterns__is_secret_basename >/dev/null 2>&1 || return 1
-    local _part
+    declare -F ai_tools_secret_patterns__is_secret_path >/dev/null 2>&1 || return 1
+    local _part _prefix="$1"
     local -a _parts=()
     # Split on `/` alone: a read would stop at a line feed in a name and match the path on its first line only.
     mapfile -d / -t _parts < <(printf '%s' "${2#"$1"/}")
     for _part in "${_parts[@]}"; do
-        [[ -n "${_part}" ]] && ai_tools_secret_patterns__is_secret_basename "${_part}" && return 0
+        [[ -n "${_part}" ]] || continue
+        _prefix="${_prefix}/${_part}"
+        ai_tools_secret_patterns__is_secret_path "${_prefix}" && return 0
     done
     return 1
 }

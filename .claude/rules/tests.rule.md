@@ -403,9 +403,12 @@ daemon, no SELinux dependency, no wrapper. Run as root (needed to set arbitrary 
 fixtures). A fixture tree is `chown`ed to the projects user before the run, or the owner guard skips it.
 `secret-patterns.sh` is the odd one out: it sources the shared classifier library (`secret-patterns.lib.sh`) and forces
 the built-in default pattern set, pinning the matcher itself — credential names match case-insensitively, while plain
-configs and build artifacts the toolchain must read do not. `control-plane.sh` pins the two unit-search-path readers
-`ai-tools-admin status` reports from: the drift reader tells a clean chain from a failed reading by status,
-and the unexpected-entry reader leaves the entry in place and clamps a name the account chose.
+configs and build artifacts the toolchain must read do not — and the path predicate over it: each baseline exemption
+open under a nested client and pnpm's layout while its lookalikes and the secrets inside it stay locked, an operator
+pattern set dropping the exemptions, and each operator `!` line form, malformed ones reported and left locked.
+`control-plane.sh` pins the two unit-search-path readers `ai-tools-admin status` reports from: the drift reader tells
+a clean chain from a failed reading by status, and the unexpected-entry reader leaves the entry in place and clamps
+a name the account chose.
 
 `layout.sh` loads the checkout's layout library by path, with the sandbox tokens substituted into a copy as `install.sh`
 substitutes them, and drives each reader, the validator, the entry set, the `--check` stream and the reconcile's

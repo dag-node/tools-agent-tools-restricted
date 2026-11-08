@@ -496,4 +496,27 @@ else
     fi
 fi
 
+# ── A baseline exemption ─────────────────────────────────────────────────────
+# The walk classifies each path by its canonical path, so a file the baseline exempts is handed back like any other
+# while its unexempted sibling, matched by the same pattern, keeps the agent's entry as the control. Driven
+# with the baseline in force through the loader's file hook at an absent file.
+section "ai-tools-unclaim: a baseline-exempt path is handed back"
+ng="${TESTDIR}/ng"
+mkdir -p "${ng}/src/environments"
+: > "${ng}/src/environments/environment.prod.ts"; : > "${ng}/src/environments/environment.staging.ts"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ng}"
+find "${ng}" -type d -exec chmod 2770 {} +
+find "${ng}" -type f -exec chmod 0660 {} +
+setfacl -R -m "g:${SANDBOX_GROUP}:rwX,o::-" "${ng}"
+mk_allowlist "@ ${ng}"
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-patterns" setsid "${HELPER}" "${ng}" "${PROJECTS_GROUP}" \
+    < /dev/null > /dev/null 2>&1 || true
+if ! agentacl "${ng}/src/environments/environment.prod.ts" \
+        && [[ "$(perm "${ng}/src/environments/environment.prod.ts")" == 640 ]] \
+        && agentacl "${ng}/src/environments/environment.staging.ts"; then
+    pass "a baseline-exempt file is handed back, and its unexempted sibling keeps the agent's entry"
+else
+    fail "baseline exemption: environment.prod.ts $(perm "${ng}/src/environments/environment.prod.ts"), staging agent entry $(agentacl "${ng}/src/environments/environment.staging.ts" && echo kept || echo cleared) (want 640 without the agent entry, kept)"
+fi
+
 finish

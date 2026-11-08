@@ -853,6 +853,28 @@ else
     else
         fail "projects inspect still listed entries after the walk's state: '$(grep -e '^narrow-acl-entry-path' -e '^scan|entries' <<<"${in_out}" | tr '\n' '~')'"
     fi
+    # The scan drops a secret-named path by the classification the walk makes, so with the baseline in force a narrow
+    # file the baseline exempts is a record, while its unexempted sibling, matched by the same pattern, is dropped.
+    in_ng="${in_work}/ng-entries"
+    mkdir -p "${in_ng}/src/environments"
+    for in_name in src/environments/environment.prod.ts src/environments/environment.staging.ts; do
+        : > "${in_ng}/${in_name}"; chmod 0660 "${in_ng}/${in_name}"
+    done
+    chown -R "${PROJECTS_USER}:${SANDBOX_GROUP}" "${in_ng}"
+    chmod 2770 "${in_ng}" "${in_ng}/src" "${in_ng}/src/environments"
+    setfacl -m "g:${SANDBOX_GROUP}:rwx,d:g:${SANDBOX_GROUP}:rwx,d:u:${PROJECTS_USER}:rwx" "${in_ng}"
+    for in_name in src/environments/environment.prod.ts src/environments/environment.staging.ts; do
+        setfacl -m "u:${PROJECTS_USER}:rw-,g:${SANDBOX_GROUP}:rw-" "${in_ng}/${in_name}"
+    done
+    in_out="$(AI_TOOLS_SECRET_PATTERNS_FILE="${in_work}/no-such-patterns" \
+        inspect_run "${in_ng}" "${in_work}/entries-noglob.in" --scan-group)" || true
+    if [[ "$(grep -c '^narrow-acl-entry-path|' <<< "${in_out}" || true)" == 1 ]] \
+            && grep -qF -- "narrow-acl-entry-path|$(printf '%q' "${in_ng}/src/environments/environment.prod.ts")|" \
+                <<< "${in_out}"; then
+        pass "the entries scan lists a baseline-exempt file and drops its unexempted sibling as a secret"
+    else
+        fail "projects inspect --scan-group over the exempt-path tree printed '$(grep -e '^narrow-acl-entry-path' -e '^scan|' <<<"${in_out}" | tr '\n' '~')'"
+    fi
 
     # A sealed setgid directory named with a line feed: one record, its path decoded whole, its owner's reading beside
     # it, under a complete scan.

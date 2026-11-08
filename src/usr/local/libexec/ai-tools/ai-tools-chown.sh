@@ -87,7 +87,7 @@ if ! source "${LOG_LIB}"; then
     die_unsourced "${LOG_LIB}"
 fi
 
-# Shared secret-name matcher, sourced (not executed) so every helper classifies a basename by the same patterns
+# Shared secret-name matcher, sourced (not executed) so every helper classifies a path by the same patterns
 # from the same config file (the operator's secret-patterns, resolved via the operator identity). Required
 # and fail-closed: exiting non-zero here skips this path's handback, which secret-handling.rule.md states is the safe
 # outcome -- the path stays ai-tools-owned instead of being handed back unclassified.
@@ -163,14 +163,14 @@ readonly SECRET_OWNER="${PROJECTS_USER}:${PROJECTS_GROUP}"
 # once a path matches an allowlist entry.
 AI_TOOLS_LOG_OPERATOR="${PROJECTS_USER}"
 
-# Classify the basename against the shared secret-name patterns, which the library reads from the operator's own config
+# Classify the path against the shared secret-name patterns, which the library reads from the operator's own config
 # (secret-handling.rule.md covers the set, the load order and what each loader outcome does). Read after the resolve
 # that names the file; a present file the loader cannot read refuses the handback, so the path stays sandbox-owned.
 # A match sets is_secret, which selects the quarantine branch and the NOTICE further down.
 ai_tools_secret_patterns__load \
     || die "the operator's secret-patterns file could not be read -- ${canonical} stays sandbox-owned until it is fixed"
 is_secret=false
-if ai_tools_secret_patterns__is_secret_basename "$(basename "${canonical}")"; then
+if ai_tools_secret_patterns__is_secret_path "${canonical}"; then
     is_secret=true
 fi
 

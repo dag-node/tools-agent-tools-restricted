@@ -487,4 +487,24 @@ else
     fail "the worktree's .git pointer was left without the project ACL: $(getfacl -p "${wt}/.git" 2>/dev/null | tr '\n' ' ')"
 fi
 
+# ── A baseline exemption ─────────────────────────────────────────────────────
+# The walk classifies each path by its canonical path, so a file the baseline exempts takes the project ACL while its
+# unexempted sibling, matched by the same pattern, is skipped as the control. Driven with the baseline in force
+# through the loader's file hook at an absent file.
+section "ai-tools-setfacl: a baseline-exempt path takes the project ACL"
+ng="${TESTDIR}/ng"
+mkdir -p "${ng}/src/environments"
+: > "${ng}/src/environments/environment.prod.ts"; : > "${ng}/src/environments/environment.staging.ts"
+chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ng}"
+find "${ng}" -type d -exec chmod 0755 {} +
+find "${ng}" -type f -exec chmod 0644 {} +
+mk_allowlist "@ ${ng}"
+AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/no-such-patterns" setsid "${HELPER}" "${ng}" < /dev/null > /dev/null 2>&1 \
+    || true
+if g "${ng}/src/environments/environment.prod.ts" && ! g "${ng}/src/environments/environment.staging.ts"; then
+    pass "a baseline-exempt file takes the project ACL, and its unexempted sibling is skipped"
+else
+    fail "baseline exemption: environment.prod.ts $(getfacl -p "${ng}/src/environments/environment.prod.ts" 2>/dev/null | grep -c "^group:${SANDBOX_GROUP}:"), environment.staging.ts $(getfacl -p "${ng}/src/environments/environment.staging.ts" 2>/dev/null | grep -c "^group:${SANDBOX_GROUP}:") group entries (want 1, 0)"
+fi
+
 finish
