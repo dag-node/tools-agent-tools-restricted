@@ -72,8 +72,8 @@ else
 fi
 
 # (4) A single over-long token (the path) is never split across lines.
-if grep -qF '/opt/ai-tools/very/long/path/that/should/not/be/split/ever' \
-        <<<"$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 "${LONG}")"; then
+if boxed="$(AI_TOOLS_MSG_BOX=1 ai_tools_msg__alert NOTICE 1 "${LONG}")" \
+        && grep -qF '/opt/ai-tools/very/long/path/that/should/not/be/split/ever' <<<"${boxed}"; then
     pass "an unbreakable token (path) survives wrapping intact"
 else
     fail "an unbreakable token was split across lines"
@@ -82,7 +82,8 @@ fi
 # (5) Plain mode (non-tty / forced) keeps a multi-word phrase on ONE line, so a grep for what a message SAYS -- a count,
 # a path, a named command -- still matches it whole.
 phrase='invalid or absent AI_TOOLS_AGENT_EXEC -- cannot launch'
-if grep -qF "${phrase}" <<<"$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg__error "ai-tools-run: ${phrase}" 2>&1)"; then
+if plain="$(AI_TOOLS_MSG_PLAIN=1 ai_tools_msg__error "ai-tools-run: ${phrase}" 2>&1)" \
+        && grep -qF "${phrase}" <<<"${plain}"; then
     pass "plain mode keeps the phrase on one line (grep-friendly)"
 else
     fail "plain mode split or dropped the phrase"

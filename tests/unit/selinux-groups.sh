@@ -135,10 +135,10 @@ fi
 # --- The loaded probe survives a full-size module listing ---
 # ai_tools_selinux_groups__is_loaded reads `semodule -l`, which on a real host is several hundred lines, more than
 # one write delivers, and an ai_tools* name sorts early: the listing ref-section-d9x2 describes, where a search
-# reading the pipe reports NOT LOADED for a module that IS, about half the time. `semodule` is stubbed as a shell
-# function (like `systemctl` in services.sh and `semanage` in relabel.sh) emitting one printf per line, since
-# a single-write listing delivers every line before a reader can exit and hides the regression. The probe is driven
-# repeatedly because one passing run is no evidence about a race.
+# reading the pipe can report NOT LOADED for a module that IS. `semodule` is stubbed as a shell function
+# (like `systemctl` in services.sh and `semanage` in relabel.sh) emitting one printf per line, since a single-write
+# listing delivers every line before a reader can exit and hides the regression. The probe is driven repeatedly
+# because one passing run is no evidence about a race.
 semodule() {
     [[ "${1:-}" == -l ]] || return 1
     printf '%s\n' abrt accountsd acct afs aiccu aide ajaxterm ai_tools ai_tools_tmpmap

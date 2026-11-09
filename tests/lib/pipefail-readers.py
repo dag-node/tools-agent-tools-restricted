@@ -65,7 +65,7 @@ def mask_shell(text):
         stack.append("P"); origins.append(i)
         frames.append(new_frame())
 
-    def body_at(at, starts):
+    def open_or_continue_body(at, starts):
         """Return the body the quote at `at` opens or continues, else None. `starts` is false for an ANSI-C quote."""
         nonlocal awaited
         body, awaited = awaited, None
@@ -186,7 +186,7 @@ def mask_shell(text):
                 j += 2 if ansi and text[j] == "\\" else 1
             if j >= n:
                 raise Unparsed("a single-quoted string is not closed")
-            body = body_at(i, not ansi)
+            body = open_or_continue_body(i, not ansi)
             if body is not None:
                 close_piece(body, text[i + 1:j], j + 1)
             hide(i, j + 1)
@@ -194,7 +194,7 @@ def mask_shell(text):
             continue
         if c == '"':
             stack.append("D"); origins.append(i); mask[i] = MASKED
-            opened.append(body_at(i, True))
+            opened.append(open_or_continue_body(i, True))
             if opened[-1] is not None:
                 origins_of_piece.append(i + 1)
             i += 1

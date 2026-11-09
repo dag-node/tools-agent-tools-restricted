@@ -1377,12 +1377,12 @@ out of the old `ai_tools_netcore` module names it as its former module, the reve
 a swap loads in the old module's place, or a host loses the half it did not ask for), a group without a former module
 reports none, and no former name collides with a current group's module — the swap would otherwise unload a live group.
 
-It closes with the registry's one impure accessor, `ai_tools_selinux_groups__is_loaded`, whose failure mode is
-a **race** rather than a wrong answer: `semodule -l` needs several writes to deliver a few hundred module names,
-the listing the early-exit reader rule [ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2) describes, where a search
-reading the pipe reads a loaded module as absent about half the time. `semodule` is stubbed as a shell function emitting
-one line per `printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times because
-one green run is not evidence about a race.
+It closes with the registry's one impure accessor, `ai_tools_selinux_groups__is_loaded`. `semodule -l` needs several
+writes to deliver a few hundred module names, the listing the early-exit reader rule
+[ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2) describes, where a search reading the pipe can read a loaded
+module as absent while `semodule` is still writing. `semodule` is stubbed as a shell function emitting one line
+per `printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times because one green
+run is not evidence about a race.
 
 `sweep-bound.sh` pins the bound every agent's Stop sweep puts on its walk
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): over a fixture, `-cnewer` against the marker selects a file
