@@ -816,6 +816,27 @@ report_operator_role() {
     log "${user}: claim on its behalf from an operator that holds one -- atr projects claim --for ${user} <path>"
 }
 
+# require_outside_sandbox_group <user> -- refuse an account in SANDBOX_GROUP, or whose primary group holds the sandbox
+# account. The operator stays out of the sandbox's group (CLAUDE.md), and the claim and create rely on it: a path
+# in either group is readable by the agent through its group bits, a `.git` the operator withheld among them.
+# A supplementary group both accounts hold is the host's. A group list that cannot be read refuses as well, and a host
+# without the sandbox account skips the second check.
+require_outside_sandbox_group() {
+    local user="$1" user_groups primary sandbox_groups
+    if ! user_groups="$(id -nG "${user}" 2>/dev/null)" || ! primary="$(id -gn "${user}" 2>/dev/null)"; then
+        die MSG-H9Q6 "cannot read ${user}'s groups, so whether the agent reads through them is unknown -- not enrolled"
+    fi
+    if [[ " ${user_groups} " == *" ${SANDBOX_GROUP} "* ]]; then
+        die MSG-H3P3 "account ${user} is in group ${SANDBOX_GROUP}, so the agent reads what ${user}'s group bits open -- remove ${user} from ${SANDBOX_GROUP}, then re-run: gpasswd -d ${user} ${SANDBOX_GROUP}"
+    fi
+    id -u "${SANDBOX_USER}" >/dev/null 2>&1 || return 0
+    sandbox_groups="$(id -nG "${SANDBOX_USER}" 2>/dev/null)" \
+        || die MSG-M9D2 "cannot read ${SANDBOX_USER}'s groups, so whether it is in ${user}'s primary group is unknown -- not enrolled"
+    if [[ " ${sandbox_groups} " == *" ${primary} "* ]]; then
+        die MSG-R2C2 "the sandbox account ${SANDBOX_USER} is in ${user}'s primary group ${primary}, so the agent reads what ${user}'s group bits open -- remove ${SANDBOX_USER} from ${primary}, then re-run: gpasswd -d ${SANDBOX_USER} ${primary}"
+    fi
+}
+
 op_add() {
     local user="${1:-${SUDO_USER:-}}"
     [[ -n "${user}" ]] || reject MSG-H2P9 "operators add: name a user, or run it through sudo so SUDO_USER is set"
@@ -825,6 +846,7 @@ op_add() {
     # refused here and not run.
     ai_tools_conf__is_portable_name_valid "${user}" || reject MSG-J2S8 "operators add: not an account name: ${user}"
     id "${user}" &>/dev/null || die MSG-U8T8 "no such user: ${user}"
+    require_outside_sandbox_group "${user}"
 
     ai_tools_operator__load_operators || true   # tolerate an unenrolled host (empty list)
     local enrolled=0

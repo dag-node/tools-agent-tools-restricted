@@ -252,6 +252,66 @@ else
 fi
 
 # --- The OPERATORS line is written as a list ------------------------------------------------------
+# --- require_outside_sandbox_group: an operator does not share a group with the sandbox account ---
+# The account a refusal is about does not exist here, so `id` is a shell function answering for the fixture account
+# svc-op and the sandbox account, and SBX in an answer stands for the helper's own SANDBOX_GROUP, whatever the copy
+# substitutes. Each refusal must carry its code and end the run; the control passes in silence.
+section "ai-tools-admin operators add: an operator outside the sandbox account's groups (unit)"
+run_group_check() {  # run_group_check <svc-op groups|FAIL> <sandbox groups|FAIL> <sandbox account present: yes|no>
+    bash -c '
+        set -euo pipefail
+        # shellcheck source=/dev/null
+        source "$1"
+        declare -F require_outside_sandbox_group >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+        user_answer="$2"; sandbox_answer="$3"; sandbox_present="$4"
+        id() {
+            case "$1 ${2:-}" in
+                "-nG svc-op") [[ "${user_answer}" != FAIL ]] || return 1; printf "%s\n" "${user_answer//SBX/${SANDBOX_GROUP}}" ;;
+                "-gn svc-op") printf "svc-op\n" ;;
+                "-u ${SANDBOX_USER}") [[ "${sandbox_present}" == yes ]] || return 1; printf "998\n" ;;
+                "-nG ${SANDBOX_USER}") [[ "${sandbox_answer}" != FAIL ]] || return 1; printf "%s\n" "${sandbox_answer//SBX/${SANDBOX_GROUP}}" ;;
+                *) return 1 ;;
+            esac
+        }
+        require_outside_sandbox_group svc-op
+        printf "rc=0\n"
+    ' _ "${HELPER}" "$1" "$2" "$3" 2>&1 || printf 'rc=%s\n' "$?"
+}
+refused() {  # refused <what> <code> <output> : the code on its own line, and a non-zero status
+    assert_msg "$2" "$3" "$1 is refused under its code"
+    if [[ "$3" == *"rc=0"* ]]; then fail "$1 passed: $3"; else pass "$1 ends the run non-zero"; fi
+}
+out="$(run_group_check "svc-op wheel ai-ops video" "SBX video" yes)"
+if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+    fail "sourcing ${HELPER} did not define require_outside_sandbox_group"
+elif [[ "${out}" == "rc=0" ]]; then
+    pass "an account outside the sandbox group, sharing only a supplementary group with the sandbox account, passes in silence"
+else
+    fail "the control was refused: ${out}"
+fi
+refused "an account in the sandbox group" MSG-H3P3 "$(run_group_check "svc-op SBX" "SBX" yes)"
+refused "an account whose primary group holds the sandbox account" MSG-R2C2 "$(run_group_check "svc-op" "SBX svc-op" yes)"
+refused "an account whose groups cannot be read" MSG-H9Q6 "$(run_group_check FAIL "SBX" yes)"
+refused "a sandbox account whose groups cannot be read" MSG-M9D2 "$(run_group_check "svc-op" FAIL yes)"
+out="$(run_group_check "svc-op" "SBX svc-op" no)"
+if [[ "${out}" == "rc=0" ]]; then
+    pass "a host without the sandbox account skips the check of its groups"
+else
+    fail "a host without the sandbox account was refused: ${out}"
+fi
+# The refusal precedes op_add's first write, the config seed.
+add_body="$(extract_function "${HELPER}" op_add)"
+# The patterns are op_add's own text, so the expansions in them are literal (SC2016).
+# shellcheck disable=SC2016
+guard_line="$(grep -n -m1 -E '^[[:space:]]+require_outside_sandbox_group "\$\{user\}"$' <<<"${add_body}" | cut -d: -f1)" || true
+# shellcheck disable=SC2016
+seed_line="$(grep -n -m1 -F 'seed_operator_config "${user}"' <<<"${add_body}" | cut -d: -f1)" || true
+if [[ -n "${guard_line}" && -n "${seed_line}" ]] && (( guard_line < seed_line )); then
+    pass "operators add refuses a shared group before it seeds the config"
+else
+    fail "the group check (${guard_line:-none}) does not precede the config seed (${seed_line:-none}) in op_add"
+fi
+
 # write_operators hands each enrolled name to the list writer as its own argument, so the line takes the bracketed form
 # and a name is never joined into a string the writer would have to split again. The writer itself is conf.sh's
 # to drive. The helper names the fixed /etc path and this file runs as root, so EVERY route to a write is stubbed --
