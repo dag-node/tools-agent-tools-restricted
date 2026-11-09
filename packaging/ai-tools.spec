@@ -1456,13 +1456,14 @@ systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 # to reach a file already known here.
 #
 # The failure is NOT swallowed: a half-provisioned integration that looks installed surfaces later
-# as an opaque denial inside a confined session. The command logs the cause (journald +
-# /var/log/ai-tools/dotnet.log) and the scriptlet reports the remedy and exits non-zero, so rpm
-# records a scriptlet failure against this package alone -- the transaction still completes, which
-# is what a weakly-pulled optional integration should do to the rest of the stack.
+# as an opaque denial inside a confined session. The command prints the cause on stderr, which
+# the scriptlet keeps (a layout row the reconcile refused among them, MSG-N6G6), and logs it
+# (journald + /var/log/ai-tools/dotnet.log); the scriptlet reports the remedy and exits non-zero,
+# so rpm records a scriptlet failure against this package alone -- the transaction still
+# completes, which is what a weakly-pulled optional integration should do to the rest of the stack.
 if [ -x %{ai_libdir}/admin-commands.d/dotnet ]; then
     %{ai_libdir}/admin-commands.d/dotnet bootstrap >/dev/null || {
-        echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
+        echo "ai-tools-integration-dotnet: provisioning failed -- the line above names the cause; see also 'journalctl -t ai-tools-dotnet'" >&2
         echo "ai-tools-integration-dotnet: fix the cause and re-run: atr admin dotnet bootstrap" >&2
         exit 1
     }
