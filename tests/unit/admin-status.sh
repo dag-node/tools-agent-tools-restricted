@@ -371,6 +371,15 @@ else
     else
         fail "unread file-context lookup without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    # On a host that is not Enforcing the requirement refuses every launch for the mode first, so the row does not name
+    # the unattested refusal there.
+    out="$(call_attestation_section Permissive "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}" unread no)" || true
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'SELinux is Permissive, not Enforcing, so every launch refuses' <<<"${out}" \
+            && ! grep -qF 'MSG-A7E7' <<<"${out}"; then
+        pass "an unread lookup on a permissive host names the mode's refusal, not the unattested one"
+    else
+        fail "unread file-context lookup on a permissive host: $(tr '\n' '|' <<<"${out}")"
+    fi
     out="$(call_attestation_section Enforcing $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff' \
                "${NOT_REQUIRED_CONF}")" || true
     if grep -qF 'authlogin_nsswitch_use_ldap  when on, would allow LDAP connects' <<<"${out}"; then

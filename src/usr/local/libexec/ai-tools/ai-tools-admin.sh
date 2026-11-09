@@ -3105,17 +3105,25 @@ status_selinux_attestation() {
         return 0
     fi
     local -a row
-    local origin_note effect_note enforcement_note="not enforced" lookup_reading
-    # A file-context lookup that could not be read is an input the launch verdict lacks, which refuses a launch
-    # under the requirement where the entrypoint's lookup fails too (MSG-A7E7), so it is reported ahead
-    # of the attestation.
+    local origin_note effect_note enforcement_note="not enforced" lookup_failure_reason lookup_remedy lookup_refusal
+    # A file-context lookup that could not be read is an input the launch verdict lacks, so it is reported ahead
+    # of the attestation and counted under the requirement. Which refusal a launch then meets turns on the mode:
+    # Enforcing refuses as unattested (MSG-A7E7) where the entrypoint's lookup fails too, any other mode refuses first.
     if [[ -z "${module_present}" ]]; then
-        lookup_reading="the lookup for ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH} failed"
-        command -v matchpathcon >/dev/null 2>&1 || lookup_reading="matchpathcon is not installed"
-        st "?" "file contexts could not be read: ${lookup_reading}"
+        lookup_failure_reason="the lookup for ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH} failed"
+        lookup_remedy="read the lookup's error:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+        lookup_refusal="so a launch refuses (MSG-A7E7) where its entrypoint's lookup fails too"
+        if ! command -v matchpathcon >/dev/null 2>&1; then
+            lookup_failure_reason="matchpathcon is not installed"
+            lookup_remedy="install it:  sudo dnf install libselinux-utils"
+            lookup_refusal="so every launch refuses (MSG-A7E7)"
+        fi
+        [[ "${selinux_mode}" == Enforcing ]] \
+            || lookup_refusal="and SELinux is ${selinux_mode}, not Enforcing, so every launch refuses"
+        st "?" "file contexts could not be read: ${lookup_failure_reason}"
         if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
-            detail "AI_TOOLS_REQUIRE_SELINUX is set, so a launch refuses (MSG-A7E7) where its entrypoint's lookup fails too"
-            detail "read the lookup's error:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+            detail "AI_TOOLS_REQUIRE_SELINUX is set, ${lookup_refusal}"
+            detail "${lookup_remedy}"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         else
             detail "AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this"

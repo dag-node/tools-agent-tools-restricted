@@ -715,6 +715,17 @@ else
     else
         fail "unread file-context lookup without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    # On a host that is not Enforcing the requirement refuses every launch for the mode first, so the row does not name
+    # the unattested refusal there.
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
+               "${REQUIRED_CONF}" Permissive unread no)" || true
+    if grep -qx 'section-status=1' <<<"${out}" \
+            && grep -qF 'SELinux is Permissive, not Enforcing, so every launch refuses' <<<"${out}" \
+            && ! grep -qF 'MSG-A7E7' <<<"${out}"; then
+        pass "an unread lookup on a permissive host names the mode's refusal, not the unattested one"
+    else
+        fail "unread file-context lookup on a permissive host: $(tr '\n' '|' <<<"${out}")"
+    fi
     # A Boolean whose rules are shut names what it would allow once opened, so its row does not read as a failed one.
     out="$(call_attestation_section $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff\nboolean\tdeny_ptrace\ton' \
                "${NOT_REQUIRED_CONF}")" || true
