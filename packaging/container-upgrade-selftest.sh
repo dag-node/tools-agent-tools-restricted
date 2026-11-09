@@ -69,12 +69,14 @@ view_id() {
     printf '%s/%s/%s' "${HOME_DIR}" "${kind}" "${name}"
 }
 
-# assets_section : the Assets section of `atr admin status`, its heading excluded. The report is read whole before awk
-# searches it, since awk's exit at the section's end would send the report a SIGPIPE, which pipefail returns as 141; its
-# own exit status (4 on a finding) is not this function's.
+# assets_section : the Assets section of `atr admin status`, its heading excluded; returns 1 where the report carries no
+# Assets heading. The report is read whole before awk searches it, since awk's exit at the section's end would send
+# the report a SIGPIPE, which pipefail returns as 141; its own exit status (4 on a finding) is not this function's.
 assets_section() {
     local status_report
     status_report="$("${ADMIN}" status 2>/dev/null)" || true
+    # A report that did not run or did not reach the section is not an empty section, which notice_absent would pass.
+    grep -qx '  Assets' <<< "${status_report}" || { echo "the status report carries no Assets section" >&2; return 1; }
     awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside' <<< "${status_report}"
 }
 
@@ -156,13 +158,13 @@ core_unlinked() {
 }
 notice_absent() {
     local section
-    section="$(assets_section)"
+    section="$(assets_section)" || return 1
     printf '%s\n' "${section}"
     ! grep -qE 'successor-unenabled|view-occupied' <<< "${section}"
 }
 notice_names_all() {
     local section row entry
-    section="$(assets_section)"
+    section="$(assets_section)" || return 1
     printf '%s\n' "${section}"
     row="$(grep -E '\[ATTENTION\] +successor-unenabled +core -- ' <<< "${section}")" || return 1
     [[ "$(grep -c successor-unenabled <<< "${section}")" == 1 ]] || return 1
