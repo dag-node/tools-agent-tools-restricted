@@ -13,7 +13,7 @@
 #     (the modules are compiled per distribution at build time; a tracked binary is one built on
 #     some other host's headers). Asserted against the checkout;
 #   * the loaded probe against a full-size module listing -- the one impure accessor, driven over
-#     a stubbed `semodule` because its failure mode is a race rather than a wrong answer.
+#     a stubbed `semodule` that prints a line per write, to exercise the early-exit race (ref-section-d9x2).
 #
 # Sources the deployed lib; the lockstep half additionally needs the repo policy sources, so it runs only in a checkout.
 # No root risk and no SELinux dependency: the real semodule is never called -- the probe section shadows it with a shell
