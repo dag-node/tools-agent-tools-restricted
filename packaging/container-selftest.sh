@@ -280,8 +280,11 @@ asset_selftest_setup() {
     set -e
     rm -rf "${ASSET_STAGE}"; mkdir -p "${ASSET_STAGE}/gnupg"; chmod 0700 "${ASSET_STAGE}/gnupg"
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools selftest <acme@acme.example>' default default never
-    local fpr
-    fpr="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+    # The listing is read whole before awk searches it: awk's exit at the first fpr line would send gpg a SIGPIPE on its
+    # next line, and under pipefail the assignment fails and `set -e` ends the run.
+    local fpr key_listing
+    key_listing="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys)"
+    fpr="$(awk -F: '$1 == "fpr" { print $10; exit }' <<< "${key_listing}")"
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --armor --export "${fpr}" > "${ASSET_STAGE}/acme.asc"
     bash -c '. /usr/local/lib/ai-tools/openpgp.lib.sh && ai_tools_openpgp__write_binary_keyring "$1" "$2"' _ \
         "${ASSET_STAGE}/acme.asc" "${ASSET_KEYRING}"

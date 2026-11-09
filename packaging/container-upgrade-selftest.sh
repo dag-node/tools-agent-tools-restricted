@@ -69,9 +69,13 @@ view_id() {
     printf '%s/%s/%s' "${HOME_DIR}" "${kind}" "${name}"
 }
 
-# assets_section : the Assets section of `atr admin status`, its heading excluded.
+# assets_section : the Assets section of `atr admin status`, its heading excluded. The report is read whole before awk
+# searches it, since awk's exit at the section's end would send the report a SIGPIPE, which pipefail returns as 141; its
+# own exit status (4 on a finding) is not this function's.
 assets_section() {
-    "${ADMIN}" status 2>/dev/null | awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside'
+    local status_report
+    status_report="$("${ADMIN}" status 2>/dev/null)" || true
+    awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside' <<< "${status_report}"
 }
 
 # is_shared <kind>/<name> : succeed for an entry whose successor takes the same view name.
