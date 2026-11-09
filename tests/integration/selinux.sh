@@ -51,9 +51,7 @@ fi
 # present we cannot tell, so the whole check skips rather than guess.
 module_loaded() {
     if command -v semodule >/dev/null 2>&1; then
-        # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE, which this file's
-        # pipefail reports as "module absent" -- see the note on ai_tools_selinux_groups__is_loaded
-        # (selinux-groups.lib.sh).
+        # The listing is captured ahead of the search (ref-section-d9x2).
         local modules
         modules="$(semodule -l 2>/dev/null || true)"
         grep -qx 'ai_tools' <<<"${modules}"
@@ -251,7 +249,7 @@ section "SELinux: the core module audits an in-session entrypoint exec"
 if ! command -v sesearch >/dev/null 2>&1; then
     skip "auditallow on the entrypoint exec" "sesearch (setools-console) not installed"
 else
-    # Captured, then matched: a `grep -q` at the end of a pipe exits at the match and leaves sesearch to SIGPIPE.
+    # Captured ahead of the search (ref-section-d9x2).
     exec_audit_rules="$(sesearch --auditallow -s ai_tools_t -t ai_tools_exec_t -c file -p execute_no_trans 2>/dev/null || true)"
     if [[ "$(grep -c '^auditallow ' <<<"${exec_audit_rules}")" == 1 ]]; then
         pass "the loaded policy carries one auditallow ai_tools_t ai_tools_exec_t:file execute_no_trans"
@@ -686,7 +684,7 @@ else
     live_records="$(ai_tools_confinement__read_attestation_records /sys/fs/selinux)"
     live_permissive="$(awk -F'\t' '$1=="permissive"{print $2}' <<<"${live_records}")"
     # Cross-checked where a tool can say: seinfo lists permissive types; semodule lists the module
-    # `semanage permissive -a` installs. Captured, not piped into grep -q, for the SIGPIPE reason module_loaded states.
+    # `semanage permissive -a` installs. Captured ahead of the search (ref-section-d9x2).
     expected_permissive=""
     if command -v seinfo >/dev/null 2>&1; then
         permissive_types="$(seinfo --permissive 2>/dev/null || true)"

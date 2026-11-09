@@ -26,7 +26,7 @@ asset_signing_gen_key() {
     fi
     GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-gen-key "ai-tools test ${name} <${name}@acme.example>" \
         default default "${expiry}" 2>/dev/null
-    _asset_signing_fpr="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+    _asset_signing_fpr="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" && !seen++ { print $10 }')"
     asset_signing_export_key "${name}" "${_asset_signing_fpr}"
 }
 

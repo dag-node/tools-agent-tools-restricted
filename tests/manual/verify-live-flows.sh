@@ -108,7 +108,7 @@ sudo_why() { printf '  %ssudo%s  %s\n' "${C_Y}" "${C_0}" "$*"; }
 # check <description> <condition-cmd...> : run the condition, record pass/fail.
 check() { local d="$1"; shift; if "$@"; then pass "${d}"; else fail "${d}"; fi; }
 # has_acl <entry-prefix> <path> : 0 when the path carries an ACL entry starting <entry-prefix>.
-has_acl() { getfacl -c -- "$2" 2>/dev/null | grep -q "^$1"; }
+has_acl() { grep -q "^$1" <<<"$(getfacl -c -- "$2" 2>/dev/null)"; }
 # registry_path: the operator's project registry, as ai_tools_conf__resolve_registry picks it --
 # `~/.config/ai-tools/allowed-projects` while an earlier release's file stands, `~/.config/ai-tools/project-registry`
 # otherwise.
@@ -204,7 +204,7 @@ cleanup() {
     local allowlist path out line
     allowlist="$(registry_path)"
     for path in "${PROJ}" "${COPY}"; do
-        { sed 's/^[[:space:]]*//' "${allowlist}" 2>/dev/null || true; } | grep -qxF -e "@ ${path}" -e "% ${path}" \
+        grep -qxF -e "@ ${path}" -e "% ${path}" <<<"$(sed 's/^[[:space:]]*//' "${allowlist}" 2>/dev/null)" \
             || continue
         if ! out="$("${CLI}" projects unclaim -y --group "${MY_GROUP}" "${path}" 2>&1)"; then
             note "cleanup: the unclaim of ${path} failed, so its allowlist entry and its SELinux file-context rule stay registered"
@@ -408,7 +408,7 @@ elif ! ${TREE_CLAIMED}; then
     skip "the disable/enable round trip (the claim did not complete, so there is no entry to disable)"
 else
     AL_BEFORE="$(cat "${AL}")"
-    AL_LINE_BEFORE="$(grep -nxF "@ ${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    AL_LINE_BEFORE="$(grep -m1 -nxF "@ ${PROJ}" "${AL}" | cut -d: -f1)"
     DIS_OUT="$("${CLI}" projects disable "${PROJ}" 2>&1)"; DIS_RC=$?
     check "the disable completes (rc=${DIS_RC})" test "${DIS_RC}" -eq 0
     if grep -qxF "% ${PROJ}" "${AL}"; then
@@ -416,7 +416,7 @@ else
     else
         fail "the entry was not disabled: $(printf '%s' "${DIS_OUT}" | tail -2 | tr '\n' ' ')"
     fi
-    AL_LINE_AFTER="$(grep -nxF "% ${PROJ}" "${AL}" | cut -d: -f1 | head -n1)"
+    AL_LINE_AFTER="$(grep -m1 -nxF "% ${PROJ}" "${AL}" | cut -d: -f1)"
     check "it kept its line number (${AL_LINE_BEFORE:-?} -> ${AL_LINE_AFTER:-?})" \
           test "${AL_LINE_BEFORE:-x}" = "${AL_LINE_AFTER:-y}"
     # The consequence an operator has to be told about, since it is the one that costs data: while disabled,
@@ -654,7 +654,7 @@ else
     else
         # Named by the suite's fixture rule, so a tree the removal did not complete is found by `tests/run.sh residue`,
         # which runs as root and can remove what this script cannot.
-        FOR_PROJ="${SANDBOX_ROOT}/.ai-tools-test-manual-for-drill-${OTHER_OP}-$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 6)"
+        FOR_PROJ="${SANDBOX_ROOT}/.ai-tools-test-manual-for-drill-${OTHER_OP}-$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | cut -c1-6)"
         note "the project goes in the shared area, not the workspace: it is created AS ${OTHER_OP},"
         note "who cannot write inside ${HOME}"
         sudo_why "creating a project AS ${OTHER_OP} (sudo -u), and its claim's root steps"
@@ -779,7 +779,7 @@ elif [[ "$(group_of "${COPY}/src")" != "${SANDBOX_GROUP}" ]]; then
 else
     pass "the copy carries the agent group, so --force has something to act on"
     FORCE_DRY="$("${CLI}" projects unclaim --force --dry-run "${COPY}" 2>&1)"; FORCE_DRY_RC=$?
-    printf '%s\n' "${FORCE_DRY}" | head -20 | sed 's/^/        /'
+    printf '%s\n' "${FORCE_DRY}" | awk 'NR <= 20' | sed 's/^/        /'
     check "the --force dry run completes (rc=${FORCE_DRY_RC})" test "${FORCE_DRY_RC}" -eq 0
     check "the dry run changed nothing" test "$(group_of "${COPY}/src")" = "${SANDBOX_GROUP}"
     sudo_why "the --force hand-back on the unregistered copy (the dry run above needed none)"

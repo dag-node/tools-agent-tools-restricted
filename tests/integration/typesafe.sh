@@ -261,13 +261,14 @@ if expect_answer "msbuild"  2 msbuild     "${TESTDIR}/msbuild" "which diagnostic
     fi
 fi
 
-# A reader that closes stdout early ends the command with status 0 and an empty stderr.
+# A reader that closes stdout early ends the command with status 0 and an empty stderr. `true` exits without a read,
+# so the command writes into a closed pipe.
 rc=0
 # stdin and stderr are opened here, as root, like every other call's: a root-created file is not one the sandbox account
 # may open for writing.
 # shellcheck disable=SC2016  # the inner shell expands these, not this one
 as_sandbox bash -c '"$1" "$2" filter --task "which lines name a fruit" --config "$3" \
-    | head -c 0; exit "${PIPESTATUS[0]}"' _ "${NODE}" "${CLI}" "${CONF}" \
+    | true; exit "${PIPESTATUS[0]}"' _ "${NODE}" "${CLI}" "${CONF}" \
     <"${TESTDIR}/fruit" 2>"${TESTDIR}/err" || rc=$?
 if [[ ${rc} -eq 0 && ! -s "${TESTDIR}/err" ]]; then
     pass "a reader closing stdout early: exit 0, an empty stderr"

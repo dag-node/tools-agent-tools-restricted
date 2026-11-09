@@ -92,7 +92,7 @@ else
 
     # (6) Not in ai-ops: the operator grant is a %ai-ops group rule, so membership would give the agent the operator's
     # privileges. ai-tools-run also refuses to launch when this holds.
-    if id -nG "${SANDBOX_USER}" 2>/dev/null | tr ' ' '\n' | grep -qx 'ai-ops'; then
+    if [[ " $(id -nG "${SANDBOX_USER}" 2>/dev/null) " == *" ai-ops "* ]]; then
         fail "${SANDBOX_USER} is a member of ai-ops -- the agent would hold the operator sudo grant"
     else
         pass "${SANDBOX_USER} is not a member of ai-ops (holds no operator grant)"
