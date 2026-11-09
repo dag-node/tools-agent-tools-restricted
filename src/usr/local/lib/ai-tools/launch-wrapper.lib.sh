@@ -628,15 +628,15 @@ _ai_tools_launch_wrapper__is_project_labelled() {
 # refuses it when approved, and otherwise its setup menu offers the clone alone.
 ai_tools_launch_wrapper__guard_claim() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" cwd="${AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR}"
-    local own_gap=false label_gap=false safe_gap=false cwd_gid cwd_mode claim_default claim_ok safe_dirs
+    local own_gap=false label_gap=false safe_gap=false cwd_gid cwd_mode claim_default claim_ok safe_directories
     cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
     cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
     if [[ "${cwd_gid}" != "${SANDBOX_GROUP}" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
         own_gap=true
     fi
     _ai_tools_launch_wrapper__is_project_labelled "${cwd}" || label_gap=true
-    safe_dirs="$(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null)" || safe_dirs=""
-    grep -qxF "${cwd}" <<<"${safe_dirs}" || safe_gap=true
+    safe_directories="$(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null)" || safe_directories=""
+    grep -qxF "${cwd}" <<<"${safe_directories}" || safe_gap=true
 
     if ${own_gap} || ${label_gap}; then
         # Severity-based default: the in-place ownership grant is heavy (recursive chgrp), so it defaults NO

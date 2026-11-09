@@ -3435,10 +3435,10 @@ do_uninstall() {
     fi
 
     # Optionally remove this project from git safe.directory (default: keep)
-    local git_escaped safe_dirs
+    local git_escaped safe_directories
     git_escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[.^$*+?{|\\[()\]]/\\&/g')"
-    safe_dirs="$(git config --file /opt/ai-tools/.gitconfig --get-all safe.directory 2>/dev/null)" || safe_dirs=""
-    if grep -qxF "${SCRIPT_DIR}" <<<"${safe_dirs}"; then
+    safe_directories="$(git config --file /opt/ai-tools/.gitconfig --get-all safe.directory 2>/dev/null)" || safe_directories=""
+    if grep -qxF "${SCRIPT_DIR}" <<<"${safe_directories}"; then
         if confirm_boxed "Keep registration" y \
                 "Keep this project in git safe.directory?" "  ${SCRIPT_DIR}"; then
             log "git safe.directory: kept"

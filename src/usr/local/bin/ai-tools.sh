@@ -4508,10 +4508,9 @@ unclaim_one() {
 # by. Under-reporting is not the safe direction here -- unlike residue_scan, whose gate only decides what to OFFER --
 # so the walk reports a directory it cannot descend rather than skipping it silently.
 undeletable_scan() {
-    local d="$1" found
-    found="$(run_as_owner find "${d}" -xdev -type d '(' -not -writable -o -not -executable ')' \
-        -print 2>/dev/null)" || true
-    [[ -z "${found}" ]] || head -n 50 <<<"${found}"
+    local d="$1"
+    run_as_owner find "${d}" -xdev -type d '(' -not -writable -o -not -executable ')' \
+        -print 2>/dev/null | awk 'NR <= 50' || true
 }
 
 # residue_scan <dir>  -- fill RESIDUE and RESIDUE_SKIPPED with every path under <dir> that still carries ai-tools

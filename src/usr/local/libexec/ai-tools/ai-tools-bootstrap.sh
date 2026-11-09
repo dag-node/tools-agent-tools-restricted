@@ -612,8 +612,8 @@ preflight_toolchain_ownership() {
         [[ -d "${home}/${sub}" ]] || continue
         count="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '.' 2>/dev/null | wc -c)"
         (( count > 0 )) || continue
-        sample="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '%u:%g %p\n' 2>/dev/null)" || true
-        sample="$(head -n 3 <<<"${sample}" | tr '\n' ';')"
+        sample="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '%u:%g %p\n' 2>/dev/null \
+            | awk 'NR <= 3' | tr '\n' ';')" || true
         foreign+=("${home}/${sub}")
         err "toolchain ownership: ${count} path(s) under ${home}/${sub} are not owned by ${user}:${group}: ${sample%;}"
     done
