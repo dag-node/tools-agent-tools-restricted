@@ -3106,9 +3106,8 @@ status_selinux_attestation() {
     fi
     local -a row
     local origin_note effect_note enforcement_note="not enforced" lookup_failure_reason lookup_remedy lookup_refusal
-    # A file-context lookup that could not be read is an input the launch verdict lacks, so it is reported ahead
-    # of the attestation and counted under the requirement. Which refusal a launch then meets turns on the mode:
-    # Enforcing refuses as unattested (MSG-A7E7) where the entrypoint's lookup fails too, any other mode refuses first.
+    # A module reading that could not be made is reported, and counted under the requirement, which refuses a launch
+    # on it, so a host whose launches refuse does not read clean.
     if [[ -z "${module_present}" ]]; then
         lookup_failure_reason="the lookup for ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH} failed"
         lookup_remedy="read the lookup's error:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"

@@ -19,12 +19,10 @@ section "protected-paths backstop: shared list + guard (unit)"
 
 mktestdir
 
-# (0) The library loads msg.lib.sh from its own directory, so a checkout's installer, which sources the checkout's
-#     copy, does not depend on an installed /usr/local/lib/ai-tools. It runs ahead of the installed-library guard,
-#     since a host without the base install, where the guard skips the file, is the case it covers. The checkout's
-#     library is copied beside a stand-in msg.lib.sh that sets a marker; a fresh shell sources the copy, and the marker
-#     and the guard function together show the stand-in was the copy loaded and the library loaded whole. With
-#     the stand-in removed the source fails, which an installed msg.lib.sh would otherwise satisfy.
+# (0) The library loads the msg.lib.sh beside it, so a checkout's installer does not need an installed copy. It
+#     runs ahead of the installed-library guard, which skips the file on a host without the base install. A copy
+#     beside a stand-in msg.lib.sh loads the stand-in, and fails its load once the stand-in is removed, which
+#     an installed msg.lib.sh would otherwise satisfy.
 checkout_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/lib/ai-tools/safe-paths.lib.sh"
 if [[ ! -r "${checkout_lib}" ]]; then
     skip "safe-paths.lib.sh loads msg.lib.sh from its own directory" "no checkout library at ${checkout_lib}"

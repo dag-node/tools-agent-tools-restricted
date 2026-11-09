@@ -311,8 +311,7 @@ operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
 ai_tools_confinement__is_selinux_required "${operator_conf}" && require_selinux=yes
 
 # Each probe that could not run is named here, so a require-unattested refusal says which reading is missing and prints
-# the remedy for that reading: a tool to install, a file-context lookup that failed, a selinuxfs read, a Boolean
-# the policy lacks, or a line to fix.
+# the remedy for its kind.
 unread_confinement_inputs=""
 unread_tool=no unread_filecontexts=no unread_selinuxfs=no unread_boolean=no declaration_malformed=no
 note_unread_input() {  # <kind: tool|filecontexts|selinuxfs|boolean|declaration> <description>

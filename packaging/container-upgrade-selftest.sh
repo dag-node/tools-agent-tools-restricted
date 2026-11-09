@@ -69,11 +69,9 @@ view_id() {
     printf '%s/%s/%s' "${HOME_DIR}" "${kind}" "${name}"
 }
 
-# assets_section : print the Assets section of `atr admin status`, its heading excluded; return 1 where the section is
-# not evidence that the successor check ran: the report exited outside its documented 0, 4 and 5, did not reach
-# the Services heading that follows the section, carries no Assets heading, or the section holds an [UNREADABLE] line
-# or a finding on the enable list, under which status does not run the check. The report is read whole before awk
-# searches it, since awk's exit at the section's end would send the report a SIGPIPE, which pipefail returns as 141.
+# assets_section : print the Assets section of `atr admin status`, its heading excluded; return 1 unless the report
+# shows the section completed and ran the successor check, since notice_absent reads an absent notice as a pass.
+# The report is read whole, since awk's early exit would send it a SIGPIPE under pipefail.
 assets_section() {
     local status_report report_status=0 section
     status_report="$("${ADMIN}" status 2>/dev/null)" || report_status=$?

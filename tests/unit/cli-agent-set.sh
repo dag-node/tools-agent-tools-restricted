@@ -695,9 +695,8 @@ else
     else
         fail "attested host under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
-    # A file-context lookup that failed is an input the launch verdict lacks: under the requirement a launch refuses
-    # where the entrypoint's lookup fails too, so the section names it and counts it, with the compiled module absent
-    # as well, where a "no" would have read as a host without the policy.
+    # An unread module reading counts under the requirement, driven with the compiled module absent, where
+    # a "no" would read as a host without the policy.
     out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
                "${REQUIRED_CONF}" Enforcing unread no)" || true
     if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'file contexts' <<<"${out}" \

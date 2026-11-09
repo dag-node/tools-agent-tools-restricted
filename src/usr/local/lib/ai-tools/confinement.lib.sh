@@ -477,11 +477,10 @@ readonly AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE="/usr/share/selinux/packages/ai-
 # ai_tools_confinement__read_module_present <probe-path> -- print "yes" or "no" for the `module-present` verdict input:
 # matchpathcon over <probe-path> (AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH on a host), classified
 # by ai_tools_confinement__evaluate_module_present. Returns 1 and prints nothing where matchpathcon is not installed,
-# exits non-zero or prints nothing, which a caller records as an unread input: a lookup that failed does not read
-# as a module that is absent, which ai_tools_confinement__evaluate_dac_only_state would take for a host without
-# the policy. A path no rule maps is a reading (matchpathcon prints <<none>> and exits 0), and reads "no". The shim,
-# both status reports, the relabel helper and the clone's label read module presence through this one function, so each
-# describes the state the launch decides on.
+# exits non-zero or prints nothing, which a caller records as an unread input, so a failed lookup does not read
+# as the absent module that ai_tools_confinement__evaluate_dac_only_state takes for a host without the policy. A path no
+# rule maps (`<<none>>`) reads "no". The shim, both status reports, the relabel helper and the clone's label read module
+# presence through this one function, so each describes the state the launch decides on.
 ai_tools_confinement__read_module_present() {
     local probe_path="$1" probe_context probe_type
     command -v matchpathcon >/dev/null 2>&1 || return 1

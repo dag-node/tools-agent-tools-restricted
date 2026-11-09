@@ -1457,7 +1457,7 @@ systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 #
 # The failure is NOT swallowed: a half-provisioned integration that looks installed surfaces later
 # as an opaque denial inside a confined session. The command prints the cause on stderr, which
-# the scriptlet keeps (a layout row the reconcile refused among them, MSG-N6G6), and logs it
+# the scriptlet keeps, and logs it
 # (journald + /var/log/ai-tools/dotnet.log); the scriptlet reports the remedy and exits non-zero,
 # so rpm records a scriptlet failure against this package alone -- the transaction still
 # completes, which is what a weakly-pulled optional integration should do to the rest of the stack.

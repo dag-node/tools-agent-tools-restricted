@@ -6315,9 +6315,8 @@ status_entrypoint_pins() {
 # for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row) or makes
 # every launch warn -- a host without SELinux confinement by its own configuration
 # (ai_tools_confinement__evaluate_dac_only_state), where the shim launches DAC-only and names the key to set --
-# STATUS_UNREADABLE when the library did not load, and 0 otherwise. A file-context lookup that could not be read is
-# a `?` row ahead of the attestation, a finding where AI_TOOLS_REQUIRE_SELINUX is set. The section is omitted
-# where getenforce cannot say.
+# STATUS_UNREADABLE when the library did not load, and 0 otherwise. A module reading that could not be made is a `?`
+# row, a finding where AI_TOOLS_REQUIRE_SELINUX is set. The section is omitted where getenforce cannot say.
 status_selinux_attestation() {
     local operator_conf="${1:-${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}}"
     local selinux_mode module_present policy_shipped dac_only_state=""
@@ -6351,9 +6350,8 @@ status_selinux_attestation() {
     fi
     local -a row
     local origin_note effect_note enforcement_note section_status=0 lookup_failure_reason lookup_remedy lookup_refusal
-    # A file-context lookup that could not be read is an input the launch verdict lacks, so it is reported ahead
-    # of the attestation and counted under the requirement. Which refusal a launch then meets turns on the mode:
-    # Enforcing refuses as unattested (MSG-A7E7) where the entrypoint's lookup fails too, any other mode refuses first.
+    # A module reading that could not be made is reported, and counted under the requirement, which refuses a launch
+    # on it, so a host whose launches refuse does not read clean.
     if [[ -z "${module_present}" ]]; then
         lookup_failure_reason="the lookup for ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH} failed"
         lookup_remedy="read the lookup's error:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
