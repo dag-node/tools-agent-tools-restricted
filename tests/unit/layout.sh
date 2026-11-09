@@ -491,12 +491,14 @@ if (( EUID == 0 )); then
     dyn_space_rows="$(grep -v '^error' <<< "${dyn_out}" | grep -c -F "${R2}${dyn_space_home}/" || true)"
     dyn_space_errors="$(grep '^error' <<< "${dyn_out}" | grep -F "${R2}${dyn_space_home}/.config/ai-tools" \
         | grep -c -F 'owner spaced:domain users is not user:group, each a portable name' || true)"
-    if [[ "${dyn_dot_rows}" == 4 ]]; then
-        pass "an operator named null.pointer has its four rows"
+    # An operator's rows: ~/.config/ai-tools, and project-registry and secret-patterns in it.
+    dyn_operator_rows=3
+    if [[ "${dyn_dot_rows}" == "${dyn_operator_rows}" ]]; then
+        pass "an operator named null.pointer has its rows: ~/.config/ai-tools, project-registry and secret-patterns"
     else
-        fail "the null.pointer rows: ${dyn_dot_rows} of 4: $(grep -F null.pointer <<< "${dyn_out}" | tr '\n' '|')"
+        fail "the null.pointer rows: ${dyn_dot_rows} of ${dyn_operator_rows}: $(grep -F null.pointer <<< "${dyn_out}" | tr '\n' '|')"
     fi
-    if (( dyn_rc == 1 )) && [[ "${dyn_space_rows}" == 0 && "${dyn_space_errors}" == 4 ]]; then
+    if (( dyn_rc == 1 )) && [[ "${dyn_space_rows}" == 0 && "${dyn_space_errors}" == "${dyn_operator_rows}" ]]; then
         pass "an operator whose group holds a space has no row, each one an error line naming the owner (status 1)"
     else
         dyn_seen="$(grep -F spaced <<< "${dyn_out}" | tr '\n' '|')"
