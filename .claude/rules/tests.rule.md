@@ -1410,6 +1410,14 @@ its `file_contexts.subs_dist` aliases `/var/opt` to `/opt` (the note in `ai_tool
 on EL10 passes with the `/var/opt` half missing. The check reads the sources to catch that on any host, and a control
 asserts the reader matched a rule before the two sets are compared.
 
+`pipefail-readers.sh` holds the shipped scripts to the early-exit reader rule
+[ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2). `tests/lib/pipefail-readers.py` reads every shell file
+under `src/`, `selinux/`, `packaging/` and `tools/`, `install.sh` and the `run:` blocks of the workflows, and the file
+fails on each stage after a pipe that is one of the rule's readers. A fixture proves the scanner first, with one line
+per shape it reports and per shape it leaves alone, a workflow and a file with an unclosed quote among them: a file
+the scanner cannot follow to its end is a finding. Two rows pin the mechanism through a producer that prints more than
+a pipe holds, so their result does not depend on the host's load. The walk does not read `tests/`.
+
 **`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
 `symlink-helper.sh`, `entrypoint-pin.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`,
 `selinux.sh`, `typesafe.sh`): installed-artifact ownership/modes, sudoers syntax, the wrapper launched end-to-end (its
@@ -1601,13 +1609,11 @@ as the layout the policy rests on, one check per swap vector.
   the case instead of writing (`unit/admin-operator-add.sh`).
 - **Strict mode fails without a lint warning** in the shapes the shellcheck rule lists
   [ref-section-c3u9](shellcheck.rule.md#ref-section-c3u9), and a test runs under the same mode as the code it drives.
-- **A reader that stops early fails the pipeline.** Every test file runs `set -euo pipefail`, and `grep -q` and `head`
-  exit before their producer has written everything, so the producer dies of `SIGPIPE` and `pipefail` reports
-  the pipeline non-zero on input that matched. `if producer | grep -q …` then reports `FAIL`,
-  and `x="$(producer | head -n 1)"` ends the file with no result line, which the runner lists as failed with no `FAIL`
-  line to read. It is a race, so it can pass by hand and fail in a root run. A predicate captures the producer's output
-  first and tests the variable (`grep -q … <<< "${out}"`, `"${out%%$'\n'*}"`), and a file that fails with no `FAIL` line
-  is checked for this shape first.
+- **A reader that stops early fails the pipeline**, the shape the shellcheck rule states
+  [ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2), and every test file runs `set -euo pipefail`.
+  `if producer | grep -q …` then reports `FAIL`, and `x="$(producer | head -n 1)"` ends the file with no result line,
+  which the runner lists as failed with no `FAIL` line to read. It is a race, so it can pass by hand and fail in a root
+  run, and a file that fails with no `FAIL` line is checked for this shape first.
 - **A stub reads the caller's locals.** Bash scopes variables dynamically, so a stub function that reads a variable
   the case set (`getenforce() { printf '%s' "${selinux_mode}"; }`) sees the `local` of the same name in the function
   under test, unset there, and `set -u` ends the shell. The case reports a failure the code does not have. A stub reads

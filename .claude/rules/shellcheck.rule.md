@@ -105,7 +105,8 @@ on its own line (`out="$(producer)" || out=""`), and the reader takes the captur
 which has no writer to signal. A word looked up in a list the shell holds is a padded string test,
 `[[ " ${list} " == *" ${word} "* ]]`. The one pipeline that keeps such a reader is `head -c` ahead of a further stage,
 the bound on a stream too large to capture, whose status its caller discards (`install.sh`'s size read of a compressed
-page).
+page). `tests/unit/pipefail-readers.sh` reads the scripts under `src/`, `selinux/`, `packaging/` and `tools/`,
+`install.sh` and the workflows for the shape and fails on each instance ([tests](tests.rule.md)).
 
 ## Design notes
 
