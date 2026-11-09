@@ -144,7 +144,9 @@ only when the module is loaded) rather than read from the module store with `sem
 the account: `ai-tools-run` runs as the sandbox account, which cannot read the root-only store, so that read returns
 a systematic false "no" — which on the unresolved-label branch would fail *open*, launching DAC-only where the module is
 loaded. The `matchpathcon` probe does not need any privilege — it reads the world-readable file-contexts — and the agent
-cannot influence it, file-contexts and the shim both being root-owned.
+cannot influence it, file-contexts and the shim both being root-owned. A lookup that exits non-zero or prints nothing is
+an unread input and not an absent module, for the same reason: read as "no", it would put a host whose policy is loaded
+in the DAC-only state. A path no rule maps is a reading (`<<none>>`), and reads as absent.
 
 `ai-tools-run` performs that probing and I/O; the launch-vs-refuse decision is the pure `ai_tools_confinement__evaluate`
 (`confinement.lib.sh`), which carries its inputs and the verdict token for each combination as its contract, and is
@@ -247,20 +249,21 @@ which then refuses every launch that does not show the session will run confined
 - `require-boolean` (`MSG-P3P8`) — a Boolean is not at the value a launch requires, so `ai_tools_t` would run
   under rules the host has not declared ([What the domain holds beyond the module's own
   rules](#what-the-domain-holds-beyond-the-modules-own-rules)).
-- `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing, the manager's
-  domain unreadable, the module's file-contexts not live with its file unread, or the per-domain mode or a gating
-  Boolean unread. The refusal names each input it lacked.
+- `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing, a file-context
+  lookup that failed, the manager's domain unreadable, the module's file-contexts not live with its file unread,
+  or the per-domain mode or a gating Boolean unread. The refusal names each input it lacked.
 
 A definite fault outranks an unread input, so a refusal names what to change where one is known,
-and `require-unattested` prints one remedy per kind of input it lacked: a tool to install, the selinuxfs read, a Boolean
-the loaded policy does not declare, or the line to fix. The operator's declaration is what closes the "thinks-enforcing"
-family without a store read, and the module file's presence is what closes the staged-but-not-active residual:
-the package and a source install both stage `ai_tools.pp` in the shipped policy directory, so a host holding the file
-with the file-contexts not live refuses as `require-inactive` (`ai_tools_confinement__read_policy_shipped`).
-The per-domain mode and the Booleans are read from selinuxfs by `ai_tools_confinement__read_attestation_records`,
-which does not run an interpreter or a library in the shim's unconfined window before the transition; the shim and both
-status reports take every attestation input through `ai_tools_confinement__read_attestation_inputs`, so they cannot read
-a different set, and module presence through `ai_tools_confinement__read_module_present`.
+and `require-unattested` prints one remedy per kind of input it lacked: a tool to install, the lookup to run by hand,
+the selinuxfs read, a Boolean the loaded policy does not declare, or the line to fix. The operator's declaration is
+what closes the "thinks-enforcing" family without a store read, and the module file's presence is what closes
+the staged-but-not-active residual: the package and a source install both stage `ai_tools.pp` in the shipped policy
+directory, so a host holding the file with the file-contexts not live refuses as `require-inactive`
+(`ai_tools_confinement__read_policy_shipped`). The per-domain mode and the Booleans are read from selinuxfs
+by `ai_tools_confinement__read_attestation_records`, which does not run an interpreter or a library in the shim's
+unconfined window before the transition; the shim and both status reports take every attestation input
+through `ai_tools_confinement__read_attestation_inputs`, so they cannot read a different set, and module presence
+through `ai_tools_confinement__read_module_present`.
 
 **Two states launch under the requirement, with a warning** (`ok-dac-only`, `MSG-K6W6`): SELinux `Disabled`, and a host
 whose core module is neither live nor on disk (`ai_tools_confinement__evaluate_dac_only_state`, the one predicate

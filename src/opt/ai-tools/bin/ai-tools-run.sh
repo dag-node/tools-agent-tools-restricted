@@ -311,16 +311,18 @@ operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
 ai_tools_confinement__is_selinux_required "${operator_conf}" && require_selinux=yes
 
 # Each probe that could not run is named here, so a require-unattested refusal says which reading is missing and prints
-# the remedy for that reading: a tool to install, a selinuxfs read, a Boolean the policy lacks, or a line to fix.
+# the remedy for that reading: a tool to install, a file-context lookup that failed, a selinuxfs read, a Boolean
+# the policy lacks, or a line to fix.
 unread_confinement_inputs=""
-unread_tool=no unread_selinuxfs=no unread_boolean=no declaration_malformed=no
-note_unread_input() {  # <kind: tool|selinuxfs|boolean|declaration> <description>
+unread_tool=no unread_filecontexts=no unread_selinuxfs=no unread_boolean=no declaration_malformed=no
+note_unread_input() {  # <kind: tool|filecontexts|selinuxfs|boolean|declaration> <description>
     unread_confinement_inputs+="${unread_confinement_inputs:+, }$2"
     case "$1" in
-        tool)        unread_tool=yes ;;
-        selinuxfs)   unread_selinuxfs=yes ;;
-        boolean)     unread_boolean=yes ;;
-        declaration) declaration_malformed=yes ;;
+        tool)         unread_tool=yes ;;
+        filecontexts) unread_filecontexts=yes ;;
+        selinuxfs)    unread_selinuxfs=yes ;;
+        boolean)      unread_boolean=yes ;;
+        declaration)  declaration_malformed=yes ;;
     esac
 }
 selinux_mode=""
@@ -339,8 +341,10 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
         actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         # Module presence for the verdict, probed from a CORE-owned path rather than read from the root-only module
         # store, which this account cannot read. The reader's contract (confinement.lib.sh) states what the probe means;
-        # why the store read would fail OPEN here is in confinement.rule.md.
-        module_present="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}")"
+        # why the store read would fail OPEN here is in confinement.rule.md. A lookup that failed leaves the input
+        # unread, so the verdict does not take it for a host without the policy.
+        module_present="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}")" \
+            || note_unread_input filecontexts "the core module's file contexts (matchpathcon failed)"
     else
         note_unread_input tool "the file contexts (matchpathcon)"
     fi
@@ -424,6 +428,8 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
             unattested_remedies=()
             [[ "${unread_tool}" == yes ]] \
                 && unattested_remedies+=( "Install what reads it:  sudo dnf install libselinux-utils procps-ng" )
+            [[ "${unread_filecontexts}" == yes ]] \
+                && unattested_remedies+=( "Read the error matchpathcon prints for the probe path:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" )
             [[ "${unread_selinuxfs}" == yes ]] \
                 && unattested_remedies+=( "Check that /sys/fs/selinux is mounted and the loaded policy declares ai_tools_t:  sudo semodule -l | grep ai_tools   (reload it:  sudo dnf reinstall ai-tools-selinux)" )
             [[ "${unread_boolean}" == yes ]] \
