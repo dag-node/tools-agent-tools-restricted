@@ -6181,6 +6181,19 @@ status_path_order() {
     return 0
 }
 
+# status_is_record_readable <record> -- whether this account can read <record>, or confirm it absent. `-e` is false
+# for an absent record and for one under a directory the caller cannot search, and ai-tools-records(5) keeps the two
+# apart: the first is a host with no record, the second a reading this vantage cannot make, `?`. The entrypoint records
+# sit under the state root, which a non-operator cannot traverse, so without this split a non-operator's `status` reads
+# every pin as absent. Walks from the record's directory to its nearest existing ancestor: when this account can search
+# that ancestor, every entry under it can be listed, so the record is present and readable or confirmed absent.
+status_is_record_readable() {
+    local dir="${1%/*}"
+    while [[ -n "${dir}" && ! -e "${dir}" ]]; do dir="${dir%/*}"; done
+    [[ -x "${dir:-/}" ]] || return 1
+    [[ ! -e "$1" || -r "$1" ]]
+}
+
 status_entrypoint_pins() {
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     local verify_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
@@ -6211,7 +6224,7 @@ status_entrypoint_pins() {
     ai_tools_entrypoint_verify__is_required && strict=yes
 
     local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0 unreadable=0 label_status
-    local label_record unpinned
+    local label_record unpinned pin_readable
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
@@ -6219,22 +6232,29 @@ status_entrypoint_pins() {
         # where the operator required verification, since its launch is refused until a reconcile records the pin,
         # and where a label record exists: ai-tools-relabel-agent files a label outcome for every enabled agent, one it
         # could not pin included, and a failed one stops that agent's launch. With neither, there is nothing
-        # yet to report.
+        # yet to report. A pin this account cannot read is decided as neither: `-e` is false for an absent pin
+        # and for one under a directory this account cannot search, and only the first is a host with no pin.
         pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
         unpinned=""
+        pin_readable=yes
+        status_is_record_readable "${pin}" || pin_readable=""
         if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
-              && ! -e "${pin}" ]]; then
+              && -n "${pin_readable}" && ! -e "${pin}" ]]; then
             label_record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
             [[ "${strict}" == yes || ( -n "${label_record}" && -e "${label_record}" ) ]] || continue
             unpinned=yes
         fi
         (( seen++ == 0 )) && section "Entrypoint verification"
         version="$(ai_tools_services__read_stamp_field "${pin}" VERSION)"
-        # Read BEFORE the pin's own fields, and reported in place of them. A reconciliation that refused to re-record
-        # leaves the pin exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still
-        # carries a version and a date and would otherwise render as a fresh, successful verification beside the line
-        # saying it no longer describes the installed binary.
-        if [[ -n "${unpinned}" && "${strict}" == yes ]]; then
+        if [[ -z "${pin_readable}" ]]; then
+            # Not a fault: `status` stays open to a non-operator, whom the state directory's mode keeps out. It says
+            # only that this vantage has no reading to give, and does not count toward the exit status.
+            printf '  %-28s %s? (pin not readable from this account)%s\n' "${agent}" "${C_DIM}" "${C_RST}"
+        # The stale mark is read BEFORE the pin's own fields, and reported in place of them. A reconciliation
+        # that refused to re-record leaves the pin exactly as it was -- that staleness is what makes the next launch
+        # refuse -- so the pin still carries a version and a date and would otherwise render as a fresh, successful
+        # verification beside the line saying it no longer describes the installed binary.
+        elif [[ -n "${unpinned}" && "${strict}" == yes ]]; then
             blocking=$(( blocking + 1 ))
             printf '  %-28s %sUNVERIFIED%s %s(no pin recorded)%s\n' "${agent}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${C_RST}"
             say "      this host requires verification, so its sessions will not launch"
@@ -6258,10 +6278,6 @@ status_entrypoint_pins() {
                 printf '  %-28s %sVERIFIED%s %s(%s%s)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
                     "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
             fi
-        elif [[ -e "${pin}" && ! -r "${pin}" ]]; then
-            # Not a fault: `status` stays open to a non-operator, whom the state directory's mode keeps out. It says
-            # only that this vantage has no reading to give.
-            printf '  %-28s %s? (pin not readable from this account)%s\n' "${agent}" "${C_DIM}" "${C_RST}"
         elif [[ -e "${pin}" ]]; then
             # Readable but carrying no VERSION the clamped reader will accept. Distinct from both other states
             # and from a missing pin, because the remedy is to rewrite it -- and it is never read as verified, since
@@ -6435,6 +6451,12 @@ status_entrypoint_label() {
         return "${STATUS_UNREADABLE}"
     fi
     record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
+    if ! status_is_record_readable "${record}"; then
+        # Not a fault, as the pin's `?` is not: this vantage has no reading to give, and a record it cannot see
+        # is not a reconciliation that did not run.
+        printf '  %-28s %s? (label record not readable from this account)%s\n' "" "${C_DIM}" "${C_RST}"
+        return 0
+    fi
     result="$(ai_tools_services__read_stamp_field "${record}" RESULT)"
     age="$(status_fmt_age "$(ai_tools_services__read_stamp_age "${record}" LABELLED)")"
     reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
@@ -6462,9 +6484,8 @@ status_entrypoint_label() {
         # so neither is coloured or counted.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
                      "${reason:-nothing to label}" "${C_RST}" ;;
-        # No record at all: this host has not run a reconciliation since the record was introduced, or the state
-        # directory is unreadable from this account. It says only that, and never counts against the exit status --
-        # the same rule the unqueryable units follow.
+        # No record at all: this host has not run a reconciliation since the record was introduced. It says only
+        # that, and never counts against the exit status -- the same rule the unqueryable units follow.
         *)       printf '  %-28s %s? (no labelling recorded -- run: atr admin system entrypoints relabel)%s\n' \
                      "" "${C_DIM}" "${C_RST}" ;;
     esac

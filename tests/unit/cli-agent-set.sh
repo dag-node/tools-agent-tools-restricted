@@ -300,13 +300,14 @@ rm -f "${LABELS}"/*
 # read through providers.lib.sh and entrypoint-verify.lib.sh, both shipped with base, so a reader missing after the CLI
 # loaded them -- the shape a half-upgraded install takes -- exits 5 under the section's code with the later sections
 # still printed. Each library's include guard keeps the section's own re-source from restoring the reader. cmd_status
-# runs with every other section stubbed clean; the same run with the readers in place is the control. shellcheck
-# disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+# runs with every other section stubbed clean; the same run with the readers in place is the control. The second
+# and third arguments move the pin and label directories, for the case where this account cannot search them.
+# shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
 call_status_entrypoints() {
     runuser -u "${PROJECTS_USER}" -- env \
         AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
-        AI_TOOLS_ENTRYPOINT_PIN_DIR="${PINS}" AI_TOOLS_ENTRYPOINT_STALE_DIR="${STALES}" \
-        AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" AI_TOOLS_MSG_PLAIN=1 \
+        AI_TOOLS_ENTRYPOINT_PIN_DIR="${2:-${PINS}}" AI_TOOLS_ENTRYPOINT_STALE_DIR="${STALES}" \
+        AI_TOOLS_ENTRYPOINT_LABEL_DIR="${3:-${LABELS}}" AI_TOOLS_MSG_PLAIN=1 \
         bash -c 'cli="$1"; verify_lib="$2"; pre="$3"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
                  source "${verify_lib}" >/dev/null 2>&1 || exit 98
                  ai_tools_services__list_records() { :; }; status_path_order() { return 0; }
@@ -376,6 +377,32 @@ for label_case in none ok; do
         fail "an unpinned agent without a manifest URL on a host requiring verification, label record ${label_case} (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
     fi
 done
+# A pin directory this account cannot search is a reading the report cannot make, not an absent pin: `-e` is false
+# in both states, and the strict run above is the control for what an absent pin reads as. The records live
+# under a root-owned 0700 directory here, as the state root keeps a non-operator out on a host, and the setup is
+# asserted first, since root searches any directory. Both pins are decided alike: the agent with no manifest URL
+# (the run before the URL is appended) and the one with it (the run after).
+LOCKED="${TESTDIR}/locked"
+mkdir -m 0700 "${LOCKED}"; mkdir -m 0755 "${LOCKED}/entrypoint-pin.d" "${LOCKED}/entrypoint-label.d"
+if runuser -u "${PROJECTS_USER}" -- test -x "${LOCKED}" 2>/dev/null; then
+    fail "setup: ${PROJECTS_USER} can search ${LOCKED}, so the unreadable-directory cases do not drive their state"
+else
+    pass "setup: ${PROJECTS_USER} cannot search the fixture state root"
+fi
+# unreadable_pin_reads_unknown <what> : the strict run over the locked directories reads `?` for the pin and the label
+#   record, exits 0 and names no blocked launch.
+unreadable_pin_reads_unknown() {
+    local rc=0 out
+    out="$(call_status_entrypoints ':' "${LOCKED}/entrypoint-pin.d" "${LOCKED}/entrypoint-label.d")" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF 'pin not readable from this account' <<<"${out}" \
+            && grep -qF 'label record not readable from this account' <<<"${out}" \
+            && ! grep -qE 'UNVERIFIED|no pin recorded|will not launch|no labelling recorded' <<<"${out}"; then
+        pass "$1: the pin and the label record read ? and status exits 0"
+    else
+        fail "$1 (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+}
+unreadable_pin_reads_unknown "an unsearchable pin directory, agent without a manifest URL, verification required"
 rm -f "${LABELS}"/*; operator_conf
 rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__get_label_path')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
@@ -394,6 +421,7 @@ if [[ "${rc}" -eq 4 ]] && grep -qF 'sessions will not launch' <<<"${out}"; then
 else
     fail "control: an unpinned agent on a host requiring verification (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
 fi
+unreadable_pin_reads_unknown "an unsearchable pin directory, agent with a manifest URL, verification required"
 rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__is_required')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && ! grep -qF 'launches are not blocked' <<<"${out}" \
         && grep -qF 'atr providers' <<<"${out}"; then
