@@ -770,6 +770,20 @@ else
     else
         fail "out of place: account at ${useradd_line}, linger at ${linger_line}, links at ${links_line}, removal at ${remove_line}, install at ${install_line}"
     fi
+    # The timer stamp is refreshed ahead of linger: a manager linger brings up starts a timer an earlier run enabled,
+    # and a stale stamp would start the updater beside this run's toolchain steps.
+    # shellcheck disable=SC2016
+    stamp_line="$(grep -n -m1 -F 'sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"' \
+        "${SCRIPT}" | cut -d: -f1)" || true
+    # The reconcile places the stamp's directory first.
+    reconcile_line="$(grep -n -m1 -E '^reconcile_layout$' "${SCRIPT}" | cut -d: -f1)" || true
+    if [[ -z "${reconcile_line}" || -z "${stamp_line}" || -z "${linger_line}" ]]; then
+        fail "the reconcile, the stamp refresh or the linger step is no longer where this reads it (reconcile -> ${reconcile_line:-none}, stamp -> ${stamp_line:-none}, linger -> ${linger_line:-none})"
+    elif (( reconcile_line < stamp_line && stamp_line < linger_line )); then
+        pass "the reconcile places the stamp directory and the stamp is refreshed before linger brings the manager up"
+    else
+        fail "out of place: reconcile at ${reconcile_line}, the first stamp write at ${stamp_line}, linger at ${linger_line}"
+    fi
 fi
 
 # ── configure_git_identity: the gitconfig's attributes after the identity write ─────────────────────────────────

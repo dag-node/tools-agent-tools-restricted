@@ -92,8 +92,11 @@ prior stamp `Persistent=true` would run `nvm-update.service` at once — which r
 `ai_tools_exec_t`, see [post-upgrade relabel](#post-upgrade-entrypoint-relabel)), and its asynchronous repoint→relabel
 chain races the operator's first launch into the mislabel refusal. Provisioning has just installed the current
 toolchain, so recording "last run = now" is truthful; the next run is the next scheduled window. `ai-tools-bootstrap`
-and `install.sh` both seed the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral
-CWD so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into. Each
+also refreshes the stamp before it enables linger, after the layout reconcile has placed its directory: a manager linger
+brings up starts a timer an earlier run enabled, and a stale stamp would start the updater beside the bootstrap's own
+toolchain steps. A write that fails ends the run there, before linger. `ai-tools-bootstrap` and `install.sh` both seed
+the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral CWD
+so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into. Each
 runs the layout reconcile first, which creates the unit search path chain and the stamp directory in it as rows
 ([layout](layout.rule.md)).
 

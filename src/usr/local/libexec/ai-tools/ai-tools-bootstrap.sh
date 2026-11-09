@@ -765,9 +765,20 @@ for _sub in .nvm .cache .npm; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
 
-# Linger, before the first step that runs as the account: each such step is a scope in user-<uid>.slice, which
-# without linger is stopped when a scope ends, and a scope started during that stop is refused (MSG-Q2K6). Linger also
-# keeps the account's `--user manager`, where step 5 starts the timer, running without a login.
+# `.local` heads the unit search path chain, which root owns; the layout reconcile creates it with the rest
+# of the installed layout, the timer-stamp directory at its end among them.
+reconcile_layout
+
+# A stopped manager that an earlier run enabled the timer in starts it from timers.target as linger brings the manager
+# up, and a stale run-stamp then starts nvm-update.service at once, beside this run's own toolchain steps. So the stamp
+# is refreshed first, as step 5 seeds it (the reason is stated there), in the directory the reconcile just placed.
+# A write that fails ends the run here, ahead of linger and of every account step, as step 5's own write would.
+sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}" \
+    || die "could not write the nvm-update timer stamp in ${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER} -- see: atr admin system layout, then re-run atr admin system bootstrap"
+
+# Linger, before the first step that runs as the account: each such step is a scope in user-<uid>.slice, which without
+# linger is stopped when a scope ends, and a scope started during that stop is refused (MSG-Q2K6). Linger also keeps
+# the account's `--user manager`, where step 5 starts the timer, running without a login.
 _uid="$(id -u "${SANDBOX_USER}")"
 if command -v loginctl >/dev/null 2>&1; then
     _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
@@ -791,10 +802,6 @@ NVM_VERSION="$(resolve_nvm_version)"
 [[ "${NVM_VERSION}" =~ ^v[0-9][0-9.]*$ ]] \
     || die MSG-W8X8 "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
 readonly NVM_VERSION
-
-# `.local` heads the unit search path chain, which root owns; the layout reconcile creates it with the rest
-# of the installed layout.
-reconcile_layout
 
 # Resolve the enabled agents -- read AFTER choose_agents, so the set is the one this run just wrote. Each enabled line
 # is "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step
