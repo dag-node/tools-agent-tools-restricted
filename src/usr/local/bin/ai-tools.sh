@@ -1451,10 +1451,10 @@ reg_filemode() {
 # perpetually re-prompt for a step that cannot run. Mirrors the dir_owngap / read_project_state "na when unavailable"
 # convention.
 acl_gap() {
-    local dir="$1"
+    local dir="$1" acl
     command -v getfacl >/dev/null 2>&1 || return 1
-    getfacl -p "${dir}" 2>/dev/null \
-        | grep -qE "^default:group:${SANDBOX_GROUP}:" && return 1
+    acl="$(getfacl -p "${dir}" 2>/dev/null)" || acl=""
+    grep -qE "^default:group:${SANDBOX_GROUP}:" <<<"${acl}" && return 1
     return 0
 }
 
@@ -1466,15 +1466,15 @@ acl_gap() {
 # normalizing .git is opt-in (the operator is asked, default yes), so this only DETECTS the gap; cmd_project_claim
 # decides.
 git_gap() {
-    local dir="$1" grp mode
+    local dir="$1" grp mode acl
     [[ -d "${dir}/.git" ]] || return 1
     command -v getfacl >/dev/null 2>&1 || return 1
     # IFS pinned (see join_words).
     IFS=' ' read -r grp mode < <(stat -c '%G %a' "${dir}/.git" 2>/dev/null) || return 1
-    [[ "${grp}" == "${SANDBOX_GROUP}" ]] \
-        && (( (0${mode} & 02000) != 0 )) \
-        && getfacl -p "${dir}/.git" 2>/dev/null | grep -qE "^default:group:${SANDBOX_GROUP}:" \
-        && return 1
+    if [[ "${grp}" == "${SANDBOX_GROUP}" ]] && (( (0${mode} & 02000) != 0 )); then
+        acl="$(getfacl -p "${dir}/.git" 2>/dev/null)" || acl=""
+        grep -qE "^default:group:${SANDBOX_GROUP}:" <<<"${acl}" && return 1
+    fi
     return 0
 }
 
@@ -2356,7 +2356,7 @@ check_safedir_entry() {
 # fact mirrored from the root labelling lib; the authoritative semanage/restorecon logic is NOT duplicated here.
 read_project_tree_state() {
     local dir="$1" filemode=na owngap=true acl=false labelled=na git=false
-    local toplevel
+    local toplevel context
     if [[ ! -x "${dir}" ]]; then
         filemode=unknown
     elif [[ -e "${dir}/.git" || -L "${dir}/.git" ]]; then
@@ -2380,7 +2380,8 @@ read_project_tree_state() {
     dir_owngap "${dir}" || owngap=false
     acl_gap "${dir}" && acl=true
     if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        if ls -Zd "${dir}" 2>/dev/null | grep -q ':ai_tools_project_t:'; then
+        context="$(ls -Zd "${dir}" 2>/dev/null)" || context=""
+        if [[ "${context}" == *:ai_tools_project_t:* ]]; then
             labelled=true
         else
             labelled=false
@@ -4302,7 +4303,8 @@ discover_project() {
             return 0
         fi
         if [[ "${CLASS_STATE}" == excluded && "${CLASS_BLOCKED}" == - ]]; then
-            CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
+            CLASS_BLOCKED="$(list_lines_naming "${d}")"
+            CLASS_BLOCKED="${CLASS_BLOCKED%%$'\n'*}" CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
         fi
         if [[ "${CLASS_BLOCKED}" != - ]]; then
             root=""
@@ -4334,7 +4336,8 @@ require_reachable_target() {
                 "Re-enable it first:" \
                 "       $(format_projects_command enable "${d}")" ;;
         excluded)
-            CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
+            CLASS_BLOCKED="$(list_lines_naming "${d}")"
+            CLASS_BLOCKED="${CLASS_BLOCKED%%$'\n'*}" CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
             die_blocked "${d}" "${verb}" ;;
         enabled|inside)
             is_class_reachable && return 0
@@ -4505,9 +4508,10 @@ unclaim_one() {
 # by. Under-reporting is not the safe direction here -- unlike residue_scan, whose gate only decides what to OFFER --
 # so the walk reports a directory it cannot descend rather than skipping it silently.
 undeletable_scan() {
-    local d="$1"
-    run_as_owner find "${d}" -xdev -type d '(' -not -writable -o -not -executable ')' \
-        -print 2>/dev/null | head -n 50
+    local d="$1" found
+    found="$(run_as_owner find "${d}" -xdev -type d '(' -not -writable -o -not -executable ')' \
+        -print 2>/dev/null)" || true
+    [[ -z "${found}" ]] || head -n 50 <<<"${found}"
 }
 
 # residue_scan <dir>  -- fill RESIDUE and RESIDUE_SKIPPED with every path under <dir> that still carries ai-tools
@@ -5408,11 +5412,12 @@ cmd_project_clone() {
     cur="$(git -C "${top}" symbolic-ref --short HEAD 2>/dev/null)" \
         || die "repository is in detached HEAD; check out a branch first: ${top}"
 
-    local remote
-    if git -C "${top}" remote | grep -qx "origin"; then
+    local remote remotes
+    remotes="$(git -C "${top}" remote)" || remotes=""
+    if grep -qx "origin" <<<"${remotes}"; then
         remote="origin"
     else
-        remote="$(git -C "${top}" remote | head -1)"
+        remote="${remotes%%$'\n'*}"
     fi
     [[ -n "${remote}" ]] || die "repository has no remote; the sandbox workflow needs one: ${top}"
     local remote_url; remote_url="$(git -C "${top}" remote get-url "${remote}")"
@@ -6978,7 +6983,9 @@ cmd_project_list() {
     _is_labelled() {
         command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || return 1
-        ls -Zd "$1" 2>/dev/null | grep -q ':ai_tools_project_t:'
+        local context
+        context="$(ls -Zd "$1" 2>/dev/null)" || context=""
+        [[ "${context}" == *:ai_tools_project_t:* ]]
     }
     # _has_glob <str>  -- 0 when <str> carries a shell glob metacharacter (* ? [). A glob is a `!` line alone, matched
     # as a pattern and never resolved to one path; the grammar refuses one on an `@` or `%` line.
