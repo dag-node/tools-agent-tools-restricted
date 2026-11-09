@@ -252,7 +252,7 @@ else
 fi
 
 # --- The OPERATORS line is written as a list ------------------------------------------------------
-# --- require_outside_sandbox_group: an operator does not share a group with the sandbox account ---
+# --- require_enrolable_groups: an operator does not share a group with the sandbox account ---
 # The account a refusal is about does not exist here, so `id` is a shell function answering for the fixture account
 # svc-op and the sandbox account, and SBX in an answer stands for the helper's own SANDBOX_GROUP, whatever the copy
 # substitutes. Each refusal must carry its code and end the run; the control passes in silence.
@@ -262,7 +262,7 @@ run_group_check() {  # run_group_check <svc-op groups|FAIL> <sandbox groups|FAIL
         set -euo pipefail
         # shellcheck source=/dev/null
         source "$1"
-        declare -F require_outside_sandbox_group >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+        declare -F require_enrolable_groups >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
         user_answer="$2"; sandbox_answer="$3"; sandbox_present="$4"; primary_answer="${5:-svc-op}"
         sandbox_primary_answer="${6:-SBX}"
         id() {
@@ -275,7 +275,7 @@ run_group_check() {  # run_group_check <svc-op groups|FAIL> <sandbox groups|FAIL
                 *) return 1 ;;
             esac
         }
-        require_outside_sandbox_group svc-op
+        require_enrolable_groups svc-op
         printf "rc=0\n"
     ' _ "${HELPER}" "$1" "$2" "$3" "${4:-svc-op}" "${5:-SBX}" 2>&1 || printf 'rc=%s\n' "$?"
 }
@@ -285,7 +285,7 @@ refused() {  # refused <what> <code> <output> : the code on its own line, and a 
 }
 out="$(run_group_check "svc-op wheel ai-ops video" "SBX video" yes)"
 if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
-    fail "sourcing ${HELPER} did not define require_outside_sandbox_group"
+    fail "sourcing ${HELPER} did not define require_enrolable_groups"
 elif [[ "${out}" == "rc=0" ]]; then
     pass "an account outside the sandbox group, sharing only a supplementary group with the sandbox account, passes in silence"
 else
@@ -319,7 +319,7 @@ fi
 add_body="$(extract_function "${HELPER}" op_add)"
 # The patterns are op_add's own text, so the expansions in them are literal (SC2016).
 # shellcheck disable=SC2016
-guard_line="$(grep -n -m1 -E '^[[:space:]]+require_outside_sandbox_group "\$\{user\}"$' <<<"${add_body}" | cut -d: -f1)" || true
+guard_line="$(grep -n -m1 -E '^[[:space:]]+require_enrolable_groups "\$\{user\}"$' <<<"${add_body}" | cut -d: -f1)" || true
 # shellcheck disable=SC2016
 seed_line="$(grep -n -m1 -F 'seed_operator_config "${user}"' <<<"${add_body}" | cut -d: -f1)" || true
 if [[ -n "${guard_line}" && -n "${seed_line}" ]] && (( guard_line < seed_line )); then

@@ -27,8 +27,8 @@
 #                                 nearest-ancestor-owner tie-break); for the handback helpers that
 #                                 restore ownership of agent-written project files.
 #
-# Enrolment reads one more decision here, ai_tools_operator__read_group_refusal: whether an account shares a group
-# with the sandbox account, which `ai-tools-admin operators add` and install.sh both refuse.
+# Enrolment reads one more decision here, ai_tools_operator__read_enrolment_group_refusal, whose contract states
+# which group relationships between an account and the sandbox account refuse it.
 #
 # The per-path helpers source this lib best-effort and, when it is absent, define a fail-closed
 # ai_tools_operator__resolve_owner stub that leaves the owner unresolved -- so a missing lib skips the operation (the
@@ -70,15 +70,16 @@ ai_tools_operator__load_operators() {
 
 _ai_tools_operator__print_refusal() { printf '%s\n%s\n' "$1" "$2"; }
 
-# ai_tools_operator__read_group_refusal <user> <sandbox-user> <sandbox-group>: print why <user> shares a group
-# with the sandbox account, as two lines (the message code, then the text), and return 1; print nothing and return 0
-# when it does not. The operator stays out of the sandbox's group (CLAUDE.md), and the claim and create rely on it:
-# a path in either group is readable by the agent through its group bits, a `.git` the operator withheld among them.
+# ai_tools_operator__read_enrolment_group_refusal <user> <sandbox-user> <sandbox-group>: print why the groups
+# of <user> and <sandbox-user> refuse enrolling <user>, as two lines (the message code, then the text), and return 1;
+# print nothing and return 0 when they do not. The operator stays out of the sandbox's group (CLAUDE.md), and the claim
+# and create rely on it: a path in either group is readable by the agent through its group bits, a `.git` the operator
+# withheld among them.
 # Refused: <user> in <sandbox-group>, as its primary group or a supplementary one, and <sandbox-user> in <user>'s
 # primary group, as its own primary group or a supplementary one; each case names the command that changes it.
 # A supplementary group both accounts hold is the host's. A group list that cannot be read refuses as well, and a host
 # without <sandbox-user> skips the second check. `ai-tools-admin operators add` and install.sh's enrolment both call it.
-ai_tools_operator__read_group_refusal() {
+ai_tools_operator__read_enrolment_group_refusal() {
     local user="$1" sandbox_user="$2" sandbox_group="$3" user_groups primary sandbox_groups sandbox_primary
     if ! user_groups="$(id -nG "${user}" 2>/dev/null)" || ! primary="$(id -gn "${user}" 2>/dev/null)"; then
         _ai_tools_operator__print_refusal MSG-H9Q6 "cannot read ${user}'s groups, so whether the agent reads through them is unknown -- not enrolled"
