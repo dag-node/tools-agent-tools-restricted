@@ -129,10 +129,10 @@ the real uid of the parent of a scope's entry process, the one listed process wh
 as root from `/proc` and named from `/etc/passwd`. That uid is a kernel credential, the one attribution in the table
 the account cannot write; a session takes its launch scope's. The table closes with the `systemd-cgls` command
 that shows the same cgroups with every process in each, a launch scope's root-owned `sudo` among them. Only an agent row
-carries a project, shown by its directory's name, or its full path where another listed project has the same name; every
+carries a project, by its full path, since a directory's name alone does not say which checkout the stop reaches; every
 other row reads `-`. Agent rows are in project order, bytewise, those whose project could not be read last, each
 with its launch scope under it, then the steps and the plumbing; the handback lines after a stop name each project
-by its full path. The headline counts the agent sessions, or the steps where none is listed, and the two lines
+by the same path. The headline counts the agent sessions, or the steps where none is listed, and the two lines
 under the table and the question state the rest: a stopped session does not run its session-end handback, and the stop
 ends every process in the account's slice and restarts its user manager. The split orders the table, separates
 the counts, and decides which rows carry a `projects handback` line; every class is enumerated, listed and killed

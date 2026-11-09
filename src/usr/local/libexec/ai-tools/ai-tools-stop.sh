@@ -907,8 +907,9 @@ confirm_stop() {
 # ── Reporting ────────────────────────────────────────────────────────────────────────────────
 # print_session_table -- the detail the confirmation is answered against, without a verb column, since the headline's
 # title states whether the run stops or previews. An operator agreeing to stop "3 sessions" without seeing
-# which projects they are in is not consenting to
-# anything.
+# which projects they are in is not consenting to anything, so an agent row carries its project's full path:
+# a directory's name alone does not say which checkout of `api` the stop reaches, since the other checkouts
+# of that name are not in the table.
 #
 # Reads the parallel selection arrays directly rather than taking packed records. Nothing in this file joins fields
 # into a delimited string any more: a WorkingDirectory is an arbitrary pathname and may contain the delimiter,
@@ -918,11 +919,11 @@ confirm_stop() {
 # with rows that are always there. Order is presentation only; every selected cgroup is ended by the loop in main()
 # in its own order, and no cgroup is dropped from either pass.
 print_session_table() {
-    local index child class name dir i j moving
+    local index child class dir i j moving
     # Bytewise comparison for the sort, and byte widths for the columns; sanitize reduces every printed value to ASCII.
     local LC_ALL=C
     local -a agents=()
-    local -A sort_key=() first_path_for_name=() shared_name=()
+    local -A sort_key=()
     printf '  %-42s %7s %6s  %-10s %s\n' "SESSION" "PID" "PROCS" "BY" "PROJECT"
     # Agent sessions in project order, then unit order, compared bytewise so the order does not depend on the locale,
     # with the sessions whose project could not be read last. An insertion sort over the handful of rows a host runs
@@ -943,26 +944,9 @@ print_session_table() {
         done
         agents[j + 1]="${moving}"
     done
-    # A project is shown by its directory's name, and by its full path where another listed project has the same name,
-    # so two `api` checkouts are not read as one.
     for index in "${agents[@]}"; do
         dir="${selected_dirs[index]}"
-        [[ -n "${dir}" ]] || continue
-        name="${dir##*/}"; name="${name:-${dir}}"
-        if [[ -z "${first_path_for_name[${name}]+set}" ]]; then
-            first_path_for_name["${name}"]="${dir}"
-        elif [[ "${first_path_for_name[${name}]}" != "${dir}" ]]; then
-            shared_name["${name}"]=1
-        fi
-    done
-    for index in "${agents[@]}"; do
-        dir="${selected_dirs[index]}"; name="${dir##*/}"; name="${name:-${dir}}"
-        if [[ -z "${dir}" ]]; then
-            name="unknown"
-        elif [[ -n "${shared_name[${name}]:-}" ]]; then
-            name="${dir}"
-        fi
-        print_session_row "${index}" "" "$(sanitize "${name}")"
+        print_session_row "${index}" "" "$(sanitize "${dir:-unknown}")"
         for child in "${!selected_cgroups[@]}"; do
             [[ "${selected_parents[child]}" == "${index}" ]] && print_session_row "${child}" ' \_ '
         done
@@ -981,7 +965,7 @@ print_session_table() {
 # print_session_row <index> <prefix> [<project>] -- one table row, the session name after <prefix>: ` \_ ` places
 # a launch scope under the session it belongs to, drawn as `ps --forest` draws a child. The link is the unit's name, not
 # process parentage: the user manager starts the session unit, and the launch only asks it to. <project> is an agent
-# session's label, its project's name or path; a launch row reads `(launch)`, since the session row it sits under names
+# session's label, its project's full path; a launch row reads `(launch)`, since the session row it sits under names
 # the unit, and a step or a unit of plumbing reads `-` and its note, since it has no project (the dbus broker's working
 # directory is the control plane). The result lines keep the full note, since they print without the table beside them.
 print_session_row() {
