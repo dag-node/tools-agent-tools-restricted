@@ -804,7 +804,7 @@ drive_rows() {
         reach_why="script(1) not available for a pseudo-terminal"
     fi
     if [[ -n "${reach_why}" ]]; then
-        skip "claim traverse-grant rows" "${reach_why}"
+        skip "claim traverse-grant rows, ${AI_TOOLS_CLI_SPELLING:-collection} spelling" "${reach_why}"
     else
         granted()     { getfacl -p "${reach_fx}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; }
         not_granted() { ! granted; }
