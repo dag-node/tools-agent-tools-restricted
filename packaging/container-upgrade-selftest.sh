@@ -77,7 +77,11 @@ assets_section() {
     status_report="$("${ADMIN}" status 2>/dev/null)" || true
     # A report that did not run or did not reach the section is not an empty section, which notice_absent would pass.
     grep -qx '  Assets' <<< "${status_report}" || { echo "the status report carries no Assets section" >&2; return 1; }
-    awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside' <<< "${status_report}"
+    local section
+    section="$(awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside' <<< "${status_report}")"
+    printf '%s\n' "${section}"
+    # An [UNREADABLE] line is a reading the section could not make, so a notice it would have carried is unknown.
+    ! grep -qF '[UNREADABLE]' <<< "${section}" || { echo "the Assets section could not be read" >&2; return 1; }
 }
 
 # is_shared <kind>/<name> : succeed for an entry whose successor takes the same view name.
@@ -158,13 +162,13 @@ core_unlinked() {
 }
 notice_absent() {
     local section
-    section="$(assets_section)" || return 1
+    section="$(assets_section)" || { printf '%s\n' "${section}"; return 1; }
     printf '%s\n' "${section}"
     ! grep -qE 'successor-unenabled|view-occupied' <<< "${section}"
 }
 notice_names_all() {
     local section row entry
-    section="$(assets_section)" || return 1
+    section="$(assets_section)" || { printf '%s\n' "${section}"; return 1; }
     printf '%s\n' "${section}"
     row="$(grep -E '\[ATTENTION\] +successor-unenabled +core -- ' <<< "${section}")" || return 1
     [[ "$(grep -c successor-unenabled <<< "${section}")" == 1 ]] || return 1
