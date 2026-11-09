@@ -441,9 +441,9 @@ if (( EUID == 0 )); then
     grep -qx /opt/ai-tools/.acme <<< "${set2}" && pass "an installed manifest's config_dir is a dynamic row" || fail ".acme row absent"
     grep -q '/opt/ai-tools/.nodir' <<< "${set2}" && fail "a manifest without config_dir yielded a row" || pass "a manifest without config_dir yields no row"
     grep -qx "${PROJECTS_HOME}/.config/ai-tools/project-registry" <<< "${set2}" \
-        && grep -qx "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" <<< "${set2}" \
         && grep -qx "${PROJECTS_HOME}/.config/ai-tools/secret-patterns" <<< "${set2}" \
-        && pass "an enrolled operator's rows are dynamic rows: ~/.config/ai-tools/project-registry, allowed-projects and secret-patterns" \
+        && ! grep -qx "${PROJECTS_HOME}/.config/ai-tools/allowed-projects" <<< "${set2}" \
+        && pass "an enrolled operator's rows are dynamic rows: ~/.config/ai-tools/project-registry and secret-patterns, and an earlier release's allowed-projects takes none" \
         || fail "operator rows absent: $(grep -F "${PROJECTS_HOME}/.config" <<< "${set2}" | tr '\n' ' ')"
     # The ~/.config/ai-tools/project-registry row is required, and optional for an operator whose registry is still
     # the allowed-projects an earlier release wrote, which the migration reports instead.
@@ -1100,7 +1100,7 @@ else
         declare -a probe_lines=( "$(entry "${probe_path}" directory root:root 0700 - - boundary operator)" )
         _ai_tools_layout__reconcile_entry_lines probe_lines
         _AI_TOOLS_LAYOUT__ANCESTOR_VERDICTS["${probe_path}"]=bad
-        probe_result=0; _ai_tools_layout__find_refusing_ancestor "${probe_path}/allowed-projects" || probe_result=$?
+        probe_result=0; _ai_tools_layout__find_refusing_ancestor "${probe_path}/project-registry" || probe_result=$?
         printf '\nancestor_lookup_status=%s\n' "${probe_result}")"
     grep -qx 'ancestor_lookup_status=0' <<< "${out}" && [[ "${out%%$'\n'*}" == "${probe_path}" ]] \
         && pass "a TAB-bearing row the runner registered refuses the path under it, named decoded" \
@@ -1233,7 +1233,6 @@ declare -A boundary_map=(
     [/usr/local/lib/ai-tools/integrations.d/typesafe.conf]="predicate|ai_tools_conf__is_trusted in the resolver|unit/typesafe.sh:typesafe.conf|boundary/providers.sh:typesafe.conf"
     [HOME/.config/ai-tools]="mode|0700 operator|unit/launch-wrapper.sh:.config/ai-tools|boundary/access.sh:.config/ai-tools"
     [HOME/.config/ai-tools/project-registry]="mode|0600 operator; the gate refuses a missing or unreadable file|unit/launch-wrapper.sh:/.config/ai-tools/project-registry|boundary/access.sh:/.config/ai-tools/project-registry"
-    [HOME/.config/ai-tools/allowed-projects]="mode|0600 operator; the gate reads it until it is migrated|unit/launch-wrapper.sh:allowed-projects|boundary/access.sh:allowed-projects"
     [HOME/.config/ai-tools/secret-patterns]="mode|0600 operator; the loader refuses an unreadable file (MSG-S4T9)|unit/secret-patterns.sh:secret-patterns|boundary/access.sh:.config/ai-tools"
 )
 # cites <file:literal> : the named test file holds the literal; `-` is a recorded gap.
@@ -1258,8 +1257,7 @@ for entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
     [[ "${runtime}" != - ]] || note "boundary pair: ${entry_path} has no runtime file driving its gate (${gate})" "a gap the planner's table holds"
 done
 # The dynamic operator rows, keyed by their path under the operator's home.
-for entry_path in HOME/.config/ai-tools HOME/.config/ai-tools/project-registry HOME/.config/ai-tools/allowed-projects \
-        HOME/.config/ai-tools/secret-patterns; do
+for entry_path in HOME/.config/ai-tools HOME/.config/ai-tools/project-registry HOME/.config/ai-tools/secret-patterns; do
     boundary_seen["${entry_path}"]=1
     IFS='|' read -r kind gate runtime boundary <<< "${boundary_map[${entry_path}]}"
     cites "${runtime}" && cites "${boundary}" || { fail "boundary pair: ${entry_path}: a cited file does not hold its literal"; map_problems=$(( map_problems + 1 )); }

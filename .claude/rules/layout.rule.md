@@ -65,13 +65,13 @@ and `ai-tools-admin(8)` states it.
 **The dynamic rows come from inputs the reconcile has brought to their rows first.** One `directory` row per installed
 agent manifest with a valid `config_dir`, at `CP_AGENT_CONFIG_MODE`, and per enrolled operator a row
 for `~/.config/ai-tools` and for each file `operators add` seeds in it (`~/.config/ai-tools/project-registry`,
-`~/.config/ai-tools/secret-patterns`), with an optional row for the `~/.config/ai-tools/allowed-projects` an earlier
-release wrote, which stays the registry until `system post-upgrade` migrates it. While that file exists, the operator's
-`~/.config/ai-tools/project-registry` row is optional too: the migration creates it, and `--check` reports the operator
-as unmigrated. Each input is read through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted`
-before anything in it: an absent input does not contribute a row, since its static row reports the absence, and an input
-that is present but unreadable, untrusted, of another type or not parsed whole is an `error` line and never an empty
-set. A dynamic path the table declares is an `error` line too.
+`~/.config/ai-tools/secret-patterns`). The `~/.config/ai-tools/allowed-projects` an earlier release wrote does not take
+a row: it stays the registry until `system post-upgrade` migrates it, and its readers hold it to their own checks. While
+that file exists, the operator's `~/.config/ai-tools/project-registry` row is optional: the migration creates it,
+and `--check` reports the operator as unmigrated. Each input is read through `ai_tools_records_base__read_subject_type`
+and `ai_tools_conf__is_trusted` before anything in it: an absent input does not contribute a row, since its static row
+reports the absence, and an input that is present but unreadable, untrusted, of another type or not parsed whole is
+an `error` line and never an empty set. A dynamic path the table declares is an `error` line too.
 
 **Not rows:** the sandbox account's own trees and the toolchain under them, every project tree and clone, the asset
 contents under the shared roots ([shipped-assets](shipped-assets.rule.md)), the entrypoint and its label

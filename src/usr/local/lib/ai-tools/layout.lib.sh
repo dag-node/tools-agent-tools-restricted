@@ -627,14 +627,14 @@ _ai_tools_layout__append_dynamic_entries() {
     local _layout_dynamic_group _layout_dynamic_entry _layout_dynamic_line _layout_dynamic_index
     local _layout_dynamic_registry_state _layout_dynamic_flag _layout_dynamic_raw _layout_dynamic_reason
     local -a _layout_dynamic_operators=()
-    # The registry is `~/.config/ai-tools/project-registry`; a `~/.config/ai-tools/allowed-projects` an earlier release
-    # wrote is the registry every reader takes until `system post-upgrade` migrates it, so it holds the same row,
-    # optional, while it exists, and for that operator the `~/.config/ai-tools/project-registry` row is optional until
-    # then: the migration creates it, and `system post-upgrade --check` reports the operator as unmigrated.
-    local -a _layout_dynamic_relative=( "" /project-registry /allowed-projects /secret-patterns )
-    local -a _layout_dynamic_types=( directory file file file )
-    local -a _layout_dynamic_modes=( 0700 0600 0600 0600 )
-    local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' 'optional,boundary' )
+    # The registry is `~/.config/ai-tools/project-registry`. A `~/.config/ai-tools/allowed-projects` an earlier release
+    # wrote does not take a row: its readers hold it to their own checks until `system post-upgrade` migrates it,
+    # and while it exists the `~/.config/ai-tools/project-registry` row is optional, since the migration creates
+    # that file and `system post-upgrade --check` reports the operator as unmigrated.
+    local -a _layout_dynamic_relative=( "" /project-registry /secret-patterns )
+    local -a _layout_dynamic_types=( directory file file )
+    local -a _layout_dynamic_modes=( 0700 0600 0600 )
+    local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' )
     local -A _layout_dynamic_homes=() _layout_dynamic_declared=()
     _layout_dynamic_root="$(_ai_tools_layout__get_path_prefix)"
     for _layout_dynamic_entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
@@ -702,7 +702,7 @@ _ai_tools_layout__append_dynamic_entries() {
         _layout_dynamic_errors+=( "${_layout_dynamic_line}" )
     fi
 
-    # Four rows per enrolled operator. The list reader's status 1 is the complete empty set (no OPERATORS key); 2
+    # The rows of each enrolled operator. The list reader's status 1 is the complete empty set (no OPERATORS key); 2
     # and an untrusted file are an `error` line, as is a value the reader does not parse as a list, which it reports
     # as an empty array with ai_tools_conf__list_invalid set.
     _layout_dynamic_status=0
