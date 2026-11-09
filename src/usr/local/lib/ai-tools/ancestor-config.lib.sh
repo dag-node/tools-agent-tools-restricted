@@ -143,7 +143,7 @@ _ai_tools_ancestor_config__is_session_type_readable() {
 #   is group-readable and still denied, the file being user_home_t. A check computed from mode and
 #   group alone therefore answers "readable" exactly where the report is needed.
 ai_tools_ancestor_config__can_session_read() {
-    local path="${1:-}" mode group
+    local path="${1:-}" mode group acl
     [[ -n "${path}" && -f "${path}" ]] || return 1
     mode="$(stat -c '%a' "${path}" 2>/dev/null)" || return 1
     [[ "${mode}" =~ ^[0-7]+$ ]] || return 1
@@ -154,9 +154,9 @@ ai_tools_ancestor_config__can_session_read() {
             # it, and getfacl reports that as an `#effective:` comment on the entry's own line, so a line
             # whose effective permissions have lost the read bit does not count.
             command -v getfacl >/dev/null 2>&1 || return 1
-            getfacl -p -- "${path}" 2>/dev/null \
-                | grep -E "^user:${AI_TOOLS_ANCESTOR_CONFIG__SESSION_ACCOUNT}:r" \
-                | grep -qv '#effective:[^r]' || return 1
+            acl="$(getfacl -p -- "${path}" 2>/dev/null)" || return 1
+            acl="$(grep -E "^user:${AI_TOOLS_ANCESTOR_CONFIG__SESSION_ACCOUNT}:r" <<<"${acl}")" || return 1
+            grep -qv '#effective:[^r]' <<<"${acl}" || return 1
         fi
     fi
     _ai_tools_ancestor_config__is_session_type_readable "${path}"

@@ -313,9 +313,10 @@ ai_tools_entrypoint_verify__clear_stale() {
 #   match the key's own shape or it reads as absent. Same discipline as ai_tools_services__read_stamp_field, kept local
 #   because this file is sourced by the launch path and should not pull in the systemd-unit registry to read one line.
 _ai_tools_entrypoint_verify__read_pin_field() {
-    local pin="${1:-}" key="${2:-}" line
+    local pin="${1:-}" key="${2:-}" line prefix
     [[ -n "${pin}" && ! -L "${pin}" && -f "${pin}" && -r "${pin}" ]] || return 1
-    line="$(head -c 4096 -- "${pin}" 2>/dev/null | grep -m1 -E "^${key}=" 2>/dev/null)" || return 1
+    prefix="$(head -c 4096 -- "${pin}" 2>/dev/null | tr -d '\000')" || return 1
+    line="$(grep -m1 -E "^${key}=" <<<"${prefix}" 2>/dev/null)" || return 1
     _ai_tools_entrypoint_verify__is_field_valid "${line#*=}" || return 1
     printf '%s' "${line#*=}"
 }

@@ -102,10 +102,10 @@ ai_tools_services__get_field() {
 # of [A-Za-z0-9:+._-] -- so no control byte, terminal escape, or line break can reach the consumer's output through this
 # path.
 ai_tools_services__read_stamp_field() {
-    local stamp="$1" key="$2" line
+    local stamp="$1" key="$2" line prefix
     [[ -n "${stamp}" && ! -L "${stamp}" && -f "${stamp}" && -r "${stamp}" ]] || return 0
-    line="$(head -c 4096 -- "${stamp}" 2>/dev/null \
-                | grep -m1 -E "^${key}=[A-Za-z0-9:+._-]{1,64}$" 2>/dev/null)" || return 0
+    prefix="$(head -c 4096 -- "${stamp}" 2>/dev/null | tr -d '\000')" || return 0
+    line="$(grep -m1 -E "^${key}=[A-Za-z0-9:+._-]{1,64}$" <<<"${prefix}" 2>/dev/null)" || return 0
     printf '%s' "${line#*=}"
     return 0
 }

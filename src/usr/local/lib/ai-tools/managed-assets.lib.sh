@@ -240,7 +240,10 @@ ai_tools_managed_assets__is_retired() {
 # the seeder assigns it under `set -e`, where a marker with no version line would otherwise end the run
 # (ref-section-c3u9).
 ai_tools_managed_assets__read_asset_version() {
-    grep -m1 -E '^x-ai-tools-version:' "$1" 2>/dev/null | grep -oE '[0-9]+' | head -n1 || return 0
+    local line
+    line="$(grep -m1 -E '^x-ai-tools-version:' "$1" 2>/dev/null)" || return 0
+    [[ "${line}" =~ [0-9]+ ]] && printf '%s\n' "${BASH_REMATCH[0]}"
+    return 0
 }
 
 # True when the marker file declares this asset ai-tools-managed.

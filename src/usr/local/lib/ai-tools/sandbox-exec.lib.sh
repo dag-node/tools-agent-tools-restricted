@@ -105,13 +105,13 @@ _ai_tools_sandbox_exec__find_tool_path() {
 #   the switch is passed as `no` wherever systemd-run knows it, so the command receives its arguments byte for byte.
 _AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS=()
 _ai_tools_sandbox_exec__is_scope_available() {
-    local slice="$1"
+    local slice="$1" usage
     if [[ "${_AI_TOOLS_SANDBOX_EXEC__PROBED_SLICE:-}" != "${slice}" ]]; then
         _AI_TOOLS_SANDBOX_EXEC__PROBED_SLICE="${slice}"
         _AI_TOOLS_SANDBOX_EXEC__SCOPE_AVAILABLE=no
         if [[ -x /usr/bin/systemd-run && -x /usr/bin/systemctl && -x /usr/bin/true ]]; then
-            /usr/bin/systemd-run --help 2>/dev/null | grep -q -- '--expand-environment' \
-                && _AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS=(--expand-environment=no)
+            usage="$(/usr/bin/systemd-run --help 2>/dev/null)" || usage=""
+            [[ "${usage}" == *--expand-environment* ]] && _AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS=(--expand-environment=no)
             /usr/bin/systemd-run --scope --quiet --collect --slice="${slice}" "${_AI_TOOLS_SANDBOX_EXEC__RUN_OPTIONS[@]}" \
                 -- /usr/bin/true >/dev/null 2>&1 \
                 && _AI_TOOLS_SANDBOX_EXEC__SCOPE_AVAILABLE=yes

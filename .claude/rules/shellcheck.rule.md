@@ -91,6 +91,22 @@ the exit status) and a suspected line is tried alone in `bash -c 'set -euo pipef
 - **An `EXIT` trap runs after the function that set it returns.** A trap expanding that function's `local` then aborts
   under `set -u`, at cleanup and before the cleanup runs, so a path a trap removes is a script global.
 
+### A reader that exits early fails its pipeline <a id="ref-section-d9x2"></a>
+
+`grep -q`, `grep -m`, `head`, `sed … q` and `awk … exit` exit once they have their answer. A producer that writes again
+after that takes `SIGPIPE`, and `pipefail` returns 141 for the pipeline: `if producer | grep -q …` takes the no-match
+branch on input that matched, and `x="$(producer | head -n 1)"` ends a `set -e` script. A producer that delivers its
+output in one `write(2)` has finished before the reader exits, and how much it prints is the host's: a group list,
+an ACL or a module listing grows past one write.
+
+So no stage after a pipe is one of those readers. The producer's output is captured, with the capture's status handled
+on its own line (`out="$(producer)" || out=""`), and the reader takes the capture: `grep -q … <<<"${out}"`,
+`[[ "${out}" == *needle* ]]`, `"${out%%$'\n'*}"` for a first line. A herestring reaches the reader as a file,
+which has no writer to signal. A word looked up in a list the shell holds is a padded string test,
+`[[ " ${list} " == *" ${word} "* ]]`. The one pipeline that keeps such a reader is `head -c` ahead of a further stage,
+the bound on a stream too large to capture, whose status its caller discards (`install.sh`'s size read of a compressed
+page).
+
 ## Design notes
 
 - **Fix in preference to suppress.** A finding that names an avoidable foot-gun is rewritten. `SC2015` (`A && B || C`)
