@@ -330,8 +330,10 @@ report_packaged_host() {
 
 version_gate() {
     local installed="" lower
-    [[ -f "${INSTALLED_CLI}" ]] \
-        && installed="$(sed -nE 's/^AI_TOOLS_VERSION="([^"@]+)"$/\1/p' "${INSTALLED_CLI}" 2>/dev/null | head -n1)"
+    if [[ -f "${INSTALLED_CLI}" ]]; then
+        installed="$(sed -nE 's/^AI_TOOLS_VERSION="([^"@]+)"$/\1/p' "${INSTALLED_CLI}" 2>/dev/null)"
+        installed="${installed%%$'\n'*}"
+    fi
     if [[ -z "${installed}" ]]; then
         say "  version       : ${AI_TOOLS_VERSION} (no installed version to order against)"
         return 0
@@ -344,7 +346,8 @@ version_gate() {
     # orders `0.22.0` before `0.22.0-1.el10`, so the release is cut before ordering: rpm refuses a `-` in Version,
     # so everything from the first `-` on is the release, and the same version is a reinstall whatever release built it.
     local installed_version="${installed%%-*}"
-    lower="$(printf '%s\n' "${installed_version}" "${AI_TOOLS_VERSION}" | sort -V | head -n1)"
+    lower="$(printf '%s\n' "${installed_version}" "${AI_TOOLS_VERSION}" | sort -V)"
+    lower="${lower%%$'\n'*}"
     if [[ "${installed_version}" == "${AI_TOOLS_VERSION}" || "${lower}" == "${installed_version}" ]]; then
         say "  version       : ${AI_TOOLS_VERSION} over ${installed}"
         return 0
@@ -2701,7 +2704,7 @@ do_install() {
     # announce "adding" on every pass for an operator who has been a member since the first one -- and a re-install
     # that says it granted something it did not is the kind of line that makes an operator stop trusting the rest
     # of the output.
-    if id -nG "${PROJECTS_USER}" 2>/dev/null | tr ' ' '\n' | grep -qxF ai-ops; then
+    if [[ " $(id -nG "${PROJECTS_USER}" 2>/dev/null) " == *" ai-ops "* ]]; then
         log "${PROJECTS_USER} is already in group ai-ops"
     else
         log "adding ${PROJECTS_USER} to group ai-ops"
@@ -3432,10 +3435,10 @@ do_uninstall() {
     fi
 
     # Optionally remove this project from git safe.directory (default: keep)
-    local git_escaped
+    local git_escaped safe_dirs
     git_escaped="$(printf '%s' "${SCRIPT_DIR}" | sed 's/[.^$*+?{|\\[()\]]/\\&/g')"
-    if git config --file /opt/ai-tools/.gitconfig \
-            --get-all safe.directory 2>/dev/null | grep -qxF "${SCRIPT_DIR}"; then
+    safe_dirs="$(git config --file /opt/ai-tools/.gitconfig --get-all safe.directory 2>/dev/null)" || safe_dirs=""
+    if grep -qxF "${SCRIPT_DIR}" <<<"${safe_dirs}"; then
         if confirm_boxed "Keep registration" y \
                 "Keep this project in git safe.directory?" "  ${SCRIPT_DIR}"; then
             log "git safe.directory: kept"
@@ -3470,7 +3473,7 @@ operator_is_enrolled() {
     ai_tools_conf__read_list operators "${conf}" OPERATORS || return 1
     for name in "${operators[@]}"; do
         [[ "${name}" == "${account}" ]] || continue
-        id -nG "${account}" 2>/dev/null | tr ' ' '\n' | grep -qxF ai-ops && return 0
+        [[ " $(id -nG "${account}" 2>/dev/null) " == *" ai-ops "* ]] && return 0
         return 1
     done
     return 1

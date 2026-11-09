@@ -105,10 +105,11 @@ resolve_nvm_version() {
         printf '%s' "${AI_TOOLS_NVM_VERSION}"
         return
     fi
-    local tag
-    tag="$(curl -fsSL --max-time 10 \
-            https://api.github.com/repos/nvm-sh/nvm/releases/latest 2>/dev/null \
-          | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)" || true
+    local tag release
+    release="$(curl -fsSL --max-time 10 \
+            https://api.github.com/repos/nvm-sh/nvm/releases/latest 2>/dev/null)" || release=""
+    tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"${release}")"
+    tag="${tag%%$'\n'*}"
     if [[ "${tag}" == v[0-9]* ]]; then
         printf '%s' "${tag}"
     else
@@ -611,7 +612,8 @@ preflight_toolchain_ownership() {
         [[ -d "${home}/${sub}" ]] || continue
         count="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '.' 2>/dev/null | wc -c)"
         (( count > 0 )) || continue
-        sample="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '%u:%g %p\n' 2>/dev/null | head -n 3 | tr '\n' ';')"
+        sample="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '%u:%g %p\n' 2>/dev/null)" || true
+        sample="$(head -n 3 <<<"${sample}" | tr '\n' ';')"
         foreign+=("${home}/${sub}")
         err "toolchain ownership: ${count} path(s) under ${home}/${sub} are not owned by ${user}:${group}: ${sample%;}"
     done

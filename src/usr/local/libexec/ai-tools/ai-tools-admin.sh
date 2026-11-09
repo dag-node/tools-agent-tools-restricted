@@ -868,7 +868,7 @@ op_add() {
     # ai-ops membership: the sudoers grant and the launch wrapper gate on it. The sandbox account is never a member (it
     # must not be able to drive itself as an operator). Add -- and log -- only when the user is not already a member,
     # so a reconciling re-run does not report a change it did not make.
-    if id -nG "${user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
+    if [[ " $(id -nG "${user}" 2>/dev/null) " == *" ${OPERATORS_GROUP} "* ]]; then
         log "${user} is already in group ${OPERATORS_GROUP}"
     else
         usermod -aG "${OPERATORS_GROUP}" "${user}" || die MSG-C4A8 "failed to add ${user} to ${OPERATORS_GROUP}"
@@ -1768,7 +1768,7 @@ _pu_asset_report() {
             *)                                  _pu_say info "${path} -- ${detail}" ;;
         esac
     done
-    if printf '%s\n' "${lines[@]}" | grep -qE '^(asset-missing|asset-unlinked)'; then
+    if grep -qE '^(asset-missing|asset-unlinked)' <<<"$(printf '%s\n' "${lines[@]}")"; then
         _pu_say info "atr admin system bootstrap seeds and links them again"
     fi
 }
