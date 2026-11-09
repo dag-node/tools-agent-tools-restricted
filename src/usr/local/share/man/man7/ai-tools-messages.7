@@ -665,10 +665,6 @@ unknown command: selinux groups ${verb} \-\- run '${help_command}'
 ERROR.
 an operator must be a normal login user, not root
 .TP
-.B MSG-H3P3
-ERROR.
-account ${user} is in group ${SANDBOX_GROUP}, so the agent reads what ${user}'s group bits open \-\- remove ${user} from ${SANDBOX_GROUP}, then re\-run: gpasswd \-d ${user} ${SANDBOX_GROUP}
-.TP
 .B MSG-H5F8
 ERROR.
 no domain declaration: ${fragment} does not declare '# ai\-tools\-admin\-command: ${domain}' in its first 20 lines \-\- reinstall the package that ships it
@@ -700,10 +696,6 @@ This file defines the sudo grant that lets an operator launch the sandbox. It is
 .B MSG-H8U2
 WARNING.
 the reconcile did not finish within ${run_bound}s and was stopped; a row may be left short of its state \-\- see: atr admin system layout
-.TP
-.B MSG-H9Q6
-ERROR.
-cannot read ${user}'s groups, so whether the agent reads through them is unknown \-\- not enrolled
 .TP
 .B MSG-J2S8
 ERROR.
@@ -756,10 +748,6 @@ assets reconcile takes no arguments
 .B MSG-M8X2
 ERROR.
 semodule failed to replace ${former}
-.TP
-.B MSG-M9D2
-ERROR.
-cannot read ${SANDBOX_USER}'s groups, so whether it is in ${user}'s primary group is unknown \-\- not enrolled
 .TP
 .B MSG-M9D4
 WARNING.
@@ -860,10 +848,6 @@ semodule failed to remove ai_tools_${name}
 .B MSG-Q8E5
 ERROR.
 assets: the write of AI_TOOLS_ASSETS to ${conf} was not confirmed (writer status ${rc}), so the file holds the list it held or the one this call wrote${backup:+; the file as it was is ${backup}} \-\- read the line, then run atr admin assets reconcile to bring the links in line with it
-.TP
-.B MSG-R2C2
-ERROR.
-the sandbox account ${SANDBOX_USER} is in ${user}'s primary group ${primary}, so the agent reads what ${user}'s group bits open \-\- remove ${SANDBOX_USER} from ${primary}, then re\-run: gpasswd \-d ${SANDBOX_USER} ${primary}
 .TP
 .B MSG-R3M6
 ERROR.
@@ -2752,6 +2736,31 @@ refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this scr
 .B MSG-U5N2
 ERROR.
 the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) \-\- every launch of them is refused until that executable is installed; fix what npm names, then run: atr admin system bootstrap
+.SS operator.lib.sh
+.TP
+.B MSG-D4N4
+ERROR.
+account ${user} has ${sandbox_group} as its primary group, so the agent reads what ${user}'s group bits open \-\- give ${user} its own primary group, then re\-run: usermod \-g <group> ${user}
+.TP
+.B MSG-H3P3
+ERROR.
+account ${user} is in group ${sandbox_group}, so the agent reads what ${user}'s group bits open \-\- remove ${user} from ${sandbox_group}, then re\-run: gpasswd \-d ${user} ${sandbox_group}
+.TP
+.B MSG-H9Q6
+ERROR.
+cannot read ${user}'s groups, so whether the agent reads through them is unknown \-\- not enrolled
+.TP
+.B MSG-M9D2
+ERROR.
+cannot read ${sandbox_user}'s groups, so whether it is in ${user}'s primary group is unknown \-\- not enrolled
+.TP
+.B MSG-R2C2
+ERROR.
+the sandbox account ${sandbox_user} is in ${user}'s primary group ${primary}, so the agent reads what ${user}'s group bits open \-\- remove ${sandbox_user} from ${primary}, then re\-run: gpasswd \-d ${sandbox_user} ${primary}
+.TP
+.B MSG-T8R6
+ERROR.
+the sandbox account ${sandbox_user} has ${user}'s primary group ${primary} as its own, so the agent reads what ${user}'s group bits open \-\- give ${sandbox_user} the primary group ${sandbox_group}, then re\-run: usermod \-g ${sandbox_group} ${sandbox_user}
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3

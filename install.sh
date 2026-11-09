@@ -170,6 +170,13 @@ if ! source "${CONF_LIB}"; then
     printf 'MSG-R9A8\nerror: cannot source %s -- the checkout is incomplete; re-clone or re-download it\n' "${CONF_LIB}" >&2
     exit 1
 fi
+# The operator-identity library, sourced in the same plain form: the install action's enrolment reads its group check.
+readonly OPERATOR_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/operator.lib.sh
+if ! source "${OPERATOR_LIB}" || ! declare -F ai_tools_operator__read_group_refusal >/dev/null; then
+    printf 'MSG-R9A8\nerror: cannot source %s -- the checkout is incomplete; re-clone or re-download it\n' "${OPERATOR_LIB}" >&2
+    exit 1
+fi
 
 # The install runs its verification suite as SUDO_USER, so that variable is required whichever account is enrolled:
 # `--operator` decides WHO is enrolled, never how this script was invoked.
@@ -1587,10 +1594,20 @@ report_install_abort() {
 # the CLI, systemd units), seed user config without clobbering edits, bootstrap the launcher symlinks, enable
 # the nvm-update timer, restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end --
 # run the installed-files summary and the test suite (which includes the permissions check). Aborts if the sandbox user
-# is absent.
+# is absent. require_operator_outside_sandbox_groups -- refuse to enrol PROJECTS_USER while it shares a group
+# with the sandbox account, under the code and text ai_tools_operator__read_group_refusal (operator.lib.sh) gives,
+# the check `ai-tools-admin operators add` makes. do_install calls it ahead of its first write; the other actions enrol
+# nobody.
+require_operator_outside_sandbox_groups() {
+    local refusal
+    refusal="$(ai_tools_operator__read_group_refusal "${PROJECTS_USER}" "${SANDBOX_USER}" "${SANDBOX_GROUP}")" \
+        || emit_coded die "${refusal}"
+}
+
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
+    require_operator_outside_sandbox_groups
     require_acl_tools
     require_atr_entries_replaceable
     require_no_other_atr_command

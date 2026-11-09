@@ -257,25 +257,27 @@ fi
 # svc-op and the sandbox account, and SBX in an answer stands for the helper's own SANDBOX_GROUP, whatever the copy
 # substitutes. Each refusal must carry its code and end the run; the control passes in silence.
 section "ai-tools-admin operators add: an operator outside the sandbox account's groups (unit)"
-run_group_check() {  # run_group_check <svc-op groups|FAIL> <sandbox groups|FAIL> <sandbox account present: yes|no>
+run_group_check() {  # run_group_check <svc-op groups|FAIL> <sandbox groups|FAIL> <sandbox account present: yes|no> [primary]
     bash -c '
         set -euo pipefail
         # shellcheck source=/dev/null
         source "$1"
         declare -F require_outside_sandbox_group >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
-        user_answer="$2"; sandbox_answer="$3"; sandbox_present="$4"
+        user_answer="$2"; sandbox_answer="$3"; sandbox_present="$4"; primary_answer="${5:-svc-op}"
+        sandbox_primary_answer="${6:-SBX}"
         id() {
             case "$1 ${2:-}" in
                 "-nG svc-op") [[ "${user_answer}" != FAIL ]] || return 1; printf "%s\n" "${user_answer//SBX/${SANDBOX_GROUP}}" ;;
-                "-gn svc-op") printf "svc-op\n" ;;
+                "-gn svc-op") printf "%s\n" "${primary_answer//SBX/${SANDBOX_GROUP}}" ;;
                 "-u ${SANDBOX_USER}") [[ "${sandbox_present}" == yes ]] || return 1; printf "998\n" ;;
                 "-nG ${SANDBOX_USER}") [[ "${sandbox_answer}" != FAIL ]] || return 1; printf "%s\n" "${sandbox_answer//SBX/${SANDBOX_GROUP}}" ;;
+                "-gn ${SANDBOX_USER}") printf "%s\n" "${sandbox_primary_answer//SBX/${SANDBOX_GROUP}}" ;;
                 *) return 1 ;;
             esac
         }
         require_outside_sandbox_group svc-op
         printf "rc=0\n"
-    ' _ "${HELPER}" "$1" "$2" "$3" 2>&1 || printf 'rc=%s\n' "$?"
+    ' _ "${HELPER}" "$1" "$2" "$3" "${4:-svc-op}" "${5:-SBX}" 2>&1 || printf 'rc=%s\n' "$?"
 }
 refused() {  # refused <what> <code> <output> : the code on its own line, and a non-zero status
     assert_msg "$2" "$3" "$1 is refused under its code"
@@ -290,7 +292,21 @@ else
     fail "the control was refused: ${out}"
 fi
 refused "an account in the sandbox group" MSG-H3P3 "$(run_group_check "svc-op SBX" "SBX" yes)"
+out="$(run_group_check "SBX" "SBX" yes SBX)"
+refused "an account whose primary group is the sandbox group" MSG-D4N4 "${out}"
+if [[ "${out}" == *"usermod -g"* && "${out}" != *"gpasswd -d"* ]]; then
+    pass "a primary-group membership names usermod -g, which changes it, and not gpasswd -d, which cannot"
+else
+    fail "a primary-group membership should name usermod -g alone, got: ${out}"
+fi
 refused "an account whose primary group holds the sandbox account" MSG-R2C2 "$(run_group_check "svc-op" "SBX svc-op" yes)"
+out="$(run_group_check "svc-op" "svc-op" yes svc-op svc-op)"
+refused "a sandbox account whose primary group is the account's primary group" MSG-T8R6 "${out}"
+if [[ "${out}" == *"usermod -g"* && "${out}" != *"gpasswd -d"* ]]; then
+    pass "the sandbox account's primary-group membership names usermod -g, and not gpasswd -d, which cannot change it"
+else
+    fail "the sandbox account's primary-group membership should name usermod -g alone, got: ${out}"
+fi
 refused "an account whose groups cannot be read" MSG-H9Q6 "$(run_group_check FAIL "SBX" yes)"
 refused "a sandbox account whose groups cannot be read" MSG-M9D2 "$(run_group_check "svc-op" FAIL yes)"
 out="$(run_group_check "svc-op" "SBX svc-op" no)"

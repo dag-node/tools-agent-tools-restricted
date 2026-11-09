@@ -27,6 +27,9 @@
 #                                 nearest-ancestor-owner tie-break); for the handback helpers that
 #                                 restore ownership of agent-written project files.
 #
+# Enrolment reads one more decision here, ai_tools_operator__read_group_refusal: whether an account shares a group
+# with the sandbox account, which `ai-tools-admin operators add` and install.sh both refuse.
+#
 # The per-path helpers source this lib best-effort and, when it is absent, define a fail-closed
 # ai_tools_operator__resolve_owner stub that leaves the owner unresolved -- so a missing lib skips the operation (the
 # path stays as found) instead of acting on the wrong identity. Each calls resolve_owner on the path it acts on, then
@@ -63,6 +66,47 @@ ai_tools_operator__load_operators() {
     declare -F ai_tools_conf__read_list >/dev/null 2>&1 || return 1
     ai_tools_conf__read_list AI_TOOLS_OPERATOR__OPERATORS "${AI_TOOLS_OPERATOR_CONF}" OPERATORS || return 1
     [[ "${#AI_TOOLS_OPERATOR__OPERATORS[@]}" -gt 0 ]]
+}
+
+_ai_tools_operator__print_refusal() { printf '%s\n%s\n' "$1" "$2"; }
+
+# ai_tools_operator__read_group_refusal <user> <sandbox-user> <sandbox-group>: print why <user> shares a group
+# with the sandbox account, as two lines (the message code, then the text), and return 1; print nothing and return 0
+# when it does not. The operator stays out of the sandbox's group (CLAUDE.md), and the claim and create rely on it:
+# a path in either group is readable by the agent through its group bits, a `.git` the operator withheld among them.
+# Refused: <user> in <sandbox-group>, as its primary group or a supplementary one, and <sandbox-user> in <user>'s
+# primary group, as its own primary group or a supplementary one; each case names the command that changes it.
+# A supplementary group both accounts hold is the host's. A group list that cannot be read refuses as well, and a host
+# without <sandbox-user> skips the second check. `ai-tools-admin operators add` and install.sh's enrolment both call it.
+ai_tools_operator__read_group_refusal() {
+    local user="$1" sandbox_user="$2" sandbox_group="$3" user_groups primary sandbox_groups sandbox_primary
+    if ! user_groups="$(id -nG "${user}" 2>/dev/null)" || ! primary="$(id -gn "${user}" 2>/dev/null)"; then
+        _ai_tools_operator__print_refusal MSG-H9Q6 "cannot read ${user}'s groups, so whether the agent reads through them is unknown -- not enrolled"
+        return 1
+    fi
+    if [[ "${primary}" == "${sandbox_group}" ]]; then
+        _ai_tools_operator__print_refusal MSG-D4N4 "account ${user} has ${sandbox_group} as its primary group, so the agent reads what ${user}'s group bits open -- give ${user} its own primary group, then re-run: usermod -g <group> ${user}"
+        return 1
+    fi
+    if [[ " ${user_groups} " == *" ${sandbox_group} "* ]]; then
+        _ai_tools_operator__print_refusal MSG-H3P3 "account ${user} is in group ${sandbox_group}, so the agent reads what ${user}'s group bits open -- remove ${user} from ${sandbox_group}, then re-run: gpasswd -d ${user} ${sandbox_group}"
+        return 1
+    fi
+    id -u "${sandbox_user}" >/dev/null 2>&1 || return 0
+    if ! sandbox_groups="$(id -nG "${sandbox_user}" 2>/dev/null)" \
+        || ! sandbox_primary="$(id -gn "${sandbox_user}" 2>/dev/null)"; then
+        _ai_tools_operator__print_refusal MSG-M9D2 "cannot read ${sandbox_user}'s groups, so whether it is in ${user}'s primary group is unknown -- not enrolled"
+        return 1
+    fi
+    if [[ "${sandbox_primary}" == "${primary}" ]]; then
+        _ai_tools_operator__print_refusal MSG-T8R6 "the sandbox account ${sandbox_user} has ${user}'s primary group ${primary} as its own, so the agent reads what ${user}'s group bits open -- give ${sandbox_user} the primary group ${sandbox_group}, then re-run: usermod -g ${sandbox_group} ${sandbox_user}"
+        return 1
+    fi
+    if [[ " ${sandbox_groups} " == *" ${primary} "* ]]; then
+        _ai_tools_operator__print_refusal MSG-R2C2 "the sandbox account ${sandbox_user} is in ${user}'s primary group ${primary}, so the agent reads what ${user}'s group bits open -- remove ${sandbox_user} from ${primary}, then re-run: gpasswd -d ${sandbox_user} ${primary}"
+        return 1
+    fi
+    return 0
 }
 
 # ai_tools_operator__load_operator: resolve the PRIMARY operator (the first in the list) into the globals PROJECTS_USER,

@@ -33,7 +33,9 @@
 # and a non-command do not; do_install's text is read for the check ahead of the first write, and do_uninstall's
 # for a removal through remove_recognized_atr_entries alone. report_install_abort is driven out of the text: a run
 # stopped after the first write names its step and the re-run, and do_install's text is read for the trap set ahead
-# of that write and the flag cleared ahead of the closing section.
+# of that write and the flag cleared ahead of the closing section. require_operator_outside_sandbox_groups is driven
+# over the checkout's operator.lib.sh with `id` a shell function, each shared group refused under its code beside
+# a control, and do_install's text is read for the call ahead of the first write and operator_refusal's for none.
 #
 # No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
@@ -433,6 +435,90 @@ if call_precedes_first_write "${INSTALLER}"; then
     pass "do_install refuses a host without the ACL tools ahead of its first write"
 else
     fail "do_install does not call require_acl_tools ahead of its install log's directory"
+fi
+
+# ── The install action refuses an operator who shares a group with the sandbox account ───────────────────────
+# require_operator_outside_sandbox_groups is driven extracted with the real die and emit_coded, over the checkout's
+# operator.lib.sh, with `id` a shell function answering for the fixture account svc-op and the sandbox account. Each
+# refusal must carry its code and end the run; the control passes in silence. do_install's text is read for the call
+# ahead of its first write, and operator_refusal's for no group check, since every action of install.sh asks it.
+section "install.sh: the install action refuses an operator who shares a group with the sandbox account (unit)"
+group_text=""
+for name in die require_operator_outside_sandbox_groups; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install.sh does not define ${name}() in the form this file reads"
+        group_text=""; break
+    fi
+    group_text+="${body}"$'\n'
+done
+if [[ -n "${group_text}" ]]; then
+    group_text+="$(grep -E '^emit_coded\(\) \{.*\}$' "${INSTALLER}" || true)"$'\n'
+    # group_run <svc-op groups|FAIL> <primary> <sandbox present: yes|no> <sandbox groups|FAIL> <sandbox primary> :
+    #   the check for svc-op, SBX standing for the sandbox group.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    group_run() {
+        env -i PATH=/usr/bin:/bin "${BASH}" -c '
+            set -euo pipefail
+            C_RED="" C_RST="" SANDBOX_USER=sbx-acct SANDBOX_GROUP=sbx-grp PROJECTS_USER=svc-op
+            source "$1"
+            eval "$2"
+            stub_user_groups="$3" stub_user_primary="$4" stub_sandbox_present="$5" stub_sandbox_groups="$6" stub_sandbox_primary="$7"
+            answer() { [[ "$1" != FAIL ]] || return 1; printf "%s\n" "${1//SBX/${SANDBOX_GROUP}}"; }
+            id() {
+                case "$1 ${2:-}" in
+                    "-nG svc-op") answer "${stub_user_groups}" ;;
+                    "-gn svc-op") answer "${stub_user_primary}" ;;
+                    "-u sbx-acct") [[ "${stub_sandbox_present}" == yes ]] || return 1; printf "998\n" ;;
+                    "-nG sbx-acct") answer "${stub_sandbox_groups}" ;;
+                    "-gn sbx-acct") answer "${stub_sandbox_primary}" ;;
+                    *) return 1 ;;
+                esac
+            }
+            require_operator_outside_sandbox_groups
+            printf "returned\n"
+        ' _ "${ROOT}/src/usr/local/lib/ai-tools/operator.lib.sh" "${group_text}" "$@" 2>&1
+    }
+    rc=0; out="$(group_run "svc-op wheel video" svc-op yes "SBX video" SBX)" || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == returned ]]; then
+        pass "an operator sharing only a supplementary group with the sandbox account passes in silence (control)"
+    else
+        fail "the control was refused (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+    for row in "MSG-H9Q6|FAIL|svc-op|yes|SBX|SBX|groups that cannot be read" \
+               "MSG-D4N4|SBX|SBX|yes|SBX|SBX|the sandbox group as its primary group" \
+               "MSG-H3P3|svc-op SBX|svc-op|yes|SBX|SBX|a supplementary sandbox group" \
+               "MSG-M9D2|svc-op|svc-op|yes|FAIL|SBX|a sandbox account whose groups cannot be read" \
+               "MSG-T8R6|svc-op|svc-op|yes|svc-op|svc-op|a sandbox account whose primary group is the operator's" \
+               "MSG-R2C2|svc-op|svc-op|yes|SBX svc-op|SBX|a sandbox account in the operator's primary group"; do
+        IFS='|' read -r code g p present sg sp what <<<"${row}"
+        rc=0; out="$(group_run "${g}" "${p}" "${present}" "${sg}" "${sp}")" || rc=$?
+        assert_msg "${code}" "${out}" "an operator with ${what} is refused"
+        if (( rc != 0 )) && [[ "${out}" != *returned* ]]; then
+            pass "an operator with ${what} ends the install"
+        else
+            fail "an operator with ${what} did not end the install (exit ${rc}): ${out//$'\n'/ | }"
+        fi
+    done
+    rc=0; out="$(group_run svc-op svc-op no FAIL FAIL)" || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == returned ]]; then
+        pass "a host without the sandbox account skips the check of its groups"
+    else
+        fail "a host without the sandbox account was refused (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+fi
+group_body="$(extract_function "${INSTALLER}" do_install)"
+group_call_line="$(grep -n -m1 -E '^[[:space:]]+require_operator_outside_sandbox_groups$' <<<"${group_body}" | cut -d: -f1 || true)"
+group_write_line="$(grep -n -m1 -E '^[[:space:]]+install -d .*/var/log/ai-tools' <<<"${group_body}" | cut -d: -f1 || true)"
+if [[ -n "${group_call_line}" && -n "${group_write_line}" ]] && (( group_call_line < group_write_line )); then
+    pass "do_install refuses an operator sharing a group with the sandbox account ahead of its first write"
+else
+    fail "do_install does not call require_operator_outside_sandbox_groups ahead of its install log's directory (call ${group_call_line:-none}, write ${group_write_line:-none})"
+fi
+if extract_function "${INSTALLER}" operator_refusal | grep -q 'read_group_refusal'; then
+    fail "operator_refusal, which every action asks, makes the group check, so uninstall and the checks refuse an affected operator"
+else
+    pass "operator_refusal, which every action asks, leaves the group check to the install action"
 fi
 
 # ── ensure_dir sets an owner and a mode on a directory alone ─────────────────────────────────────
