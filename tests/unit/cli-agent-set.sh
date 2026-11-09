@@ -653,7 +653,8 @@ printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"; printf 'AI_TOOLS_R
 chmod 0644 "${REQUIRED_CONF}" "${NOT_REQUIRED_CONF}"
 # call_attestation_section <records> <operator-conf> [selinux-mode] [module-present] [policy-shipped] : print
 # the section, then `section-status=<n>`. The mode and the two module readers default to a confined host (Enforcing,
-# live, shipped); a case about a host without confinement by its own configuration sets them.
+# live, shipped); a case about a host without confinement by its own configuration sets them, and a module-present
+# of `unread` makes that reader return 1 with no output, as a failed file-context lookup does.
 # shellcheck disable=SC2016  # the $1..$7 are for the inner `bash -c`, not this shell -- do not expand here
 call_attestation_section() {
     runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_MSG_PLAIN=1 \
@@ -665,7 +666,7 @@ call_attestation_section() {
                  declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null || exit 97
                  getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
                  ai_tools_confinement__read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
-                 ai_tools_confinement__read_module_present() { printf "%s" "${stub_module_present}"; }
+                 ai_tools_confinement__read_module_present() { [[ "${stub_module_present}" != unread ]] || return 1; printf "%s" "${stub_module_present}"; }
                  ai_tools_confinement__read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
                  section_status=0; status_selinux_attestation "${operator_conf}" || section_status=$?
                  printf "section-status=%s\n" "${section_status}"' \
@@ -693,6 +694,36 @@ else
         pass "an attested host under the requirement is not a fault"
     else
         fail "attested host under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # An unread module reading counts under the requirement, driven with the compiled module absent, where
+    # a "no" would read as a host without the policy.
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
+               "${REQUIRED_CONF}" Enforcing unread no)" || true
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'file contexts' <<<"${out}" \
+            && grep -qF 'MSG-A7E7' <<<"${out}" && grep -qF 'matchpathcon -n /opt/ai-tools/.config' <<<"${out}" \
+            && ! grep -qF 'policy is not installed' <<<"${out}"; then
+        pass "an unread file-context lookup under the requirement is a fault, not a host without the policy"
+    else
+        fail "unread file-context lookup under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
+               "${NOT_REQUIRED_CONF}" Enforcing unread no)" || true
+    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'file contexts' <<<"${out}" \
+            && grep -qF 'launches are not refused' <<<"${out}"; then
+        pass "the same unread lookup without the requirement is reported and not a fault"
+    else
+        fail "unread file-context lookup without the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # On a host that is not Enforcing the requirement refuses every launch for the mode first, so the row does not name
+    # the unattested refusal there.
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
+               "${REQUIRED_CONF}" Permissive unread no)" || true
+    if grep -qx 'section-status=1' <<<"${out}" \
+            && grep -qF 'SELinux is Permissive, not Enforcing, so every launch refuses' <<<"${out}" \
+            && ! grep -qF 'MSG-A7E7' <<<"${out}"; then
+        pass "an unread lookup on a permissive host names the mode's refusal, not the unattested one"
+    else
+        fail "unread file-context lookup on a permissive host: $(tr '\n' '|' <<<"${out}")"
     fi
     # A Boolean whose rules are shut names what it would allow once opened, so its row does not read as a failed one.
     out="$(call_attestation_section $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff\nboolean\tdeny_ptrace\ton' \

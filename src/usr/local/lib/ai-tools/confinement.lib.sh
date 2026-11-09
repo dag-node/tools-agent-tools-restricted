@@ -459,8 +459,8 @@ ai_tools_confinement__classify_boolean_row() {
 # when <type> is an ai_tools_* type, else "no". A core-owned path resolves to an ai_tools_* type ONLY when the core
 # module's file-contexts are live in the running policy, so this is the sandbox-account-readable stand-in for reading
 # the root-only module store, which ai-tools-run cannot read from the sandbox account -- matchpathcon reads
-# the world-readable file-contexts and computes from the path string, needing no privilege. An empty or foreign type
-# (module absent, or matchpathcon unavailable) -> "no". Pure, like the verdict, so it is unit-tested.
+# the world-readable file-contexts and computes from the path string, needing no privilege. An empty or foreign type (no
+# rule maps the path, or a rule outside the core module does) -> "no". Pure, like the verdict, so it is unit-tested.
 ai_tools_confinement__evaluate_module_present() {
     if [[ "$1" == ai_tools_* ]]; then printf 'yes'; else printf 'no'; fi
 }
@@ -477,12 +477,17 @@ readonly AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE="/usr/share/selinux/packages/ai-
 # ai_tools_confinement__read_module_present <probe-path> -- print "yes" or "no" for the `module-present` verdict input:
 # matchpathcon over <probe-path> (AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH on a host), classified
 # by ai_tools_confinement__evaluate_module_present. Returns 1 and prints nothing where matchpathcon is not installed,
-# which a caller records as an unread input. The shim and both status reports read module presence through this one
-# function, so a report describes the state the launch decides on.
+# exits non-zero or prints nothing, which a caller records as an unread input, so a failed lookup does not read
+# as the absent module that ai_tools_confinement__evaluate_dac_only_state takes for a host without the policy. A path no
+# rule maps (`<<none>>`) reads "no". The shim, both status reports, the relabel helper and the clone's label read module
+# presence through this one function, so each describes the state the launch decides on.
 ai_tools_confinement__read_module_present() {
-    local probe_path="$1"
+    local probe_path="$1" probe_context probe_type
     command -v matchpathcon >/dev/null 2>&1 || return 1
-    ai_tools_confinement__evaluate_module_present "$(matchpathcon -n "${probe_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
+    probe_context="$(matchpathcon -n "${probe_path}" 2>/dev/null)" || return 1
+    [[ -n "${probe_context}" ]] || return 1
+    IFS=: read -r _ _ probe_type _ <<< "${probe_context}" || true
+    ai_tools_confinement__evaluate_module_present "${probe_type}"
 }
 
 # ai_tools_confinement__read_policy_shipped <module-file> -- print "yes" when the compiled core policy module is on this

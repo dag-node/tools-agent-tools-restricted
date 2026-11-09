@@ -69,9 +69,19 @@ view_id() {
     printf '%s/%s/%s' "${HOME_DIR}" "${kind}" "${name}"
 }
 
-# assets_section : the Assets section of `atr admin status`, its heading excluded.
+# assets_section : print the Assets section of `atr admin status`, its heading excluded; return 1 unless the report
+# shows the section completed and ran the successor check, since notice_absent reads an absent notice as a pass.
+# The report is read whole, since awk's early exit would send it a SIGPIPE under pipefail.
 assets_section() {
-    "${ADMIN}" status 2>/dev/null | awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside'
+    local status_report report_status=0 section
+    status_report="$("${ADMIN}" status 2>/dev/null)" || report_status=$?
+    case "${report_status}" in 0|4|5) ;; *) echo "the status report exited ${report_status}" >&2; return 1 ;; esac
+    grep -qx '  Assets' <<< "${status_report}" || { echo "the status report carries no Assets section" >&2; return 1; }
+    grep -qx '  Services' <<< "${status_report}" || { echo "the status report ended inside the Assets section" >&2; return 1; }
+    section="$(awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside' <<< "${status_report}")"
+    printf '%s\n' "${section}"
+    ! grep -qE '\[UNREADABLE\]|enable-list-untrusted|id-malformed' <<< "${section}" \
+        || { echo "the Assets section did not run the successor check" >&2; return 1; }
 }
 
 # is_shared <kind>/<name> : succeed for an entry whose successor takes the same view name.
@@ -152,13 +162,13 @@ core_unlinked() {
 }
 notice_absent() {
     local section
-    section="$(assets_section)"
+    section="$(assets_section)" || { printf '%s\n' "${section}"; return 1; }
     printf '%s\n' "${section}"
     ! grep -qE 'successor-unenabled|view-occupied' <<< "${section}"
 }
 notice_names_all() {
     local section row entry
-    section="$(assets_section)"
+    section="$(assets_section)" || { printf '%s\n' "${section}"; return 1; }
     printf '%s\n' "${section}"
     row="$(grep -E '\[ATTENTION\] +successor-unenabled +core -- ' <<< "${section}")" || return 1
     [[ "$(grep -c successor-unenabled <<< "${section}")" == 1 ]] || return 1

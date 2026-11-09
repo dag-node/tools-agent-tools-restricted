@@ -229,7 +229,8 @@ expect_dac_only_state none          unknown    no  no     # not a documented mod
 
 # The policy-shipped reader answers from the module file's presence alone, and the module-present reader
 # from matchpathcon, so each is driven against a fixture: a file that exists, one that does not, a type the core module
-# maps and one it does not, and a host without matchpathcon, which reads as unread rather than as absent.
+# maps and one it does not, and a host without matchpathcon or with a lookup that fails, each of which reads as unread
+# rather than as absent.
 : > "${TESTDIR}/ai_tools.pp"
 expect_reader() {  # <description> <expected> <command...>
     local description="$1" expected="$2"; shift 2
@@ -247,6 +248,28 @@ expect_reader "module present: the core path maps to its type" yes \
 stub_probe_type=user_home_t
 expect_reader "module present: the core path keeps its default type" no \
     ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+matchpathcon() { printf '<<none>>\n'; }
+expect_reader "module present: no rule maps the core path (<<none>>)" no \
+    ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+# expect_unread_module <description>: the reader returns 1 and prints nothing, which every caller records as an unread
+# input. A "no" here is the defect: with the compiled module absent too, it reads as a host without the policy,
+# which launches DAC-only and creates a clone unlabelled.
+expect_unread_module() {
+    local answer
+    if answer="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null)"; then
+        fail "module present, $1: read as a value: ${answer:-∅}"
+    elif [[ -z "${answer}" ]]; then
+        pass "module present, $1 -> unread (rc 1, prints nothing)"
+    else
+        fail "module present, $1: printed ${answer}"
+    fi
+}
+matchpathcon() { printf 'selabel_lookup(%s) failed: Permission denied\n' "$2" >&2; return 1; }
+expect_unread_module "matchpathcon exits non-zero"
+matchpathcon() { printf 'system_u:object_r:ai_tools_home_t:s0\n'; return 1; }
+expect_unread_module "matchpathcon prints a context and exits non-zero"
+matchpathcon() { return 0; }
+expect_unread_module "matchpathcon prints no line"
 unset -f matchpathcon
 if answer="$(PATH=/nonexistent ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null)"; then
     fail "module present without matchpathcon read as a value: ${answer}"

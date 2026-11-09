@@ -144,7 +144,8 @@ only when the module is loaded) rather than read from the module store with `sem
 the account: `ai-tools-run` runs as the sandbox account, which cannot read the root-only store, so that read returns
 a systematic false "no" — which on the unresolved-label branch would fail *open*, launching DAC-only where the module is
 loaded. The `matchpathcon` probe does not need any privilege — it reads the world-readable file-contexts — and the agent
-cannot influence it, file-contexts and the shim both being root-owned.
+cannot influence it, file-contexts and the shim both being root-owned. A lookup that fails is an unread input and never
+an absent module, for the same reason.
 
 `ai-tools-run` performs that probing and I/O; the launch-vs-refuse decision is the pure `ai_tools_confinement__evaluate`
 (`confinement.lib.sh`), which carries its inputs and the verdict token for each combination as its contract, and is
@@ -247,9 +248,9 @@ which then refuses every launch that does not show the session will run confined
 - `require-boolean` (`MSG-P3P8`) — a Boolean is not at the value a launch requires, so `ai_tools_t` would run
   under rules the host has not declared ([What the domain holds beyond the module's own
   rules](#what-the-domain-holds-beyond-the-modules-own-rules)).
-- `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing, the manager's
-  domain unreadable, the module's file-contexts not live with its file unread, or the per-domain mode or a gating
-  Boolean unread. The refusal names each input it lacked.
+- `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing or failing,
+  the manager's domain unreadable, the module's file-contexts not live with its file unread, or the per-domain mode
+  or a gating Boolean unread. The refusal names each input it lacked.
 
 A definite fault outranks an unread input, so a refusal names what to change where one is known,
 and `require-unattested` prints one remedy per kind of input it lacked: a tool to install, the selinuxfs read, a Boolean
