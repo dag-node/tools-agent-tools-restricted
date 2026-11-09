@@ -137,7 +137,7 @@ out="$(run "${path}")"
 after="$(find "${path}" -mindepth 1 -printf '%p %y %l\n' | sort)"
 [[ "${before}" == "${after}" ]] \
     && pass "a second run over the same directory changes nothing" \
-    || fail "a second run changed the directory: $(diff <(echo "${before}") <(echo "${after}") | head -5 | tr '\n' '|')"
+    || fail "a second run changed the directory: $(diff <(echo "${before}") <(echo "${after}") | awk 'NR <= 5' | tr '\n' '|')"
 # The one shipped name that was free is now our link into the shared root.
 [[ -L "${path}/ai-tools-one" ]] && fail "ai-tools-one became a link over the host's directory" || :
 # A shipped asset whose name was free: add one and link it on the refresh.

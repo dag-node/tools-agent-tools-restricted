@@ -158,7 +158,7 @@ layout_fixture_has_observation "${out}" refused "${CONF_LIB}" mode "the mode 066
 chmod 0644 "${CONF_LIB}"; setfacl -m g:nobody:rw-,m::r-- "${CONF_LIB}"
 out="$(layout_fixture_reconcile)"
 layout_fixture_has_observation "${out}" refused "${CONF_LIB}" acl "the entry group:nobody:rw- grants write beyond the row; so another account may have written the bytes; sudo dnf reinstall ai-tools-base" \
-    && getfacl --omit-header -P -- "${CONF_LIB}" | grep -q '^group:nobody:rw-' && [[ "$(layout_fixture_status "${out}")" == rc=4 ]] \
+    && grep -q '^group:nobody:rw-' <<<"$(getfacl --omit-header -P -- "${CONF_LIB}")" && [[ "$(layout_fixture_status "${out}")" == rc=4 ]] \
     && pass "a package file with a masked foreign entry carrying write is refused on its ACL and left" || fail "foreign entry: $(layout_fixture_brief "${out}")"
 setfacl -b "${CONF_LIB}"; chmod 0600 "${CONF_LIB}"
 out="$(layout_fixture_reconcile)"
@@ -169,7 +169,7 @@ README="${fixture_root}/var/opt/ai-tools/README.md"
 setfacl -m g:nobody:rw-,m::r-- "${README}"
 out="$(layout_fixture_reconcile)"
 layout_fixture_has_observation "${out}" refused "${README}" acl "the entry group:nobody:rw- grants write beyond the row; so another account may have written the bytes; sudo dnf reinstall ai-tools-base" \
-    && getfacl --omit-header -P -- "${README}" | grep -q '^group:nobody:rw-' && [[ "$(layout_fixture_status "${out}")" == rc=4 ]] \
+    && grep -q '^group:nobody:rw-' <<<"$(getfacl --omit-header -P -- "${README}")" && [[ "$(layout_fixture_status "${out}")" == rc=4 ]] \
     && pass "README.md with a foreign entry carrying write is refused naming that entry and left" || fail "README foreign entry: $(layout_fixture_brief "${out}")"
 setfacl -x g:nobody "${README}"; setfacl -m m::r-- "${README}"
 # A log is a ghost, so an exposed one names the restore by hand: a reinstall does not write a %ghost, and removing

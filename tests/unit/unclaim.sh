@@ -60,7 +60,7 @@ fi
 
 setsid "${HELPER}" "${proj}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
 
-agentacl() { getfacl -p "$1" 2>/dev/null | grep -qE "^group:${SANDBOX_GROUP}:"; }
+agentacl() { grep -qE "^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "$1" 2>/dev/null)"; }
 
 # (A) 660 file -> 640, regrouped to the target, agent ACL cleared.
 if [[ "$(perm "${proj}/f")" == 640 && "$(stat -c '%G' "${proj}/f")" == "${PROJECTS_GROUP}" ]] \
@@ -73,7 +73,7 @@ fi
 # (B) 770 setgid dir -> clean 750 (setgid cleared), regrouped, ACL + default ACL gone.
 d_mode="$(stat -c '%a' "${proj}/d")"
 if [[ "${d_mode}" == 750 && "$(stat -c '%G' "${proj}/d")" == "${PROJECTS_GROUP}" ]] \
-        && ! getfacl -p "${proj}/d" 2>/dev/null | grep -qE "^default:|^group:${SANDBOX_GROUP}:"; then
+        && ! grep -qE "^default:|^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "${proj}/d" 2>/dev/null)"; then
     pass "770 setgid dir -> clean 750 (setgid cleared), regrouped, ACL + default cleared"
 else
     fail "d is ${d_mode} $(stat -c '%G' "${proj}/d") (want 750 ${PROJECTS_GROUP}, no setgid/ACL/default)"
@@ -133,7 +133,7 @@ fi
 if [[ "$(stat -c '%G' "${proj}/.git/objects/o")" == "${PROJECTS_GROUP}" ]] \
         && ! agentacl "${proj}/.git/objects/o" \
         && [[ "$(perm "${proj}/.git")" == 750 && "$(stat -c '%G' "${proj}/.git")" == "${PROJECTS_GROUP}" ]] \
-        && ! getfacl -p "${proj}/.git" 2>/dev/null | grep -qE "^default:|^group:${SANDBOX_GROUP}:"; then
+        && ! grep -qE "^default:|^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "${proj}/.git" 2>/dev/null)"; then
     pass ".git is reverted (regrouped, agent ACL cleared, dir setgid cleared)"
 else
     fail ".git not fully reverted: objects/o group $(stat -c '%G' "${proj}/.git/objects/o"), .git $(stat -c '%a %G' "${proj}/.git")"

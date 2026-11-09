@@ -204,8 +204,7 @@ assert_emitted "a unit inside a DOT-NAMED parent cannot hide from the walk" \
 # A slice root that holds tasks directly is itself a session -- the "belongs to no unit at all" case, reported rather
 # than skipped. Asserted on the absolute path, since its slice-relative form is the empty string.
 printf '%s\n' "$(fixture_pid 999)" > "${CG}/cgroup.procs"
-# Captured, not piped into `grep -q`: under `pipefail` grep's early exit SIGPIPEs the producer and the pipeline reports
-# 141 even on a match.
+# Captured ahead of the search (ref-section-d9x2).
 slice_root_emission="$(find_session_cgroups)"
 if grep -qxF "${CG}" <<< "${slice_root_emission}"; then
     pass "a slice ROOT holding tasks directly is emitted"
@@ -598,8 +597,8 @@ table_classes="$(awk '/^  SESSION / { rows = 1; next } /^  the processes in each
 if (( MAIN_STATUS == 0 )) \
         && grep -q "^3 agent session(s) would be terminated. Nothing was changed.$" <<< "${MAIN_OUTPUT}" \
         && [[ "${table_classes}" == "A A L A S S P " ]] \
-        && grep -A1 "^  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}" \
-            | grep -qE "^   \\\\_ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
+        && grep -qE "^   \\\\_ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
+            <<<"$(grep -A1 "^  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}")" \
         && grep -qF "the processes in each: systemd-cgls --no-pager -u user-4242.slice" <<< "${MAIN_OUTPUT}"; then
     pass "a scope holding the pid an agent unit is named for is that session's launch scope, placed under it with that pid, and the table names the process view"
 else

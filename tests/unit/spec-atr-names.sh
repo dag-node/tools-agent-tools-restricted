@@ -264,7 +264,7 @@ gzip -c "${PAGE1_SRC}" > "${WHOLE_GZ}"
 WHOLE_SIZE="$(stat -c '%s' "${WHOLE_GZ}")"
 for kind in gz-crc gz-cut; do
     path="$(create_foreign_entry "${kind}")"
-    prefix="$(gzip -dc -- "${path}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" || true
+    prefix="$(gzip -dc -- "${path}" 2>/dev/null | awk '!/^\.\\"/ && !seen++')" || true
     if ! gzip -t -- "${path}" 2>/dev/null && [[ "${prefix}" == '.so man1/ai-tools.1' ]]; then
         pass "control: the ${kind} page fails gzip -t and decompresses to the stub's .so line"
     else

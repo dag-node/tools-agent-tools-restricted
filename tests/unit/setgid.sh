@@ -147,8 +147,7 @@ else
     fail "a sealed dir's mode widened to $(perm "${p2}/inherited")"
 fi
 if ${have_acl}; then
-    if getfacl -c -- "${p2}/inherited" 2>/dev/null \
-            | grep -q "^\(default:\)\?group:${SANDBOX_GROUP}:"; then
+    if grep -q "^\(default:\)\?group:${SANDBOX_GROUP}:" <<<"$(getfacl -c -- "${p2}/inherited" 2>/dev/null)"; then
         fail "the inherited sandbox ACL entry survived on a sealed dir"
     else
         pass "the inherited sandbox ACL entries are removed from a sealed dir"

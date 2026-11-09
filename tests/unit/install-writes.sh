@@ -128,10 +128,10 @@ fi
 settings_keep_shape() {
     local lines reader_line keep_line install_line reader_indent keep_indent keep=none install=none
     lines="$(code_lines "$1")"
-    reader_line="$(grep -F 'if settings_refusal="$(read_settings_keep_refusal "${settings}"' <<<"${lines}" | head -n1 || true)"
-    keep_line="$(grep -F 'keep_existing "${settings}"' <<<"${lines}" | head -n1 || true)"
+    reader_line="$(grep -m1 -F 'if settings_refusal="$(read_settings_keep_refusal "${settings}"' <<<"${lines}" || true)"
+    keep_line="$(grep -m1 -F 'keep_existing "${settings}"' <<<"${lines}" || true)"
     install_line="$(grep -E '(^|[^[:alnum:]_-])install[[:space:]]' <<<"${lines}" \
-        | grep -F 'agents/claude-code/settings.json" "${settings}"' | head -n1 || true)"
+        | grep -F 'agents/claude-code/settings.json" "${settings}"' | awk 'NR == 1' || true)"
     if [[ -n "${reader_line}" && -n "${keep_line}" ]]; then
         reader_indent="${reader_line#*:}"; reader_indent="${reader_indent%%[^ ]*}"
         keep_indent="${keep_line#*:}"; keep_indent="${keep_indent%%[^ ]*}"
@@ -349,8 +349,8 @@ else
         else
             fail "walk_account_tree over a dangling symlink printed: $(_san "${walk_out}")"
         fi
-        realpath_line="$(grep -nF 'realpath -e -- "$1"' <<<"${walk_text}" | head -n 1)"; realpath_line="${realpath_line%%:*}"
-        walker_line="$(grep -nF 'ai-tools-relabel-tree -- "${dir}"' <<<"${walk_text}" | head -n 1)"; walker_line="${walker_line%%:*}"
+        realpath_line="$(grep -m1 -nF 'realpath -e -- "$1"' <<<"${walk_text}")"; realpath_line="${realpath_line%%:*}"
+        walker_line="$(grep -m1 -nF 'ai-tools-relabel-tree -- "${dir}"' <<<"${walk_text}")"; walker_line="${walker_line%%:*}"
         if [[ -n "${realpath_line}" && -n "${walker_line}" ]] && (( realpath_line < walker_line )); then
             pass "walk_account_tree resolves its tree with realpath -e (line ${realpath_line}) ahead of the walker call (line ${walker_line})"
         else
@@ -515,7 +515,8 @@ if [[ -n "${group_call_line}" && -n "${group_write_line}" ]] && (( group_call_li
 else
     fail "do_install does not call require_enrolable_groups ahead of its install log's directory (call ${group_call_line:-none}, write ${group_write_line:-none})"
 fi
-if extract_function "${INSTALLER}" operator_refusal | grep -qE 'read_enrolment_group_refusal|require_enrolable_groups'; then
+if grep -qE 'read_enrolment_group_refusal|require_enrolable_groups' \
+        <<<"$(extract_function "${INSTALLER}" operator_refusal)"; then
     fail "operator_refusal, which every action asks, makes the group check, so uninstall and the checks refuse an affected operator"
 else
     pass "operator_refusal, which every action asks, leaves the group check to the install action"
@@ -598,9 +599,9 @@ section "install.sh: the home, then bin, are brought to their rows ahead of the 
 home_then_bin_precede_first_file() {
     local lines home_line dir_line file_line
     lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"
-    home_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
-    dir_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools/bin$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
-    file_line="$(grep -E '^[0-9]+:[[:space:]]*install(_subst)? .* /opt/ai-tools/bin/' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    home_line="$(grep -m1 -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools$' <<<"${lines}" | cut -d: -f1)"
+    dir_line="$(grep -m1 -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools/bin$' <<<"${lines}" | cut -d: -f1)"
+    file_line="$(grep -m1 -E '^[0-9]+:[[:space:]]*install(_subst)? .* /opt/ai-tools/bin/' <<<"${lines}" | cut -d: -f1)"
     [[ -n "${home_line}" && -n "${dir_line}" && -n "${file_line}" ]] \
         && (( home_line < dir_line )) && (( dir_line < file_line ))
 }
@@ -625,7 +626,7 @@ fi
 home_precedes_every_home_row() {
     local lines home_line row_line
     lines="$(extract_function "$1" do_install | code_lines /dev/stdin)"
-    home_line="$(grep -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools$' <<<"${lines}" | head -n 1 | cut -d: -f1)"
+    home_line="$(grep -m1 -E '^[0-9]+:[[:space:]]*ensure_dir .* /opt/ai-tools$' <<<"${lines}" | cut -d: -f1)"
     [[ -n "${home_line}" ]] || return 1
     ! grep -qE '^[0-9]+:[[:space:]]*install -d .* /opt/ai-tools(/|$)' <<<"${lines}" || return 1
     while IFS= read -r row_line; do
@@ -818,7 +819,7 @@ if [[ -n "${atr_text}" ]]; then
       tail -c 4 "${TESTDIR}/atr-whole.gz"; } > "${PAGE1}.gz"
     head -c "$(( whole_size - 8 ))" "${TESTDIR}/atr-whole.gz" > "${PAGE8}.gz"
     for corrupt in "${PAGE1}.gz:a CRC that does not match" "${PAGE8}.gz:a stream cut before its trailer"; do
-        prefix="$(gzip -dc -- "${corrupt%%:*}" 2>/dev/null | sed -n '/^\.\\"/d;p;q')" || true
+        prefix="$(gzip -dc -- "${corrupt%%:*}" 2>/dev/null | awk '!/^\.\\"/ && !seen++')" || true
         gzip -t -- "${corrupt%%:*}" 2>/dev/null \
             && fail "control: ${corrupt#*:} passes gzip -t, so the case below cannot fail"
         [[ "${prefix}" == '.so man1/ai-tools.1' ]] \

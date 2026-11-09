@@ -128,14 +128,14 @@ para="$(sed -n '4,/^#$/p' "${f}" | sed '$d')"
 if (( $(wc -l <<< "${para}") > 1 )) && awk 'length > 72 {exit 1}' <<< "${para}"; then
     pass "the long paragraph is filled at 72 columns"
 else
-    fail "the paragraph was not filled at 72: $(printf '%s' "${para}" | head -3)"
+    fail "the paragraph was not filled at 72: $(printf '%s' "${para}" | awk 'NR <= 3')"
 fi
 if [[ -r "${PC}" ]] && command -v python3 >/dev/null 2>&1; then
     printf '%s\n' "${para}" > "${TESTDIR}/para.sh"
     if python3 "${PC}" --wrap --width 72 "${TESTDIR}/para.sh" >/dev/null 2>&1; then
         pass "the filled paragraph holds to the column (checker --wrap)"
     else
-        fail "the filled paragraph breaks the width rule: $(python3 "${PC}" --wrap --width 72 "${TESTDIR}/para.sh" 2>&1 | head -4)"
+        fail "the filled paragraph breaks the width rule: $(python3 "${PC}" --wrap --width 72 "${TESTDIR}/para.sh" 2>&1 | awk 'NR <= 4')"
     fi
 else
     skip "width oracle" "prose-check.py or python3 not available"
@@ -155,7 +155,7 @@ elif ! awk -v ties="${ties}" '
           if (last ~ /[.!?]$/) next          # a tie word closing a sentence is not a tie
           sub(/[^a-zA-Z]+$/, "", last)
           if (tolower(last) in tie) exit 1 }' <<< "${para}"; then
-    fail "the filler left a line ending on a tie word: $(printf '%s' "${para}" | head -3)"
+    fail "the filler left a line ending on a tie word: $(printf '%s' "${para}" | awk 'NR <= 3')"
 else
     pass "the filler ends no line on a tie word (its own fill-nobreak-predicate)"
 fi
@@ -231,7 +231,7 @@ same "a Values: field line"  '# Values: yes | no'
 same "a Default: field line" '# Default: no; such a launch proceeds'
 if (( $(grep -c 'A description a config header' "${f}") == 1 )) \
         && ! grep -qF 'one of its keys, long enough to need rewrapping at the column it is read at.' "${f}" \
-        && grep -B1 -xF '# Values: yes | no' "${f}" | head -n1 | grep -q 'read at\.$'; then
+        && grep -q 'read at\.$' <<<"$(grep -B1 -xF '# Values: yes | no' "${f}" | awk 'NR == 1')"; then
     pass "a key's description is filled on its own and ends at its Values: line"
 else
     fail "the run did not end at the field line: $(grep -n -A3 'A description a config header' "${f}")"
@@ -243,7 +243,7 @@ if [[ "${after}" == "# A banner is followed by prose at once,"* ]] && (( $(wc -l
         && awk 'length > 72 {exit 1}' <<< "${after}"; then
     pass "prose after a banner is filled on its own, without absorbing the banner"
 else
-    fail "the paragraph after the banner was not filled as expected: $(printf '%s' "${after}" | head -3)"
+    fail "the paragraph after the banner was not filled as expected: $(printf '%s' "${after}" | awk 'NR <= 3')"
 fi
 
 # A break never falls inside a code span: the literal a span holds is what `git grep` finds, and
@@ -279,7 +279,7 @@ if (( $(wc -l <<< "${indented_para}") > 1 )) && awk 'length > 72 {exit 1}' <<< "
         && ! grep -qF -- 'long enough that the filler has to rewrap it at the column.' "${f}"; then
     pass "an indented comment paragraph is filled"
 else
-    fail "the indented paragraph was not filled: $(printf '%s' "${indented_para}" | head -3)"
+    fail "the indented paragraph was not filled: $(printf '%s' "${indented_para}" | awk 'NR <= 3')"
 fi
 
 # (3) Idempotent: a second run leaves the file as the first left it.
@@ -288,7 +288,7 @@ bash "${TOOL}" --width 72 "${f}" >/dev/null 2>&1
 if cmp -s "${f}" "${TESTDIR}/once.sh"; then
     pass "a second run is a no-op"
 else
-    fail "a second run changed the file: $(diff "${TESTDIR}/once.sh" "${f}" | head -4)"
+    fail "a second run changed the file: $(diff "${TESTDIR}/once.sh" "${f}" | awk 'NR <= 4')"
 fi
 
 # (4) `--lines` confines the fill to a paragraph meeting a range, which is how formatters/format.sh
@@ -301,7 +301,7 @@ if grep -qxF -- "$(sed -n 4p "${TESTDIR}/before.sh")" "${f}" \
         && (( $(awk '/A section banner/ {on=1; next} /^y=2/ {on=0} on' "${f}" | wc -l) > 1 )); then
     pass "--lines fills the named paragraph and leaves the other as written"
 else
-    fail "--lines did not scope the fill: $(diff "${TESTDIR}/before.sh" "${f}" | head -6)"
+    fail "--lines did not scope the fill: $(diff "${TESTDIR}/before.sh" "${f}" | awk 'NR <= 6')"
 fi
 
 # (5) Two ranges in one run. Filling the first paragraph moves every line after it, so a range
@@ -317,7 +317,7 @@ if ! grep -qxF -- "$(sed -n 4p "${TESTDIR}/before.sh")" "${f}" \
         && (( $(awk '/A section banner/ {on=1; next} /^y=2/ {on=0} on' "${f}" | wc -l) > 1 )); then
     pass "two ranges in one run: the fill of the first does not move the second"
 else
-    fail "the second range missed its paragraph: $(diff "${TESTDIR}/before.sh" "${f}" | head -8)"
+    fail "the second range missed its paragraph: $(diff "${TESTDIR}/before.sh" "${f}" | awk 'NR <= 8')"
 fi
 
 # (6) A file that is not plain text is refused before Emacs sees it: reported with the reason and
@@ -448,7 +448,7 @@ PY
     if ( cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/quiet-base" quiet.sh >/dev/null 2>&1 ); then
         pass "a wrap landing on \`+\` or \`0700)\` is a fill, not a finding"
     else
-        fail "the gate read wrapped prose as a block marker: $(cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/quiet-base" quiet.sh 2>&1 | head -3)"
+        fail "the gate read wrapped prose as a block marker: $(cd "${TESTDIR}" && python3 "${GATE}" --against "${TESTDIR}/quiet-base" quiet.sh 2>&1 | awk 'NR <= 3')"
     fi
 fi
 

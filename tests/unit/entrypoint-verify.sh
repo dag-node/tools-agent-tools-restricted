@@ -875,7 +875,7 @@ else
     home="${ASSET_KEYS_DIR}/gnupg-subkey"; mkdir -p "${home}"; chmod 0700 "${home}"
     GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools test subkey <subkey@acme.example>' \
         ed25519 cert never 2>/dev/null
-    SUBKEY_PRIMARY="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
+    SUBKEY_PRIMARY="$(GNUPGHOME="${home}" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" && !seen++ { print $10 }')"
     GNUPGHOME="${home}" gpg --batch --quiet --passphrase '' --quick-add-key "${SUBKEY_PRIMARY}" ed25519 sign never 2>/dev/null
     SIGNING_SUBKEY="$(GNUPGHOME="${home}" gpg --batch --with-colons --with-subkey-fingerprints --list-keys "${SUBKEY_PRIMARY}" \
         | awk -F: '$1 == "fpr" { f = $10 } END { print f }')"

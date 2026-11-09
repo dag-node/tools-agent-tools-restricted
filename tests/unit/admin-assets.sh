@@ -761,7 +761,7 @@ write_conf_unset() {
 # retire <name> : a withdrawn copy under the fixture view's retired directory, as the withdrawal pass names it.
 retire() { install -d -o root -g root -m 0700 "${HOME_DIR}/retired"; mkdir -p "${HOME_DIR}/retired/$1.20261011-1.retired"; }
 # summary_line : the line status_assets printed last, ahead of the counts the driver appends.
-summary_line() { tail -n 2 <<< "${OUT}" | head -n 1; }
+summary_line() { tail -n 2 <<< "${OUT}" | awk 'NR == 1'; }
 notice_row() { grep -E '\[ATTENTION\] +successor-unenabled +core -- ' <<< "${OUT}" || true; }
 
 fresh; rm -rf "${HOME_DIR}/retired"; write_conf_unset; retire ai-tools-technical-docs; retire ai-tools-reftags

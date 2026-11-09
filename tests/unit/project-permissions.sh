@@ -536,8 +536,8 @@ if [[ -n "${acl_real}" ]] && command -v setfacl >/dev/null 2>&1; then
         # which sets the mask.
         : > "${live_new}"; : > "${live_old}"; : > "${live_exec}"
         chmod 0640 "${live_new}" "${live_old}"; chmod 0750 "${live_exec}"
-        if [[ "$(stat -c '%a' "${live_new}")" == 640 ]] && getfacl -p "${live_new}" 2>/dev/null \
-                | grep -qx "group::rwx[[:space:]]*#effective:r--"; then
+        if [[ "$(stat -c '%a' "${live_new}")" == 640 ]] \
+                && grep -qx "group::rwx[[:space:]]*#effective:r--" <<<"$(getfacl -p "${live_new}" 2>/dev/null)"; then
             pass "group_check, live: the fixture inherits group::rwx under a r-- mask"
         else
             fail "group_check, live: the fixture did not inherit group::rwx under a r-- mask -- the cases below are not evidence: $(getfacl -p "${live_new}" 2>/dev/null | tr '\n' ' ')"
@@ -597,7 +597,8 @@ feed"; do : > "${ne}/${ne_name}"; chmod 0660 "${ne}/${ne_name}"; done
         setfacl -m "g:65533:rw-" "${ne}/other-group"
         setfacl -m "u:${my_uid}:rw-,g:${my_gid}:rw-" "${ne}/line
 feed"
-        if getfacl -p -n "${ne}/walked" 2>/dev/null | grep -qx "group:${my_gid}:rwx[[:space:]]*#effective:rw-"; then
+        if grep -qx "group:${my_gid}:rwx[[:space:]]*#effective:rw-" \
+                <<<"$(getfacl -p -n "${ne}/walked" 2>/dev/null)"; then
             pass "narrow entries: control: the walked file carries its entries rwx under a rw- mask"
         else
             fail "narrow entries: control: the walked file is not as set -- the cases below are not evidence: $(getfacl -p "${ne}/walked" 2>/dev/null | tr '\n' ' ')"
@@ -618,7 +619,7 @@ feed"
         setfacl -m "g:${my_gid}:rw-" "${ne}/sub/item" "${ne}/elsewhere/item"
         assert_narrow_acl_entry_paths "control: a narrow file reached through a real directory" 0 \
             "$(printf '%q ' "${ne}/sub/item")" "${my_uid}" "${ne}/sub/item"
-        if getfacl -p -n "${ne}/elsewhere/item" 2>/dev/null | grep -q "^group:${my_gid}:rw-"; then
+        if grep -q "^group:${my_gid}:rw-" <<<"$(getfacl -p -n "${ne}/elsewhere/item" 2>/dev/null)"; then
             pass "narrow entries: control: the symlink's target carries the narrow entry"
         else
             fail "narrow entries: control: the symlink's target is not narrow -- the case below is not evidence"
@@ -634,7 +635,7 @@ feed"
         # An owner-only file keeping an earlier claim's narrow entries, the state a `chmod 600` leaves, renamed
         # into a listed name: the walk leaves a sealed file alone, so the reader does not list it.
         : > "${ne}/sealed"; setfacl -m "g:${my_gid}:rw-" "${ne}/sealed"; chmod 0600 "${ne}/sealed"
-        if getfacl -p -n "${ne}/sealed" 2>/dev/null | grep -q "^group:${my_gid}:rw-"; then
+        if grep -q "^group:${my_gid}:rw-" <<<"$(getfacl -p -n "${ne}/sealed" 2>/dev/null)"; then
             pass "narrow entries: control: the sealed file keeps its narrow entry under a --- mask"
         else
             fail "narrow entries: control: the sealed file lost its entry -- the case below is not evidence"

@@ -107,7 +107,7 @@ if grep -qxF -- "restorecon -F ${TESTDIR}/home/.gitconfig" <<<"${recorded}" \
 else
     fail "the home's file was not restored as one path: ${recorded//$'\n'/ | }"
 fi
-if grep -E '^restorecon ' <<<"${recorded}" | grep -vqxF -- "restorecon -F ${TESTDIR}/home/.gitconfig"; then
+if [[ -n "$(grep -E '^restorecon ' <<<"${recorded}" | grep -vxF -- "restorecon -F ${TESTDIR}/home/.gitconfig")" ]]; then
     fail "a tree was restored by restorecon: $(grep '^restorecon ' <<<"${recorded}" | tr '\n' ';')"
 else
     pass "no account-writable tree is restored by restorecon"
@@ -310,7 +310,8 @@ if grep -qE '^ +4\) _report_skipped_walk_entries ' <<<"${drop_text}" && grep -qE
 else
     fail "the agent unlabel loop does not read status 4 and status 6"
 fi
-if grep -E '^ +5\) warn ' <<<"${drop_text}" | grep -qF 'MSG-B8Q9' && ! grep -q 'TREE_DIAGNOSTICS:-}" ]]' <<<"${drop_text}"; then
+if grep -qF 'MSG-B8Q9' <<<"$(grep -E '^ +5\) warn ' <<<"${drop_text}")" \
+        && ! grep -q 'TREE_DIAGNOSTICS:-}" ]]' <<<"${drop_text}"; then
     pass "the agent unlabel loop reads a failed config walk by its status, not by the walker's lines"
 else
     fail "the agent unlabel loop does not read status 5, or still reads the walker's lines for it"
@@ -319,8 +320,8 @@ fi
 # a path on a removed type sets the flag the action exits 1 on. arm_sets_flag <status>: 0 when that status's arm,
 # from its label to its `;;`, assigns REMOVE_LEFT_PATHS=1.
 arm_sets_flag() {
-    awk -v s="$1" '$0 ~ "^ +" s "\\) " { a = 1 } a { print } a && /;;/ { exit }' <<<"${drop_text}" \
-        | grep -qF 'REMOVE_LEFT_PATHS=1'
+    grep -qF 'REMOVE_LEFT_PATHS=1' \
+        <<<"$(awk -v s="$1" '$0 ~ "^ +" s "\\) " { a = 1 } a { print } a && /;;/ { exit }' <<<"${drop_text}")"
 }
 if ! arm_sets_flag 0 && ! arm_sets_flag '\\*'; then
     if arm_sets_flag 4 && arm_sets_flag 5 && arm_sets_flag 6; then
@@ -767,7 +768,7 @@ printf '%s\n' '  remove)' '    _unload_modules' '    _locked _labels_drop' '    
     && pass "remove drops the registry rules, then every rule naming a policy type, unloads, and reports removed last" \
     || fail "remove's step order: '$(remove_step_order "${INSTALLER}")'"
 # The shape that reported `removed` over a loaded module: semanage's stderr nulled and the status dropped on one line.
-grep -nE 'semodule -r .*2>/dev/null.*\|\| true' "${INSTALLER}" | grep -q . \
+[[ -n "$(grep -nE 'semodule -r .*2>/dev/null.*\|\| true' "${INSTALLER}")" ]] \
     && fail "a semodule -r still nulls its stderr and drops its status: $(grep -nE 'semodule -r .*2>/dev/null.*\|\| true' "${INSTALLER}" | tr '\n' ';')" \
     || pass "no semodule -r in the installer nulls its stderr and drops its status"
 

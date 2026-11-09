@@ -540,7 +540,7 @@ column() {
 out="$(stream 0)"; header="${out%%$'\n'*}"
 [[ "${header}" == "observed-at	occurred-at	code	record-id	severity	finding	subject-type	operator	item	subject	detail" ]] \
     && pass "the header is the page's column set" || fail "header: ${header}"
-row="$(grep "	missing	file		" <<< "${out}" | grep "ai-tools-admin.8" | head -n1 || true)"
+row="$(grep "	missing	file		" <<< "${out}" | grep "ai-tools-admin.8" | awk 'NR == 1' || true)"
 [[ -n "${row}" ]] && pass "a missing manual page is one row" || fail "no missing row for the manual page"
 [[ "$(column code "${header}" "${row}")" == MSG-C6Y6 && "$(column severity "${header}" "${row}")" == attention ]] \
     && pass "the missing row carries its code and severity" || fail "missing row: code $(column code "${header}" "${row}")"
@@ -549,7 +549,7 @@ row="$(grep "	missing	file		" <<< "${out}" | grep "ai-tools-admin.8" | head -n1 
 if (( EUID == 0 )); then
     grep -q "	error	" <<< "${out}" && fail "a root run over trusted inputs printed an error row" || pass "root run: no error row"
 else
-    row="$(grep "	error	directory		" <<< "${out}" | head -n1 || true)"
+    row="$(grep "	error	directory		" <<< "${out}" | awk 'NR == 1' || true)"
     [[ "$(column code "${header}" "${row}")" == MSG-U7U5 && "$(column subject "${header}" "${row}")" == "${AGENTS_DIR}" ]] \
         && pass "the untrusted agents directory is an error row under its code naming the directory" \
         || fail "agents error row: '${row}'"
@@ -557,7 +557,7 @@ else
 fi
 grep -q "	ok	" <<< "${out}" && fail "an ok row without --all" || pass "no ok row without --all"
 out_all="$(stream 1)"
-row="$(grep "	ok	" <<< "${out_all}" | grep "/usr/share/ai-tools/audit	" | head -n1 || true)"
+row="$(grep "	ok	" <<< "${out_all}" | grep "/usr/share/ai-tools/audit	" | awk 'NR == 1' || true)"
 [[ "$(column code "${header}" "${row}")" == MSG-P7W4 && "$(column detail "${header}" "${row}")" == "absent; the row is optional" ]] \
     && pass "--all reports an absent optional row as ok, saying the absence is permitted" || fail "ok row: '${row}'"
 [[ "$(column item "${header}" "${row}")" == $'all\t-\t-' ]] && pass "an ok row's item is all" || fail "ok item: $(column item "${header}" "${row}")"
@@ -615,7 +615,7 @@ rc=0; ai_tools_layout__read_entry_lines _layout_refused || rc=$?
 # and the report exits 5 (unreadable) rather than reading as a clean empty host.
 out="$( ai_tools_layout__list_entries() { return 9; }; stream 0
         report_status=0; ai_tools_records_base__get_exit_status || report_status=$?; printf 'report_status=%s\n' "${report_status}" )"
-row="$(grep "	error	host	" <<< "${out}" | head -n1 || true)"
+row="$(grep "	error	host	" <<< "${out}" | awk 'NR == 1' || true)"
 [[ "$(column detail "${header}" "${row}")" == "the entry set exited 9" && "$(grep -c "	error	" <<< "${out}")" -eq 1 ]] \
     && grep -qx 'report_status=5' <<< "${out}" \
     && pass "the check stream writes one error row for a lost entry set and reports 5" || fail "lost set in the stream: $(tr '\n\t' '| ' <<< "${out}")"
@@ -812,7 +812,7 @@ else
     if setfacl -m u:nobody:rw-,m::r-- "${repair_root}/exposed" 2>/dev/null; then
         out="$(entry_run "$(entry "${repair_root}/exposed" file "${me}" 0644 - ai-tools-base -)")"
         has_reconcile_observation "${out}" refused "${repair_root}/exposed" acl "the entry user:nobody:rw- grants write beyond the row; so another account may have written the bytes" \
-            && getfacl --omit-header -P -- "${repair_root}/exposed" 2>/dev/null | grep -q '^user:nobody:rw-' \
+            && grep -q '^user:nobody:rw-' <<<"$(getfacl --omit-header -P -- "${repair_root}/exposed" 2>/dev/null)" \
             && pass "a file with a masked foreign entry carrying write is refused on its ACL and left" || fail "exposed acl: ${out}"
     else
         skip "a file with a foreign ACL entry" "setfacl is refused on ${repair_root}/exposed"
@@ -836,7 +836,8 @@ else
     has_reconcile_observation "${out}" changed "${repair_root}/newdir" type "absent	directory" && [[ -d "${repair_root}/newdir" && "$(read_mode "${repair_root}/newdir")" == 750 ]] \
         && pass "a missing directory is created under an existing parent at its mode, with a changed line" || fail "create: ${out}"
     out="$(entry_run "$(entry "${repair_root}/acldir" directory "${me}" 0750 "group:${PROJECTS_GROUP}:r-x" ai-tools-base -)")"
-    [[ -d "${repair_root}/acldir" ]] && getfacl --omit-header -P -- "${repair_root}/acldir" 2>/dev/null | grep -q "^group:${PROJECTS_GROUP}:r-x" \
+    [[ -d "${repair_root}/acldir" ]] \
+        && grep -q "^group:${PROJECTS_GROUP}:r-x" <<<"$(getfacl --omit-header -P -- "${repair_root}/acldir" 2>/dev/null)" \
         && pass "a created directory takes the row's ACL in the same run" || fail "created ACL: ${out}"
     # The create is an exclusive mkdir, and the row's mode and ACL arrive through the pinned apply: each field earns its
     # changed line from the owner-only directory the create made, after the type line. An `install` function that marks
@@ -1295,7 +1296,7 @@ else
     # A shipped agent's config directory is a dynamic row by design (no static row names it); its %dir line is held
     # to the manifest in the closing case.
     for manifest in "${LIB_DIR}"/agents.d/*.conf; do
-        config_dir="$(sed -n 's/^config_dir=//p' "${manifest}" | head -n1)"
+        config_dir="$(sed -n 's/^config_dir=//p' "${manifest}" | awk 'NR == 1')"
         [[ -n "${config_dir}" ]] && dynamic_paths["/opt/ai-tools/${config_dir}"]=1
     done
     package="" lines=0 problems=0 attr_re='%attr\(([^,]+), *([^,]+), *([^)]+)\)'
@@ -1384,7 +1385,7 @@ else
     # Each shipped agent's config_dir has its %dir line in that agent's package section.
     for manifest in "${LIB_DIR}"/agents.d/*.conf; do
         agent="${manifest##*/}"; agent="${agent%.conf}"
-        config_dir="$(sed -n 's/^config_dir=//p' "${manifest}" | head -n1)"
+        config_dir="$(sed -n 's/^config_dir=//p' "${manifest}" | awk 'NR == 1')"
         [[ -n "${config_dir}" ]] || continue
         wanted="/opt/ai-tools/${config_dir}"
         [[ -n "${row_by_path[${wanted}]+x}" ]] && fail "lockstep: ${wanted} is a static row; an agent's config directory is dynamic"
