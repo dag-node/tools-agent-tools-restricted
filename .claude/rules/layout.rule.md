@@ -200,10 +200,11 @@ through `ExecStart=-`.
 
 ## Where it runs
 
-The transaction file trigger of `ai-tools-base` runs the reconcile with `--without-rpm` once per transaction, whichever
-packages placed files under the install prefixes, and a `%transfiletriggerpostun` twin runs it after an erase,
-so a removed package's rows leave with its sentinel; the rpm database is held while a transaction runs, so the content
-comparison waits for the relabel service the base `%posttrans` starts, whose first `ExecStart=-` line is the full pass.
+The `%transfiletriggerin` scriptlet of `ai-tools-base` runs the reconcile with `--without-rpm` once per transaction,
+whichever packages placed files under the install prefixes, and its `%transfiletriggerpostun` twin runs it
+after an erase, so a removed package's rows leave with its sentinel; the rpm database is held while a transaction runs,
+so the content comparison waits for the relabel service the base `%posttrans` starts, whose first `ExecStart=-` line is
+the full pass. An upgrade runs both scriptlets, and each prefixes its lines with whether files were placed or removed.
 `install.sh` and `ai-tools-bootstrap` run the installed command before each seeds the timer stamp, so the reconcile
 creates the unit search path chain and the stamp directory as rows ([ownership-and-hooks](ownership-and-hooks.rule.md)).
 Every caller runs the command, so every caller takes its deadline. The base `%post` keeps its `setfacl` lines and its

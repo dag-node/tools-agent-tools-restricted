@@ -1046,14 +1046,15 @@ cat >/dev/null 2>&1 || :
 # files under the prefixes, so a subpackage-only install, upgrade or erase converges too. Without
 # the content comparison, since the transaction holds the rpm database; the relabel service
 # %posttrans starts runs the full pass. Output is kept, so the transaction log names each change;
-# the status is ignored, since a layout finding does not fail an upgrade.
+# an upgrade runs both scriptlets, so each prefixes its lines with whether files were placed
+# or removed. The status is ignored, since a layout finding does not fail an upgrade.
 %transfiletriggerin -n ai-tools-base -- /usr/local/lib/ai-tools /usr/local/libexec/ai-tools /opt/ai-tools /etc/ai-tools /etc/codex /var/opt/ai-tools /var/log/ai-tools /usr/share/ai-tools
 cat >/dev/null 2>&1 || :
-%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm || :
+%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm 2>&1 | sed 's/^/ai-tools layout (files placed): /' || :
 
 %transfiletriggerpostun -n ai-tools-base -- /usr/local/lib/ai-tools /usr/local/libexec/ai-tools /opt/ai-tools /etc/ai-tools /etc/codex /var/opt/ai-tools /var/log/ai-tools /usr/share/ai-tools
 cat >/dev/null 2>&1 || :
-%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm || :
+%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm 2>&1 | sed 's/^/ai-tools layout (files removed): /' || :
 
 %posttrans -n ai-tools-base
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
