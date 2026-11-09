@@ -8,13 +8,14 @@ runs it over the shell files of a checkout and holds a fixture that proves each 
 
 Prints one line per finding, `<file>:<line>: <reader>: <the stage>`, and exits 1 when it printed any, else 0. A file
 whose quoting the scanner cannot follow to the end is itself a finding (`unparsed`), so a file it could not read does
-not count as clean.
+not count as clean. An error of the scanner's own exits 2 with the error on stderr.
 
 What it reads as shell: a `*.yml` file's `run:` blocks, every other file whole, and the quoted body of a `bash -c`
 or `sh -c` argument. What it reports: a stage that follows a `|` and is `grep` with `-q`, `-l`, `-L` or `-m`, `head`,
-`sed` with a `q` command, `awk` with `exit`, or `read`. One shape is outside it: `head -c` with a stage after it,
-the bounded read of a stream too large to capture, whose status its caller discards. Text inside quotes, a comment
-or a here-document body is not shell; a `|` with no whitespace on either side is a `case` alternation.
+`sed` with a `q` command, `awk` with `exit`, or `read`. One shape is outside it: `head -c` with a stage after it
+in a pipeline whose status `|| true` or `|| :` discards, the bounded read of a stream that must not be read to its
+end. Text inside quotes, a comment or a here-document body is not shell, so an option written inside quotes is not
+read; a `|` with no whitespace on either side is a `case` alternation.
 """
 import re
 import sys
@@ -25,6 +26,7 @@ SED_QUIT = re.compile(r"""(?:^|[;{}\s0-9$/!,'"])[qQ][0-9]*\s*(?:[;}'"\s]|$)""")
 HEREDOC = re.compile(r"""<<(-?)[ \t]*(?:\\?([A-Za-z_][A-Za-z0-9_]*)|'([^'\n]+)'|"([^"\n]+)")""")
 SHELL_C = re.compile(r"(?:^|[\s/])(?:ba)?sh\s+(?:-[A-Za-z]+\s+)*-[A-Za-z]*c\s+$")
 RUN_KEY = re.compile(r"^(\s*)(?:-\s+)?run:\s*(.*)$")
+DISCARDED = re.compile(r"\s*\|\|\s*(?:true|:)(?=[\s;)&]|$)")
 MASKED = "\x00"
 
 
@@ -166,7 +168,7 @@ def mask_shell(text):
     return "".join(mask), depth, bodies
 
 
-def reader_of(stage, masked_stage):
+def find_early_exit_reader(stage, masked_stage):
     """Return the early-exit reader `stage` runs, or None. `masked_stage` is the same span with quoted text hidden."""
     words = masked_stage.split()
     while words and (words[0] in ("command", "builtin", "exec") or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=\S*", words[0])):
@@ -195,10 +197,36 @@ def reader_of(stage, masked_stage):
     return None
 
 
-def scan(text, first_line=1):
+def stage_end(mask, depth, pipe):
+    """Return (start, end, last) for the stage after the `|` at `pipe`: its span, and whether it ends its pipeline."""
+    n = len(mask)
+    level = depth[pipe]
+    j = pipe + 1 + (mask[pipe + 1:pipe + 2] == "&")
+    while j < n and mask[j] in " \t\n":
+        j += 1
+    start = j
+    while j < n:
+        if depth[j] < level or (depth[j] == level and mask[j] in ";&\n)"):
+            break
+        if depth[j] == level and mask[j] == "|":
+            return start, j, mask[j + 1:j + 2] == "|"
+        j += 1
+    return start, j, True
+
+
+def is_status_discarded(mask, depth, pipe):
+    """Succeed when `|| true` or `|| :` follows the pipeline holding the `|` at `pipe`, or the substitution it ends."""
+    _, end, last = stage_end(mask, depth, pipe)
+    while not last:
+        _, end, last = stage_end(mask, depth, end)
+    while end < len(mask) and mask[end] in (")", MASKED):
+        end += 1
+    return DISCARDED.match(mask, end) is not None
+
+
+def find_early_exit_readers(text, first_line=1):
     """Return [(line, reader, stage)] for shell source `text`, whose first line is numbered `first_line`."""
     mask, depth, bodies = mask_shell(text)
-    n = len(text)
     findings = []
     for i, c in enumerate(mask):
         if c != "|" or mask[i - 1:i] == "|" or mask[i + 1:i + 2] == "|":
@@ -206,26 +234,15 @@ def scan(text, first_line=1):
         before, after = mask[i - 1:i], mask[i + 1:i + 2]
         if not (before in ("", " ", "\t", "\n") or after in ("", " ", "\t", "\n", "&")):
             continue
-        level = depth[i]
-        j = i + 1 + (after == "&")
-        while j < n and mask[j] in " \t\n":
-            j += 1
-        start = j
-        last = True
-        while j < n:
-            if depth[j] < level or (depth[j] == level and mask[j] in ";&\n)"):
-                break
-            if depth[j] == level and mask[j] == "|":
-                last = mask[j + 1:j + 2] == "|"
-                break
-            j += 1
-        reader = reader_of(text[start:j], mask[start:j])
-        if reader == "head" and not last and re.search(r"\s(-c|--bytes)", mask[start:j]):
+        start, j, last = stage_end(mask, depth, i)
+        reader = find_early_exit_reader(text[start:j], mask[start:j])
+        if (reader == "head" and not last and re.search(r"\s(-c|--bytes)", mask[start:j])
+                and is_status_discarded(mask, depth, i)):
             continue
         if reader:
             findings.append((first_line + text.count("\n", 0, i), reader, " ".join(text[start:j].split())))
     for offset, body in bodies:
-        findings.extend(scan(body, first_line + text.count("\n", 0, offset)))
+        findings.extend(find_early_exit_readers(body, first_line + text.count("\n", 0, offset)))
     return sorted(set(findings))
 
 
@@ -258,7 +275,7 @@ def main(paths):
                 text = handle.read()
             if path.endswith((".yml", ".yaml")):
                 text = workflow_shell(text)
-            for line, reader, stage in scan(text):
+            for line, reader, stage in find_early_exit_readers(text):
                 found = True
                 print(f"{path}:{line}: {reader}: {stage}")
         except (OSError, Unparsed) as error:
@@ -268,4 +285,9 @@ def main(paths):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+    try:
+        status = main(sys.argv[1:])
+    except Exception as error:  # the scanner's own defect: exit apart from the findings' status
+        print(f"pipefail-readers: {type(error).__name__}: {error}", file=sys.stderr)
+        status = 2
+    sys.exit(status)

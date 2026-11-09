@@ -69,6 +69,7 @@ sample="$(producer | head -n 3 | tr '\n' ';')"
 bash -c 'producer | grep -q needle'
 bash -c "producer | grep -q needle"
 size="$(tool -dc file | head -c 4096 | wc -c)" || true
+kept="$(tool -dc file | head -c 4096 | wc -c)"
 grep -q needle <<<"${captured}"
 producer | grep needle | sort
 producer | sed -n 's/a/q/p'
@@ -81,6 +82,7 @@ cat <<EOF
 producer | grep -q needle
 EOF
 (( flags | 4 )) || true
+tool -dc file | head -c 4096 | wc -c || :
 FIXTURE
 expected="3 grep -q
 4 grep -q
@@ -93,12 +95,13 @@ expected="3 grep -q
 13 grep -q
 14 head
 15 grep -q
-16 grep -q"
+16 grep -q
+18 head"
 rc=0; report="$(python3 "${SCANNER}" "${fixture}")" || rc=$?
 got="$(sed -n 's/^[^:]*:\([0-9]*\): \([^:]*\):.*/\1 \2/p' <<<"${report}")"
 if (( rc == 1 )) && [[ "${got}" == "${expected}" ]]; then
     pass "the scanner reports each early-exit reader after a pipe, a continued pipeline and a bash -c body among them"
-    pass "and leaves alone a bounded head -c, a herestring, a reader that reads to the end, quoted text, a comment and a here-document"
+    pass "and leaves alone a head -c whose pipeline's status is discarded, a herestring, a reader that reads to the end, quoted text, a comment and a here-document"
 else
     fail "the scanner's report over the fixture (rc=${rc}) is not the expected one: $(tr '\n' '|' <<<"${got}")"
 fi
@@ -167,14 +170,17 @@ if [[ -d "${ROOT}/.github/workflows" && " ${files[*]} " != *" .github/workflows/
     fail "the file list does not hold a workflow although .github/workflows exists"
     finish; exit 1
 fi
-rc=0; report="$(cd "${ROOT}" && python3 "${SCANNER}" "${files[@]}")" || rc=$?
+# Exit 1 is the findings' status and carries a report; any other pairing of status and report is the scanner failing,
+# which is not a clean tree.
+rc=0; report="$(cd "${ROOT}" && python3 "${SCANNER}" "${files[@]}" 2>"${TESTDIR}/scanner.err")" || rc=$?
 if (( rc == 0 )) && [[ -z "${report}" ]]; then
     pass "${#files[@]} shell files and workflows: no stage after a pipe is an early-exit reader"
-else
+elif (( rc == 1 )) && [[ -n "${report}" ]]; then
     while IFS= read -r finding; do
-        [[ -z "${finding}" ]] || fail "${finding} -- capture the producer's output and search the capture"
+        fail "${finding} -- capture the producer's output and search the capture"
     done <<<"${report}"
-    (( rc == 1 )) || fail "the scanner exited ${rc} over the tree"
+else
+    fail "the scanner exited ${rc} over the tree with $(wc -l <<<"${report}") report line(s): $(head -c 300 "${TESTDIR}/scanner.err" | tr '\n' '|')"
 fi
 
 finish
