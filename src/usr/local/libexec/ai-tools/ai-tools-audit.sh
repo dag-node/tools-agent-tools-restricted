@@ -371,9 +371,7 @@ entrypoint_exec_state() {
     mode="$(getenforce 2>"${STDERR_CAPTURE}")" && rc=0 || rc=$?
     (( rc == 0 )) || { printf 'unreadable getenforce exited %s: %s\n' "${rc}" "$(captured_stderr)"; return 0; }
     [[ "${mode}" == Enforcing || "${mode}" == Permissive ]] || { printf 'no-selinux\n'; return 0; }
-    # THE LISTINGS ARE CAPTURED, NOT PIPED. `semodule -l | grep -q` loses the answer on a host with more modules than
-    # a pipe buffer holds: grep exits at the match, the writer dies of SIGPIPE writing the rest, and `pipefail` turns
-    # that into "no match" -- reporting a loaded module as absent. semodule prints a module's name alone
+    # The listings are captured ahead of the search (ref-section-d9x2). semodule prints a module's name alone
     # or with a version column, by release; either is the module being loaded.
     command -v semodule >/dev/null 2>&1 || { printf 'no-selinux\n'; return 0; }
     local modules

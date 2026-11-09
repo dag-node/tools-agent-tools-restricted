@@ -927,8 +927,8 @@ SELinux labels, namespaces, and encryption headers are all filesystem-layer
 concepts. An agent reading /dev/sda sees raw sectors and can reconstruct any
 file regardless of permissions. fixed_disk_device_t is the SELinux gate."
 
-  _blk="$(ls /dev/sda /dev/sdb /dev/nvme0n1 /dev/nvme1n1 /dev/vda /dev/xvda 2>/dev/null \
-         | head -1 || true)"
+  _blk="$(ls /dev/sda /dev/sdb /dev/nvme0n1 /dev/nvme1n1 /dev/vda /dev/xvda 2>/dev/null || true)"
+  _blk="${_blk%%$'\n'*}"
   if [[ -n "${_blk}" ]]; then
     _type="fixed_disk_device_t:blk_file (read)"
     _why="Direct block device access bypasses all filesystem permissions, SELinux labels, POSIX ACLs, and encryption metadata. An attacker can reconstruct every file on disk regardless of permissions, recover deleted files, extract LUKS headers, and modify filesystem structure directly."
@@ -1262,7 +1262,8 @@ do_check_results() {
     exit 1
   fi
   local _latest
-  _latest="$(ls -t "${_dir}"/avc-denials-*.log 2>/dev/null | head -1 || true)"
+  _latest="$(ls -t "${_dir}"/avc-denials-*.log 2>/dev/null || true)"
+  _latest="${_latest%%$'\n'*}"
   if [[ -z "${_latest}" ]]; then
     err "No audit logs in ${_dir}/ -- run 'bash ${BASH_SOURCE[0]##*/} probe' first."
     exit 1
@@ -1435,12 +1436,12 @@ signal.pause()' >"${pty_fixture_file}" 2>/dev/null &
   fi
   # The fixture's denial is the one record this run knows must be in the window, so it is the control that audit
   # collection and the window worked: without it, an empty bucket in the analysis says nothing about the policy.
-  local collection_confirmed=0
+  local collection_confirmed=0 pty_denials
   if [[ -n "${login_pty}" ]]; then
-    if ausearch -m AVC -ts "${START_DATE}" "${START_TIME}" 2>/dev/null \
+    pty_denials="$(ausearch -m AVC -ts "${START_DATE}" "${START_TIME}" 2>/dev/null \
         | grep -E 'avc:[[:space:]]*denied  \{ open \} ' \
-        | grep -E "path=\"${login_pty}\"|name=\"${login_pty##*/}\" dev=\"devpts\"" \
-        | grep -qE 'scontext=[^ ]*:ai_tools_t:[^ ]* tcontext=[^ ]*:user_devpts_t:'; then
+        | grep -E "path=\"${login_pty}\"|name=\"${login_pty##*/}\" dev=\"devpts\"")" || pty_denials=""
+    if grep -qE 'scontext=[^ ]*:ai_tools_t:[^ ]* tcontext=[^ ]*:user_devpts_t:' <<<"${pty_denials}"; then
       collection_confirmed=1
       note "collection: the login-pty fixture's open denial is in the window"
     else

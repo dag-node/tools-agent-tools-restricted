@@ -71,7 +71,7 @@ view_id() {
 
 # assets_section : print the Assets section of `atr admin status`, its heading excluded; return 1 unless the report
 # shows the section completed and ran the successor check, since notice_absent reads an absent notice as a pass.
-# The report is read whole, since awk's early exit would send it a SIGPIPE under pipefail.
+# The report is read whole before awk searches it (ref-section-d9x2).
 assets_section() {
     local status_report report_status=0 section
     status_report="$("${ADMIN}" status 2>/dev/null)" || report_status=$?
@@ -186,8 +186,8 @@ relabel_ran_once_after() {
     local lines runs
     [[ -n "${RELABEL_CURSOR}" ]] || { echo "no journal cursor was taken before the upgrade"; return 1; }
     # shellcheck disable=SC2016  # the inner shell's own expansions
-    timeout 600 bash -c 'while systemctl list-jobs --no-legend 2>/dev/null | grep -q ai-tools-relabel.service \
-            || [[ "$(systemctl show -p ActiveState --value ai-tools-relabel.service)" == activating ]]; do sleep 1; done' \
+    timeout 600 bash -c 'while [[ "$(systemctl list-jobs --no-legend 2>/dev/null)" == *ai-tools-relabel.service* \
+            || "$(systemctl show -p ActiveState --value ai-tools-relabel.service)" == activating ]]; do sleep 1; done' \
         || { echo "the relabel run did not finish within the wait"; return 1; }
     lines="$(journalctl -q -u ai-tools-relabel.service --after-cursor="${RELABEL_CURSOR}" -o cat 2>/dev/null)"
     printf '%s\n' "${lines}"
