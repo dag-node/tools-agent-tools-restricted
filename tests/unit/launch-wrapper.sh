@@ -218,6 +218,20 @@ if id -nG "${PROJECTS_USER}" | tr ' ' '\n' | grep -qx ai-ops; then
 else
     skip "operator passes the gate" "${PROJECTS_USER} is not in ai-ops here"
 fi
+# A shell that predates the grant: `id` is a shell function whose live credential set lacks ai-ops and whose group
+# database read prints ai-ops ahead of more names than a pipe holds. A search that stops at its match while the list is
+# still being written returns 141 under pipefail, and the gate then names the enrolment in place of the login
+# (ref-section-d9x2).
+# shellcheck disable=SC2016  # expanded by the inner shell, which holds the function
+stale_shell='id() {
+    local i
+    if [[ "${1:-}" == -nG && $# -eq 1 ]]; then printf "users\n"
+    elif [[ "${1:-}" == -nG ]]; then
+        printf "ai-ops"; for (( i = 0; i < 30000; i++ )); do printf " group-%05d" "${i}"; done; printf "\n"
+    else command id "$@"; fi
+}; ai_tools_launch_wrapper__gate_operator'
+run "${LIB}" "${PROJECTS_USER}" "${approved}" eval "${stale_shell}"
+refused "a shell that predates the grant is told to log in again, the group database read over a list longer than a pipe" MSG-R7Z3
 
 # ── (1b) The residue gate: a disabled agent's launcher link refuses every launch ── Fixture manifests (a synthetic
 # pair, no shipped agent named) and an operator.conf enabling one of them, root-owned so the resolver accepts them.

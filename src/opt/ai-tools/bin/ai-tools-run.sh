@@ -351,7 +351,8 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
     # installed the policy (launches DAC-only, warned) from one whose module is installed and not loaded (refuses).
     policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
     # The manager is the `systemd --user process` that execs the entrypoint; same uid, so its domain is readable.
-    manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
+    manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null || true)"
+    manager_pid="${manager_pid%%$'\n'*}"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
     [[ -n "${manager_domain}" ]] || note_unread_input tool "the user manager's domain (pgrep)"
 

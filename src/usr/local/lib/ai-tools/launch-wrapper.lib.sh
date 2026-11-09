@@ -216,7 +216,7 @@ ai_tools_launch_wrapper__gate_operator() {
             # launches the wrapper from their own login and the wrapper drops to the sandbox account on its own.
             ai_tools_launch_wrapper__die MSG-N8Q4 "this is the sandbox account ${SANDBOX_USER}, which is not an ai-tools operator" \
                 "${name}: the sandbox account must never be one -- launch ${name} from your operator login; the wrapper drops to ${SANDBOX_USER} for you"
-        elif id -nG "${user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
+        elif [[ " $(id -nG "${user}" 2>/dev/null) " == *" ${OPERATORS_GROUP} "* ]]; then
             # In ai-ops per the group database (`id -nG <user>` reads it) but absent from this shell's live credentials
             # -- a session started before the grant took effect. A fresh login rebuilds the credential set; newgrp
             # adopts the group in the current shell.
@@ -604,7 +604,9 @@ ai_tools_launch_wrapper__gate_project() {
 _ai_tools_launch_wrapper__is_project_labelled() {
     command -v getenforce >/dev/null 2>&1 || return 0
     [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]] || return 0
-    ls -Zd "$1" 2>/dev/null | grep -q ':ai_tools_project_t:'
+    local context
+    context="$(ls -Zd "$1" 2>/dev/null)" || context=""
+    [[ "${context}" == *:ai_tools_project_t:* ]]
 }
 
 # ai_tools_launch_wrapper__guard_claim -- refuse an approved CWD whose claim is incomplete; offer the claim, never
@@ -626,17 +628,15 @@ _ai_tools_launch_wrapper__is_project_labelled() {
 # refuses it when approved, and otherwise its setup menu offers the clone alone.
 ai_tools_launch_wrapper__guard_claim() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" cwd="${AI_TOOLS_LAUNCH_WRAPPER__PROJECT_DIR}"
-    local own_gap=false label_gap=false safe_gap=false cwd_gid cwd_mode claim_default claim_ok
+    local own_gap=false label_gap=false safe_gap=false cwd_gid cwd_mode claim_default claim_ok safe_directories
     cwd_gid="$(stat -c '%G' "${cwd}" 2>/dev/null || true)"
     cwd_mode="$(stat -c '%a' "${cwd}" 2>/dev/null || true)"
     if [[ "${cwd_gid}" != "${SANDBOX_GROUP}" ]] || (( (0${cwd_mode:-0} & 010) == 0 )); then
         own_gap=true
     fi
     _ai_tools_launch_wrapper__is_project_labelled "${cwd}" || label_gap=true
-    if ! git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null \
-            | grep -qxF "${cwd}"; then
-        safe_gap=true
-    fi
+    safe_directories="$(git config --file "${GITCONFIG}" --get-all safe.directory 2>/dev/null)" || safe_directories=""
+    grep -qxF "${cwd}" <<<"${safe_directories}" || safe_gap=true
 
     if ${own_gap} || ${label_gap}; then
         # Severity-based default: the in-place ownership grant is heavy (recursive chgrp), so it defaults NO

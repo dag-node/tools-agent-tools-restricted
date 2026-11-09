@@ -83,8 +83,9 @@ phase "Metapackage pulled every built subpackage" \
 phase "Renamed subpackages Provide every name they Obsolete" \
     bash -c 'set -e
              for r in /tmp/ai-repo/*.rpm; do
+                 provides=$(rpm -qp --qf "[%{PROVIDENAME}\n]" "${r}" 2>/dev/null)
                  for o in $(rpm -qp --qf "[%{OBSOLETENAME}\n]" "${r}" 2>/dev/null); do
-                     rpm -qp --qf "[%{PROVIDENAME}\n]" "${r}" 2>/dev/null | grep -qx "${o}" || {
+                     grep -qx "${o}" <<<"${provides}" || {
                          echo "$(rpm -qp --qf %{NAME} "${r}") obsoletes ${o} without providing it" >&2; exit 1; }
                  done
              done'
@@ -122,7 +123,7 @@ phase "contributed command domain dispatches (dotnet status)" \
 # shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "ai-tools-selinux ships exactly the derived policy module set" \
     bash -c 'set -e
-             rpm=$(ls /tmp/ai-repo/ai-tools-selinux-*.rpm | head -1)
+             rpms=(/tmp/ai-repo/ai-tools-selinux-*.rpm); rpm=${rpms[0]}
              have=$(rpm -qlp "${rpm}" | sed -n "s#^/usr/share/selinux/packages/ai-tools/\(.*\)\.pp\$#\1#p" | sort)
              want=$(bash "$1/selinux/policy/shipped-modules.sh" | sort)
              [ -n "${want}" ] || { echo "shipped-modules.sh derived an empty set" >&2; exit 1; }
@@ -137,8 +138,9 @@ phase "ai-tools-selinux ships exactly the derived policy module set" \
 phase "system bootstrap (nvm + Node + claude; linger + timer)" \
     ai-tools-admin system bootstrap --agents agent-claude-code
 
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "claude launcher symlink resolves to the nvm-installed binary" \
-    bash -c 'test -L /opt/ai-tools/bin/claude && readlink -f /opt/ai-tools/bin/claude | grep -q "/versions/node/"'
+    bash -c 'test -L /opt/ai-tools/bin/claude && [[ "$(readlink -f /opt/ai-tools/bin/claude)" == */versions/node/* ]]'
 
 # The timer enablement is the root-provisioned wants symlink under the sandbox home (the only place a confined session
 # may not write); checking it on disk is robust without entering the user manager. tests/run.sh's systemd.sh is
@@ -151,7 +153,7 @@ phase "ai-tools-admin operators add ${OPERATOR}" \
     ai-tools-admin operators add "${OPERATOR}"
 
 phase "${OPERATOR} is in ai-ops + listed in operator.conf" \
-    bash -c "id -nG '${OPERATOR}' | tr ' ' '\n' | grep -qx ai-ops && grep -q '${OPERATOR}' /etc/ai-tools/operator.conf"
+    bash -c "[[ \" \$(id -nG '${OPERATOR}') \" == *' ai-ops '* ]] && grep -q '${OPERATOR}' /etc/ai-tools/operator.conf"
 
 # ── project claim ────────────────────────────────────────────────────────────
 mkdir -p "${PROJECT}"; chown "${OPERATOR}:${OPERATOR}" "${PROJECT}"
@@ -280,8 +282,7 @@ asset_selftest_setup() {
     set -e
     rm -rf "${ASSET_STAGE}"; mkdir -p "${ASSET_STAGE}/gnupg"; chmod 0700 "${ASSET_STAGE}/gnupg"
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools selftest <acme@acme.example>' default default never
-    # The listing is read whole before awk searches it: awk's exit at the first fpr line would send gpg a SIGPIPE on its
-    # next line, and under pipefail the assignment fails and `set -e` ends the run.
+    # The listing is read whole before awk searches it (ref-section-d9x2).
     local fingerprint key_listing
     key_listing="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys)"
     fingerprint="$(awk -F: '$1 == "fpr" { print $10; exit }' <<< "${key_listing}")"
@@ -338,8 +339,9 @@ phase "confined session launches (claude --version through the wrapper)" \
 
 # ── agent-side boundary spot check (the confinement that holds under DAC) ─────
 # Prove the sandbox account cannot sudo and is not in ai-ops -- the DAC half of the model.
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "sandbox account has no sudo and is not an operator" \
-    bash -c '! id -nG ai-tools | tr " " "\n" | grep -qx ai-ops && ! runuser -l ai-tools -s /bin/bash -c "sudo -n true" 2>/dev/null'
+    bash -c '[[ " $(id -nG ai-tools) " != *" ai-ops "* ]] && ! runuser -l ai-tools -s /bin/bash -c "sudo -n true" 2>/dev/null'
 
 # ── summary + exit ───────────────────────────────────────────────────────────
 banner "SELFTEST SUMMARY"

@@ -150,8 +150,7 @@ selinux_active() {
     command -v getenforce >/dev/null 2>&1 || return 1
     [[ "$(getenforce 2>/dev/null)" != Disabled ]] || return 1
     command -v semodule >/dev/null 2>&1 || return 1
-    # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE and pipefail then
-    # reports the probe failed -- see ai_tools_selinux_groups__is_loaded.
+    # Captured ahead of the search (ref-section-d9x2).
     local modules
     modules="$(semodule -l 2>/dev/null || true)"
     grep -qx ai_tools <<<"${modules}"
@@ -300,7 +299,9 @@ dotnet_enabled() {
         warn MSG-X4Q4 "provider resolver unavailable -- cannot report session enablement"
         return 1
     fi
-    ai_tools_providers__list_enabled_integrations 2>/dev/null | grep -qx dotnet
+    local enabled
+    enabled="$(ai_tools_providers__list_enabled_integrations 2>/dev/null)" || enabled=""
+    grep -qx dotnet <<<"${enabled}"
 }
 
 status() {

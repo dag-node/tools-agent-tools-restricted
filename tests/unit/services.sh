@@ -327,6 +327,16 @@ stamp_rejects "a space-separated trailer after a good value"  'RESULT=ok rm -rf 
 stamp_rejects "an unanchored line (key not at line start)"    'NOTRESULT=ok'
 stamp_rejects "an over-long value"                            "RESULT=$(printf 'o%.0s' {1..80})"
 stamp_rejects "an empty file"                                 ''
+# A NUL does not pass through an argument, so this stamp is written directly. A reader that dropped the byte would
+# join the characters around it into `ok`.
+printf 'RESULT=o\000k\n' > "${STAMP}"
+nul_value="$(ai_tools_services__read_stamp_field "${STAMP}" RESULT)"
+nul_state="$(ai_tools_services__read_state nvm-update.service sandbox-user "${STAMP}")"
+if [[ -z "${nul_value}" && "${nul_state}" == unknown ]]; then
+    pass "stamp rejected: a NUL byte inside the value"
+else
+    fail "stamp NOT rejected (a NUL byte inside the value): value=$(printf '%q' "${nul_value}") state=${nul_state}"
+fi
 
 # One reading is separated from "unreadable": a stamp of zero length is the file as the package seeded it,
 # before the unit's first run, so a report can say "no run yet", a statement about the host, where "cannot tell" is one

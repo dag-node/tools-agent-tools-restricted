@@ -273,11 +273,11 @@ fi
 # from the pinned fd, so it describes the same inode the mutation acts on. The uid and gid checks read values the caller
 # already holds; the ACL read (`getfacl`) runs only when both miss.
 _is_residue() {
-    local fd="$1" uid="$2" gid="$3"
+    local fd="$1" uid="$2" gid="$3" acl
     [[ "${uid}" == "${SANDBOX_UID}" ]] && return 0
     [[ "${gid}" == "${SANDBOX_GID}" ]] && return 0
-    getfacl -c -- "/proc/self/fd/${fd}" 2>/dev/null \
-        | grep -q "^\(default:\)\?group:@SANDBOX_GROUP@:"
+    acl="$(getfacl -c -- "/proc/self/fd/${fd}" 2>/dev/null)" || acl=""
+    grep -q "^\(default:\)\?group:@SANDBOX_GROUP@:" <<<"${acl}"
 }
 
 # _safe_unclaim <path>: clear ACL, regroup, drop group write -- TOCTOU-safe via a pinned fd held at <path>

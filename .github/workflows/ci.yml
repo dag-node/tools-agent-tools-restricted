@@ -356,7 +356,8 @@ jobs:
             printf 'recorded=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > test-results/origin.txt
           stamp="$(find test-results -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
-              | sed -n 's/^.*-\([0-9]\{8\}T[0-9]\{6\}Z\)$/\1/p' | sort | head -n1)"
+              | sed -n 's/^.*-\([0-9]\{8\}T[0-9]\{6\}Z\)$/\1/p' | sort)"
+          stamp="${stamp%%$'\n'*}"
           [[ -n "${stamp}" ]] || stamp="$(date -u +%Y%m%dT%H%M%SZ)"
           runner="$(printf '%s-%s' "${ImageOS:-${RUNNER_OS:-runner}}" "${RUNNER_ARCH:-}" | tr '[:upper:]' '[:lower:]' \
               | tr -cd 'a-z0-9.-')"
@@ -504,8 +505,7 @@ jobs:
           trap 'GNUPGHOME="${gnupghome}" gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${gnupghome}"' EXIT
           printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
             || { echo "::error::GPG_SIGNING_KEY did not import: the value is not an ASCII-armored key block. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
-          # The listing is read whole before it is searched: under pipefail, a reader that stops
-          # early (grep -q, awk's exit) sends gpg a SIGPIPE on its next line and fails the step.
+          # The listing is read whole before it is searched (ref-section-d9x2).
           secret_listing="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys)" \
             || { echo "::error::gpg could not list the imported secret keys"; exit 1; }
           grep -q '^sec:' <<<"${secret_listing}" \
@@ -649,8 +649,7 @@ jobs:
           # Verify against a throwaway rpmdb seeded only with the exported key. Require a validating
           # signature LINE (`rpmkeys -Kv`), not just a zero exit -- an unsigned package exits 0.
           # The output is captured whole before it is searched, as sign-rpms.sh's verify_signatures
-          # does: under pipefail, `rpmkeys | grep -q` ends with grep's early exit sending rpmkeys
-          # a SIGPIPE on its next line, which fails a package whose signature validated.
+          # does (ref-section-d9x2).
           verifydb="$(mktemp -d)"
           rpmkeys --dbpath "${verifydb}" --import dist-rpms/RPM-GPG-KEY-dag-node
           for tag in ${RPM_DIST_TAGS}; do

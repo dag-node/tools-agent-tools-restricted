@@ -129,7 +129,8 @@ write_stamp() {
     finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     if [[ "${reason}" == clock ]]; then
         local previous
-        previous="$(sed -n 's/^FINISHED=//p' "${NVM_UPDATE_STAMP}" 2>/dev/null | head -n1)"
+        previous="$(sed -n 's/^FINISHED=//p' "${NVM_UPDATE_STAMP}" 2>/dev/null)"
+        previous="${previous%%$'\n'*}"
         [[ -n "${previous}" ]] && finished="${previous}"
     fi
 
@@ -363,7 +364,8 @@ agent_package_version() {
     for _ in 1 2 3; do
         if [[ -f "${dir}/package.json" ]]; then
             declared="$(head -c 65536 -- "${dir}/package.json" 2>/dev/null \
-                | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+                | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+            declared="${declared%%$'\n'*}"
             [[ "${declared}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && { printf '%s' "${declared}"; return 0; }
         fi
         dir="${dir%/*}"
@@ -412,7 +414,8 @@ prune_versions() {
 
     local -A keep
     while IFS= read -r aliased; do
-        ver="$(printf '%s\n' "${aliased}" | grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+        ver="$(grep -oP 'v[0-9]+\.[0-9]+\.[0-9]+' <<<"${aliased}" || true)"
+        ver="${ver%%$'\n'*}"
         [[ -n "${ver}" && -d "${nvm_dir}/versions/node/${ver}" ]] && keep["${ver}"]=1
     done < <(nvm alias 2>/dev/null)
     keep["${active_version}"]=1

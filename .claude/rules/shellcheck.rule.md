@@ -91,6 +91,20 @@ the exit status) and a suspected line is tried alone in `bash -c 'set -euo pipef
 - **An `EXIT` trap runs after the function that set it returns.** A trap expanding that function's `local` then aborts
   under `set -u`, at cleanup and before the cleanup runs, so a path a trap removes is a script global.
 
+### A reader that exits early fails its pipeline <a id="ref-section-d9x2"></a>
+
+`grep -q`, `grep -m`, `head`, `sed … q` and `awk … exit` exit once they have their answer. A producer that writes again
+after that takes `SIGPIPE`, and `pipefail` returns 141 for the pipeline: `if producer | grep -q …` takes the no-match
+branch on input that matched, and `x="$(producer | head -n 1)"` ends a `set -e` script. A producer that delivers its
+output in one `write(2)` has finished before the reader exits, and how much it prints is the host's: a group list,
+an ACL or a module listing grows past one write.
+
+So no stage after a pipe is one of those readers. The reader takes the producer's captured output
+(`out="$(producer)" || out=""`, then `grep -q … <<<"${out}"`), and a listing too long to hold is cut by a filter
+that reads to the end (`awk 'NR <= 50'`). The one exception is `head -c` in a pipeline whose status `|| true` discards,
+the bound on a stream that must not be read to its end. `tests/unit/pipefail-readers.sh` holds the scripts under `src/`,
+`selinux/`, `packaging/` and `tools/`, `install.sh` and the workflows to it.
+
 ## Design notes
 
 - **Fix in preference to suppress.** A finding that names an avoidable foot-gun is rewritten. `SC2015` (`A && B || C`)
