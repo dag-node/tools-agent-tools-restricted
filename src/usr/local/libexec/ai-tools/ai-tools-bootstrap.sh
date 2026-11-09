@@ -744,19 +744,6 @@ _online=1
 preflight_network "${_network_urls[@]}" || _online=0
 (( _ownership_ok )) || die "the toolchain's ownership must be restored before this run can read it (see above) -- no package was installed or removed"
 
-# Links a transfer of the tree replaced with copies are restored first, since the residue step runs npm.
-# What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
-# ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
-restore_toolchain_links
-remove_residue
-
-# Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped
-# to bash, so a resolved value can never inject shell or URL.
-NVM_VERSION="$(resolve_nvm_version)"
-[[ "${NVM_VERSION}" =~ ^v[0-9][0-9.]*$ ]] \
-    || die MSG-W8X8 "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
-readonly NVM_VERSION
-
 # 1. Sandbox account + home. `--system`: no aging, low uid; /sbin/nologin + locked password:
 #    the agent account has no interactive login. /opt (not /home) because /home is nosuid,
 #    which would defeat the sudo UID-switch the launch path relies on.
@@ -777,6 +764,33 @@ chmod 2751 "${SANDBOX_HOME}"
 for _sub in .nvm .cache .npm; do
     install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${SANDBOX_HOME}/${_sub}"
 done
+
+# Linger, before the first step that runs as the account: each such step is a scope in user-<uid>.slice, which
+# without linger is stopped when a scope ends, and a scope started during that stop is refused (MSG-Q2K6). Linger also
+# keeps the account's `--user manager`, where step 5 starts the timer, running without a login.
+_uid="$(id -u "${SANDBOX_USER}")"
+if command -v loginctl >/dev/null 2>&1; then
+    _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
+        || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
+fi
+# Wait for the manager to come up before the first account step and before step 5 drives it.
+for _i in $(seq 1 30); do
+    systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break
+    sleep 0.5
+done
+
+# Links a transfer of the tree replaced with copies are restored first, since the residue step runs npm.
+# What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
+# ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
+restore_toolchain_links
+remove_residue
+
+# Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped
+# to bash, so a resolved value can never inject shell or URL.
+NVM_VERSION="$(resolve_nvm_version)"
+[[ "${NVM_VERSION}" =~ ^v[0-9][0-9.]*$ ]] \
+    || die MSG-W8X8 "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
+readonly NVM_VERSION
 
 # `.local` heads the unit search path chain, which root owns; the layout reconcile creates it with the rest
 # of the installed layout.
@@ -1039,11 +1053,10 @@ fi
 #    keeps Node and the agent package current. The home is root-owned (2751), so the account
 #    cannot write ~/.config; root provisions the XDG config tree (root:group 2750 -- the account
 #    reads its units via the group) and the timers.target.wants symlink that enables the timer.
-#    Order matters: the symlink is laid down before linger brings the manager up, so the manager
-#    reaches timers.target with the enablement already in place and starts the timer itself. The
-#    explicit start that follows covers a manager that was already running. Best-effort: a tree
-#    that ships the unit later (the dev install.sh flow) warns rather than failing bring-up.
-_uid="$(id -u "${SANDBOX_USER}")"
+#    The manager is already running (linger is enabled after step 1), so it does not read the
+#    symlink until its next start; the daemon-reload and explicit start that close this step
+#    start the timer, after the run-stamp is seeded. Best-effort: a tree that ships the unit later (the dev
+#    install.sh flow) warns rather than failing bring-up.
 install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
     "${SANDBOX_HOME}/.config" \
     "${SANDBOX_HOME}/.config/systemd" \
@@ -1063,19 +1076,8 @@ ln -sfn /usr/lib/systemd/user/nvm-update.timer \
 # .claude/rules/updater.rule.md.
 sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
 
-# Linger keeps the `--user manager` running without an interactive login, so the timer it holds stays active. Surface
-# a failure so an instance that does not engage linger is visible.
-if command -v loginctl >/dev/null 2>&1; then
-    _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
-        || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
-fi
-# Wait for the manager to come up before driving it.
-for _i in $(seq 1 30); do
-    systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break
-    sleep 0.5
-done
-# Start the timer now to cover a manager that was already running: the wants symlink alone starts it when the manager
-# next reaches timers.target. Root drives that manager over the machine transport (`-M <account>@.host`), the route
+# Start the timer now: the manager is running, and the wants symlink alone starts it only when the manager next reaches
+# timers.target. Root drives that manager over the machine transport (`-M <account>@.host`), the route
 # the system bus authorizes for root; `sudo -u` to the account and its own bus is refused there even while the manager
 # is healthy. Capture the output so the warn on a failed start carries systemctl's own error text.
 if _start_out="$(systemctl --user -M "${SANDBOX_USER}@.host" daemon-reload 2>&1 \
