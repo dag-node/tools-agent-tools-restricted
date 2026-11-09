@@ -69,19 +69,21 @@ view_id() {
     printf '%s/%s/%s' "${HOME_DIR}" "${kind}" "${name}"
 }
 
-# assets_section : the Assets section of `atr admin status`, its heading excluded; returns 1 where the report carries no
-# Assets heading. The report is read whole before awk searches it, since awk's exit at the section's end would send
-# the report a SIGPIPE, which pipefail returns as 141; its own exit status (4 on a finding) is not this function's.
+# assets_section : print the Assets section of `atr admin status`, its heading excluded; return 1 where the section is
+# not evidence that the successor check ran: the report exited outside its documented 0, 4 and 5, did not reach
+# the Services heading that follows the section, carries no Assets heading, or the section holds an [UNREADABLE] line
+# or a finding on the enable list, under which status does not run the check. The report is read whole before awk
+# searches it, since awk's exit at the section's end would send the report a SIGPIPE, which pipefail returns as 141.
 assets_section() {
-    local status_report
-    status_report="$("${ADMIN}" status 2>/dev/null)" || true
-    # A report that did not run or did not reach the section is not an empty section, which notice_absent would pass.
+    local status_report report_status=0 section
+    status_report="$("${ADMIN}" status 2>/dev/null)" || report_status=$?
+    case "${report_status}" in 0|4|5) ;; *) echo "the status report exited ${report_status}" >&2; return 1 ;; esac
     grep -qx '  Assets' <<< "${status_report}" || { echo "the status report carries no Assets section" >&2; return 1; }
-    local section
+    grep -qx '  Services' <<< "${status_report}" || { echo "the status report ended inside the Assets section" >&2; return 1; }
     section="$(awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside' <<< "${status_report}")"
     printf '%s\n' "${section}"
-    # An [UNREADABLE] line is a reading the section could not make, so a notice it would have carried is unknown.
-    ! grep -qF '[UNREADABLE]' <<< "${section}" || { echo "the Assets section could not be read" >&2; return 1; }
+    ! grep -qE '\[UNREADABLE\]|enable-list-untrusted|id-malformed' <<< "${section}" \
+        || { echo "the Assets section did not run the successor check" >&2; return 1; }
 }
 
 # is_shared <kind>/<name> : succeed for an entry whose successor takes the same view name.
