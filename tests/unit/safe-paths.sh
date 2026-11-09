@@ -218,4 +218,35 @@ else
     fail "a closed descriptor or an empty argument passed"
 fi
 
+# (8) The library loads msg.lib.sh from its own directory, so a checkout's installer, which sources the checkout's
+#     copy, does not depend on an installed /usr/local/lib/ai-tools. The checkout's library is copied beside a stand-in
+#     msg.lib.sh that sets a marker; a fresh shell sources the copy, and the marker and the guard function together
+#     show the stand-in was the copy loaded and the library loaded whole. With the stand-in removed the source fails,
+#     which an installed msg.lib.sh would otherwise satisfy.
+checkout_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/lib/ai-tools/safe-paths.lib.sh"
+if [[ ! -r "${checkout_lib}" ]]; then
+    skip "safe-paths.lib.sh loads msg.lib.sh from its own directory" "no checkout library at ${checkout_lib}"
+else
+    sibling_dir="${TESTDIR}/sibling-lib"; mkdir -p "${sibling_dir}"
+    cp -- "${checkout_lib}" "${sibling_dir}/safe-paths.lib.sh"
+    printf 'SIBLING_MSG_MARKER=loaded\n' > "${sibling_dir}/msg.lib.sh"
+    # shellcheck disable=SC2016  # $1 is the inner shell's positional, passed after `_`
+    sibling_probe='source "$1" || exit 1
+printf "%s" "${SIBLING_MSG_MARKER:-absent}"
+declare -F ai_tools_safe_paths__assert_safe_target >/dev/null && printf " guard"'
+    sibling_out="$(env -i PATH=/usr/bin:/bin bash -c "${sibling_probe}" _ "${sibling_dir}/safe-paths.lib.sh" 2>&1)" \
+        || true
+    if [[ "${sibling_out}" == "loaded guard" ]]; then
+        pass "safe-paths.lib.sh loads the msg.lib.sh beside it"
+    else
+        fail "safe-paths.lib.sh did not load the msg.lib.sh beside it (got: ${sibling_out})"
+    fi
+    rm -f -- "${sibling_dir}/msg.lib.sh"
+    if ! env -i PATH=/usr/bin:/bin bash -c "${sibling_probe}" _ "${sibling_dir}/safe-paths.lib.sh" >/dev/null 2>&1; then
+        pass "safe-paths.lib.sh fails its load with no msg.lib.sh beside it"
+    else
+        fail "safe-paths.lib.sh loaded with no msg.lib.sh beside it"
+    fi
+fi
+
 finish
