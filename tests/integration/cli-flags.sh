@@ -1764,6 +1764,12 @@ EOF
     expect "the clone removal declines with no terminal"              rc_not0
     expect "the declined removal leaves the clone"                    test -d "${SBROOT}/${N_C2}"
     expect "the declined removal leaves the entry"                    st_is "${SBROOT}/${N_C2}" enabled
+    # The confirm answered yes and a name that is not the clone's typed at the challenge: the challenge is asked,
+    # and its mismatch leaves the clone and its entry.
+    cli_stub_reset; drive cli_tty 'y\nnot-the-clone\n' ai-tools.projects.remove.clone "${SBROOT}/${N_C2}"
+    expect "the clone removal asks for the typed name after the confirm" out_has_text "the name did not match"
+    expect "a mistyped name leaves the clone"                         test -d "${SBROOT}/${N_C2}"
+    expect "a mistyped name leaves the entry"                         st_is "${SBROOT}/${N_C2}" enabled
     cli_stub_reset; drive cli_in "${SBROOT}/${N_C2}" ai-tools.projects.remove.clone "$(f yes)"
     expect "the clone removal --yes without a path is refused"        rc_is 2
     expect "the refused removal leaves the clone"                     test -d "${SBROOT}/${N_C2}"
@@ -1771,7 +1777,7 @@ EOF
     expect "the clone removal --yes <path> deletes the clone"         test ! -e "${SBROOT}/${N_C2}"
     expect "the clone removal --yes drops the entry"                  st_is "${SBROOT}/${N_C2}" absent
     expect "the clone removal --yes drops safe.directory"             cli_called ai-tools-safedir "^--remove${T}${SBROOT}/${N_C2}$"
-    expect "the clone removal runs no typed-name challenge and no hand-back" not_called ai-tools-unclaim
+    expect "the clone removal --yes runs no hand-back"                not_called ai-tools-unclaim
     expect "a clone removal run from outside the clone does not name cd" out_lacks_text "cd somewhere else"
     cli_stub_reset; drive cli_in "${SBROOT}/${N_C3}" ai-tools.projects.remove.clone "$(f yes)" "${SBROOT}/${N_C3}"
     expect "a clone removal run from inside the clone deletes it"     test ! -e "${SBROOT}/${N_C3}"

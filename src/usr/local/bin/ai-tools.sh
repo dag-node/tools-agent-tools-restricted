@@ -5000,8 +5000,8 @@ die_remove_incomplete() {
 # A project's authorization is an EXACT registry entry, enabled or disabled; a clone's is its place, its owner and its
 # shape (remove_clone). The verb does not take `--force`. Teardown in either kind is registries first, deletion last,
 # so a failed deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be
-# deleted (cli.rule.md, ref-section-k3v7). `-y` pre-answers the default-NO confirm of either kind and the in-place
-# kind's typed-name challenge; the clone kind does not ask for a typed name.
+# deleted (cli.rule.md, ref-section-k3v7). `-y` pre-answers both questions of either kind: the default-NO confirm
+# and the typed-name challenge.
 cmd_project_remove() {
     local a path="" assume_yes=false
     local -a remedy=()
@@ -5580,21 +5580,27 @@ report_cwd_in_removed_tree() {
 # lines go with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then
 # the tree. The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it
 # was: on disk, registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes>
-# true pre-answers the one default-NO confirm, and <cwd> is the canonical current directory read before the deletion.
-# The remote branch is left intact. No git read is made over the clone (cmd_project_remove states why), so a line ahead
-# of the confirm states what an unpushed commit meets instead of counting them. The registry record is read
-# for what a failed deletion's warning names alone: whether the clone had an entry of its own and which entry still
-# covers it; the authorization stays require_sandbox_clone_shape.
+# true pre-answers the confirm and the typed-name challenge, and <cwd> is the canonical current directory read
+# before the deletion. No git read is made over the clone (cmd_project_remove states why), so the warning ahead
+# of the confirm states what an unpushed commit and an uncommitted change meet instead of counting them. The registry
+# record is read for what a failed deletion's warning names alone: whether the clone had an entry of its own
+# and which entry still covers it; the authorization stays require_sandbox_clone_shape.
 remove_clone() {
     local d="$1" assume_yes="$2" cwd_real="$3" own_entry=none covering_entry
     require_sandbox_clone_shape "${d}"
     read_path_class "${d}"
     [[ "${CLASS_STATE}" != enabled && "${CLASS_STATE}" != disabled ]] || own_entry=removed
     covering_entry="$(get_covering_entry)"
-    section "Remove sandbox project"
-    say "  ${d}"
-    say "  a commit not yet pushed is deleted with the clone; already-pushed work stays on the remote"
-    ${assume_yes} || confirm "Unregister ${d} and remove it?" n || die "aborted"
+    # The same two questions as the in-place kind: a default-NO confirm, then the typed name. The tree may be a clone
+    # or a project `projects create` made in the clone area, and the verb does not read the repository, so the warning
+    # names what either loses.
+    headline_warn "WARNING: this deletes the sandbox project directory" \
+        "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. Commits not yet pushed and uncommitted changes go with it, and this command does not read the repository to count them; work already pushed to a remote stays there."
+    if ! ${assume_yes}; then
+        confirm "Delete this sandbox project directory and everything in it?" n || die "aborted"
+        ai_tools_msg__challenge "  Confirm the project to delete" "${d##*/}" \
+            || die "aborted -- the name did not match"
+    fi
 
     unreg_allow "${d}"
     # `|| true`: a safe.directory entry that could not be removed is a stale line the listing reports, and not
@@ -5609,7 +5615,6 @@ remove_clone() {
     ok "removed ${d} and unregistered it"
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
-    say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
     report_cwd_in_removed_tree "${d}" "${cwd_real}"
 }
 
