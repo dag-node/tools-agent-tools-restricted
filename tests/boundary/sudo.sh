@@ -97,6 +97,29 @@ else
     else
         pass "${SANDBOX_USER} is not a member of ai-ops (holds no operator grant)"
     fi
+
+    # (7) No enrolled operator is in the account's group, and the account is in no operator's primary group: the state
+    # `operators add` refuses to enrol into. A supplementary group both accounts hold (`video`) is the host's.
+    if ! declare -F ai_tools_operator__load_operators >/dev/null 2>&1 \
+            && ! source /usr/local/lib/ai-tools/operator.lib.sh 2>/dev/null; then
+        skip "operators outside the sandbox account's groups" "operator.lib.sh not readable -- cannot resolve the operator list"
+    elif ! ai_tools_operator__load_operators; then
+        skip "operators outside the sandbox account's groups" "no operator is enrolled in operator.conf"
+    elif ! sandbox_groups="$(id -nG "${SANDBOX_USER}" 2>/dev/null)"; then
+        fail "the groups of ${SANDBOX_USER} could not be read"
+    else
+        for op_name in "${AI_TOOLS_OPERATOR__OPERATORS[@]}"; do
+            if ! op_groups="$(id -nG "${op_name}" 2>/dev/null)" || ! op_primary="$(id -gn "${op_name}" 2>/dev/null)"; then
+                fail "${op_name}: its groups could not be read"
+            elif [[ " ${op_groups} " == *" ${SANDBOX_GROUP} "* ]]; then
+                fail "${op_name} is in ${SANDBOX_GROUP}, so the agent reads what ${op_name}'s group bits open"
+            elif [[ " ${sandbox_groups} " == *" ${op_primary} "* ]]; then
+                fail "${SANDBOX_USER} is in ${op_name}'s primary group ${op_primary}"
+            else
+                pass "${op_name} does not share ${SANDBOX_GROUP} or its primary group with ${SANDBOX_USER}"
+            fi
+        done
+    fi
 fi
 
 finish

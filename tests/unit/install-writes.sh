@@ -31,7 +31,11 @@
 # list_other_atr_commands and require_no_other_atr_command run over a fixture root of the command directories,
 # where another executable named atr is listed once and refuses the install, and this project's own entries
 # and a non-command do not; do_install's text is read for the check ahead of the first write, and do_uninstall's
-# for a removal through remove_recognized_atr_entries alone.
+# for a removal through remove_recognized_atr_entries alone. report_install_abort is driven out of the text: a run
+# stopped after the first write names its step and the re-run, and do_install's text is read for the trap set ahead
+# of that write and the flag cleared ahead of the closing section. require_enrolable_groups is driven
+# over the checkout's operator.lib.sh with `id` a shell function, each shared group refused under its code beside
+# a control, and do_install's text is read for the call ahead of the first write and operator_refusal's for none.
 #
 # No install and no command of install.sh's but the extracted functions. Skips outside a checkout.
 
@@ -431,6 +435,90 @@ if call_precedes_first_write "${INSTALLER}"; then
     pass "do_install refuses a host without the ACL tools ahead of its first write"
 else
     fail "do_install does not call require_acl_tools ahead of its install log's directory"
+fi
+
+# ── The install action refuses an operator who shares a group with the sandbox account ───────────────────────
+# require_enrolable_groups is driven extracted with the real die and emit_coded, over the checkout's operator.lib.sh,
+# with `id` a shell function answering for the fixture account svc-op and the sandbox account. Each refusal must carry
+# its code and end the run; the control passes in silence. do_install's text is read for the call ahead of its first
+# write, and operator_refusal's for no group check, since every action of install.sh asks it.
+section "install.sh: the install action refuses an operator who shares a group with the sandbox account (unit)"
+group_text=""
+for name in die require_enrolable_groups; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install.sh does not define ${name}() in the form this file reads"
+        group_text=""; break
+    fi
+    group_text+="${body}"$'\n'
+done
+if [[ -n "${group_text}" ]]; then
+    group_text+="$(grep -E '^emit_coded\(\) \{.*\}$' "${INSTALLER}" || true)"$'\n'
+    # group_run <svc-op groups|FAIL> <primary> <sandbox present: yes|no> <sandbox groups|FAIL> <sandbox primary> :
+    #   the check for svc-op, SBX standing for the sandbox group.
+    # shellcheck disable=SC2016  # the inner shell expands these, not this one
+    group_run() {
+        env -i PATH=/usr/bin:/bin "${BASH}" -c '
+            set -euo pipefail
+            C_RED="" C_RST="" SANDBOX_USER=sbx-acct SANDBOX_GROUP=sbx-grp PROJECTS_USER=svc-op
+            source "$1"
+            eval "$2"
+            stub_user_groups="$3" stub_user_primary="$4" stub_sandbox_present="$5" stub_sandbox_groups="$6" stub_sandbox_primary="$7"
+            answer() { [[ "$1" != FAIL ]] || return 1; printf "%s\n" "${1//SBX/${SANDBOX_GROUP}}"; }
+            id() {
+                case "$1 ${2:-}" in
+                    "-nG svc-op") answer "${stub_user_groups}" ;;
+                    "-gn svc-op") answer "${stub_user_primary}" ;;
+                    "-u sbx-acct") [[ "${stub_sandbox_present}" == yes ]] || return 1; printf "998\n" ;;
+                    "-nG sbx-acct") answer "${stub_sandbox_groups}" ;;
+                    "-gn sbx-acct") answer "${stub_sandbox_primary}" ;;
+                    *) return 1 ;;
+                esac
+            }
+            require_enrolable_groups
+            printf "returned\n"
+        ' _ "${ROOT}/src/usr/local/lib/ai-tools/operator.lib.sh" "${group_text}" "$@" 2>&1
+    }
+    rc=0; out="$(group_run "svc-op wheel video" svc-op yes "SBX video" SBX)" || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == returned ]]; then
+        pass "an operator sharing only a supplementary group with the sandbox account passes in silence (control)"
+    else
+        fail "the control was refused (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+    for row in "MSG-H9Q6|FAIL|svc-op|yes|SBX|SBX|groups that cannot be read" \
+               "MSG-D4N4|SBX|SBX|yes|SBX|SBX|the sandbox group as its primary group" \
+               "MSG-H3P3|svc-op SBX|svc-op|yes|SBX|SBX|a supplementary sandbox group" \
+               "MSG-M9D2|svc-op|svc-op|yes|FAIL|SBX|a sandbox account whose groups cannot be read" \
+               "MSG-T8R6|svc-op|svc-op|yes|svc-op|svc-op|a sandbox account whose primary group is the operator's" \
+               "MSG-R2C2|svc-op|svc-op|yes|SBX svc-op|SBX|a sandbox account in the operator's primary group"; do
+        IFS='|' read -r code g p present sg sp what <<<"${row}"
+        rc=0; out="$(group_run "${g}" "${p}" "${present}" "${sg}" "${sp}")" || rc=$?
+        assert_msg "${code}" "${out}" "an operator with ${what} is refused"
+        if (( rc != 0 )) && [[ "${out}" != *returned* ]]; then
+            pass "an operator with ${what} ends the install"
+        else
+            fail "an operator with ${what} did not end the install (exit ${rc}): ${out//$'\n'/ | }"
+        fi
+    done
+    rc=0; out="$(group_run svc-op svc-op no FAIL FAIL)" || rc=$?
+    if (( rc == 0 )) && [[ "${out}" == returned ]]; then
+        pass "a host without the sandbox account skips the check of its groups"
+    else
+        fail "a host without the sandbox account was refused (exit ${rc}): ${out//$'\n'/ | }"
+    fi
+fi
+group_body="$(extract_function "${INSTALLER}" do_install)"
+group_call_line="$(grep -n -m1 -E '^[[:space:]]+require_enrolable_groups$' <<<"${group_body}" | cut -d: -f1 || true)"
+group_write_line="$(grep -n -m1 -E '^[[:space:]]+install -d .*/var/log/ai-tools' <<<"${group_body}" | cut -d: -f1 || true)"
+if [[ -n "${group_call_line}" && -n "${group_write_line}" ]] && (( group_call_line < group_write_line )); then
+    pass "do_install refuses an operator sharing a group with the sandbox account ahead of its first write"
+else
+    fail "do_install does not call require_enrolable_groups ahead of its install log's directory (call ${group_call_line:-none}, write ${group_write_line:-none})"
+fi
+if extract_function "${INSTALLER}" operator_refusal | grep -qE 'read_enrolment_group_refusal|require_enrolable_groups'; then
+    fail "operator_refusal, which every action asks, makes the group check, so uninstall and the checks refuse an affected operator"
+else
+    pass "operator_refusal, which every action asks, leaves the group check to the install action"
 fi
 
 # ── ensure_dir sets an owner and a mode on a directory alone ─────────────────────────────────────
@@ -936,31 +1024,84 @@ else
 fi
 
 # ── The relabel watcher is restored whenever it is enabled ───────────────────────────────────
-# do_install stops ai-tools-relabel.path for its run and an EXIT trap starts it again. The trap is armed on the unit
-# being enabled: armed on its being active, a run that stopped early leaves an enabled watcher down, and every later run
-# that also stops early finds it down and does not arm the trap. watcher_trap_arm <file>: print the verb
-# of the systemctl test whose branch sets the trap that starts the watcher, or nothing where no such branch is found.
-section "install.sh: the relabel watcher's restore is armed on the unit being enabled (unit)"
-watcher_trap_arm() {
+# do_install stops ai-tools-relabel.path for its run and an EXIT trap starts it again. The restart is set on the unit
+# being enabled: set on its being active, a run that stopped early leaves an enabled watcher down, and every later run
+# that also stops early finds it down and does not set the restart. The branch sets INSTALL_WATCHER_RESTART_REQUIRED,
+# which the EXIT trap (install_exit) reads. watcher_restart_test <file>: print the verb of the systemctl test
+# whose branch sets the restart, or nothing where no such branch is found.
+section "install.sh: the relabel watcher's restart is set on the unit being enabled (unit)"
+watcher_restart_test() {
     awk '
         /^[[:space:]]*if systemctl is-[a-z]+ --quiet ai-tools-relabel\.path/ { match($0, /is-[a-z]+/); verb = substr($0, RSTART, RLENGTH); next }
-        verb != "" && /trap .*systemctl start ai-tools-relabel\.path.* EXIT/ { print verb; exit }
+        verb != "" && /^[[:space:]]*INSTALL_WATCHER_RESTART_REQUIRED=1$/ { print verb; exit }
         { verb = "" }
     ' "$1"
 }
 # shellcheck disable=SC2016  # the control is install.sh text, written and not expanded
 printf '%s\n' '    if systemctl is-active --quiet ai-tools-relabel.path 2>/dev/null; then' \
-    "        trap 'systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT" '    fi' > "${TESTDIR}/watcher-control.sh"
-if [[ "$(watcher_trap_arm "${TESTDIR}/watcher-control.sh")" == is-active ]]; then
-    pass "the reader reads the verb an arm tests (control: is-active)"
+    '        INSTALL_WATCHER_RESTART_REQUIRED=1' '    fi' > "${TESTDIR}/watcher-control.sh"
+if [[ "$(watcher_restart_test "${TESTDIR}/watcher-control.sh")" == is-active ]]; then
+    pass "the reader reads the verb the restart is set on (control: is-active)"
 else
     fail "control: the reader did not read is-active from the fixture, so the check below cannot fail"
 fi
-arm="$(watcher_trap_arm "${INSTALLER}")"
-if [[ "${arm}" == is-enabled ]]; then
-    pass "the EXIT trap that starts the watcher is armed on systemctl is-enabled"
+restart_test="$(watcher_restart_test "${INSTALLER}")"
+if [[ "${restart_test}" == is-enabled ]]; then
+    pass "the restart of the watcher is set on systemctl is-enabled"
 else
-    fail "the EXIT trap that starts the watcher is armed on '${arm:-no test found}', not is-enabled"
+    fail "the restart of the watcher is set on '${restart_test:-no test found}', not is-enabled"
+fi
+exit_body="$(extract_function "${INSTALLER}" install_exit)"
+if grep -qE '^[[:space:]]+if \(\( INSTALL_WATCHER_RESTART_REQUIRED \)\); then$' <<<"${exit_body}" \
+        && grep -qF 'systemctl start ai-tools-relabel.path' <<<"${exit_body}"; then
+    pass "the EXIT trap starts the watcher where the restart is set"
+else
+    fail "install_exit does not start the watcher on INSTALL_WATCHER_RESTART_REQUIRED"
+fi
+
+# ── A stopped install names the step and the re-run ─────────────────────────────────────────
+# Once do_install has made its first write, an exit with a non-zero status leaves the host partly written,
+# and the failing command's own line does not say so. report_install_abort is driven out of install.sh's text with its
+# emitters; do_install's text is read for the trap set ahead of the first write and the flag cleared ahead
+# of the closing section, whose verification reports a failure of its own.
+section "install.sh: a stopped install names the step and the re-run (unit)"
+abort_text="$(extract_function "${INSTALLER}" report_install_abort)"$'\n'"$(extract_function "${INSTALLER}" err)"
+abort_text+=$'\n'"$(grep -E '^say\(\)[[:space:]]+\{.*\}$' "${INSTALLER}" || true)"
+run_abort() {  # run_abort <INSTALL_REPORT_INCOMPLETE> <status> : the report for one state, stdout and stderr together
+    bash -c '
+        set -euo pipefail
+        eval "$1"
+        INSTALL_REPORT_INCOMPLETE="$2"; INSTALL_SECTION="System files (root-owned)"; SCRIPT_DIR=/srv/ai-tools; C_RED=""; C_RST=""
+        INSTALL_ARGV=(install --operator null.pointer)
+        report_install_abort "$3"
+    ' _ "${abort_text}" "$1" "$2" 2>&1 || true
+}
+out="$(run_abort 1 1)"
+assert_msg MSG-H4U5 "${out}" "a stopped install is reported under its code"
+if grep -qF "the step 'System files (root-owned)' (exit 1)" <<<"${out}" \
+        && grep -qxF '    sudo /srv/ai-tools/install.sh install --operator null.pointer' <<<"${out}"; then
+    pass "the report names the step that stopped and the re-run with the command line given"
+else
+    fail "the abort report: ${out}"
+fi
+if [[ -z "$(run_abort 1 0)" && -z "$(run_abort 0 1)" ]]; then
+    pass "a run that exits 0, and one stopped before the first write or after the last, print no report"
+else
+    fail "a report where none is owed: '$(run_abort 1 0)' / '$(run_abort 0 1)'"
+fi
+install_lines="$(extract_function "${INSTALLER}" do_install)"
+# shellcheck disable=SC2016  # the patterns are install.sh text
+trap_line="$(grep -n -m1 -F "trap 'install_exit \$?' EXIT" <<<"${install_lines}" | cut -d: -f1)" || true
+writing_line="$(grep -n -m1 -E '^[[:space:]]+INSTALL_REPORT_INCOMPLETE=1$' <<<"${install_lines}" | cut -d: -f1)" || true
+first_write_line="$(grep -n -m1 -F 'install -d -o root -g root -m 700 /var/log/ai-tools' <<<"${install_lines}" | cut -d: -f1)" || true
+done_line="$(grep -n -m1 -E '^[[:space:]]+INSTALL_REPORT_INCOMPLETE=0$' <<<"${install_lines}" | cut -d: -f1)" || true
+closing_line="$(grep -n -m1 -F 'section "Install complete' <<<"${install_lines}" | cut -d: -f1)" || true
+if [[ -z "${trap_line}" || -z "${writing_line}" || -z "${first_write_line}" || -z "${done_line}" || -z "${closing_line}" ]]; then
+    fail "the trap, its flag, the first write or the closing section is no longer where this reads it (trap -> ${trap_line:-none}, flag set -> ${writing_line:-none}, first write -> ${first_write_line:-none}, flag cleared -> ${done_line:-none}, closing -> ${closing_line:-none})"
+elif (( writing_line < first_write_line && trap_line < first_write_line && done_line < closing_line )); then
+    pass "the report is set ahead of the first write and cleared ahead of the closing section"
+else
+    fail "out of place: flag set at ${writing_line}, trap at ${trap_line}, first write at ${first_write_line}, flag cleared at ${done_line}, closing at ${closing_line}"
 fi
 
 # ── The registry a source install seeds and de-registers ─────────────────────────────────────────

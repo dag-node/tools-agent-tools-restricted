@@ -2369,6 +2369,10 @@ could not restore every label under ${dir} \-\- ai\-tools\-relabel\-tree exited 
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
 .TP
+.B MSG-H4U5
+ERROR.
+install stopped in the step '${INSTALL_SECTION:\-before the first section}' (exit ${status}) \-\- this host holds a partial install: the steps before it are applied and the later ones are not; fix the cause above, then re\-run:
+.TP
 .B MSG-H5B4
 ERROR.
 could not move ${settings} aside, which is not kept (${settings_refusal}) \-\- move it out of ${claude_config_dir} by hand, then re\-run the install
@@ -2732,6 +2736,31 @@ refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this scr
 .B MSG-U5N2
 ERROR.
 the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) \-\- every launch of them is refused until that executable is installed; fix what npm names, then run: atr admin system bootstrap
+.SS operator.lib.sh
+.TP
+.B MSG-D4N4
+ERROR.
+account ${user} has ${sandbox_group} as its primary group, so the agent reads what ${user}'s group bits open \-\- give ${user} its own primary group, then re\-run: usermod \-g <group> ${user}
+.TP
+.B MSG-H3P3
+ERROR.
+account ${user} is in group ${sandbox_group}, so the agent reads what ${user}'s group bits open \-\- remove ${user} from ${sandbox_group}, then re\-run: gpasswd \-d ${user} ${sandbox_group}
+.TP
+.B MSG-H9Q6
+ERROR.
+cannot read ${user}'s groups, so whether the agent reads through them is unknown \-\- not enrolled
+.TP
+.B MSG-M9D2
+ERROR.
+cannot read ${sandbox_user}'s groups, so whether it is in ${user}'s primary group is unknown \-\- not enrolled
+.TP
+.B MSG-R2C2
+ERROR.
+the sandbox account ${sandbox_user} is in ${user}'s primary group ${primary}, so the agent reads what ${user}'s group bits open \-\- remove ${sandbox_user} from ${primary}, then re\-run: gpasswd \-d ${sandbox_user} ${primary}
+.TP
+.B MSG-T8R6
+ERROR.
+the sandbox account ${sandbox_user} has ${user}'s primary group ${primary} as its own, so the agent reads what ${user}'s group bits open \-\- give ${sandbox_user} the primary group ${sandbox_group}, then re\-run: usermod \-g ${sandbox_group} ${sandbox_user}
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3

@@ -849,7 +849,10 @@ a stream cut before its end), or whose text is past the stub's size, is refused 
 with the stub's `.so` line. Another executable named `atr` in a directory of the default login `PATH` or `sudo`'s
 `secure_path` refuses the install under `MSG-E7B3`, naming its package, while the link to the wrapper and a merged
 directory reaching it, a file without an execute bit and a directory do not; those cases take an executable fixture
-root, `skip_required` where none is found. Each case runs beside its control; the file's header lists them.
+root, `skip_required` where none is found. A run stopped after the first write is reported with its step and the re-run.
+The install action refuses an operator sharing a group with the sandbox account, each case under its code with `id`
+a shell function, ahead of its first write, while `operator_refusal`, which every action asks, does not make a group
+check. Each case runs beside its control; the file's header lists them.
 
 `install-selinux-walks.sh` runs `selinux/install-selinux.sh`'s account-writable walks, extracted as text, with the tree
 walk and `restorecon` recorded and the live-session reader reading `live`: each walk runs through the library's walk

@@ -99,15 +99,19 @@ with no label to apply the step reads `not applicable`.
 
 Pointed at a clone under the sandbox area, the command removes it when it is
 a directory directly inside that area, owned by you or by the operator you act
-for, holding a `.git` directory with a `HEAD` file, and asks one default-No
-confirm. It does not run git to check, so a directory of that shape is removed
-on your confirm whether `atr projects clone` made it or not. It then takes
-the order [Registries first, the tree last](#registries-first-the-tree-last)
-states, the clone's own lines going with it; a clone no line names is reported
-as having had no entry when its deletion fails. A commit not yet pushed goes
-with it, and the command does not count them: run `atr projects push` first
-to keep your work ([Push](push.md)). The remote branch stays for others
-to merge. `-y` answers that one confirm, on the same terms ([Clone](clone.md)).
+for, holding a `.git` directory with a `HEAD` file, and asks the same two
+questions ([It confirms twice](#it-confirms-twice)). It does not run git
+to check, so a directory of that shape is removed on your confirm whether
+`atr projects clone` made it or not. It then takes the order [Registries first,
+the tree last](#registries-first-the-tree-last) states, the clone's own lines
+going with it; a clone no line names is reported as having had no entry
+when its deletion fails. A commit not yet pushed and an uncommitted change go
+with it, and the command does not count them. To keep your work, commit it,
+then run `atr projects push` ([Push](push.md)), which sends commits and not
+uncommitted changes. Work already pushed stays on its remote. A project
+`atr projects create` made in the sandbox area is removed the same way; it has
+no remote to push to, so copy out what you keep first. `-y` answers both
+questions, on the same terms ([Clone](clone.md)).
 
 ## For another operator
 

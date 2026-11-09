@@ -816,6 +816,14 @@ report_operator_role() {
     log "${user}: claim on its behalf from an operator that holds one -- atr projects claim --for ${user} <path>"
 }
 
+# require_enrolable_groups <user> -- refuse to enrol <user> under the code and text
+# ai_tools_operator__read_enrolment_group_refusal (operator.lib.sh) gives; that function states the cases.
+require_enrolable_groups() {
+    local refusal
+    refusal="$(ai_tools_operator__read_enrolment_group_refusal "$1" "${SANDBOX_USER}" "${SANDBOX_GROUP}")" \
+        || die "${refusal%%$'\n'*}" "${refusal#*$'\n'}"
+}
+
 op_add() {
     local user="${1:-${SUDO_USER:-}}"
     [[ -n "${user}" ]] || reject MSG-H2P9 "operators add: name a user, or run it through sudo so SUDO_USER is set"
@@ -825,6 +833,7 @@ op_add() {
     # refused here and not run.
     ai_tools_conf__is_portable_name_valid "${user}" || reject MSG-J2S8 "operators add: not an account name: ${user}"
     id "${user}" &>/dev/null || die MSG-U8T8 "no such user: ${user}"
+    require_enrolable_groups "${user}"
 
     ai_tools_operator__load_operators || true   # tolerate an unenrolled host (empty list)
     local enrolled=0

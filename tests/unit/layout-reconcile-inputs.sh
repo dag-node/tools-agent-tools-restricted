@@ -88,7 +88,7 @@ layout_fixture_has_observation "${out}" error no-such-user-zz operators && [[ "$
 # through the decoded keys, and the file behind the link is left.
 stub_fake_home="${TESTDIR}/home/fix\\op"; mkdir -p "${stub_fake_home}"
 FAKE_DIR="${fixture_root}${stub_fake_home}/.config/ai-tools" FAKE_VICTIM="${TESTDIR}/fake-victim"
-mkdir -p "${FAKE_VICTIM}" "${FAKE_DIR%/*}"; install -o root -g root -m 0644 /dev/null "${FAKE_VICTIM}/allowed-projects"
+mkdir -p "${FAKE_VICTIM}" "${FAKE_DIR%/*}"; install -o root -g root -m 0644 /dev/null "${FAKE_VICTIM}/project-registry"
 ln -sfn "${FAKE_VICTIM}" "${FAKE_DIR}"
 printf 'OPERATORS="%s,fixop"\n' "${PROJECTS_USER}" > "${operator_conf}"
 # The shims are functions of their own, installed in the subshell the run takes, as the entry-set rows do.
@@ -103,10 +103,10 @@ stub_id() { if [[ "$1" == -gn && "$2" == fixop ]]; then printf 'fixop\n'; else c
 stub_run() { getent() { stub_getent "$@"; }; id() { stub_id "$@"; }; layout_fixture_reconcile; }
 out="$(stub_run)"
 unset -f stub_run stub_getent stub_id
-_ai_tools_layout__encode_line wanted refused "${FAKE_DIR}/allowed-projects" ancestor "not read: ${FAKE_DIR} is not at its row"
-grep -qxF -- "${wanted}" <<< "${out}" && [[ "$(stat -c '%U:%G %a' "${FAKE_VICTIM}/allowed-projects")" == "root:root 644" ]] \
+_ai_tools_layout__encode_line wanted refused "${FAKE_DIR}/project-registry" ancestor "not read: ${FAKE_DIR} is not at its row"
+grep -qxF -- "${wanted}" <<< "${out}" && [[ "$(stat -c '%U:%G %a' "${FAKE_VICTIM}/project-registry")" == "root:root 644" ]] \
     && pass "an operator home carrying a backslash keeps the ancestor rule: the rows under its link are refused, the file behind it left" \
-    || fail "backslash home: $(layout_fixture_brief "${out}") / $(stat -c '%U:%G %a' "${FAKE_VICTIM}/allowed-projects")"
+    || fail "backslash home: $(layout_fixture_brief "${out}") / $(stat -c '%U:%G %a' "${FAKE_VICTIM}/project-registry")"
 rm -f "${FAKE_DIR}"
 printf 'OPERATORS="%s"\n' "${PROJECTS_USER}" > "${operator_conf}"
 # The lock held by another process: an error, exit 5, and no write.

@@ -312,8 +312,9 @@ not gaps, so a reader tells bounded design from an oversight:
   grants on it (the permission companions to setgid's shared-group inheritance): the sandbox group's entry is
   the agent's access to operator-written files, and the operator's named entry is the operator's access to agent-written
   files. Both directions are ACL-based, so the operator stays **out** of `SANDBOX_GROUP` and its access does not hinge
-  on the ownership handback's timing. The entries, and the mask that decides what each gives in effect, are
-  [ref-section-y9z4](.claude/rules/ownership-and-hooks.rule.md#ref-section-y9z4).
+  on the ownership handback's timing; `atr admin operators add` and a source install each refuse to enrol an account
+  in `SANDBOX_GROUP` or whose primary group holds `SANDBOX_USER`. The entries, and the mask that decides what each gives
+  in effect, are [ref-section-y9z4](.claude/rules/ownership-and-hooks.rule.md#ref-section-y9z4).
 - **A command is a bare word; `--` introduces an option** — the surface is resource-oriented and maps 1:1 onto a REST
   API: a plural noun for a collection, the verb after it, `list` as the zero-argument default, and a singular
   `selinux`/`system` domain in front where one is needed. The binary is the privilege boundary, so a root-only command

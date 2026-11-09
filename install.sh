@@ -66,7 +66,8 @@ usage() {
 # SUDO_USER arrives without a terminal -- `--allow-uncommitted`, which lets an install deploy a checkout carrying
 # uncommitted changes, the developer's own work in progress (the source-tree gate in do_install refuses one without it),
 # and `--allow-downgrade`, which lets a checkout older than the installed version deploy (the version gate refuses one
-# without it).
+# without it). The command line as given, for the re-run a stopped install names (report_install_abort).
+readonly INSTALL_ARGV=("$@")
 ACTION=""
 OPERATOR_OPT=""
 ALLOW_UNCOMMITTED=0
@@ -169,6 +170,13 @@ if ! source "${CONF_LIB}"; then
     printf 'MSG-R9A8\nerror: cannot source %s -- the checkout is incomplete; re-clone or re-download it\n' "${CONF_LIB}" >&2
     exit 1
 fi
+# The operator-identity library, sourced in the same plain form: the install action's enrolment reads its group check.
+readonly OPERATOR_LIB="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/operator.lib.sh"
+# shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/operator.lib.sh
+if ! source "${OPERATOR_LIB}" || ! declare -F ai_tools_operator__read_enrolment_group_refusal >/dev/null; then
+    printf 'MSG-R9A8\nerror: cannot source %s -- the checkout is incomplete; re-clone or re-download it\n' "${OPERATOR_LIB}" >&2
+    exit 1
+fi
 
 # The install runs its verification suite as SUDO_USER, so that variable is required whichever account is enrolled:
 # `--operator` decides WHO is enrolled, never how this script was invoked.
@@ -200,7 +208,9 @@ fi
 # Each emitter pins IFS locally before "$*": this script runs under IFS=$'\n\t', where the join character is a NEWLINE,
 # so a call passing more than one word would break its message across lines. Same guard as the CLI's join_words.
 say()     { local IFS=' '; printf '%s\n' "$*"; }
-section() { local IFS=' '; printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
+# section also records the step it opens, which a stopped install names (report_install_abort).
+INSTALL_SECTION=""
+section() { local IFS=' '; INSTALL_SECTION="$*"; printf '\n%s── %s ──%s\n' "${C_BOLD}" "$*" "${C_RST}"; }
 ok()      { local IFS=' '; printf '  %s✓%s %s\n' "${C_GRN}" "${C_RST}" "$*"; }
 # log: a dim checklist bullet for each deployed file / action.
 log()     { local IFS=' '; printf '  %s+%s %s\n' "${C_DIM}" "${C_RST}" "$*"; }
@@ -1557,6 +1567,37 @@ remove_recognized_atr_entries() {
     done
 }
 
+# install_exit <status> -- the EXIT trap do_install sets before its first write: report_install_abort, then the relabel
+# watcher's start where INSTALL_WATCHER_RESTART_REQUIRED says the run stopped it.
+INSTALL_REPORT_INCOMPLETE=0
+INSTALL_WATCHER_RESTART_REQUIRED=0
+install_exit() {
+    report_install_abort "$1"
+    if (( INSTALL_WATCHER_RESTART_REQUIRED )); then
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl start ai-tools-relabel.path 2>/dev/null || true
+    fi
+}
+
+# report_install_abort <status> -- while INSTALL_REPORT_INCOMPLETE is 1, a non-zero <status> prints the step
+# INSTALL_SECTION names and the command line this run was given; otherwise prints nothing.
+report_install_abort() {
+    local status="$1" rerun
+    (( INSTALL_REPORT_INCOMPLETE && status != 0 )) || return 0
+    rerun="$(printf ' %q' "${SCRIPT_DIR}/install.sh" "${INSTALL_ARGV[@]}")"
+    err MSG-H4U5 "install stopped in the step '${INSTALL_SECTION:-before the first section}' (exit ${status}) -- this host holds a partial install: the steps before it are applied and the later ones are not; fix the cause above, then re-run:"
+    say "    sudo${rerun}"
+}
+
+# require_enrolable_groups -- refuse to enrol PROJECTS_USER under the code and text
+# ai_tools_operator__read_enrolment_group_refusal (operator.lib.sh) gives, the check `ai-tools-admin operators add`
+# makes. do_install calls it ahead of its first write; the other actions enrol nobody.
+require_enrolable_groups() {
+    local refusal
+    refusal="$(ai_tools_operator__read_enrolment_group_refusal "${PROJECTS_USER}" "${SANDBOX_USER}" "${SANDBOX_GROUP}")" \
+        || emit_coded die "${refusal}"
+}
+
 # do_install -- deploy every sandbox file with its intended owner and mode (root helpers, libs, hooks, the wrapper,
 # the CLI, systemd units), seed user config without clobbering edits, bootstrap the launcher symlinks, enable
 # the nvm-update timer, restore SELinux contexts, offer the optional SELinux bring-up, and -- if confirmed at the end --
@@ -1565,6 +1606,7 @@ remove_recognized_atr_entries() {
 do_install() {
     id "${SANDBOX_USER}" &>/dev/null \
         || die MSG-R6Y6 "sandbox account ${SANDBOX_USER} not found -- create it first (README step 2)"
+    require_enrolable_groups
     require_acl_tools
     require_atr_entries_replaceable
     require_no_other_atr_command
@@ -1602,7 +1644,10 @@ do_install() {
     # Capture the full install transcript to /var/log/ai-tools/install.log. tee keeps colour on the terminal and writes
     # a colour-stripped copy to the file; stderr is folded in so warnings land in the log too. The dir is created 700
     # root:root now so the target exists; the log-directory block re-enforces perms and the SELinux relabel applies
-    # ai_tools_log_t. A logger marker brackets the run in journald.
+    # ai_tools_log_t. A logger marker brackets the run in journald. From here a run that stops leaves the host partly
+    # written, so the EXIT trap reports it.
+    INSTALL_REPORT_INCOMPLETE=1
+    trap 'install_exit $?' EXIT
     install -d -o root -g root -m 700 /var/log/ai-tools 2>/dev/null || true
     exec > >(tee >(sed -u 's/\x1b\[[0-9;]*m//g' >> /var/log/ai-tools/install.log)) 2>&1
     # The >> open *creates* install.log honouring the install umask (027 -> 640), and the pre-create loop further
@@ -1618,13 +1663,13 @@ do_install() {
     # under /opt/ai-tools/bin trigger ai-tools-relabel.service, and a run mid-install executes the helper of one release
     # against the libraries of another. Stopping the .path does not end a run in progress, and a run still active
     # at the end would absorb the closing start, so the service is stopped whether or not the watcher was up. The EXIT
-    # trap starts the watcher again whatever ends the run, after a daemon-reload for the unit files the run rewrote.
-    # The trap is armed on the unit being enabled, not active: an earlier run that stopped early left an enabled watcher
-    # down, and arming on its state at this moment would leave it down after every later run that also stops early.
-    # A completed run enables the watcher at its service step and runs the relabel once at its end, which completes
-    # a run cut short here.
+    # trap (install_exit) starts the watcher again whatever ends the run, after a daemon-reload for the unit files
+    # the run rewrote. The restart is set on the unit being enabled, not active: an earlier run that stopped early left
+    # an enabled watcher down, and setting it on its state at this moment would leave it down after every later run
+    # that also stops early. A completed run enables the watcher at its service step and runs the relabel once at its
+    # end, which completes a run cut short here.
     if systemctl is-enabled --quiet ai-tools-relabel.path 2>/dev/null; then
-        trap 'systemctl daemon-reload 2>/dev/null || true; systemctl start ai-tools-relabel.path 2>/dev/null || true' EXIT
+        INSTALL_WATCHER_RESTART_REQUIRED=1
     fi
     systemctl stop ai-tools-relabel.path ai-tools-relabel.service 2>/dev/null || true
 
@@ -3063,6 +3108,8 @@ do_install() {
     # here, in one tool's consistent output. No step to do afterwards.
     offer_selinux
 
+    # Every write is made; a failure in the closing verification is reported on its own.
+    INSTALL_REPORT_INCOMPLETE=0
     section "Install complete -- next steps"
     # An enrolled operator's `~/.config/ai-tools/allowed-projects` from an earlier release stays every reader's
     # registry, and every `projects` verb refuses, until `system post-upgrade` migrates it

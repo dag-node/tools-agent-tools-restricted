@@ -758,6 +758,32 @@ else
     else
         fail "out of place: refusal at ${refuse_line}, ownership at ${ownership_line}, network at ${network_line}, removal at ${remove_line}, install at ${install_line}"
     fi
+    # Linger is enabled once the account exists and before any step runs as it: without it the account's slice is
+    # stopped between two such steps, and a scope started during that stop is refused.
+    useradd_line="$(grep -n -m1 -E '^[[:space:]]+useradd --system ' "${SCRIPT}" | cut -d: -f1)" || true
+    linger_line="$(grep -n -m1 -F 'loginctl enable-linger "${SANDBOX_USER}"' "${SCRIPT}" | cut -d: -f1)" || true
+    links_line="$(grep -n -m1 -E '^restore_toolchain_links$' "${SCRIPT}" | cut -d: -f1)" || true
+    if [[ -z "${useradd_line}" || -z "${linger_line}" || -z "${links_line}" ]]; then
+        fail "the account creation, the linger step or the link repair is no longer where this reads it (account -> ${useradd_line:-none}, linger -> ${linger_line:-none}, links -> ${links_line:-none})"
+    elif (( useradd_line < linger_line && linger_line < links_line && links_line < remove_line && remove_line < install_line )); then
+        pass "linger is enabled after the account is created and before the link repair, the residue removal and the install run as it"
+    else
+        fail "out of place: account at ${useradd_line}, linger at ${linger_line}, links at ${links_line}, removal at ${remove_line}, install at ${install_line}"
+    fi
+    # The timer stamp is refreshed ahead of linger: a manager linger brings up starts a timer an earlier run enabled,
+    # and a stale stamp would start the updater beside this run's toolchain steps.
+    # shellcheck disable=SC2016
+    stamp_line="$(grep -n -m1 -F 'sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"' \
+        "${SCRIPT}" | cut -d: -f1)" || true
+    # The reconcile places the stamp's directory first.
+    reconcile_line="$(grep -n -m1 -E '^reconcile_layout$' "${SCRIPT}" | cut -d: -f1)" || true
+    if [[ -z "${reconcile_line}" || -z "${stamp_line}" || -z "${linger_line}" ]]; then
+        fail "the reconcile, the stamp refresh or the linger step is no longer where this reads it (reconcile -> ${reconcile_line:-none}, stamp -> ${stamp_line:-none}, linger -> ${linger_line:-none})"
+    elif (( reconcile_line < stamp_line && stamp_line < linger_line )); then
+        pass "the reconcile places the stamp directory and the stamp is refreshed before linger brings the manager up"
+    else
+        fail "out of place: reconcile at ${reconcile_line}, the first stamp write at ${stamp_line}, linger at ${linger_line}"
+    fi
 fi
 
 # ── configure_git_identity: the gitconfig's attributes after the identity write ─────────────────────────────────
