@@ -5591,9 +5591,8 @@ remove_clone() {
     read_path_class "${d}"
     [[ "${CLASS_STATE}" != enabled && "${CLASS_STATE}" != disabled ]] || own_entry=removed
     covering_entry="$(get_covering_entry)"
-    # The same two questions as the in-place kind: a default-NO confirm, then the typed name. The tree may be a clone
-    # or a project `projects create` made in the clone area, and the verb does not read the repository, so the warning
-    # names what either loses.
+    # The tree may be a clone or a project `projects create` made in the clone area, and the verb does not read
+    # the repository, so the warning names what either loses.
     headline_warn "WARNING: this deletes the sandbox project directory" \
         "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. Commits not yet pushed and uncommitted changes go with it, and this command does not read the repository to count them; work already pushed to a remote stays there."
     if ! ${assume_yes}; then

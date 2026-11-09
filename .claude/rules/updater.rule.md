@@ -42,17 +42,18 @@ about nor written. The enabled set is resolved after that write, so the run prov
 the configuration did not ask for — `ai_tools_providers__evaluate_empty_agents` answering anything but `none` — ends
 the run there under `MSG-M9G5`, before anything is installed or removed, the fault the updater ends on ([the empty-set
 classification](#the-run-classifies-itself-ok-skipped-or-failed)). Past the preflight checks it creates
-the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, and enables that account's linger before any step
-runs as it. **Residue goes ahead of the network step** (`remove_residue`): the package of every installed agent that set
-does not name is removed as `SANDBOX_USER` through `ai_tools_toolchain__remove_agent_package`, and its stable launcher
-link as root once no version directory holds the package, so an offline host cleans up before its npm step fails
-and every launch stops refusing (see [A disabled agent's package is residue](#a-disabled-agents-package-is-residue)).
-**Two preflight checks sit between the empty-set refusal and the residue step**, since the residue step and the install
-both read the toolchain as `SANDBOX_USER`. `preflight_toolchain_ownership` reads the `.nvm`, `.npm`, `.cache`
-and `.local` subtrees as root and reports every path `SANDBOX_USER:SANDBOX_GROUP` does not own, with the `chown -Rh`
-that restores the account's ownership; a finding ends the run before anything is installed or removed, which is
-what turns nvm's bare "Permission denied" on a tree copied from another host into a line naming the cause. The remedy is
-printed and not applied: a chown the command made on its own would hand the account every file a copy left in its home.
+the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, runs the layout reconcile, refreshes the timer stamp,
+and enables that account's linger before the first step that runs as it through `ai_tools_sandbox_exec__run_as_sandbox`.
+**Residue goes ahead of the network step** (`remove_residue`): the package of every installed agent that set does not
+name is removed as `SANDBOX_USER` through `ai_tools_toolchain__remove_agent_package`, and its stable launcher link
+as root once no version directory holds the package, so an offline host cleans up before its npm step fails and every
+launch stops refusing (see [A disabled agent's package is residue](#a-disabled-agents-package-is-residue)). **Two
+preflight checks sit between the empty-set refusal and the residue step**, since the residue step and the install both
+read the toolchain as `SANDBOX_USER`. `preflight_toolchain_ownership` reads the `.nvm`, `.npm` and `.cache` subtrees
+as root and reports every path `SANDBOX_USER:SANDBOX_GROUP` does not own, with the `chown -Rh` that restores
+the account's ownership; a finding ends the run before anything is installed or removed, which is what turns nvm's bare
+"Permission denied" on a tree copied from another host into a line naming the cause. The remedy is printed and not
+applied: a chown the command made on its own would hand the account every file a copy left in its home.
 `preflight_network` then asks each download host for a `HEAD` within a timeout (`registry.npmjs.org`, `nodejs.org`,
 and `raw.githubusercontent.com` only while nvm is not installed yet), counting an answer of any status as a route
 and a resolve failure, a refused connection or a timeout as none. A host with no route makes the run an **offline** one

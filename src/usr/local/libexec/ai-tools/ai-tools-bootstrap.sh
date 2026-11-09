@@ -769,10 +769,8 @@ done
 # of the installed layout, the timer-stamp directory at its end among them.
 reconcile_layout
 
-# A stopped manager that an earlier run enabled the timer in starts it from timers.target as linger brings the manager
-# up, and a stale run-stamp then starts nvm-update.service at once, beside this run's own toolchain steps. So the stamp
-# is refreshed first, as step 5 seeds it (the reason is stated there), in the directory the reconcile just placed.
-# A write that fails ends the run here, ahead of linger and of every account step, as step 5's own write would.
+# The timer stamp is refreshed ahead of linger, which can start a timer an earlier run enabled (updater.rule.md states
+# the race); a write that fails ends the run here, as step 5's own write would.
 sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}" \
     || die "could not write the nvm-update timer stamp in ${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER} -- see: atr admin system layout, then re-run atr admin system bootstrap"
 
