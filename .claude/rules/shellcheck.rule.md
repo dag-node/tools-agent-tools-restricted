@@ -103,7 +103,7 @@ So no stage after a pipe is one of those readers. The reader takes the producer'
 (`out="$(producer)" || out=""`, then `grep -q … <<<"${out}"`), and a listing too long to hold is cut by a filter
 that reads to the end (`awk 'NR <= 50'`). The one exception is `head -c` in a pipeline whose status `|| true` discards,
 the bound on a stream that must not be read to its end. `tests/unit/pipefail-readers.sh` holds the scripts under `src/`,
-`selinux/`, `packaging/` and `tools/`, `install.sh` and the workflows to it.
+`selinux/`, `packaging/`, `tools/` and `tests/`, `install.sh` and the workflows to it.
 
 ## Design notes
 

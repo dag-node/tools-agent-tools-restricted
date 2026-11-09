@@ -10,8 +10,9 @@ Prints one line per finding, `<file>:<line>: <reader>: <the stage>`, and exits 1
 whose quoting the scanner cannot follow to the end is itself a finding (`unparsed`), so a file it could not read does
 not count as clean. An error of the scanner's own exits 2 with the error on stderr.
 
-What it reads as shell: a `*.yml` file's `run:` blocks, every other file whole, and the quoted body of a `bash -c`
-or `sh -c` argument. What it reports: a stage that follows a `|` and is `grep` with `-q`, `-l`, `-L` or `-m`, `head`,
+What it reads as shell: a `*.yml` file's `run:` blocks, every other file whole, and the body of a `bash -c` or `sh -c`
+argument, joined from its quoted pieces where one quote closes and the next opens (`'source "'"${lib}"'"; ...'`).
+What it reports: a stage that follows a `|` and is `grep` with `-q`, `-l`, `-L` or `-m`, `head`,
 `sed` with a `q` command, `awk` with `exit`, or `read`, except `head -c` with a stage after it in a pipeline
 whose status `|| true` or `|| :` discards. Text inside quotes, a comment or a here-document body is not shell,
 and neither is a `|` between the patterns of a `case` arm or inside `[[ ]]`.
@@ -45,14 +46,16 @@ def mask_shell(text):
     mask[i] is text[i] where that character is shell syntax and MASKED where it is quoted, a comment,
     arithmetic, a here-document body, or an operator of a `case` pattern or of `[[ ]]`; depth[i] is
     the number of open substitutions and subshells at i; bodies lists (offset, source) for each
-    `bash -c '...'` argument. Raises Unparsed.
+    `bash -c '...'` argument, its quoted pieces joined with their quotes removed. Raises Unparsed.
     """
     n = len(text)
     mask = list(text)
     depth = [-1] * n
     bodies = []
-    opened = []         # the offset of each open double quote that starts a `bash -c` body, else -1
+    opened = []         # for each open double quote, the `bash -c` body it is a piece of, else None
+    awaited = None      # the body whose last piece closed where the next quote opens
     origins = []        # the offset at which each entry of `stack` opened
+    origins_of_piece = []   # the offset of the first character of each open double-quoted piece of a body
     stack = []          # 'P' subshell or substitution, 'D' double quote, 'B' `${ }`, 'A' arithmetic, 'a' paren inside it
     pending = []        # here-documents opened on this line: (delimiter, strip_tabs)
     frames = [new_frame()]      # one per shell level: the top, then each open substitution or subshell
@@ -61,6 +64,26 @@ def mask_shell(text):
     def open_shell():
         stack.append("P"); origins.append(i)
         frames.append(new_frame())
+
+    def body_at(at, starts):
+        """Return the body the quote at `at` opens or continues, else None. `starts` is false for an ANSI-C quote."""
+        nonlocal awaited
+        body, awaited = awaited, None
+        if body is not None and body["end"] == at:
+            return body
+        if starts and SHELL_C.search(text[max(0, at - 48):at]):
+            return {"offset": at + 1, "pieces": [], "end": -1}
+        return None
+
+    def close_piece(body, piece, end):
+        """Add `piece` to `body`, and list the body unless a quote opens at `end`, where the argument goes on."""
+        nonlocal awaited
+        body["pieces"].append(piece)
+        body["end"] = end
+        if text[end:end + 1] in ("'", '"'):
+            awaited = body
+        else:
+            bodies.append((body["offset"], "".join(body["pieces"])))
 
     def is_command_position(at):
         before = text[:at].rstrip(" \t")
@@ -105,9 +128,9 @@ def mask_shell(text):
             if c == '"':
                 stack.pop(); origins.pop()
                 mask[i] = MASKED
-                start = opened.pop()
-                if start >= 0:
-                    bodies.append((start, text[start:i]))
+                body = opened.pop()
+                if body is not None:
+                    close_piece(body, text[origins_of_piece.pop():i], i + 1)
             elif text.startswith("$((", i):
                 stack.append("A"); origins.append(i); hide(i, i + 3); i += 3; continue
             elif text.startswith("$(", i):
@@ -123,7 +146,7 @@ def mask_shell(text):
             if c == "}":
                 stack.pop(); origins.pop()
             elif c == '"':
-                stack.append("D"); origins.append(i); opened.append(-1)
+                stack.append("D"); origins.append(i); opened.append(None)
             elif c == "'":
                 ansi = text[i - 1] == "$"
                 j = i + 1
@@ -151,7 +174,7 @@ def mask_shell(text):
                 if closing == "A" and text.startswith("))", i):
                     hide(i, i + 2); i += 2; continue
             elif c == '"':
-                stack.append("D"); origins.append(i); opened.append(-1)
+                stack.append("D"); origins.append(i); opened.append(None)
             hide(i, i + 1)
             i += 1
             continue
@@ -163,14 +186,17 @@ def mask_shell(text):
                 j += 2 if ansi and text[j] == "\\" else 1
             if j >= n:
                 raise Unparsed("a single-quoted string is not closed")
-            if not ansi and SHELL_C.search(text[max(0, i - 48):i]):
-                bodies.append((i + 1, text[i + 1:j]))
+            body = body_at(i, not ansi)
+            if body is not None:
+                close_piece(body, text[i + 1:j], j + 1)
             hide(i, j + 1)
             i = j + 1
             continue
         if c == '"':
             stack.append("D"); origins.append(i); mask[i] = MASKED
-            opened.append(i + 1 if SHELL_C.search(text[max(0, i - 48):i]) else -1)
+            opened.append(body_at(i, True))
+            if opened[-1] is not None:
+                origins_of_piece.append(i + 1)
             i += 1
             continue
         if c == "#" and (i == 0 or text[i - 1] in " \t\n;(|&"):
