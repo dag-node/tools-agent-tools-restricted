@@ -87,10 +87,10 @@ such as the npm install of `atr admin system bootstrap`, are steps run
 as the account: each row names the program its first process runs, without its
 arguments. The account's `systemd --user`, its `init.scope` and a dbus broker
 are the account's own plumbing, marked `(account plumbing)`. Only an agent
-session has a project, shown by its directory's name, or its full path
-where two listed projects share a name, and the sessions come in project order;
-every other row reads `-` there. The handback lines printed after the stop name
-each project by its full path. All of them are terminated — no cgroup is exempt
+session has a project, shown by its full path so you can tell which checkout
+the stop reaches, and the sessions come in project order; every other row
+reads `-` there. The handback lines printed after the stop name each project
+by the same path. All of them are terminated — no cgroup is exempt
 — and they are listed after the agent sessions, steps first. The headline
 counts the agent sessions, and the two lines under the table say what the stop
 does beyond them:
@@ -101,7 +101,7 @@ does beyond them:
 # is killed.                                                             #
 #------------------------------------------------------------------------#
   SESSION                                        PID  PROCS  BY         PROJECT
-  ai-tools-claude-code-4711.service             4790      1  you        api
+  ai-tools-claude-code-4711.service             4790      1  you        /home/<you>/projects/api
    \_ session-c26.scope                         4711      4  you        (launch)
   session-c27.scope                             5120      4  you        -  (a step run as ai-tools: bash)
   init.scope                                    1802      2  -          -  (account plumbing)

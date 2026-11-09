@@ -426,8 +426,9 @@ being the authoritative one.
   The **labelling** is reported beneath it, from a second record the same helper writes
   ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)): `labelled` with its age, `NOT LABELLED` with the class
   of failure, `not labelled` for a host with no entrypoint to label (the SELinux layer inactive, or an agent
-  the toolchain has not provisioned), or `?` where no reconciliation has been recorded. Only a recorded failure counts
-  toward the exit status, since it is the one state that stops the next launch.
+  the toolchain has not provisioned), or `?` where no reconciliation has been recorded or this account cannot read
+  the record, as for the pin. Only a recorded failure counts toward the exit status, since it is the one state
+  that stops the next launch.
 
   **One reason token is read rather than printed**, and it is the one whose remedy differs in kind: `incomplete-package`
   says the agent's package does not hold the executable its manifest declares, which no relabel can supply, so the line

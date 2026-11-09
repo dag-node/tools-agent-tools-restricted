@@ -504,22 +504,23 @@ else
 fi
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/dir"
 
-# AGENT ROWS ARE IN PROJECT ORDER, EACH PROJECT BY ITS DIRECTORY'S NAME. The order compares the paths bytewise,
+# AGENT ROWS ARE IN PROJECT ORDER, EACH PROJECT BY ITS FULL PATH. The order compares the paths bytewise,
 # so proj/alpha, proj/alpha-extra and proj/alpha/sub/dir come in that order whatever order the walk found them
-# in, and each row shows the last component alone. Two projects sharing that name in different directories each show
-# the full path, so they are not read as one; a third with a name of its own keeps its name.
+# in, and each row shows the whole path: a directory's name alone does not say which checkout the stop reaches,
+# since the other checkouts of that name are not in the table. Two projects sharing a name in different
+# directories therefore read apart without a rule of their own, and the order stays the paths' order.
 run_main true
 agent_rows="$(awk '/^  ai-tools-claude-code-2[123]\.service / { print $1 " " $NF }' <<< "${MAIN_OUTPUT}" | tr '\n' '|')"
-if [[ "${agent_rows}" == "ai-tools-claude-code-21.service alpha|ai-tools-claude-code-23.service alpha-extra|ai-tools-claude-code-22.service dir|" ]]; then
-    pass "agent rows are in project order, each project shown by its directory's name"
+if [[ "${agent_rows}" == "ai-tools-claude-code-21.service ${TESTDIR}/proj/alpha|ai-tools-claude-code-23.service ${TESTDIR}/proj/alpha-extra|ai-tools-claude-code-22.service ${TESTDIR}/proj/alpha/sub/dir|" ]]; then
+    pass "agent rows are in project order, each project shown by its full path"
 else
-    fail "agent rows in project order by name: '${agent_rows}'"
+    fail "agent rows in project order by path: '${agent_rows}'"
 fi
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/other/alpha"
 run_main true
 agent_rows="$(awk '/^  ai-tools-claude-code-2[123]\.service / { print $1 " " $NF }' <<< "${MAIN_OUTPUT}" | tr '\n' '|')"
-if [[ "${agent_rows}" == "ai-tools-claude-code-22.service ${TESTDIR}/other/alpha|ai-tools-claude-code-21.service ${TESTDIR}/proj/alpha|ai-tools-claude-code-23.service alpha-extra|" ]]; then
-    pass "two projects sharing a directory name each show the full path, and a project with a name of its own its name"
+if [[ "${agent_rows}" == "ai-tools-claude-code-22.service ${TESTDIR}/other/alpha|ai-tools-claude-code-21.service ${TESTDIR}/proj/alpha|ai-tools-claude-code-23.service ${TESTDIR}/proj/alpha-extra|" ]]; then
+    pass "two projects sharing a directory name read apart by their full paths, in path order"
 else
     fail "projects sharing a name: '${agent_rows}'"
 fi
