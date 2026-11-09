@@ -3066,8 +3066,8 @@ status_update_timer_stamp() {
 # functions, so this report, atr status and the launch cannot disagree. A finding counts only where the report's verdict
 # row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without SELinux
 # confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) only where that key makes every
-# launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
-# the counting rule over a fixture.
+# launch warn; a file-context lookup that could not be read is a `?` row, counted where that key is set; elsewhere it is
+# reported as the posture it is. <operator-conf> is a parameter so a unit test drives the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
     heading "SELinux status"
@@ -3105,7 +3105,22 @@ status_selinux_attestation() {
         return 0
     fi
     local -a row
-    local origin_note effect_note enforcement_note="not enforced"
+    local origin_note effect_note enforcement_note="not enforced" lookup_reading
+    # A file-context lookup that could not be read is an input the launch verdict lacks, which refuses a launch
+    # under the requirement where the entrypoint's lookup fails too (MSG-A7E7), so it is reported ahead
+    # of the attestation.
+    if [[ -z "${module_present}" ]]; then
+        lookup_reading="the lookup for ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH} failed"
+        command -v matchpathcon >/dev/null 2>&1 || lookup_reading="matchpathcon is not installed"
+        st "?" "file contexts could not be read: ${lookup_reading}"
+        if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
+            detail "AI_TOOLS_REQUIRE_SELINUX is set, so a launch refuses (MSG-A7E7) where its entrypoint's lookup fails too"
+            detail "read the lookup's error:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        else
+            detail "AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this"
+        fi
+    fi
     ai_tools_confinement__is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
     while IFS=$'\t' read -r -a row; do
         case "${row[0]}" in

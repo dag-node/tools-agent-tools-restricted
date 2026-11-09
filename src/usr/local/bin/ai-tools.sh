@@ -6315,7 +6315,9 @@ status_entrypoint_pins() {
 # for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row) or makes
 # every launch warn -- a host without SELinux confinement by its own configuration
 # (ai_tools_confinement__evaluate_dac_only_state), where the shim launches DAC-only and names the key to set --
-# STATUS_UNREADABLE when the library did not load, and 0 otherwise. The section is omitted where getenforce cannot say.
+# STATUS_UNREADABLE when the library did not load, and 0 otherwise. A file-context lookup that could not be read is
+# a `?` row ahead of the attestation, a finding where AI_TOOLS_REQUIRE_SELINUX is set. The section is omitted
+# where getenforce cannot say.
 status_selinux_attestation() {
     local operator_conf="${1:-${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}}"
     local selinux_mode module_present policy_shipped dac_only_state=""
@@ -6348,7 +6350,22 @@ status_selinux_attestation() {
         return 0
     fi
     local -a row
-    local origin_note effect_note enforcement_note section_status=0
+    local origin_note effect_note enforcement_note section_status=0 lookup_reading
+    # A file-context lookup that could not be read is an input the launch verdict lacks, which refuses a launch
+    # under the requirement where the entrypoint's lookup fails too (MSG-A7E7), so it is reported ahead
+    # of the attestation.
+    if [[ -z "${module_present}" ]]; then
+        lookup_reading="the lookup for ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH} failed"
+        command -v matchpathcon >/dev/null 2>&1 || lookup_reading="matchpathcon is not installed"
+        printf '  %-28s %s? (%s)%s\n' "file contexts" "${C_DIM}" "${lookup_reading}" "${C_RST}"
+        if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
+            say "  AI_TOOLS_REQUIRE_SELINUX is set, so a launch refuses (MSG-A7E7) where its entrypoint's lookup fails too"
+            say "      read the lookup's error:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+            section_status=1
+        else
+            say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this${C_RST}"
+        fi
+    fi
     # A value keeps normal contrast whatever it reads, since off is a reading and not a disabled control; only the note
     # beside it is dim. Whether a requirement is enforced is known ahead of the verdict row, so each row can say it.
     enforcement_note="not enforced"

@@ -340,7 +340,7 @@ call_attestation_section() {
              declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null || exit 97
              getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
              ai_tools_confinement__read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
-             ai_tools_confinement__read_module_present() { printf "%s" "${stub_module_present}"; }
+             ai_tools_confinement__read_module_present() { [[ "${stub_module_present}" != unread ]] || return 1; printf "%s" "${stub_module_present}"; }
              ai_tools_confinement__read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
              STATUS_PROBLEMS=0; STATUS_UNREADABLE=0
              status_selinux_attestation "${operator_conf}"
@@ -355,6 +355,21 @@ else
         pass "an enforced domain with the gating Booleans off is not counted, under the requirement"
     else
         fail "clean attestation under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # A module-present of `unread` makes the stubbed reader return 1 with no output, as a failed file-context lookup
+    # does; with the compiled module absent too, a "no" there would have read as a host without the policy.
+    out="$(call_attestation_section Enforcing "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}" unread no)" || true
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'file contexts could not be read' <<<"${out}" \
+            && grep -qF 'MSG-A7E7' <<<"${out}" && ! grep -qF 'policy is not installed' <<<"${out}"; then
+        pass "an unread file-context lookup is counted under the requirement, not read as a host without the policy"
+    else
+        fail "unread file-context lookup under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Enforcing "${CLEAN_ATTESTATION}" "${NOT_REQUIRED_CONF}" unread no)" || true
+    if grep -qx 'problems=0' <<<"${out}" && grep -qF 'file contexts could not be read' <<<"${out}"; then
+        pass "the same unread lookup without the requirement is reported and not counted"
+    else
+        fail "unread file-context lookup without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
     out="$(call_attestation_section Enforcing $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff' \
                "${NOT_REQUIRED_CONF}")" || true
