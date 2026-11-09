@@ -36,12 +36,12 @@ else
     sibling_probe='source "$1" || exit 1
 printf "%s" "${SIBLING_MSG_MARKER:-absent}"
 declare -F ai_tools_safe_paths__assert_safe_target >/dev/null && printf " guard"'
-    sibling_out="$(env -i PATH=/usr/bin:/bin bash -c "${sibling_probe}" _ "${sibling_dir}/safe-paths.lib.sh" 2>&1)" \
+    sibling_load_output="$(env -i PATH=/usr/bin:/bin bash -c "${sibling_probe}" _ "${sibling_dir}/safe-paths.lib.sh" 2>&1)" \
         || true
-    if [[ "${sibling_out}" == "loaded guard" ]]; then
+    if [[ "${sibling_load_output}" == "loaded guard" ]]; then
         pass "safe-paths.lib.sh loads the msg.lib.sh beside it"
     else
-        fail "safe-paths.lib.sh did not load the msg.lib.sh beside it (got: ${sibling_out})"
+        fail "safe-paths.lib.sh did not load the msg.lib.sh beside it (got: ${sibling_load_output})"
     fi
     rm -f -- "${sibling_dir}/msg.lib.sh"
     if ! env -i PATH=/usr/bin:/bin bash -c "${sibling_probe}" _ "${sibling_dir}/safe-paths.lib.sh" >/dev/null 2>&1; then

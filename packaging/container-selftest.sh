@@ -282,14 +282,14 @@ asset_selftest_setup() {
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools selftest <acme@acme.example>' default default never
     # The listing is read whole before awk searches it: awk's exit at the first fpr line would send gpg a SIGPIPE on its
     # next line, and under pipefail the assignment fails and `set -e` ends the run.
-    local fpr key_listing
+    local fingerprint key_listing
     key_listing="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys)"
-    fpr="$(awk -F: '$1 == "fpr" { print $10; exit }' <<< "${key_listing}")"
-    GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --armor --export "${fpr}" > "${ASSET_STAGE}/acme.asc"
+    fingerprint="$(awk -F: '$1 == "fpr" { print $10; exit }' <<< "${key_listing}")"
+    GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --armor --export "${fingerprint}" > "${ASSET_STAGE}/acme.asc"
     bash -c '. /usr/local/lib/ai-tools/openpgp.lib.sh && ai_tools_openpgp__write_binary_keyring "$1" "$2"' _ \
         "${ASSET_STAGE}/acme.asc" "${ASSET_KEYRING}"
     chmod 0644 "${ASSET_KEYRING}"
-    printf 'set=acme\nsigners=[openpgp:%s]\nkeyring=%s\n' "${fpr}" "${ASSET_KEYRING}" > "${ASSET_BINDING}"
+    printf 'set=acme\nsigners=[openpgp:%s]\nkeyring=%s\n' "${fingerprint}" "${ASSET_KEYRING}" > "${ASSET_BINDING}"
     chmod 0644 "${ASSET_BINDING}"
     asset_set_rpm 0.1.0 acme-pdf >/dev/null
     asset_set_rpm 0.1.1 acme-pdf acme-extra >/dev/null
