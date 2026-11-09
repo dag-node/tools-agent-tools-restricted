@@ -1411,12 +1411,9 @@ on EL10 passes with the `/var/opt` half missing. The check reads the sources to 
 asserts the reader matched a rule before the two sets are compared.
 
 `pipefail-readers.sh` holds the shipped scripts to the early-exit reader rule
-[ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2). `tests/lib/pipefail-readers.py` reads every shell file
-under `src/`, `selinux/`, `packaging/` and `tools/`, `install.sh` and the `run:` blocks of the workflows, and the file
-fails on each stage after a pipe that is one of the rule's readers. A fixture proves the scanner first, with one line
-per shape it reports and per shape it leaves alone, a workflow and a file with an unclosed quote among them: a file
-the scanner cannot follow to its end is a finding. Two rows pin the mechanism through a producer that prints more than
-a pipe holds, so their result does not depend on the host's load. The walk does not read `tests/`.
+[ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2) through `tests/lib/pipefail-readers.py`, which reads shell
+source for the shape. A fixture proves the scanner on each shape it reports and each it leaves alone, and a walk
+or a scan that did not complete fails the file. The walk does not read `tests/`.
 
 **`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
 `symlink-helper.sh`, `entrypoint-pin.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`,

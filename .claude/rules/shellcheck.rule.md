@@ -99,16 +99,11 @@ branch on input that matched, and `x="$(producer | head -n 1)"` ends a `set -e` 
 output in one `write(2)` has finished before the reader exits, and how much it prints is the host's: a group list,
 an ACL or a module listing grows past one write.
 
-So no stage after a pipe is one of those readers. The producer's output is captured, with the capture's status handled
-on its own line (`out="$(producer)" || out=""`), and the reader takes the capture: `grep -q … <<<"${out}"`,
-`[[ "${out}" == *needle* ]]`, `"${out%%$'\n'*}"` for a first line. A herestring reaches the reader as a file, which has
-no writer to signal. A word looked up in a list the shell holds is a padded string test,
-`[[ " ${list} " == *" ${word} "* ]]`. The first lines of a listing that may be long are cut by a filter that reads
-to the end, `producer | awk 'NR <= 50'`, so the listing is not held in a variable. The one pipeline that keeps such
-a reader is `head -c` ahead of a further stage where `|| true` discards the pipeline's status: the bound on a stream
-that must not be read to its end (`install.sh`'s size read of a compressed page). `tests/unit/pipefail-readers.sh` reads
-the scripts under `src/`, `selinux/`, `packaging/` and `tools/`, `install.sh` and the workflows for the shape and fails
-on each instance ([tests](tests.rule.md)).
+So no stage after a pipe is one of those readers. The reader takes the producer's captured output
+(`out="$(producer)" || out=""`, then `grep -q … <<<"${out}"`), and a listing too long to hold is cut by a filter
+that reads to the end (`awk 'NR <= 50'`). The one exception is `head -c` in a pipeline whose status `|| true` discards,
+the bound on a stream that must not be read to its end. `tests/unit/pipefail-readers.sh` holds the scripts under `src/`,
+`selinux/`, `packaging/` and `tools/`, `install.sh` and the workflows to it.
 
 ## Design notes
 

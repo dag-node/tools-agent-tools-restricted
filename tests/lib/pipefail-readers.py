@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""tests/lib/pipefail-readers.py <file>... : report each pipeline whose last stage may exit before its producer does.
+"""tests/lib/pipefail-readers.py <file>... : report each stage after a pipe that may exit before its producer does.
 
-The rule this reads a tree for is the early-exit reader bullet of `.claude/rules/shellcheck.rule.md`
-(ref-section-d9x2): under `pipefail` such a pipeline returns 141 on input that matched. `tests/unit/pipefail-readers.sh`
-runs it over the shell files of a checkout and holds a fixture that proves each shape on known input.
+The rule this reads a tree for is `.claude/rules/shellcheck.rule.md`'s *A reader that exits early fails its pipeline*
+(ref-section-d9x2). `tests/unit/pipefail-readers.sh` runs it over the shell files of a checkout and holds the fixture
+that proves each shape on known input.
 
 Prints one line per finding, `<file>:<line>: <reader>: <the stage>`, and exits 1 when it printed any, else 0. A file
 whose quoting the scanner cannot follow to the end is itself a finding (`unparsed`), so a file it could not read does
@@ -12,12 +12,12 @@ not count as clean. An error of the scanner's own exits 2 with the error on stde
 
 What it reads as shell: a `*.yml` file's `run:` blocks, every other file whole, and the quoted body of a `bash -c`
 or `sh -c` argument. What it reports: a stage that follows a `|` and is `grep` with `-q`, `-l`, `-L` or `-m`, `head`,
-`sed` with a `q` command, `awk` with `exit`, or `read`. One shape is outside it: `head -c` with a stage after it
-in a pipeline whose status `|| true` or `|| :` discards, the bounded read of a stream that must not be read to its
-end. Text inside quotes, a comment or a here-document body is not shell, so an option written inside quotes is not
-read; a `|` with no whitespace on either side is a `case` alternation.
+`sed` with a `q` command, `awk` with `exit`, or `read`, except `head -c` with a stage after it in a pipeline
+whose status `|| true` or `|| :` discards. Text inside quotes, a comment or a here-document body is not shell,
+and neither is a `|` between the patterns of a `case` arm or inside `[[ ]]`.
 """
 import re
+import shlex
 import sys
 
 GREP_NAMES = {"grep", "egrep", "fgrep", "ugrep"}
@@ -26,6 +26,11 @@ SED_QUIT = re.compile(r"""(?:^|[;{}\s0-9$/!,'"])[qQ][0-9]*\s*(?:[;}'"\s]|$)""")
 HEREDOC = re.compile(r"""<<(-?)[ \t]*(?:\\?([A-Za-z_][A-Za-z0-9_]*)|'([^'\n]+)'|"([^"\n]+)")""")
 SHELL_C = re.compile(r"(?:^|[\s/])(?:ba)?sh\s+(?:-[A-Za-z]+\s+)*-[A-Za-z]*c\s+$")
 RUN_KEY = re.compile(r"^(\s*)(?:-\s+)?run:\s*(.*)$")
+CASE_WORD = re.compile(r"case(?=[ \t])")
+IN_WORD = re.compile(r"in(?=[ \t\n])")
+ESAC_WORD = re.compile(r"esac(?![A-Za-z0-9_])")
+COMMAND_OPENERS = {"then", "do", "else", "elif", "if", "while", "until", "!", "time"}
+GREP_TAKES_ARGUMENT = "efABCDd"
 DISCARDED = re.compile(r"\s*\|\|\s*(?:true|:)(?=[\s;)&]|$)")
 MASKED = "\x00"
 
@@ -38,17 +43,30 @@ def mask_shell(text):
     """Return (mask, depth, bodies) for shell source `text`.
 
     mask[i] is text[i] where that character is shell syntax and MASKED where it is quoted, a comment,
-    arithmetic or a here-document body; depth[i] is the number of open substitutions and subshells
-    at i; bodies lists (offset, source) for each `bash -c '...'` argument. Raises Unparsed.
+    arithmetic, a here-document body, or an operator of a `case` pattern or of `[[ ]]`; depth[i] is
+    the number of open substitutions and subshells at i; bodies lists (offset, source) for each
+    `bash -c '...'` argument. Raises Unparsed.
     """
     n = len(text)
     mask = list(text)
     depth = [-1] * n
     bodies = []
     opened = []         # the offset of each open double quote that starts a `bash -c` body, else -1
-    stack = []          # 'P' subshell or substitution, 'D' double quote, 'A' arithmetic, 'a' paren inside arithmetic
+    origins = []        # the offset at which each entry of `stack` opened
+    stack = []          # 'P' subshell or substitution, 'D' double quote, 'B' `${ }`, 'A' arithmetic, 'a' paren inside it
     pending = []        # here-documents opened on this line: (delimiter, strip_tabs)
+    frames = [new_frame()]      # one per shell level: the top, then each open substitution or subshell
     i = 0
+
+    def open_shell():
+        stack.append("P"); origins.append(i)
+        frames.append(new_frame())
+
+    def is_command_position(at):
+        before = text[:at].rstrip(" \t")
+        if not before or before[-1] in "\n;&|({)":
+            return True
+        return re.search(r"(\S+)$", before).group(1) in COMMAND_OPENERS
 
     def hide(a, b):
         for k in range(a, min(b, n)):
@@ -85,30 +103,55 @@ def mask_shell(text):
             continue
         if top == "D":
             if c == '"':
-                stack.pop()
+                stack.pop(); origins.pop()
                 mask[i] = MASKED
                 start = opened.pop()
                 if start >= 0:
                     bodies.append((start, text[start:i]))
             elif text.startswith("$((", i):
-                stack.append("A"); hide(i, i + 3); i += 3; continue
+                stack.append("A"); origins.append(i); hide(i, i + 3); i += 3; continue
             elif text.startswith("$(", i):
-                stack.append("P"); i += 2; continue
+                open_shell(); i += 2; continue
+            elif text.startswith("${", i):
+                stack.append("B"); origins.append(i); hide(i, i + 2); i += 2; continue
             else:
                 hide(i, i + 1)
             i += 1
             continue
+        if top == "B":
+            # Inside `${ }` a quote opens a quoted span of its own, whatever quote the expansion sits in.
+            if c == "}":
+                stack.pop(); origins.pop()
+            elif c == '"':
+                stack.append("D"); origins.append(i); opened.append(-1)
+            elif c == "'":
+                ansi = text[i - 1] == "$"
+                j = i + 1
+                while j < n and text[j] != "'":
+                    j += 2 if ansi and text[j] == "\\" else 1
+                closing = text.find("}", i)
+                if j < n and (ansi or closing < 0 or j < closing):     # else an apostrophe in the expansion's word
+                    hide(i, j + 1); i = j + 1; continue
+            elif text.startswith("$((", i):
+                stack.append("A"); origins.append(i); hide(i, i + 3); i += 3; continue
+            elif text.startswith("$(", i):
+                open_shell(); i += 2; continue
+            elif text.startswith("${", i):
+                stack.append("B"); origins.append(i); hide(i, i + 2); i += 2; continue
+            hide(i, i + 1)
+            i += 1
+            continue
         if top in ("A", "a"):
             if text.startswith("$(", i) and not text.startswith("$((", i):
-                stack.append("P"); i += 2; continue
+                open_shell(); i += 2; continue
             if c == "(":
-                stack.append("a")
+                stack.append("a"); origins.append(i)
             elif c == ")":
-                closing = stack.pop()
+                closing = stack.pop(); origins.pop()
                 if closing == "A" and text.startswith("))", i):
                     hide(i, i + 2); i += 2; continue
             elif c == '"':
-                stack.append("D"); opened.append(-1)
+                stack.append("D"); origins.append(i); opened.append(-1)
             hide(i, i + 1)
             i += 1
             continue
@@ -126,7 +169,7 @@ def mask_shell(text):
             i = j + 1
             continue
         if c == '"':
-            stack.append("D"); mask[i] = MASKED
+            stack.append("D"); origins.append(i); mask[i] = MASKED
             opened.append(i + 1 if SHELL_C.search(text[max(0, i - 48):i]) else -1)
             i += 1
             continue
@@ -137,16 +180,80 @@ def mask_shell(text):
             i = end
             continue
         if text.startswith("$((", i):
-            stack.append("A"); hide(i, i + 3); i += 3; continue
-        if text.startswith("((", i) and (i == 0 or text[i - 1] in " \t\n;&|!"):
-            stack.append("A"); hide(i, i + 2); i += 2; continue
+            stack.append("A"); origins.append(i); hide(i, i + 3); i += 3; continue
         if text.startswith("$(", i):
-            stack.append("P"); i += 2; continue
+            frames[-1]["pattern_start"] = False
+            open_shell(); i += 2; continue
+        if text.startswith("${", i):
+            frames[-1]["pattern_start"] = False
+            stack.append("B"); origins.append(i); hide(i, i + 2); i += 2; continue
+        frame = frames[-1]
+        at_word = i == 0 or text[i - 1] in " \t\n;&|()"
+        if frame["test"]:
+            # Inside `[[ ]]` an operator is the test's own: a regex alternation, a grouping, `<`, `&&`.
+            if at_word and text.startswith("]]", i) and text[i + 2:i + 3] in ("", " ", "\t", "\n", ";", ")", "&", "|"):
+                frame["test"] = False
+                i += 2
+            else:
+                if c in "|()&;<>":
+                    hide(i, i + 1)
+                i += 1
+            continue
+        if frame["pattern"]:
+            # Between `in` or `;;` and the `)` that ends a case arm's patterns.
+            if c in " \t\n":
+                i += 1
+                continue
+            if at_word and ESAC_WORD.match(text, i):
+                frame["cases"] -= 1
+                frame["pattern"] = False
+                i += 4
+                continue
+            if c in "(|)":
+                hide(i, i + 1)
+                if c == "(" and not frame["pattern_start"]:
+                    frame["pattern_groups"] += 1        # an extglob group; a leading `(` is the arm's optional one
+                elif c == ")" and frame["pattern_groups"]:
+                    frame["pattern_groups"] -= 1
+                elif c == ")":
+                    frame["pattern"] = False
+                    mask[i] = ";"                       # the arm's commands start a new pipeline
+                frame["pattern_start"] = False
+                i += 1
+                continue
+            frame["pattern_start"] = False
+            i += 1
+            continue
+        if at_word and text.startswith("[[", i) and text[i + 2:i + 3] in (" ", "\t", "\n"):
+            frame["test"] = True
+            i += 2
+            continue
+        if at_word and CASE_WORD.match(text, i) and is_command_position(i):
+            frame["cases_pending"] += 1
+            i += 4
+            continue
+        if frame["cases_pending"] and at_word and IN_WORD.match(text, i):
+            frame["cases_pending"] -= 1
+            frame["cases"] += 1
+            frame.update(pattern=True, pattern_start=True, pattern_groups=0)
+            i += 2
+            continue
+        if frame["cases"] and (text.startswith(";;", i) or text.startswith(";&", i)):
+            frame.update(pattern=True, pattern_start=True, pattern_groups=0)
+            i += 3 if text.startswith(";;&", i) else 2
+            continue
+        if frame["cases"] and at_word and ESAC_WORD.match(text, i):
+            frame["cases"] -= 1
+            i += 4
+            continue
+        if text.startswith("((", i) and (i == 0 or text[i - 1] in " \t\n;&|!"):
+            stack.append("A"); origins.append(i); hide(i, i + 2); i += 2; continue
         if c == "(":
-            stack.append("P")
+            open_shell()
         elif c == ")":
-            if top == "P":      # a `)` with no opener is a case pattern's
-                stack.pop()
+            if top == "P":
+                stack.pop(); origins.pop()
+                frames.pop()
                 depth[i] = sum(1 for s in stack if s == "P")
         elif text.startswith("<<<", i):
             i += 3
@@ -158,35 +265,49 @@ def mask_shell(text):
                 i = m.end()
                 continue
         i += 1
-    if stack or pending:
-        raise Unparsed("the text ends inside " + ("a here-document" if pending else
-                                                    {"D": "a double-quoted string", "P": "a substitution or subshell",
-                                                     "A": "an arithmetic expansion", "a": "an arithmetic expansion"}[stack[-1]]))
+    if pending:
+        raise Unparsed(f"here-document {pending[0][0]} is not closed")
+    if stack:
+        kind = {"D": "a double-quoted string", "P": "a substitution or subshell", "B": "a parameter expansion",
+                "A": "an arithmetic expansion", "a": "an arithmetic expansion"}[stack[-1]]
+        raise Unparsed(f"the text ends inside {kind} opened on line {text.count(chr(10), 0, origins[-1]) + 1}")
     for k in range(n):      # a character the loop stepped over is at the depth of the one before it
         if depth[k] < 0:
             depth[k] = depth[k - 1] if k else 0
     return "".join(mask), depth, bodies
 
 
+def new_frame():
+    """Return the `case` and `[[ ]]` state of one shell level."""
+    return {"cases_pending": 0, "cases": 0, "pattern": False, "pattern_start": False, "pattern_groups": 0, "test": False}
+
+
 def find_early_exit_reader(stage, masked_stage):
     """Return the early-exit reader `stage` runs, or None. `masked_stage` is the same span with quoted text hidden."""
-    words = masked_stage.split()
+    try:
+        words = shlex.split(stage)      # the words as the shell passes them, so a quoted option reads as an option
+    except ValueError:
+        words = masked_stage.split()
     while words and (words[0] in ("command", "builtin", "exec") or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=\S*", words[0])):
         words.pop(0)
     if not words:
         return None
     name = words[0].rsplit("/", 1)[-1]
     if name in GREP_NAMES:
-        for word in words[1:]:
-            if word == "--":
-                break
+        index = 1
+        while index < len(words) and words[index] != "--":
+            word = words[index]
+            index += 1
             if word.startswith("--"):
                 if word.split("=", 1)[0] in GREP_LONG:
                     return f"{name} {word.split('=', 1)[0]}"
-            elif word.startswith("-") and MASKED not in word:
-                for flag in "qlLm":
-                    if flag in word[1:]:
+            elif word.startswith("-"):
+                for position, flag in enumerate(word[1:], start=1):
+                    if flag in "qlLm":
                         return f"{name} -{flag}"
+                    if flag in GREP_TAKES_ARGUMENT:     # the rest of the word, or the next word, is its argument
+                        index += position == len(word) - 1
+                        break
         return None
     if name == "head" or name == "read":
         return name
@@ -229,10 +350,7 @@ def find_early_exit_readers(text, first_line=1):
     mask, depth, bodies = mask_shell(text)
     findings = []
     for i, c in enumerate(mask):
-        if c != "|" or mask[i - 1:i] == "|" or mask[i + 1:i + 2] == "|":
-            continue
-        before, after = mask[i - 1:i], mask[i + 1:i + 2]
-        if not (before in ("", " ", "\t", "\n") or after in ("", " ", "\t", "\n", "&")):
+        if c != "|" or mask[i - 1:i] in ("|", ">") or mask[i + 1:i + 2] == "|":
             continue
         start, j, last = stage_end(mask, depth, i)
         reader = find_early_exit_reader(text[start:j], mask[start:j])

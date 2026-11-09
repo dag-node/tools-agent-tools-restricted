@@ -83,6 +83,12 @@ producer | grep -q needle
 EOF
 (( flags | 4 )) || true
 tool -dc file | head -c 4096 | wc -c || :
+producer|grep -q needle
+producer | grep "-q" needle
+producer | grep -e -q
+listing="$(case "${word}" in grep|head) producer | grep -q needle ;; esac)"
+[[ "${word}" =~ ^(grep|head)$ ]] || true
+text="${text/"  ${word} ("/"  ("}"
 FIXTURE
 expected="3 grep -q
 4 grep -q
@@ -96,12 +102,15 @@ expected="3 grep -q
 14 head
 15 grep -q
 16 grep -q
-18 head"
+18 head
+32 grep -q
+33 grep -q
+35 grep -q"
 rc=0; report="$(python3 "${SCANNER}" "${fixture}")" || rc=$?
 got="$(sed -n 's/^[^:]*:\([0-9]*\): \([^:]*\):.*/\1 \2/p' <<<"${report}")"
 if (( rc == 1 )) && [[ "${got}" == "${expected}" ]]; then
-    pass "the scanner reports each early-exit reader after a pipe, a continued pipeline and a bash -c body among them"
-    pass "and leaves alone a head -c whose pipeline's status is discarded, a herestring, a reader that reads to the end, quoted text, a comment and a here-document"
+    pass "the scanner reports each early-exit reader after a pipe: continued, unspaced, with a quoted option, in a bash -c body, in a case arm"
+    pass "and leaves alone a head -c whose status is discarded, a herestring, a reader that reads to the end, a pattern after -e, case and [[ ]] alternations, quoted text"
 else
     fail "the scanner's report over the fixture (rc=${rc}) is not the expected one: $(tr '\n' '|' <<<"${got}")"
 fi
@@ -152,6 +161,39 @@ fi
 # pipefail and runs under its caller's, so the options a file sets do not decide whether it is read. packaging/rpmbuild
 # is build output. An image's test tree holds part of these roots, so one that is absent is left out and the controls
 # under the walk still have to hold.
+# list_walked_files <root> : print, NUL-separated, each candidate file under the roots the walk reads, and return find's
+# status: a subtree that could not be listed fails the walk, where a discarded status would leave its files unread.
+list_walked_files() {
+    local root="$1" name
+    local -a roots=()
+    for name in src selinux packaging tools install.sh .github/workflows; do
+        [[ ! -e "${root}/${name}" ]] || roots+=("${name}")
+    done
+    (cd "${root}" && find "${roots[@]}" -name rpmbuild -prune -o \
+        -type f '(' -name '*.sh' -o -name '*.yml' -o ! -name '*.*' ')' -print0)
+}
+
+# Root reads through a directory's mode, so the walk's failure is driven as an unprivileged caller alone.
+if [[ "${EUID}" -ne 0 ]]; then
+    mkdir -p "${TESTDIR}/partial/src/readable" "${TESTDIR}/partial/src/closed"
+    : > "${TESTDIR}/partial/src/readable/a.sh"; : > "${TESTDIR}/partial/src/closed/b.sh"
+    chmod 000 "${TESTDIR}/partial/src/closed"
+    rc=0; list_walked_files "${TESTDIR}/partial" > "${TESTDIR}/partial.list" 2>/dev/null || rc=$?
+    chmod 755 "${TESTDIR}/partial/src/closed"
+    if (( rc != 0 )) && grep -qz 'readable/a.sh' "${TESTDIR}/partial.list"; then
+        pass "a walk that listed one subtree and could not list another returns non-zero"
+    else
+        fail "the partial walk returned ${rc} (want non-zero, with readable/a.sh listed)"
+    fi
+else
+    skip "the walk's failure on an unlistable subtree" "root lists a directory whatever its mode"
+fi
+
+rc=0; list_walked_files "${ROOT}" > "${TESTDIR}/walk.list" 2>"${TESTDIR}/walk.err" || rc=$?
+if (( rc != 0 )); then
+    fail "the walk over ${ROOT} exited ${rc}, so files were left unread: $(head -c 300 "${TESTDIR}/walk.err" | tr '\n' '|')"
+    finish; exit 1
+fi
 files=()
 while IFS= read -r -d '' path; do
     if [[ "${path}" != *.sh && "${path}" != *.yml ]]; then
@@ -159,8 +201,7 @@ while IFS= read -r -d '' path; do
         [[ "${first_line}" =~ ^'#!'.*[/[:space:]](ba)?sh([[:space:]]|$) ]] || continue
     fi
     files+=("${path}")
-done < <(cd "${ROOT}" && find src selinux packaging tools install.sh .github/workflows \
-            -name rpmbuild -prune -o -type f '(' -name '*.sh' -o -name '*.yml' -o ! -name '*.*' ')' -print0 2>/dev/null)
+done < "${TESTDIR}/walk.list"
 
 if [[ " ${files[*]} " != *" src/usr/local/bin/ai-tools.sh "* ]]; then
     fail "the file list does not hold src/usr/local/bin/ai-tools.sh (${#files[@]} files): the tree was not read"
