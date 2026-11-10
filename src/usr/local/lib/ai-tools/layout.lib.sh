@@ -53,7 +53,8 @@ for _ai_tools_layout__required in ai_tools_conf__is_trusted ai_tools_conf__read_
         ai_tools_conf__is_portable_name_valid \
         ai_tools_conf__read_untrusted_reason ai_tools_conf__read_unreadable_reason \
         ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
-        ai_tools_records_base__read_subject_type ai_tools_records_tsv__encode_field ai_tools_records_tsv__decode_field \
+        ai_tools_records_base__read_subject_type ai_tools_records_base__read_collector \
+        ai_tools_records_tsv__encode_field ai_tools_records_tsv__decode_field \
         ai_tools_records_tsv__frame_item_components ai_tools_records_tsv__write_record \
         ai_tools_project_permissions__get_context_type ai_tools_log__sanitize; do
     declare -F "${_ai_tools_layout__required}" >/dev/null 2>&1 || { unset _ai_tools_layout__required; return 1; }
@@ -817,20 +818,17 @@ ai_tools_layout__list_entries() {
 }
 
 # ai_tools_layout__read_entry_lines <array-var> : the entry set into the caller's indexed array, read as a collector
-# (records.rule.md): ai_tools_layout__list_entries opened on a descriptor with its PID saved on the same statement, its
-# lines read, then waited for. A status the lines do not account for appends one `error` line naming it -- status 1
-# with no `error` line among them, or any status other than 0 and 1 -- so an enumerator that ended on a shell error
-# or a signal reads as an incomplete discovery and never as a complete smaller set. Returns the enumerator's status,
-# and 2 without writing while the table did not validate or when the name is refused as read_entry_state refuses one.
+# (records.rule.md): ai_tools_layout__list_entries run through ai_tools_records_base__read_collector, which returns its
+# lines and its status. A status the lines do not account for appends one `error` line naming it -- status 1 with no
+# `error` line among them, or any status other than 0 and 1 -- so an enumerator that ended on a shell error or a signal
+# reads as an incomplete discovery and never as a complete smaller set. Returns the enumerator's status, and 2 without
+# writing while the table did not validate or when the name is refused as read_entry_state or the reader refuses one.
 ai_tools_layout__read_entry_lines() {
     [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]] || return 2
     _ai_tools_layout__is_output_name_valid "$1" list || return 2
     local -n _layout_lines_out="$1"
-    local _layout_lines_fd _layout_lines_pid _layout_lines_status=0 _layout_lines_line _layout_lines_reason=""
-    exec {_layout_lines_fd}< <(ai_tools_layout__list_entries); _layout_lines_pid=$!
-    mapfile -t -u "${_layout_lines_fd}" _layout_lines_out
-    exec {_layout_lines_fd}<&-
-    wait "${_layout_lines_pid}" || _layout_lines_status=$?
+    local _layout_lines_status=0 _layout_lines_line _layout_lines_reason=""
+    ai_tools_records_base__read_collector "$1" _layout_lines_status ai_tools_layout__list_entries || return 2
     case "${_layout_lines_status}" in
         0) ;;
         1) _layout_lines_reason="the entry set ended without reporting its incomplete discovery"
@@ -888,6 +886,12 @@ _ai_tools_layout__read_selinux_state() {
 # for a line another program wrote that a record carries.
 _ai_tools_layout__format_external_reason() { ai_tools_log__sanitize "${1:0:120}"; }
 
+# _ai_tools_layout__list_rpm_verify_lines <package> : the lines `rpm -Vv` prints for one package under the C locale,
+# stderr merged, with the checks the content verdict does not read left out; exits with rpm's status.
+_ai_tools_layout__list_rpm_verify_lines() {
+    LC_ALL=C rpm -Vv --nodeps --noscripts --nouser --nogroup --nomode --nomtime --nordev --nocaps --nolinkto -- "$1" 2>&1
+}
+
 # _ai_tools_layout__list_package_verify_results <package> : the rpm -V collector for one package, verbose so every
 # payload file prints a line (`.........` for one that passed), which is the positive evidence a `verified` state rests
 # on. Prints one line per path, `<flags><TAB><path><TAB><state><TAB><errno text>` with the root prefixed,
@@ -902,11 +906,11 @@ _ai_tools_layout__format_external_reason() { ai_tools_log__sanitize "${1:0:120}"
 # and does not hold a space, so the parse stays unambiguous across the marker sets rpm versions document.
 _ai_tools_layout__list_package_verify_results() {
     # The C locale for the match as for the command: the path range collates differently under UTF-8.
-    local LC_ALL=C root line body state fd pid status=0
+    local LC_ALL=C root line body state status=0
+    local -a lines=()
     root="$(_ai_tools_layout__get_path_prefix)"
-    exec {fd}< <(LC_ALL=C rpm -Vv --nodeps --noscripts --nouser --nogroup --nomode --nomtime --nordev --nocaps \
-        --nolinkto -- "$1" 2>&1); pid=$!
-    while IFS= read -r -u "${fd}" line; do
+    ai_tools_records_base__read_collector lines status _ai_tools_layout__list_rpm_verify_lines "$1"
+    for line in "${lines[@]}"; do
         body="${line}" state=""
         if [[ "${line}" =~ ^(.*)\ \((not installed|replaced|net shared|wrong color|no state|unknown state)\)$ ]]; then
             body="${BASH_REMATCH[1]}" state="${BASH_REMATCH[2]}"
@@ -920,8 +924,6 @@ _ai_tools_layout__list_package_verify_results() {
             printf 'error\t%s\n' "$(_ai_tools_layout__format_external_reason "${line}")"
         fi
     done
-    exec {fd}<&-
-    wait "${pid}" || status=$?
     return "${status}"
 }
 
@@ -935,7 +937,8 @@ _ai_tools_layout__list_package_verify_results() {
 # four fields, or where it exited 1 (differences found) without a difference line, or with any other status. Runs
 # in the caller's shell, so the arrays it fills are the pass's.
 _ai_tools_layout__read_package_verification() {
-    local package="$1" line flags rest path fd pid status=0 query reason="" differences=0
+    local package="$1" line flags rest path status=0 query reason="" differences=0
+    local -a lines=()
     [[ -z "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[${package}]+x}" ]] || return 0
     if (( _AI_TOOLS_LAYOUT__PASS_WITHOUT_RPM )); then
         _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES["${package}"]=unverified
@@ -958,9 +961,9 @@ _ai_tools_layout__read_package_verification() {
         fi
         return 0
     fi
-    exec {fd}< <(_ai_tools_layout__list_package_verify_results "${package}"); pid=$!
+    ai_tools_records_base__read_collector lines status _ai_tools_layout__list_package_verify_results "${package}"
     # Split by hand, since `IFS=$'\t' read` collapses an empty field (records.rule.md).
-    while IFS= read -r -u "${fd}" line; do
+    for line in "${lines[@]}"; do
         flags="${line%%$'\t'*}" rest="${line#*$'\t'}"
         if [[ "${flags}" == error || "${line}" != *$'\t'*$'\t'*$'\t'* ]]; then
             [[ -n "${reason}" ]] || reason="rpm -V ${package} printed a line the reader does not recognize: ${rest}"
@@ -972,8 +975,6 @@ _ai_tools_layout__read_package_verification() {
         _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES["${path}"]="${rest%%$'\t'*}"
         _AI_TOOLS_LAYOUT__FILE_VERIFICATION_DETAILS["${path}"]="${rest#*$'\t'}"
     done
-    exec {fd}<&-
-    wait "${pid}" || status=$?
     if [[ -z "${reason}" ]]; then
         case "${status}" in
             0) ;;
@@ -1298,19 +1299,24 @@ ai_tools_layout__read_entry_state() {
     return 0
 }
 
-# _ai_tools_layout__read_acl <path> <observed-var> : the full ACL text getfacl prints for the entry itself (`-P`),
-# in one observation, into <observed-var>[acl]; `acl_error` where getfacl is missing, exited non-zero, or printed a line
-# outside the ACL grammar (stderr is merged, so a warning is such a line).
+# _ai_tools_layout__list_acl_lines <path> : the lines getfacl prints for the entry itself (`-P`) under the C locale,
+# stderr merged; exits with getfacl's status.
+_ai_tools_layout__list_acl_lines() {
+    LC_ALL=C getfacl --absolute-names --omit-header --no-effective -P -- "$1" 2>&1
+}
+
+# _ai_tools_layout__read_acl <path> <observed-var> : the full ACL text getfacl prints for the entry itself, from one run
+# of it read as a collector (records.rule.md), into <observed-var>[acl]; `acl_error` where getfacl is missing, exited
+# non-zero, or printed a line outside the ACL grammar (stderr is merged, so a warning is such a line).
 _ai_tools_layout__read_acl() {
     local -n _layout_acl_observed="$2"
-    local _layout_acl_line _layout_acl_fd _layout_acl_pid _layout_acl_status=0 _layout_acl_bad=""
-    local -a _layout_acl_lines=()
+    local _layout_acl_line _layout_acl_status=0 _layout_acl_bad=""
+    local -a _layout_acl_lines=() _layout_acl_printed=()
     if ! command -v getfacl >/dev/null 2>&1; then
         _layout_acl_observed["acl_error"]="getfacl is not installed"; return 0
     fi
-    exec {_layout_acl_fd}< <(LC_ALL=C getfacl --absolute-names --omit-header --no-effective -P -- "$1" 2>&1)
-    _layout_acl_pid=$!
-    while IFS= read -r -u "${_layout_acl_fd}" _layout_acl_line; do
+    ai_tools_records_base__read_collector _layout_acl_printed _layout_acl_status _ai_tools_layout__list_acl_lines "$1"
+    for _layout_acl_line in "${_layout_acl_printed[@]}"; do
         [[ -n "${_layout_acl_line}" ]] || continue
         if [[ "${_layout_acl_line}" =~ ^(default:)?(user|group|mask|other):[^:]*:[rwx-]{3}$ ]]; then
             _layout_acl_lines+=( "${_layout_acl_line}" )
@@ -1318,8 +1324,6 @@ _ai_tools_layout__read_acl() {
             [[ -n "${_layout_acl_bad}" ]] || _layout_acl_bad="${_layout_acl_line}"
         fi
     done
-    exec {_layout_acl_fd}<&-
-    wait "${_layout_acl_pid}" || _layout_acl_status=$?
     if [[ -n "${_layout_acl_bad}" ]]; then
         _layout_acl_observed["acl_error"]="getfacl wrote: $(
             _ai_tools_layout__format_external_reason "${_layout_acl_bad}")"
