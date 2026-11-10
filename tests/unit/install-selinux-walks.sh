@@ -21,7 +21,9 @@
 # the install, and a config directory walk that left hardlinked files; _label_project and _unlabel_project
 # over the library's partial-walk and walker-missing statuses, and _unlabel_project over its absent-tree status.
 # for_each_project is driven through the checkout's conf.lib.sh over a registry holding each sign, and does not yield
-# an excluded path.
+# an excluded path. _check_permissive_alignment is driven with the checkout's selinux-groups.lib.sh over a semodule stub
+# printing module names alone, and the script's text is held to capturing that listing in _read_loaded_policy_modules
+# alone, since the list-groups arm is not a function a case can run.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -685,6 +687,87 @@ for excluded in proj/carved outside globbed-1; do
         && fail "an excluded path is walked: ${excluded}" \
         || pass "an excluded path is not walked: ${excluded}"
 done
+
+section "install-selinux.sh: a loaded module is read from a listing of names alone (unit)"
+alignment_text=""
+for name in warn _check_permissive_alignment; do
+    body="$(extract_function "${INSTALLER}" "${name}")"
+    if [[ -z "${body}" ]]; then
+        fail "install-selinux.sh does not define ${name}() in the form this file reads"
+        finish; exit
+    fi
+    alignment_text+="${body}"$'\n'
+done
+mkdir -p "${TESTDIR}/policy"
+printf 'policy_module(ai_tools, 1.0)\n' > "${TESTDIR}/policy/ai_tools.te"
+# run_alignment <module>...: the report over a host where ai_tools_t is permissive in the kernel, the .te expects
+#   enforcing, and `semodule -l` prints the given names among 600 others, one per line with no second column,
+#   which is the listing every supported release prints. The predicate is the checkout library's. stdin is not
+#   a terminal, so the stale-module branch prints its command and does not ask.
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+run_alignment() {
+    bash -c '
+        set -euo pipefail
+        eval "$1"
+        source "$2"
+        C_YEL="" C_RST=""
+        POLICY_DIR="$3" MODULE=ai_tools
+        shift 3
+        stub_modules=("$@")
+        seinfo() { printf "\nPermissive Types: 1\n   ai_tools_t\n"; }
+        semodule() {
+            printf "%s\n" abrt "${stub_modules[@]}"
+            # shellcheck disable=SC2046  # each padding module is its own line
+            printf "pad_module_%04d\n" $(seq 1 600)
+        }
+        _check_permissive_alignment
+    ' _ "${alignment_text}" "${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh" "${TESTDIR}/policy" "$@" \
+        2>&1 </dev/null || true
+}
+alignment_out="$(run_alignment ai_tools permissive_ai_tools_t)"
+if grep -qF "stale semodule 'permissive_ai_tools_t' overrides compiled policy" <<<"${alignment_out}" \
+        && grep -qF 'fix: sudo semodule -r permissive_ai_tools_t' <<<"${alignment_out}"; then
+    pass "a stale permissive module in a listing of names alone is named with its removal"
+else
+    fail "a loaded permissive_ai_tools_t was not read from a listing of names alone: ${alignment_out//$'\n'/ | }"
+fi
+alignment_out="$(run_alignment ai_tools permissive_ai_tools_t_other)"
+if grep -qF 'no permissive_ai_tools_t module found' <<<"${alignment_out}" \
+        && ! grep -qF 'stale semodule' <<<"${alignment_out}"; then
+    pass "a module whose name starts with the stale module's is not it, and the semanage remedy is printed (control)"
+else
+    fail "control: a longer module name read as the stale module: ${alignment_out//$'\n'/ | }"
+fi
+
+# find_listing_captures <file>: print each code line that captures `semodule -l`. The script matches the listing
+# in _read_loaded_policy_modules alone, which keeps semodule's status; every other reading is the library predicate's.
+# shellcheck disable=SC2016  # the pattern matches the literal $( text
+find_listing_captures() {
+    grep -nF '$(semodule -l' "$1" | grep -vE '^[0-9]+:[[:space:]]*#' || true
+}
+printf '%s\n' 'modules="$(semodule -l 2>/dev/null || true)"' '# listing="$(semodule -l)" in a comment' \
+    '    listing="$(semodule -l 2>&1)" \' > "${TESTDIR}/listing-control.sh"
+if [[ "$(find_listing_captures "${TESTDIR}/listing-control.sh" | grep -c .)" -eq 2 ]]; then
+    pass "the reader flags each capture of the module listing and no comment (control)"
+else
+    fail "control: the reader does not flag a capture of the module listing, so the check below cannot fail"
+fi
+captures="$(find_listing_captures "${INSTALLER}")"
+store_reader="$(extract_function "${INSTALLER}" _read_loaded_policy_modules)"
+# shellcheck disable=SC2016  # the pattern matches the literal $( text
+if [[ "$(grep -c . <<<"${captures}")" -eq 1 ]] && grep -qF '$(semodule -l' <<<"${store_reader}"; then
+    pass "the script captures the module listing in _read_loaded_policy_modules alone"
+else
+    fail "the script captures the module listing outside _read_loaded_policy_modules: ${captures//$'\n'/ | }"
+fi
+# shellcheck disable=SC2016  # the pattern matches the literal ${MODULE} text
+list_groups_arm="$(awk '/^  list-groups\)/ { inside = 1; next } inside && /^    ;;/ { exit } inside' "${INSTALLER}")"
+# shellcheck disable=SC2016
+if grep -qF 'if ai_tools_selinux_groups__is_module_loaded "${MODULE}"; then' <<<"${list_groups_arm}"; then
+    pass "list-groups reads the core module through the library predicate"
+else
+    fail "list-groups does not read the core module through ai_tools_selinux_groups__is_module_loaded"
+fi
 
 # ── the script's text ─────────────────────────────────────────────────────────────────────────
 section "the installed library is read first, and no restorecon crosses an account-writable tree"

@@ -867,6 +867,10 @@ The project walk every label and restore takes is driven through the checkout's 
 each sign, and yields the `@` and `%` entries alone, since a path it yields takes the project type. Its remove section
 drives the sweep over the rules the registry walks do not derive and the unload over a stubbed `semodule`, each in its
 fail direction: a module the store still lists after the transaction is a refusal whatever the exit status said.
+`_check_permissive_alignment` is driven over a `semodule` stub printing module names alone, where a loaded stale
+`permissive_<domain>` module must be named with its removal and a longer name must not read as it, and the script's text
+is held to capturing the listing in `_read_loaded_policy_modules` alone, with `list-groups` reading the core
+through the library predicate.
 
 `spec-selinux-erase.sh` runs the `ai-tools-selinux` `%postun` the same way, its body read as RPM parses it (`rpmspec -P`
 where the host has it) and run under `/bin/sh` with the session reader and the store tools stubbed as recorders:

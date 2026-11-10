@@ -434,7 +434,7 @@ _check_permissive_alignment() {
 
     [[ -z "${active_permissive}" ]] && return 0
 
-    local dom stale_mod modules misaligned=()
+    local dom stale_mod misaligned=()
     while IFS= read -r dom; do
         [[ -z "${dom}" ]] && continue
         grep -qx "${dom}" <<<"${expected_permissive}" && continue   # expected
@@ -446,8 +446,7 @@ _check_permissive_alignment() {
     warn MSG-N5V4 "ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing:"
     for dom in "${misaligned[@]}"; do
         stale_mod="permissive_${dom}"
-        modules="$(semodule -l 2>/dev/null || true)"
-        if grep -q "^${stale_mod}[[:space:]]" <<<"${modules}"; then
+        if ai_tools_selinux_groups__is_module_loaded "${stale_mod}"; then
             warn "  ${dom}: stale semodule '${stale_mod}' overrides compiled policy"
             if [[ -t 0 ]]; then
                 if ai_tools_msg__confirm "Remove stale semodule '${stale_mod}'?" y; then
@@ -1322,8 +1321,7 @@ case "${ACTION}" in
     ;;
 
   list-groups)
-    module_listing="$(semodule -l 2>/dev/null || true)"
-    if grep -q "^${MODULE}[[:space:]]" <<<"${module_listing}"; then
+    if ai_tools_selinux_groups__is_module_loaded "${MODULE}"; then
         if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${POLICY_DIR}/${MODULE}.te"; then
             core_state="loaded (PERMISSIVE)"
         else
