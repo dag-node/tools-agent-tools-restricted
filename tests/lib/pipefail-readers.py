@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""tests/lib/pipefail-readers.py <file>... : report each stage after a pipe that may exit before its producer does.
+"""tests/lib/pipefail-readers.py <file>... : report the two shapes in shell source whose exit status the host decides.
 
-The rule this reads a tree for is `.claude/rules/shellcheck.rule.md`'s *A reader that exits early fails its pipeline*
-(ref-section-d9x2). `tests/unit/pipefail-readers.sh` runs it over the shell files of a checkout and holds the fixture
+The first is a stage after a pipe that may exit before its producer does, the rule of
+`.claude/rules/shellcheck.rule.md`'s *A reader that exits early fails its pipeline* (ref-section-d9x2). The second is
+a `wait` that reads the status of a process substitution, which `.claude/rules/records.rule.md` (ref-section-u5t7)
+gives to one helper. `tests/unit/pipefail-readers.sh` runs this over the shell files of a checkout and holds the fixture
 that proves each shape on known input.
 
 Prints one line per finding, `<file>:<line>: <reader>: <the stage>`, and exits 1 when it printed any, else 0. A file
@@ -12,10 +14,16 @@ not count as clean. An error of the scanner's own exits 2 with the error on stde
 
 What it reads as shell: a `*.yml` file's `run:` blocks, every other file whole, and the body of a `bash -c` or `sh -c`
 argument, joined from its quoted pieces where one quote closes and the next opens (`'source "'"${lib}"'"; ...'`).
-What it reports: a stage that follows a `|` and is `grep` with `-q`, `-l`, `-L` or `-m`, `head`,
+What it reports as an early-exit reader: a stage that follows a `|` and is `grep` with `-q`, `-l`, `-L` or `-m`, `head`,
 `sed` with a `q` command, `awk` with `exit`, or `read`, except `head -c` with a stage after it in a pipeline
 whose status `|| true` or `|| :` discards. Text inside quotes, a comment or a here-document body is not shell,
 and neither is a `|` between the patterns of a `case` arm or inside `[[ ]]`.
+
+What it reports under the reader name `wait`: a `wait` naming a variable whose nearest assignment earlier in the file
+is `name=$!` after a statement holding a process substitution, or naming `$!` itself after such a statement, unless
+`|| true` or `|| :` discards its status. `$!` after a `&` job or a `coproc` is a job's PID, whose status bash returns,
+and is not reported. The scanner reports every such `wait`; which of them the rule keeps is the caller's to state.
+It does not follow a PID handed to a function that waits for its argument.
 """
 import re
 import shlex
@@ -33,6 +41,10 @@ ESAC_WORD = re.compile(r"esac(?![A-Za-z0-9_])")
 COMMAND_OPENERS = {"then", "do", "else", "elif", "if", "while", "until", "!", "time"}
 GREP_TAKES_ARGUMENT = "efABCDd"
 DISCARDED = re.compile(r"\s*\|\|\s*(?:true|:)(?=[\s;)&]|$)")
+SAVED_PID = re.compile(r"""(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)=["']?\$!""")
+ASSIGNMENT = re.compile(r"(?<![A-Za-z0-9_$\{])([A-Za-z_][A-Za-z0-9_]*)\+?=")
+WAIT_WORD = re.compile(r"(?<![A-Za-z0-9_./-])wait(?=[ \t])")
+VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)|(!))")
 MASKED = "\x00"
 
 
@@ -390,6 +402,64 @@ def find_early_exit_readers(text, first_line=1):
     return sorted(set(findings))
 
 
+def previous_statement(mask, depth, at):
+    """Return (start, end, backgrounded) for the statement that ends before the word at `at`, at that word's depth."""
+    level = depth[at]
+    end = at
+    while end > 0 and mask[end - 1] in " \t\n;":
+        end -= 1
+    if end and mask[end - 1] == "&" and mask[end - 2:end - 1] != "&":
+        return end, end, True
+    start = end
+    while start > 0:
+        before = mask[start - 1]
+        if depth[start - 1] < level or (depth[start - 1] == level and before in ";\n&|"):
+            break
+        start -= 1
+    return start, end, False
+
+
+def follows_process_substitution(mask, depth, at):
+    """Succeed when the statement before the word at `at` holds a `<(...)` or `>(...)` of its own and is not a job."""
+    start, end, backgrounded = previous_statement(mask, depth, at)
+    if backgrounded:
+        return False
+    level = depth[at]
+    return any(mask[k] in "<>" and mask[k + 1:k + 2] == "(" and depth[k] == level for k in range(start, end))
+
+
+def find_process_substitution_waits(text, first_line=1):
+    """Return [(line, "wait", stage)] for each `wait` in `text` that reads a process substitution's exit status."""
+    mask, depth, bodies = mask_shell(text)
+    assignments = {}        # name -> [(offset, whether it saves the PID of a process substitution)]
+    for m in ASSIGNMENT.finditer(text):
+        if mask[m.start()] == MASKED:
+            continue
+        saved = SAVED_PID.match(text, m.start())
+        assignments.setdefault(m.group(1), []).append(
+            (m.start(), bool(saved) and follows_process_substitution(mask, depth, m.start())))
+    findings = []
+    for m in WAIT_WORD.finditer(mask):
+        level = depth[m.start()]
+        end = m.end()
+        while end < len(mask) and not (depth[end] < level or (depth[end] == level and mask[end] in ";&\n)|")):
+            end += 1
+        if DISCARDED.match(mask, end):
+            continue
+        for braced, bare, last_job in VARIABLE.findall(text[m.end():end]):
+            if last_job:
+                reads = follows_process_substitution(mask, depth, m.start())
+            else:
+                earlier = [saves for offset, saves in assignments.get(braced or bare, ()) if offset < m.start()]
+                reads = bool(earlier) and earlier[-1]
+            if reads:
+                findings.append((first_line + text.count("\n", 0, m.start()), "wait", " ".join(text[m.start():end].split())))
+                break
+    for offset, body in bodies:
+        findings.extend(find_process_substitution_waits(body, first_line + text.count("\n", 0, offset)))
+    return sorted(set(findings))
+
+
 def workflow_shell(text):
     """Return `text` with every line outside a workflow's `run:` blocks blanked, so line numbers hold."""
     out = []
@@ -419,7 +489,7 @@ def main(paths):
                 text = handle.read()
             if path.endswith((".yml", ".yaml")):
                 text = workflow_shell(text)
-            for line, reader, stage in find_early_exit_readers(text):
+            for line, reader, stage in sorted(find_early_exit_readers(text) + find_process_substitution_waits(text)):
                 found = True
                 print(f"{path}:{line}: {reader}: {stage}")
         except (OSError, Unparsed) as error:
