@@ -160,6 +160,24 @@ if ai_tools_selinux_groups__is_loaded definitelynotloaded; then
 else
     pass "group_loaded reports an absent module as absent"
 fi
+# The name is matched as a fixed string against the whole line, and an empty name is not loaded: a here-string
+# of an empty listing is one empty line, which an empty name would match.
+if ai_tools_selinux_groups__is_module_loaded ai_tools && ! ai_tools_selinux_groups__is_module_loaded ai_tools_tmp; then
+    pass "a loaded name is loaded, and a name that opens a loaded module's is not"
+else
+    fail "the module probe did not match the whole line: ai_tools must be loaded and ai_tools_tmp must not"
+fi
+if ai_tools_selinux_groups__is_module_loaded 'ai_tools.*'; then
+    fail "the module probe read the name ai_tools.* as a pattern"
+else
+    pass "a name holding a regex metacharacter is matched as written"
+fi
+semodule() { return 1; }
+if ai_tools_selinux_groups__is_module_loaded ''; then
+    fail "an empty name read as loaded over a listing semodule refused"
+else
+    pass "an empty name is not loaded, whatever the listing"
+fi
 
 # --- A compiled module's version is read from its header and held against the range this host reads ---
 # libsepol refuses a .pp built for a module version outside its range (an EL10 build is version 24; EL9 reads 4-21),

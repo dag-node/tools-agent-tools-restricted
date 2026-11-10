@@ -1386,7 +1386,8 @@ writes to deliver a few hundred module names, the listing the early-exit reader 
 [ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2) describes, where a search reading the pipe can read a loaded
 module as absent while `semodule` is still writing. `semodule` is stubbed as a shell function emitting one line
 per `printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times because one green
-run is not evidence about a race.
+run is not evidence about a race. The module probe behind it is held to a whole-line match of the name as written,
+a regex metacharacter included, and an empty name to not loaded over a listing `semodule` refused.
 
 `sweep-bound.sh` pins the bound every agent's Stop sweep puts on its walk
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): over a fixture, `-cnewer` against the marker selects a file
