@@ -76,6 +76,10 @@ assert_msg() {
 # assertions compare the low 3 octal digits via this helper, not the raw `stat %a`. `8#` keeps it base-8 in any shell.
 perm() { local m; m="$(stat -c '%a' "$1" 2>/dev/null)"; printf '%o' "$(( 8#${m:-0} & 8#777 ))"; }
 
+# is_listed <word> <item>... : succeed when <word> is one of the items. The items are compared in the shell, since
+# a list piped into `grep -q` is the shape ref-section-d9x2 rules out (.claude/rules/shellcheck.rule.md).
+is_listed() { local word="$1" item; shift; for item in "$@"; do [[ "${item}" == "${word}" ]] && return 0; done; return 1; }
+
 # check_file <path> <owner> <group> <mode>: PASS when the file's actual owner, group, and octal mode all match; FAIL
 # (naming the mismatch) otherwise, or when the path is absent. Used by the integration suite to assert deployed-artifact
 # ownership/permissions.
@@ -251,8 +255,9 @@ readonly TEST_GROUP TEST_STEM
 
 # ai_test_name <thing>: PRINT a fresh fixture name under the rule (not created, not registered).
 ai_test_name() {
-    printf '%s-%s-%s-%s' "${AI_TOOLS_TEST_PREFIX}" "${TEST_GROUP}" "$1" \
-        "$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 6)"
+    local random
+    random="$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9')"
+    printf '%s-%s-%s-%s' "${AI_TOOLS_TEST_PREFIX}" "${TEST_GROUP}" "$1" "${random:0:6}"
 }
 # mk_fixture_dir <var> <parent> <thing> / mk_fixture_file <var> <parent> <thing>: create a fixture under <parent>
 # (mktemp: unique, born 0700/0600) named by the rule, register it for teardown, and assign its path to the caller's

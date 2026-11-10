@@ -122,10 +122,10 @@ fi
 # The shim's order, read as source: the integrations' fragments, then every enabled agent's pins, then the launching
 # agent's fragment. No refusal the shim can be driven to reveals the order (the one gate past the fragments needs
 # a valid launch), so the three calls are held to their line order, the way the entrypoint re-check is.
-crun_integrations_line="$(grep -n 'ai_tools_providers__list_enabled_integrations' "${CRUN}" | head -n1 | cut -d: -f1)"
+crun_integrations_line="$(grep -m1 -n 'ai_tools_providers__list_enabled_integrations' "${CRUN}" | cut -d: -f1)"
 # shellcheck disable=SC2016  # grep patterns over the shim's own text
-crun_pins_line="$(grep -n 'source_session_env_fragment "\${enabled_agent_name}" pins' "${CRUN}" | head -n1 | cut -d: -f1)"
-crun_agent_line="$(grep -n '^    source_session_env_fragment "\${agent_name}"$' "${CRUN}" | head -n1 | cut -d: -f1)"
+crun_pins_line="$(grep -m1 -n 'source_session_env_fragment "\${enabled_agent_name}" pins' "${CRUN}" | cut -d: -f1)"
+crun_agent_line="$(grep -m1 -n '^    source_session_env_fragment "\${agent_name}"$' "${CRUN}" | cut -d: -f1)"
 if [[ -z "${crun_integrations_line}" || -z "${crun_pins_line}" || -z "${crun_agent_line}" ]]; then
     fail "ai-tools-run does not source the integrations, every enabled agent's pins, and the launching agent's fragment (integrations '${crun_integrations_line}', pins '${crun_pins_line}', agent '${crun_agent_line}')"
 elif (( crun_integrations_line < crun_pins_line && crun_pins_line < crun_agent_line )); then
@@ -526,7 +526,7 @@ fi
 # runs. The distance counts CODE lines only: a comment or a blank between the two runs nothing, so it does not widen
 # the window, and the launch invocation carries a comment block of its own that would otherwise trip this.
 crun_recheck_line="$(grep -n 'entrypoint_identity' "${CRUN}" | tail -n1 | cut -d: -f1)"
-crun_launch_line="$(grep -n '^systemd-run --user --pty --quiet' "${CRUN}" | head -n1 | cut -d: -f1)"
+crun_launch_line="$(grep -m1 -n '^systemd-run --user --pty --quiet' "${CRUN}" | cut -d: -f1)"
 if [[ -z "${crun_recheck_line}" || -z "${crun_launch_line}" ]]; then
     fail "ai-tools-run has no last-moment entrypoint re-check before systemd-run"
 elif (( crun_recheck_line >= crun_launch_line )); then
@@ -545,7 +545,7 @@ fi
 # window, and only for a session launch: a print-and-exit run does not load the library. Read as source like
 # the re-check, since a launch that reaches the step starts a session.
 # shellcheck disable=SC2016  # grep patterns over the shim's own text
-crun_cleanup_line="$(grep -n 'ai_tools_cache_cleanup__remove_due_groups "' "${CRUN}" | head -n1 | cut -d: -f1)"
+crun_cleanup_line="$(grep -m1 -n 'ai_tools_cache_cleanup__remove_due_groups "' "${CRUN}" | cut -d: -f1)"
 crun_cleanup_gate_line="$(grep -n '^if (( show_banner )); then$' "${CRUN}" | tail -n1 | cut -d: -f1)"
 if [[ -z "${crun_cleanup_line}" || -z "${crun_recheck_line}" || -z "${crun_cleanup_gate_line}" ]]; then
     fail "ai-tools-run's cache cleanup step, its session-launch gate or the re-check is no longer where this reads it (cleanup '${crun_cleanup_line}', gate '${crun_cleanup_gate_line}', re-check '${crun_recheck_line}')"

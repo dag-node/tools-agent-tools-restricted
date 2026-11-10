@@ -1377,14 +1377,12 @@ out of the old `ai_tools_netcore` module names it as its former module, the reve
 a swap loads in the old module's place, or a host loses the half it did not ask for), a group without a former module
 reports none, and no former name collides with a current group's module — the swap would otherwise unload a live group.
 
-It closes with the registry's one impure accessor, `ai_tools_selinux_groups__is_loaded`, whose failure mode is
-a **race** rather than a wrong answer: `semodule -l` needs several writes to deliver a few hundred module names,
-so reading it as `semodule -l | grep -qx` lets grep exit on the match and leaves the writer to die of SIGPIPE,
-which `pipefail` reports as 141 — a loaded module read as absent, about half the time. `semodule` is stubbed as a shell
-function emitting one line per `printf`, so a single-write listing cannot hide the regression, and the probe is driven
-25 times because one green run is not evidence about a race. The same shape reached production twice (the `.TH` check
-in `man.sh` failed at random on the EL container runners for exactly this reason), so each remaining `semodule -l` probe
-now captures the listing before matching it.
+It closes with the registry's one impure accessor, `ai_tools_selinux_groups__is_loaded`. `semodule -l` needs several
+writes to deliver a few hundred module names, the listing the early-exit reader rule
+[ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2) describes, where a search reading the pipe can read a loaded
+module as absent while `semodule` is still writing. `semodule` is stubbed as a shell function emitting one line
+per `printf`, so a single-write listing cannot hide the regression, and the probe is driven 25 times because one green
+run is not evidence about a race.
 
 `sweep-bound.sh` pins the bound every agent's Stop sweep puts on its walk
 ([ownership-and-hooks](ownership-and-hooks.rule.md)): over a fixture, `-cnewer` against the marker selects a file
@@ -1410,10 +1408,10 @@ its `file_contexts.subs_dist` aliases `/var/opt` to `/opt` (the note in `ai_tool
 on EL10 passes with the `/var/opt` half missing. The check reads the sources to catch that on any host, and a control
 asserts the reader matched a rule before the two sets are compared.
 
-`pipefail-readers.sh` holds the shipped scripts to the early-exit reader rule
+`pipefail-readers.sh` holds the shipped scripts and the test tree to the early-exit reader rule
 [ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2) through `tests/lib/pipefail-readers.py`, which reads shell
 source for the shape. A fixture proves the scanner on each shape it reports and each it leaves alone, and a walk
-or a scan that did not complete fails the file. The walk does not read `tests/`.
+or a scan that did not complete fails the file.
 
 **`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
 `symlink-helper.sh`, `entrypoint-pin.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`,

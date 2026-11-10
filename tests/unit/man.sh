@@ -54,10 +54,6 @@ HELP_LIB="${ROOT}/src/usr/local/lib/ai-tools/help.lib.sh"
 # help_list <function> <program>: run one of the library's list readers in a shell of its own, so its readonly rows
 # and the libraries it sources stay out of this one.
 help_list() { bash -c 'source "$1" && "$2" "$3"' _ "${HELP_LIB}" "$1" "$2"; }
-# is_listed <word> <item>... : succeed when <word> is one of the items. Compared in the shell rather than by piping
-# the items into `grep -q`: grep exits on its first match, a writer still writing then dies of SIGPIPE, and pipefail
-# reads that as no match, which a loaded host turned into a false failure about one check in three hundred.
-is_listed() { local word="$1" item; shift; for item in "$@"; do [[ "${item}" == "${word}" ]] && return 0; done; return 1; }
 
 # man_section <page> <NAME>: the body of one .SH section, bounded by the next .SH.
 man_section() { read_man "$1" | awk -v s=".SH $2" '$0==s{f=1;next} /^\.SH /{f=0} f'; }
@@ -139,11 +135,7 @@ check_command_sets() {
 # was provisioned rather than according to anything about the page. It asserts what it always meant: the field is
 # non-empty.
 #
-# The page is read into a here-string rather than piped into `grep -q`, and that is load-bearing under this file's
-# `set -o pipefail`: `grep -q` exits the moment it matches, and the .TH line is line 5 of a 24 KB page, so the writer
-# upstream is still mid-page and dies of SIGPIPE. pipefail then reports 141 for a pipeline whose grep succeeded,
-# and the check fails at random -- about half the time here, near-always on the EL container runners. A here-string is
-# fully written before grep starts, so there is no early reader to race. Do not "simplify" it back to a pipe.
+# The page is searched from a here-string (ref-section-d9x2): the .TH line is line 5 of a 24 KB page.
 th_version() {
     local page="$1" name="$2"
     if grep -qE "^\.TH ${name} [0-9] .*\"ai-tools [^\"[:space:]][^\"]*\"" <<<"$(read_man "${page}")"; then
@@ -403,7 +395,7 @@ check_allowlist_page() {
     if [[ "$(ai_tools_conf__get_allowlist_seed)" == "$(ai_tools_conf__get_registry_marker)" ]]; then
         pass "the seeded ai-tools-project-registry file is the format marker alone"
     else
-        fail "the seeded ai-tools-project-registry file is not the marker alone: $(ai_tools_conf__get_allowlist_seed | head -3 | tr '\n' '|')"
+        fail "the seeded ai-tools-project-registry file is not the marker alone: $(ai_tools_conf__get_allowlist_seed | awk 'NR <= 3' | tr '\n' '|')"
     fi
 
     # The examples are held to what the page says they mean, not to the parser alone, since a disabled project written
@@ -883,7 +875,7 @@ check_arg_shapes() {
                      s=$0; sub(/^\.(B|BR|BI) /, "", s); gsub(/"/, "", s); gsub(/\\f./, "", s)
                      r = substr(s, length(c) + 1)
                      if (index(s, c) == 1 && r !~ /^ [a-z]/ && r !~ /^[a-z-]/) print r }' \
-            | head -1)"
+            | awk 'NR == 1')"
         [[ -n "${man_shape}" ]] || continue
         man_shape="$(arg_shape "${man_shape}")"
         pairs=$(( pairs + 1 ))

@@ -48,7 +48,7 @@ THIRD=root
 if [[ "${THIRD}" == "${SBX}" || "${THIRD}" == "${PROJECTS_GROUP}" ]]; then THIRD=""; fi
 
 mode_of() { stat -c '%a' "$1"; }
-has_acl()  { getfacl -c -- "$2" 2>/dev/null | grep -q "^$1"; }
+has_acl()  { grep -q "^$1" <<<"$(getfacl -c -- "$2" 2>/dev/null)"; }
 
 # strip <path> <ftype> <group> [operator-group] -- pin the inode and run the strip exactly as the helpers do (through
 # /proc/self/fd), asserting on the way out that the mode never widened. Sets STRIP_RC and STRIP_MODE_BEFORE/AFTER.

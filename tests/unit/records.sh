@@ -271,7 +271,7 @@ EOF
 if [[ "$(wc -l < "${TESTDIR}/decoded.bash")" -gt 250 ]] && cmp -s "${TESTDIR}/decoded.bash" "${TESTDIR}/decoded.python"; then
     pass "the shell decoder and the page's Python decoder agree on every fixture ($(wc -l < "${TESTDIR}/decoded.bash") fields)"
 else
-    fail "the two decoders disagree:"$'\n'"$(diff "${TESTDIR}/decoded.bash" "${TESTDIR}/decoded.python" | head -n 10)"
+    fail "the two decoders disagree:"$'\n'"$(diff "${TESTDIR}/decoded.bash" "${TESTDIR}/decoded.python" | awk 'NR <= 10')"
 fi
 
 # ── The reader over a stream ─────────────────────────────────────────────────────────────────────
@@ -451,9 +451,9 @@ if [[ "${rc}" == 0 && "$(head -n 1 <<<"${out}")" == "$(head -n 1 <<<"${out2}")" 
 else
     fail "begin_report did not reset: rc=${rc}, observed-at='${first_observed}'"
 fi
-[[ "$(sed -n 2p <<<"${out}" | head -c 20)" == "${first_observed}" ]] \
+[[ "$(sed -n 2p <<<"${out}" | cut -c1-20)" == "${first_observed}" ]] \
     && pass "the row carries the report's observed-at" \
-    || fail "the row's observed-at is not the report's: $(sed -n 2p <<<"${out}" | head -c 20)"
+    || fail "the row's observed-at is not the report's: $(sed -n 2p <<<"${out}" | cut -c1-20)"
 # The header goes out with the first row alone: two rows, one header; a report with no row prints nothing.
 ai_tools_records_base__begin_report
 stream="$(ai_tools_records_tsv__write_record "" "${TEST_CODE}" info f file op "" /p d

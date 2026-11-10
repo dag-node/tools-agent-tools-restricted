@@ -141,8 +141,8 @@ list_post_walk_findings() {
     for tree in /opt/ai-tools /var/opt/ai-tools/sandbox-projects; do
         grep -qxE "[[:space:]]*_walk_account_tree ${tree}" <<< "${code}" || printf 'no walk over %s\n' "${tree}"
     done
-    realpath_line="$(grep -nF 'realpath -e -- "$1"' <<< "${code}" | head -n 1)"; realpath_line="${realpath_line%%:*}"
-    walker_line="$(grep -nF 'ai-tools-relabel-tree -- "${_canonical}" 2>&1 >/dev/null) || _walk_rc=$?' <<< "${code}" | head -n 1)"
+    realpath_line="$(grep -m1 -nF 'realpath -e -- "$1"' <<< "${code}")"; realpath_line="${realpath_line%%:*}"
+    walker_line="$(grep -m1 -nF 'ai-tools-relabel-tree -- "${_canonical}" 2>&1 >/dev/null) || _walk_rc=$?' <<< "${code}")"
     walker_line="${walker_line%%:*}"
     if ! { [[ -n "${realpath_line}" && -n "${walker_line}" ]] && (( realpath_line < walker_line )); }; then
         printf 'no realpath -e ahead of a walker call with its status kept\n'
@@ -151,8 +151,8 @@ list_post_walk_findings() {
     grep -E '_sandbox_session_state' <<< "${code}" | sed 's/^/a session reading: /' || true
     grep -E 'restorecon[[:space:]]+-[A-Za-z]+[[:space:]][^;|&]*(/opt/ai-tools([[:space:]/]|$)|sandbox-projects)' <<< "${code}" \
         | sed 's/^/a restorecon: /' || true
-    release_line="$(grep -nE '^[[:space:]]*exec 9>&-' <<< "${code}" | head -n 1)"; release_line="${release_line%%:*}"
-    agent_line="$(grep -nF 'ai-tools-relabel-agent >/dev/null' <<< "${code}" | head -n 1)"; agent_line="${agent_line%%:*}"
+    release_line="$(grep -m1 -nE '^[[:space:]]*exec 9>&-' <<< "${code}")"; release_line="${release_line%%:*}"
+    agent_line="$(grep -m1 -nF 'ai-tools-relabel-agent >/dev/null' <<< "${code}")"; agent_line="${agent_line%%:*}"
     if ! { [[ -n "${release_line}" && -n "${agent_line}" ]] && (( release_line < agent_line )); }; then
         printf 'no relabel-agent call after the lock release\n'
     fi

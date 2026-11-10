@@ -205,7 +205,7 @@ seed_for() { printf '%s\n' "${REG_MARKER}" "$@" > "${FOR_AL}"; chown "${PROJECTS
 seed_gc()  { : > "${GC}"; local p; for p in "$@"; do git config --file "${GC}" --add safe.directory "${p}"; done; chown "${PROJECTS_USER}:${PROJECTS_USER}" "${GC}"; }
 st()       { ai_tools_conf__read_allowlist_state "${AL}" "$1"; }
 st_for()   { ai_tools_conf__read_allowlist_state "${FOR_AL}" "$1"; }
-gc_has()   { git config --file "${GC}" --get-all safe.directory 2>/dev/null | grep -qxF -- "$1"; }
+gc_has()   { grep -qxF -- "$1" <<<"$(git config --file "${GC}" --get-all safe.directory 2>/dev/null)"; }
 gc_lacks() { ! gc_has "$1"; }
 sha()      { sha256sum "$1" | cut -c1-64; }
 # gitr: a git READ made by root on a repository the projects user owns, which git otherwise refuses as dubious
@@ -296,7 +296,7 @@ fn_options() {
 }
 # table_lists <TABLE> <command>: the gating table names the command (one token or a spaced path).
 table_lists() {
-    sed -n "/^readonly $1=(/,/)/p" "${CLI_SRC}" | tr -d '"' | grep -qwF -- "$2"
+    grep -qwF -- "$2" <<<"$(sed -n "/^readonly $1=(/,/)/p" "${CLI_SRC}" | tr -d '"')"
 }
 # trace_surface: the header of a trace -- one line per command key with the options its parser accepts and the gates
 # that list it, then the dispatch arms without a key.
@@ -371,7 +371,7 @@ out_lacks_text() { ! out_has_text "$1"; }
 # out_has_line <line>: one line of the row's captured output is <line> whole -- a message code, a printed command.
 out_has_line() { grep -qxF -- "$1" <<< "${out}"; }
 # out_line_has_text <a> <b>: one line of the output carries both texts.
-out_line_has_text() { grep -F -- "$1" <<< "${out}" | grep -qF -- "$2"; }
+out_line_has_text() { grep -qF -- "$2" <<<"$(grep -F -- "$1" <<<"${out}")"; }
 rc_not0() { [[ "${rc}" -ne 0 ]]; }
 # quiet_rc <n> / quiet_refusal: the exit status AND an empty call log -- a refusal that did not reach a helper, which is
 # the ordering rule that a refused command does not prompt for sudo first.
@@ -806,7 +806,7 @@ drive_rows() {
     if [[ -n "${reach_why}" ]]; then
         skip "claim traverse-grant rows, ${AI_TOOLS_CLI_SPELLING:-collection} spelling" "${reach_why}"
     else
-        granted()     { getfacl -p "${reach_fx}" 2>/dev/null | grep -qE "^user:${SANDBOX_USER}:..x"; }
+        granted()     { grep -qE "^user:${SANDBOX_USER}:..x" <<<"$(getfacl -p "${reach_fx}" 2>/dev/null)"; }
         not_granted() { ! granted; }
         seed "@ ${reach_proj}"; seed_gc "${reach_proj}"
         cli_stub_reset; drive cli ai-tools.projects.claim "${reach_proj}"
@@ -857,7 +857,7 @@ drive_rows() {
         [[ -z "$(find "$1/.git" -perm /o=rwx -print -quit)" ]] \
             && [[ "$(stat -c %G -- "$1/.git")" == "${PROJECTS_GROUP}" ]] \
             && [[ -z "$(find "$1/.git" ! -group "${PROJECTS_GROUP}" -print -quit)" ]] \
-            && ! getfacl -R -p -- "$1/.git" 2>/dev/null | grep -qE "^(default:)?(user:${SANDBOX_USER}|group:${SANDBOX_GROUP}):"
+            && ! grep -qE "^(default:)?(user:${SANDBOX_USER}|group:${SANDBOX_GROUP}):" <<<"$(getfacl -R -p -- "$1/.git" 2>/dev/null)"
     }
     git_modes_withheld() {  # git_modes_withheld <dir>: directories 2750 or 750, no path with group write or other bits
         [[ -z "$(find "$1/.git" -type d ! -perm 2750 ! -perm 750 -print -quit)" ]] \
@@ -885,13 +885,13 @@ drive_rows() {
     mkdir -p "${sg_parent}"; chown "${PROJECTS_USER}:${SANDBOX_GROUP}" "${sg_parent}"; chmod 2770 "${sg_parent}"
     setfacl -m "d:g:${SANDBOX_GROUP}:rwx,d:u:nobody:rwx,d:g:${third_group}:rwx" "${sg_parent}"
     git_acl_stripped() {  # git_acl_stripped <dir>: no named entry and no default entry under .git
-        ! getfacl -R -p -- "$1/.git" 2>/dev/null | grep -qE '^(default:|(user|group):[^:])'
+        ! grep -qE '^(default:|(user|group):[^:])' <<<"$(getfacl -R -p -- "$1/.git" 2>/dev/null)"
     }
     cli_stub_reset; drive cli_tty 'n\n' ai-tools.projects.create "${sg_parent}/new"
     expect "under a setgid parent in the sandbox group the declined create exits 0" rc_is 0
     expect "control: the new tree takes the parent's group"          test "$(stat -c %G -- "${sg_parent}/new")" = "${SANDBOX_GROUP}"
     expect "control: the new tree inherits the parent's named entries" \
-        bash -c 'getfacl -p -- "$1" 2>/dev/null | grep -q "^user:nobody:"' _ "${sg_parent}/new"
+        bash -c 'grep -q "^user:nobody:" <<<"$(getfacl -p -- "$1" 2>/dev/null)"' _ "${sg_parent}/new"
     expect "and its .git is withheld from the agent"                 git_withheld "${sg_parent}/new"
     expect "and .git carries no named or default ACL entry"         git_acl_stripped "${sg_parent}/new"
     expect "and the mode bits under .git hold no group write or other bits" git_modes_withheld "${sg_parent}/new"

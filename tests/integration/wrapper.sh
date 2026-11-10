@@ -89,8 +89,8 @@ assert_msg MSG-N2Z7 "${out}" "wrapper blocks execution from an unapproved direct
 # (1a) Cancelling names BOTH commands. The screen the menu sits under carries none (it states
 #      each choice once, in the menu), so the refusal is the only place they appear -- an
 #      operator who cancels, or whose run has no terminal, must still be told what to run.
-if printf '%s' "${out}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.clone)" \
-        && printf '%s' "${out}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.claim)"; then
+if grep -qF -- "$(cli_cmd_text ai-tools.projects.clone)" <<<"${out}" \
+        && grep -qF -- "$(cli_cmd_text ai-tools.projects.claim)" <<<"${out}"; then
     pass "the cancel path names both the clone and the claim"
 else
     fail "the cancel path did not name both setup commands (output: ${out})"
@@ -104,7 +104,7 @@ pv_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="
     "${wrapper}" --version < /dev/null 2>&1 || true )"
 if gate_refused "${pv_out}"; then
     fail "sole --version was gated on the CWD -- the pass-through regressed (output: ${pv_out})"
-elif printf '%s' "${pv_out}" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+elif grep -qE '[0-9]+\.[0-9]+\.[0-9]+' <<<"${pv_out}"; then
     pass "sole --version passes through from an unapproved cwd and prints the version"
 else
     fail "sole --version did not yield a version string (output: ${pv_out})"
@@ -170,7 +170,7 @@ else
             "the launch gate refuses a project the CLI disabled (the verb's whole promise)"
         # The refusal has to name the way back, or the operator's next move is a claim over a project that is already
         # claimed -- which is what the not-yet-claimed screen would invite.
-        if printf '%s' "${out_disabled}" | grep -qF -- "$(cli_cmd_text ai-tools.projects.enable)"; then
+        if grep -qF -- "$(cli_cmd_text ai-tools.projects.enable)" <<<"${out_disabled}"; then
             pass "and it names the re-enable rather than offering a claim"
         else
             fail "the refusal did not name the re-enable: ${out_disabled}"
@@ -182,7 +182,7 @@ else
         cli_cmd ai-tools.projects.enable || exit 2
         enable_out="$(run_cli "${CLI_ARGV[@]}" "${approved}")"
         out_reenabled="$(run_wrapper "${approved}")"
-        if printf '%s' "${out_reenabled}" | grep -qE "no session started|allowlist not found|excluded by|disabled"; then
+        if grep -qE "no session started|allowlist not found|excluded by|disabled" <<<"${out_reenabled}"; then
             fail "wrapper still blocked the project after ai-tools.projects.enable (enable: $(printf '%s' "${enable_out}" | awk 'NF' | tail -2 | tr '\n' ' ')) (launch: ${out_reenabled})"
         else
             pass "the launch gate accepts it again after ai-tools.projects.enable"
@@ -348,13 +348,13 @@ else
             # toolchain file to the root helper, one socket round trip each, for it to leave alone.
             codex_version_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
                 "${codex_wrapper}" --version < /dev/null 2>&1 || true )"
-            if printf '%s' "${codex_version_out}" | grep -qE '[0-9]+\.[0-9]+\.[0-9]+'; then
+            if grep -qE '[0-9]+\.[0-9]+\.[0-9]+' <<<"${codex_version_out}"; then
                 pass "codex: sole --version passes through from an unapproved cwd and prints the version"
             else
                 fail "codex: sole --version did not yield a version string (output: ${codex_version_out})"
             fi
-            if journalctl -t ai-tools-run --since '-2 min' -o cat 2>/dev/null \
-                    | grep -q 'session-end sweep: handed back .* under /opt/ai-tools ('; then
+            if grep -q 'session-end sweep: handed back .* under /opt/ai-tools (' \
+                    <<<"$(journalctl -t ai-tools-run --since '-2 min' -o cat 2>/dev/null)"; then
                 fail "codex: the session-end sweep walked the sandbox home after a sole --version"
             else
                 pass "codex: the session-end sweep did not walk the sandbox home after a sole --version"

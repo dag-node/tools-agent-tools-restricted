@@ -27,7 +27,7 @@ mk_allowlist "@ ${proj}"                            # proj is allowed; outside i
 gc="${TESTDIR}/gitconfig"; : > "${gc}"            # fixture the helper writes into
 
 run() { AI_TOOLS_GITCONFIG="${gc}" setsid "${HELPER}" "$@" < /dev/null > /dev/null 2>&1; }
-listed() { git config --file "${gc}" --get-all safe.directory 2>/dev/null | grep -qxF "$1"; }
+listed() { grep -qxF "$1" <<<"$(git config --file "${gc}" --get-all safe.directory 2>/dev/null)"; }
 count()  { git config --file "${gc}" --get-all safe.directory 2>/dev/null | grep -cxF "$1"; }
 
 # (A) add registers the allowlisted project.

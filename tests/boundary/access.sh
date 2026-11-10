@@ -587,7 +587,7 @@ _pkg_json=""
 while IFS= read -r _candidate; do
     [[ -n "${_candidate}" ]] && { _pkg_json="${_candidate}"; break; }
 done < <(find /opt/ai-tools/.nvm/versions/node -maxdepth 5 -name package.json -path '*/lib/node_modules/*' \
-              2>/dev/null | head -1)
+              -print -quit 2>/dev/null)
 if [[ -z "${_pkg_json}" ]]; then
     skip "the declared version is not a trust input" "no agent package.json found under the toolchain"
 elif runuser -u "${SANDBOX_USER}" -- test -w "${_pkg_json}" 2>/dev/null; then
@@ -766,7 +766,7 @@ else
             if runuser -u "${SANDBOX_USER}" -- test -w "${_jf}" 2>/dev/null; then
                 _breach="the agent can write the journal file ${_jf}"; break
             fi
-        done < <(find "${_journal_dir}" -name '*.journal' -type f 2>/dev/null | head -20)
+        done < <(find "${_journal_dir}" -name '*.journal' -type f 2>/dev/null | awk 'NR <= 20')
     fi
     if [[ -n "${_breach}" ]]; then
         fail "the agent can unmake its own trail: ${_breach}"

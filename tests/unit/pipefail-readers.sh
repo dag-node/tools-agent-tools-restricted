@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/pipefail-readers.sh
-# Hermetic check that no shipped script pipes a producer into a reader that exits early (ref-section-d9x2).
+# Hermetic check that no script pipes a producer into a reader that exits early (ref-section-d9x2).
 #
 # The gap this closes: under `pipefail` such a pipeline returns non-zero on input that matched, on a schedule the host
 # decides, so the shape passes review, ShellCheck and a quiet test run. tests/lib/pipefail-readers.py reads shell source
-# for it, and this file holds the scripts under src/, selinux/, packaging/ and tools/, install.sh and the workflows'
-# `run:` blocks to its report.
+# for it, and this file holds the scripts under src/, selinux/, packaging/, tools/ and tests/, install.sh
+# and the workflows' `run:` blocks to its report.
 #
 # Three sections. The first pins the mechanism the rule rests on, with a producer that prints more than a pipe holds,
 # so the result does not depend on the host's load. The second proves the scanner on a fixture holding one instance
@@ -89,6 +89,8 @@ producer | grep -e -q
 listing="$(case "${word}" in grep|head) producer | grep -q needle ;; esac)"
 [[ "${word}" =~ ^(grep|head)$ ]] || true
 text="${text/"  ${word} ("/"  ("}"
+bash -c 'source "'"${library}"'"; producer | grep -q needle'
+bash -c 'source "'"${library}"'"; grep -q needle <<<"$(producer)"'
 FIXTURE
 expected="3 grep -q
 4 grep -q
@@ -105,11 +107,12 @@ expected="3 grep -q
 18 head
 32 grep -q
 33 grep -q
-35 grep -q"
+35 grep -q
+38 grep -q"
 rc=0; report="$(python3 "${SCANNER}" "${fixture}")" || rc=$?
 got="$(sed -n 's/^[^:]*:\([0-9]*\): \([^:]*\):.*/\1 \2/p' <<<"${report}")"
 if (( rc == 1 )) && [[ "${got}" == "${expected}" ]]; then
-    pass "the scanner reports each early-exit reader after a pipe: continued, unspaced, with a quoted option, in a bash -c body, in a case arm"
+    pass "the scanner reports each early-exit reader after a pipe: continued, unspaced, with a quoted option, in a bash -c body whole or joined from quoted pieces, in a case arm"
     pass "and leaves alone a head -c whose status is discarded, a herestring, a reader that reads to the end, a pattern after -e, case and [[ ]] alternations, quoted text"
 else
     fail "the scanner's report over the fixture (rc=${rc}) is not the expected one: $(tr '\n' '|' <<<"${got}")"
@@ -166,7 +169,7 @@ fi
 list_walked_files() {
     local root="$1" name
     local -a roots=()
-    for name in src selinux packaging tools install.sh .github/workflows; do
+    for name in src selinux packaging tools tests install.sh .github/workflows; do
         [[ ! -e "${root}/${name}" ]] || roots+=("${name}")
     done
     (cd "${root}" && find "${roots[@]}" -name rpmbuild -prune -o \

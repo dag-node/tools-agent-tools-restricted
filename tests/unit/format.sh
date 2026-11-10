@@ -97,7 +97,7 @@ fi
 if ( cd "${repo}" && python3 "${GATE}" --base HEAD page.md notes/CLAUDE.md >/dev/null 2>&1 ); then
     pass "the reflow is pure by the gate"
 else
-    fail "the gate reports the reflow: $(cd "${repo}" && python3 "${GATE}" --base HEAD page.md notes/CLAUDE.md 2>&1 | head -3)"
+    fail "the gate reports the reflow: $(cd "${repo}" && python3 "${GATE}" --base HEAD page.md notes/CLAUDE.md 2>&1 | awk 'NR <= 3')"
 fi
 if [[ "${RC}" -eq 0 ]]; then pass "exits 0 when nothing is left over its column"
 else fail "exited ${RC} on a clean run: ${OUT}"; fi

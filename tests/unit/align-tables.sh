@@ -140,7 +140,7 @@ python3 "${TOOL}" fix "${f}" >/dev/null
 if cmp -s "${f}" "${TESTDIR}/once.sh"; then
     pass "a second fix is a no-op"
 else
-    fail "a second fix changed the file: $(diff "${TESTDIR}/once.sh" "${f}" | head -4)"
+    fail "a second fix changed the file: $(diff "${TESTDIR}/once.sh" "${f}" | awk 'NR <= 4')"
 fi
 if out="$(python3 "${TOOL}" check "${f}" 2>&1)" && [[ -z "${out}" ]]; then
     pass "check is silent on the fixed file and exits 0"

@@ -247,7 +247,7 @@ fi
 if ! grep -qE '^[^#]*\b(exit|exec|export|read)\b' "${FRAGMENT}"; then
     pass "the fragment does not exit, exec, export, or read stdin"
 else
-    fail "the fragment carries an exit/exec/export/read outside a comment: $(grep -nE '^[^#]*\b(exit|exec|export|read)\b' "${FRAGMENT}" | head -3 | tr '\n' '|')"
+    fail "the fragment carries an exit/exec/export/read outside a comment: $(grep -nE '^[^#]*\b(exit|exec|export|read)\b' "${FRAGMENT}" | awk 'NR <= 3' | tr '\n' '|')"
 fi
 [[ "$(field config_dir)" == ".codex" ]] && grep -q 'CODEX_HOME=/opt/ai-tools/.codex' "${FRAGMENT}" \
     && pass "the fragment's CODEX_HOME and the manifest's config_dir name the same directory" \
@@ -420,7 +420,7 @@ for r in json.load(sys.stdin):
     # of the first table header, or they would become keys of that table and be ignored (the trap the harness met
     # twice). The live bare keys are held to the same placement by the parsed reads of req and cfg.
     for f in "${REQUIREMENTS}" "${MANAGED_CONFIG}"; do
-        first_table="$(grep -n '^\[' "${f}" | head -1 | cut -d: -f1 || true)"
+        first_table="$(grep -m1 -n '^\[' "${f}" | cut -d: -f1 || true)"
         last_commented="$(grep -nE '^#[a-z_]+ *=' "${f}" | tail -1 | cut -d: -f1 || true)"
         if [[ -z "${last_commented}" ]]; then
             pass "$(basename "${f}"): no commented key to place"
@@ -519,7 +519,7 @@ ctrl_event='{"cwd":"/p","tool_name":"apply_patch","tool_input":{"input":"*** Add
 got="$(record "${ctrl_event}")"
 grep -qxF 'AI_TOOLS_PATH=bad?name.txt' <<<"${got}" \
     && pass "a control byte in a patched path is replaced before it reaches the trail" \
-    || fail "a control byte survived into the record: $(tr '\n' '|' <<<"${got}" | od -c | head -2 | tr '\n' ' ')"
+    || fail "a control byte survived into the record: $(tr '\n' '|' <<<"${got}" | od -c | awk 'NR <= 2' | tr '\n' ' ')"
 
 mapfile -t paths < <(patch_written_paths "${patch_event}")
 want_paths=( "${PROJECT}/src/a.txt" "${PROJECT}/b.txt" "${PROJECT}/gone.txt" "${PROJECT}/src/old.txt" "${PROJECT}/src/new.txt" "/abs/c.txt" )

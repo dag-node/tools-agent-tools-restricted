@@ -150,7 +150,7 @@ else
     for stub in "man1/atr.1:.so man1/ai-tools.1" "man8/atr.8:.so man8/ai-tools-admin.8"; do
         page="$(compgen -G "/usr/local/share/man/${stub%%:*}" || compgen -G "/usr/local/share/man/${stub%%:*}.gz" || true)"
         so_line=""
-        [[ -n "${page}" ]] && so_line="$(zcat -f -- "${page}" | sed -n '/^\.\\"/d;p;q')"
+        [[ -n "${page}" ]] && so_line="$(zcat -f -- "${page}" | awk '!/^\.\\"/ && !seen++')"
         [[ -n "${page}" && "${so_line}" == "${stub#*:}" ]] \
             && pass "${page} is the stub '${stub#*:}'" \
             || fail "the ${stub%%:*} stub: ${page:-absent}, first request: ${so_line:-none}"
@@ -322,7 +322,7 @@ if command -v runuser >/dev/null 2>&1; then
     # line.
     brief() {
         local text="$1" pat="${2:-}" sel=""
-        [[ -n "${pat}" ]] && sel="$(grep -iE -- "${pat}" <<<"${text}" | head -n 3)"
+        [[ -n "${pat}" ]] && sel="$(grep -iE -- "${pat}" <<<"${text}" | awk 'NR <= 3')"
         [[ -n "${sel}" ]] || sel="$(awk 'NF' <<<"${text}" | tail -n 3)"
         awk '{printf "%s%s", sep, $0; sep=" ~ "}' <<<"${sel}"
     }
@@ -1243,7 +1243,7 @@ EOF
     # The forward direction: a listed entry under a directory the projects user cannot enter is unreadable, not stale,
     # and does not take a removal.
     list_has "cannot be read as ${PROJECTS_USER}" "ai-tools.projects.list reports a listed entry it cannot read as unreadable"
-    if grep -A1 -F "  ${lst}/sealed/listed" <<<"${lcleanup}" | grep -qE 'sed -i|--remove|no longer exists'; then
+    if grep -qE 'sed -i|--remove|no longer exists' <<<"$(grep -A1 -F "  ${lst}/sealed/listed" <<<"${lcleanup}")"; then
         fail "ai-tools.projects.list offers a removal for an entry it cannot read: $(brief "${lcleanup}" 'sealed')"
     else
         pass "ai-tools.projects.list offers no removal for an entry it cannot read"
@@ -1816,10 +1816,10 @@ else
     fi
 
     # The ERROR must be the first finding printed -- an operator reads the top of a report.
-    if [[ "$(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | head -1)" == *AUDIT-REAL-FINDING* ]]; then
+    if [[ "$(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | awk 'NR == 1')" == *AUDIT-REAL-FINDING* ]]; then
         pass "ai-tools.audit leads with the most severe finding, ahead of recurring noise"
     else
-        fail "ai-tools.audit did not lead with the ERROR: $(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | head -3)"
+        fail "ai-tools.audit did not lead with the ERROR: $(grep -E '^\s+(ERROR|WARNING|NOTICE)\s' <<<"${out}" | awk 'NR <= 3')"
     fi
 
     # (4) A clean window exits zero, so a healthy host does not alarm every night. This is also where the host's own
@@ -1868,8 +1868,10 @@ else
         skip "ai-tools.audit is wired into the CLI" "not installed at ${CLI}"
     elif ! command -v runuser >/dev/null 2>&1; then
         skip "ai-tools.audit is wired into the CLI" "runuser unavailable to read the help as ${PROJECTS_USER}"
-    elif spell ai-tools.help && runuser -u "${PROJECTS_USER}" -- env HOME="${PROJECTS_HOME}" "${CLI}" "${CLI_ARGV[@]}" 2>&1 \
-            | grep -qF -- "$(cli_cmd_text ai-tools.audit)"; then
+    elif spell ai-tools.help \
+            && audit_help="$(runuser -u "${PROJECTS_USER}" -- \
+                    env HOME="${PROJECTS_HOME}" "${CLI}" "${CLI_ARGV[@]}" 2>&1)" \
+            && grep -qF -- "$(cli_cmd_text ai-tools.audit)" <<<"${audit_help}"; then
         pass "the deployed CLI dispatches ai-tools.audit"
     else
         skip "ai-tools.audit is wired into the CLI" "the deployed ${CLI} predates the verb (install this version to cover it)"

@@ -717,8 +717,7 @@ else
     elif [[ "${default_lock}" != /run/lock/* ]]; then
         fail "the library's default lock is not under /run/lock: '${default_lock}'"
     else
-        # The section is captured before the grep: under pipefail a `sed | grep -q` reports the SIGPIPE grep hands sed
-        # on its first match as a failed pipeline.
+        # The section is captured ahead of the search (ref-section-d9x2).
         selinux_post="$(sed -n '/^%post -n ai-tools-selinux$/,/^%postun -n ai-tools-selinux$/p' "${SPEC}")"
         if grep -qF -- "=${default_lock}" <<<"${selinux_post}"; then
             pass "the ai-tools-selinux %post locks the library's own path: ${default_lock}"
@@ -923,7 +922,7 @@ relabel_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/loca
 if [[ ! -r "${relabel_helper}" ]]; then
     skip "the --remove form" "no readable ai-tools-relabel"
 else
-    resolve_block="$(sed -n '/^if \${remove}; then$/,/^fi$/p' "${relabel_helper}" | head -n 12)"
+    resolve_block="$(sed -n '/^if \${remove}; then$/,/^fi$/p' "${relabel_helper}" | awk 'NR <= 12')"
     if grep -qF 'realpath -m -- "${target}"' <<<"${resolve_block}" \
             && grep -qF 'realpath -e -- "${target}"' <<<"${resolve_block}"; then
         pass "--remove resolves with realpath -m and a label with realpath -e"
@@ -936,8 +935,8 @@ else
     else
         fail "the --remove form does not hold its path to an absolute one without . or ..: ${resolve_block//$'\n'/ | }"
     fi
-    resolve_line="$(grep -n '^if \${remove}; then$' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
-    backstop_line="$(grep -n 'ai_tools_safe_paths__assert_safe_target "\${dir}"' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
+    resolve_line="$(grep -m1 -n '^if \${remove}; then$' "${relabel_helper}" | cut -d: -f1)"
+    backstop_line="$(grep -m1 -n 'ai_tools_safe_paths__assert_safe_target "\${dir}"' "${relabel_helper}" | cut -d: -f1)"
     if [[ -n "${resolve_line}" && -n "${backstop_line}" ]] && (( resolve_line < backstop_line )); then
         pass "the protected-paths backstop reads the path after it is resolved"
     else
@@ -947,8 +946,8 @@ else
     # The library returns 3 where no name stands at the path once the rules are dropped. The helper reads whether a name
     # stood there at its own start, ahead of the lock wait and the library call, and report_revert_status reads 3
     # as success only where none did. The function is driven out of the helper's text with its emitters stubbed.
-    presence_line="$(grep -n '^root_present_at_start=false$' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
-    lock_line="$(grep -n '^ai_tools_relabel__lock$' "${relabel_helper}" | head -n 1 | cut -d: -f1)"
+    presence_line="$(grep -m1 -n '^root_present_at_start=false$' "${relabel_helper}" | cut -d: -f1)"
+    lock_line="$(grep -m1 -n '^ai_tools_relabel__lock$' "${relabel_helper}" | cut -d: -f1)"
     if [[ -n "${presence_line}" && -n "${lock_line}" ]] && (( presence_line < lock_line )); then
         pass "--remove reads whether a name stands at the path ahead of the lock wait and the revert"
     else
@@ -956,7 +955,7 @@ else
     fi
     # A separate presence read after the directory check would record a tree moved away between the two as absent,
     # and its later 3 as success: the check reads the value the presence read recorded.
-    directory_check="$(grep -n '^\[\[ -d "\${dir}" \]\] ||' "${relabel_helper}" | head -n 1)"
+    directory_check="$(grep -m1 -n '^\[\[ -d "\${dir}" \]\] ||' "${relabel_helper}")"
     if [[ -n "${presence_line}" && "${directory_check%%:*}" =~ ^[0-9]+$ ]] && (( presence_line < ${directory_check%%:*} )) \
             && [[ "${directory_check}" == *'! ${root_present_at_start}'* ]]; then
         pass "--remove reads presence once, ahead of the directory check, which reads that value"
