@@ -204,18 +204,24 @@ collect_file_findings() {
     return 0
 }
 
+# list_finding_lines <log_file> -- PRINT the lines of <log_file> carrying a finding level, grep's stderr captured; exits
+# with grep's status.
+list_finding_lines() { grep -E "[[:space:]](${FINDING_LEVELS})[[:space:]]" "$1" 2>"${STDERR_CAPTURE}"; }
+
 # collect_file_findings_from <log_file> -- append that file's findings to FILE_FINDINGS. Two passes by design: a cheap
 # severity grep over the whole file, then a date comparison only on the lines that survived it. Findings are rare,
-# so the expensive half runs on almost no line. grep's exit is read after its output: 1 with an empty stderr is a file
-# without such a line; 2, or anything on stderr, is a search that failed.
+# so the expensive half runs on almost no line. grep is read as a collector (records.rule.md), its exit beside its
+# output: 1 with an empty stderr is a file without such a line; any other non-zero status, or anything on stderr, is
+# a search that failed.
 collect_file_findings_from() {
-    local log_file="$1" component fd pid rc line entry_timestamp entry_level entry_epoch entry_message
+    local log_file="$1" component rc line entry_timestamp entry_level entry_epoch entry_message
+    local -a lines=()
     if [[ ! -f "${log_file}" || ! -r "${log_file}" ]]; then
         note_unreadable "${log_file} is not a readable file"; return 0
     fi
     component="$(basename -- "${log_file}" .log)"
-    exec {fd}< <(grep -E "[[:space:]](${FINDING_LEVELS})[[:space:]]" "${log_file}" 2>"${STDERR_CAPTURE}"); pid=$!
-    while IFS= read -r -u "${fd}" line; do
+    ai_tools_records_base__read_collector lines rc list_finding_lines "${log_file}"
+    for line in "${lines[@]}"; do
         # `<ts> <LEVEL> [<pid>] <message>` -- anything else is not a record this format produced and is left alone
         # rather than guessed at.
         [[ "${line}" =~ ^([^[:space:]]+)[[:space:]]+(${FINDING_LEVELS})[[:space:]]+\[[0-9]+\][[:space:]]+(.*)$ ]] || continue
@@ -231,15 +237,20 @@ collect_file_findings_from() {
         (( entry_epoch >= CUTOFF_EPOCH )) || continue
         FILE_FINDINGS+=( "${component}|${entry_timestamp}|${entry_level}|$(ai_tools_log__sanitize "${entry_message}")" )
     done
-    exec {fd}<&-
-    wait "${pid}" && rc=0 || rc=$?
-    if (( rc > 1 )) || [[ -s "${STDERR_CAPTURE}" ]]; then
+    if (( rc != 0 && rc != 1 )) || [[ -s "${STDERR_CAPTURE}" ]]; then
         note_unreadable "${log_file} could not be searched (grep exited ${rc}: $(captured_stderr))"
     fi
     return 0
 }
 
 # ── The secondary source: launch refusals, which only journald can hold ──────────────────────
+# list_launch_journal_lines <sandbox-uid> -- PRINT the lines ai-tools-run logged under that uid since the cutoff,
+# journalctl's stderr captured; exits with journalctl's status.
+list_launch_journal_lines() {
+    journalctl -q -t ai-tools-run "_UID=$1" --since "@${CUTOFF_EPOCH}" --no-pager --output=short-iso \
+        --output-fields=MESSAGE 2>"${STDERR_CAPTURE}"
+}
+
 # collect_launch_refusals -- fill LAUNCH_REFUSALS with one `launch|<timestamp>|WARNING|<message>` per REFUSED line
 # ai-tools-run recorded, in the same shape as a file finding so it collapses through the same renderer: a refusal
 # that recurs on every launch attempt would otherwise flood the report exactly as the handback lines did. Filtered
@@ -251,10 +262,12 @@ collect_file_findings_from() {
 # exists: each is the reading, and the exit is untouched. A getent that failed for another reason, and a journalctl
 # that exited non-zero, are readings that could not be made. journalctl's short-iso line is
 # `<iso-stamp> <host> <tag>[<pid>]: <message>`; the stamp keeps its `T`, which the renderer splits the date out on.
+# journalctl is read as a collector (records.rule.md).
 collect_launch_refusals() {
     LAUNCH_REFUSALS=()
     command -v journalctl >/dev/null 2>&1 || return 0
-    local sandbox_uid rc fd pid line entry_timestamp entry_message
+    local sandbox_uid rc line entry_timestamp entry_message
+    local -a lines=()
     sandbox_uid="$(LC_ALL=C getent passwd "${SANDBOX_USER}" 2>"${STDERR_CAPTURE}" | cut -d: -f3)" && rc=0 || rc=$?
     case "${rc}" in
         0) [[ -n "${sandbox_uid}" ]] || { note_unreadable "the sandbox account ${SANDBOX_USER} resolved to no uid"; return 0; } ;;
@@ -262,17 +275,14 @@ collect_launch_refusals() {
         *) note_unreadable "the sandbox account ${SANDBOX_USER} could not be resolved (getent exited ${rc}: $(captured_stderr))"
            return 0 ;;
     esac
-    exec {fd}< <(journalctl -q -t ai-tools-run "_UID=${sandbox_uid}" --since "@${CUTOFF_EPOCH}" --no-pager \
-                    --output=short-iso --output-fields=MESSAGE 2>"${STDERR_CAPTURE}"); pid=$!
-    while IFS= read -r -u "${fd}" line; do
+    ai_tools_records_base__read_collector lines rc list_launch_journal_lines "${sandbox_uid}"
+    for line in "${lines[@]}"; do
         [[ "${line}" == *'REFUSED:'* ]] || continue
         [[ "${line}" =~ ^([^[:space:]]+)[[:space:]]+[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]+(.*)$ ]] || continue
         entry_timestamp="${BASH_REMATCH[1]}"
         entry_message="${BASH_REMATCH[2]}"
         LAUNCH_REFUSALS+=( "launch|${entry_timestamp}|WARNING|$(ai_tools_log__sanitize "${entry_message}")" )
     done
-    exec {fd}<&-
-    wait "${pid}" && rc=0 || rc=$?
     (( rc == 0 )) || note_unreadable "journald could not be read (journalctl exited ${rc}: $(captured_stderr))"
     return 0
 }
@@ -645,6 +655,10 @@ render_entrypoint_section() {
     printf '    %s\n' "journalctl -t ai-tools-hook _UID=\$(id -u ${SANDBOX_USER})"
 }
 
+# list_avc_record_lines <since-date> <since-time> -- PRINT the AVC records ausearch holds from that instant, searched
+# under the C locale and UTC, its stderr captured; exits with ausearch's status.
+list_avc_record_lines() { LC_ALL=C TZ=UTC ausearch -m AVC -ts "$1" "$2" 2>"${STDERR_CAPTURE}"; }
+
 # collect_entrypoint_findings -- fill ENTRYPOINT_EXEC_STATE, ENTRYPOINT_EXEC_FINDINGS, the folded count
 # (ENTRYPOINT_SELF_EXEC_COUNT) and ENTRYPOINT_SELF_EXEC_NAMES -- what each counted dispatch was, so the count names
 # what it folded away.
@@ -660,10 +674,10 @@ render_entrypoint_section() {
 # offset: a wall-clock hour the autumn fall-back repeats names two instants an hour apart, and mktime picks one.
 # A spelled-out `%m/%d/%Y` is the en_US shape and is refused under C, and the host locale's `%X` carries an AM/PM suffix
 # under en_US. Every stamp the report prints or streams stays ISO 8601: the window headline, the `LAST SEEN` column,
-# the kernel record's `audit_event_timestamp`, and ai-tools-records(5)'s `observed-at`/`occurred-at` in UTC. Its exit is
-# read after its output, with ausearch's PID saved on the statement that opened it (records.rule.md): it exits 1 both
-# for a window without a record and for an argument or read error, so exit 1 is an empty window only
-# where the `<no matches>` line was seen, on either stream; every other non-zero exit is a search that failed.
+# the kernel record's `audit_event_timestamp`, and ai-tools-records(5)'s `observed-at`/`occurred-at` in UTC. ausearch is
+# read as a collector (records.rule.md), its exit beside its output: it exits 1 both for a window without a record
+# and for an argument or read error, so exit 1 is an empty window only where the `<no matches>` line was seen, on either
+# stream; every other non-zero exit is a search that failed.
 collect_entrypoint_findings() {
     ENTRYPOINT_EXEC_FINDINGS=()
     ENTRYPOINT_SELF_EXEC_NAMES=()
@@ -675,10 +689,11 @@ collect_entrypoint_findings() {
         *) return 0 ;;
     esac
     build_agent_entrypoint_map
-    local since_date since_time fd pid rc line no_matches=no
+    local since_date since_time rc line no_matches=no
+    local -a lines=()
     since_date="$(LC_ALL=C TZ=UTC date -d "@${CUTOFF_EPOCH}" '+%x')"
     since_time="$(LC_ALL=C TZ=UTC date -d "@${CUTOFF_EPOCH}" '+%X')"
-    exec {fd}< <(LC_ALL=C TZ=UTC ausearch -m AVC -ts "${since_date}" "${since_time}" 2>"${STDERR_CAPTURE}"); pid=$!
+    ai_tools_records_base__read_collector lines rc list_avc_record_lines "${since_date}" "${since_time}"
     while IFS= read -r line; do
         case "${line%%|*}" in
             self)
@@ -689,9 +704,7 @@ collect_entrypoint_findings() {
             no-matches)
                 no_matches=yes ;;
         esac
-    done < <(parse_entrypoint_exec_records <&"${fd}")
-    exec {fd}<&-
-    wait "${pid}" && rc=0 || rc=$?
+    done < <({ (( ${#lines[@]} == 0 )) || printf '%s\n' "${lines[@]}"; } | parse_entrypoint_exec_records)
     [[ "$(tr -d '\n' < "${STDERR_CAPTURE}" 2>/dev/null || true)" == '<no matches>' ]] && no_matches=yes
     case "${rc}" in
         0) ;;

@@ -2563,7 +2563,8 @@ claim_load_libraries() {
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/project-permissions.lib.sh
     ${loaded} && { source "${PROJECT_PERMISSIONS_LIB}" 2>/dev/null || loaded=false; }
     for function in ai_tools_records_base__begin_report ai_tools_records_base__accumulate_severity \
-            ai_tools_records_base__get_exit_status ai_tools_records_tsv__write_record \
+            ai_tools_records_base__get_exit_status ai_tools_records_base__read_collector \
+            ai_tools_records_tsv__write_record \
             ai_tools_records_tsv__frame_item_components ai_tools_project_permissions__check_label_batch \
             ai_tools_project_permissions__check_label ai_tools_project_permissions__read_lstat_outcomes \
             ai_tools_project_permissions__check_group ai_tools_project_permissions__find_paths_with_narrow_acl_entries; do
@@ -3133,7 +3134,8 @@ inspect_write_tree_records() {
 
 # claim_run_inspect <stdin-file> [<option>...]  -- run the owner-side read of the claim's <d> (dynamic scope) as its
 # owner, with <stdin-file> as its input, printing its stream. The path follows `--`, so a path spelled `-h` reaches
-# the child as a path and the help resolution does not read it as a flag.
+# the child as a path and the help resolution does not read it as a flag. The claim reads it as a collector
+# (records.rule.md), so it may run again with the same input file, and a `sudo` that asks on every call asks again.
 claim_run_inspect() {
     local input="$1"; shift
     run_as_owner "${SELF_PATH}" projects inspect "$@" -- "${d}" < "${input}"
@@ -3149,8 +3151,8 @@ claim_run_inspect() {
 # set, or a scan the child's contract runs is missing or repeated; the claim then stops before any write.
 INSPECT_FAILURE=""
 claim_read_owner_inspection() {
-    local listed="$1" fd pid status=0 line exclusion encoded failure=""
-    local -a options=() fields=()
+    local listed="$1" status=0 line exclusion encoded failure=""
+    local -a options=() fields=() inspect_lines=()
     local -A state_seen=() scan_seen=()
     INSPECT_FAILURE=""
     if [[ -z "${SELF_PATH}" ]]; then
@@ -3166,8 +3168,9 @@ claim_read_owner_inspection() {
         INSPECT_FAILURE="the registry's exclusions could not be written for projects inspect"
         return 1
     fi
-    exec {fd}< <(claim_run_inspect "${CLAIM_WORK}/inspect.in" "${options[@]+"${options[@]}"}"); pid=$!
-    while IFS= read -r line <&"${fd}" || [[ -n "${line}" ]]; do
+    ai_tools_records_base__read_collector inspect_lines status claim_run_inspect "${CLAIM_WORK}/inspect.in" \
+        "${options[@]+"${options[@]}"}"
+    for line in "${inspect_lines[@]}"; do
         [[ -z "${failure}" ]] || continue
         if ! inspect_parse_record "${line}" fields; then
             failure="a record of projects inspect did not decode"
@@ -3175,8 +3178,6 @@ claim_read_owner_inspection() {
         fi
         claim_apply_inspect_record || failure="projects inspect printed a record the claim does not read"
     done
-    exec {fd}<&-
-    wait "${pid}" || status=$?
     if (( status )); then
         INSPECT_FAILURE="projects inspect exited ${status}"
         return 1
@@ -3292,8 +3293,8 @@ claim_apply_inspect_record() {
 claim_read_owner_verification() {
     local -n _owner_label_outcomes="$1" _owner_group_outcomes="$2" _owner_group_details="$3" _owner_group_present="$4"
     local -n _owner_narrow_acl_outcomes="$5" _owner_narrow_acl_details="$6"
-    local fd pid status=0 line path encoded failure="" index
-    local -a fields=()
+    local status=0 line path encoded failure="" index
+    local -a fields=() verify_lines=()
     local -A label_outcome_by_path=() group_outcome_by_path=() group_detail_by_path=() group_present_by_path=()
     local -A narrow_acl_outcome_by_path=() narrow_acl_detail_by_path=()
     _owner_label_outcomes=() _owner_group_outcomes=() _owner_group_details=() _owner_group_present=()
@@ -3314,8 +3315,8 @@ claim_read_owner_verification() {
              done ) > "${CLAIM_WORK}/verify.in" 2>/dev/null; then
         failure="the drifted paths could not be written for projects inspect --verify"
     else
-        exec {fd}< <(claim_run_inspect "${CLAIM_WORK}/verify.in" --verify); pid=$!
-        while IFS= read -r line <&"${fd}" || [[ -n "${line}" ]]; do
+        ai_tools_records_base__read_collector verify_lines status claim_run_inspect "${CLAIM_WORK}/verify.in" --verify
+        for line in "${verify_lines[@]}"; do
             [[ -z "${failure}" ]] || continue
             if ! inspect_parse_record "${line}" fields || (( ${#fields[@]} != 6 )) || [[ "${fields[0]}" != verify ]]; then
                 failure="a record of projects inspect --verify did not decode"
@@ -3335,8 +3336,6 @@ claim_read_owner_verification() {
                 *) failure="projects inspect --verify printed a kind the claim does not read" ;;
             esac
         done
-        exec {fd}<&-
-        wait "${pid}" || status=$?
         (( status == 0 )) || failure="projects inspect --verify exited ${status}"
     fi
     # A failed pass trusts none of its outcomes, since a stream cut short or corrupted cannot say which of them are
