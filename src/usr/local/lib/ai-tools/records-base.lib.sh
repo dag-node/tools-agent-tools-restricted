@@ -163,6 +163,10 @@ ai_tools_records_base__read_subject_type() {
 # for fewer than three arguments, a name ai_tools_records_base__is_output_name_valid refuses, or one name given twice.
 # The consumer loops over the array after the call, in the report's own shell, and reports a non-zero status itself.
 #
+# <command> and its arguments are run as given, as one simple command with the caller's identity: no word is parsed
+# again as shell, and no name is checked against a list. A caller passes a function or a program it names in its own
+# source, and does not pass a command word read from a file, a collector's output or another account's input.
+#
 # The collector runs in a process substitution, so `errexit` is in force inside it where the caller has it set, also
 # when this function is called under an `if` or ahead of `||`: a collector function that reaches a failed command ends
 # there with that status and does not print a later line. `out="$(collector)" || status=$?` runs the same function
