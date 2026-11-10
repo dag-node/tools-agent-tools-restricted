@@ -68,14 +68,16 @@ jobs:
           sudo install "shellcheck-${ver}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version
 
-      # Scope matches the documented baseline: src/**/*.sh, packaging/**/*.sh, and
-      # install.sh. tests/ and selinux/ scripts are not part of that baseline; extend
-      # the scope here and in the rule file together, after verifying each directory
-      # lints clean.
+      # Scope matches the baseline .claude/rules/shellcheck.rule.md states: the scripts
+      # under src/, packaging/, selinux/ and tools/, and install.sh. tests/ is outside it,
+      # for the reason the rule gives; a tree joins here and in the rule together, once
+      # it lints clean.
       - name: Lint the baseline against the repo's .shellcheckrc
         run: |
           find src -name '*.sh' -print0 | xargs -0 shellcheck
           find packaging -name '*.sh' -print0 | xargs -0 shellcheck
+          find selinux -name '*.sh' -print0 | xargs -0 shellcheck
+          find tools -name '*.sh' -print0 | xargs -0 shellcheck
           shellcheck install.sh
 
   # The typesafe integration's decide command is vendored from a signed release of

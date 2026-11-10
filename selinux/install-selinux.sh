@@ -41,7 +41,8 @@ set -euo pipefail
 IFS=$'\n\t'
 
 readonly ACTION="${1:-install}"
-readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly DIR
 # Policy source, the script naming the shipped set, and the modules compiled from the source live under policy/;
 # the build (`make -C`) and every .te/.fc/.pp reference resolve there. install-selinux.sh, README.md, and ../src stay
 # at DIR.
@@ -393,10 +394,9 @@ build_pp() {
     # The refpolicy Makefile creates *.fc stubs as root. Fix ownership so the source file remains readable/commitable
     # by the repo owner.
     local base="${POLICY_DIR}/${pp%.pp}"
-    [[ -f "${base}.fc" ]] \
-        && chown "${PROJECTS_USER}:ai-tools" "${base}.fc" 2>/dev/null \
-        && chmod 664 "${base}.fc" 2>/dev/null \
-        || true
+    if [[ -f "${base}.fc" ]] && chown "${PROJECTS_USER}:ai-tools" "${base}.fc" 2>/dev/null; then
+        chmod 664 "${base}.fc" 2>/dev/null || true
+    fi
 }
 
 # Group validity/loaded predicates (ai_tools_selinux_groups__is_valid / _loaded) come from selinux-groups.lib.sh, shared
@@ -1074,7 +1074,7 @@ _relabel_runtime() {
             systemctl restart ai-tools-handback.socket 2>/dev/null || true
         fi
     fi
-    [[ -d "${RUN_DIR}" ]] && restorecon -FRv "${RUN_DIR}" 2>/dev/null | indented || true
+    if [[ -d "${RUN_DIR}" ]]; then restorecon -FRv "${RUN_DIR}" 2>/dev/null | indented || true; fi
 }
 
 # _relabel_helpers: apply ai_tools_handback_exec_t to the handback daemon entrypoint
@@ -1115,7 +1115,7 @@ case "${ACTION}" in
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
-    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
+    if [[ -d "${LOG_DIR}" ]]; then restorecon -FR "${LOG_DIR}" 2>/dev/null || true; fi
     # Label the handback daemon first: the socket restart in _relabel_runtime derives the listener's context
     # from the daemon binary's on-disk label at bind time.
     _relabel_helpers
@@ -1197,7 +1197,7 @@ case "${ACTION}" in
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
-    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
+    if [[ -d "${LOG_DIR}" ]]; then restorecon -FR "${LOG_DIR}" 2>/dev/null || true; fi
     # Label the handback daemon first: the socket restart in _relabel_runtime derives the listener's context
     # from the daemon binary's on-disk label at bind time.
     _relabel_helpers
@@ -1239,7 +1239,7 @@ case "${ACTION}" in
     _restore_account_tree_labels "${NVM_DIR}" agent-relabel
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
-    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
+    if [[ -d "${LOG_DIR}" ]]; then restorecon -FR "${LOG_DIR}" 2>/dev/null || true; fi
     # Label the handback daemon first: the socket restart in _relabel_runtime derives the listener's context
     # from the daemon binary's on-disk label at bind time.
     _relabel_helpers

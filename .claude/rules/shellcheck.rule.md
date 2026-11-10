@@ -2,14 +2,21 @@
 paths:
   - "src/**/*.sh"
   - "packaging/**/*.sh"
+  - "selinux/**/*.sh"
+  - "tools/**/*.sh"
+  - "install.sh"
   - ".shellcheckrc"
 ---
 
 # ShellCheck baseline and conventions
 
-Every shell source under `src/` and `packaging/` is `bash` and lints under ShellCheck (0.10) with the repository
-configuration. This rule states that configuration, the cross-library following it turns on, and the findings the code
-keeps by idiom.
+Every shell source under `src/`, `packaging/`, `selinux/` and `tools/`, and `install.sh`, is `bash` and lints
+under ShellCheck (0.10) with the repository configuration; CI's `shellcheck` job holds those trees to it. This rule
+states that configuration, the cross-library following it turns on, and the findings the code keeps by idiom.
+
+`tests/` is outside that baseline. A test file writes an assertion as `condition && pass … || fail …`, which is `SC2015`
+at each one, and hands `bash -c` a quoted body, which is `SC2016`. The early-exit reader rule is held over `tests/`
+by its own checker ([A reader that exits early fails its pipeline](#a-reader-that-exits-early-fails-its-pipeline)).
 
 ## Configuration
 
