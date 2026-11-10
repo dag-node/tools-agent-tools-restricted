@@ -473,11 +473,9 @@ fi
 # RestrictNamespaces=yes still blocks the user namespace they create. Surface that pairing as an
 # actionable notice rather than a cryptic EPERM inside a later build. Best-effort probe.
 if command -v semodule >/dev/null 2>&1; then
-    # The listing is captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE,
-    # which pipefail reports as a failed probe -- see the note on ai_tools_selinux_groups__is_loaded
-    # (selinux-groups.lib.sh).
+    # Captured ahead of the search (ref-section-d9x2).
     loaded_modules="$(semodule -l 2>/dev/null || true)"
-    if grep -qE '^ai_tools_podman([[:space:]]|$)' <<<"${loaded_modules}"; then
+    if grep -qx ai_tools_podman <<<"${loaded_modules}"; then
         ai_tools_msg__notice \
             "ai-tools-run: the \"podman\" SELinux group is enabled, but RestrictNamespaces=yes blocks the user namespace rootless podman/buildah require -- they will fail with EPERM on clone(CLONE_NEWUSER).  To allow containers, relax RestrictNamespaces in ${0} -- note that permitting the user namespace reopens ESC-001."
     fi

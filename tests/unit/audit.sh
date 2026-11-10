@@ -417,12 +417,6 @@ if [[ "$(entrypoint_exec_state)" == loaded ]]; then
 else
     fail "a loaded module read as '$(entrypoint_exec_state)' behind a long module list"
 fi
-semodule() { printf 'ai_tools\t0.7.0\n'; }
-if [[ "$(entrypoint_exec_state)" == loaded ]]; then
-    pass "a semodule printing a version column beside the name reads as loaded"
-else
-    fail "a version column made the module read as '$(entrypoint_exec_state)'"
-fi
 semodule() { printf 'ai_tools_dotnet\nai_tools_tmpmap\n'; }
 if [[ "$(entrypoint_exec_state)" == no-selinux ]]; then
     pass "a module whose name merely starts with the core's is not the core"

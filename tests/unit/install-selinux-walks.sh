@@ -487,6 +487,10 @@ unload_out="$(run_unload zebra_t)"
 grep -qx 'exit=0' <<<"${unload_out}" && [[ ! -s "${TESTDIR}/recorder" ]] && grep -qF 'no ai_tools module is loaded' <<<"${unload_out}" \
     && pass "a store with no ai_tools module makes no semodule -r call and says so" \
     || fail "empty store: ${unload_out//$'\n'/ | } (calls: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
+unload_out="$(run_unload ai_toolsmith)"
+grep -qx 'exit=0' <<<"${unload_out}" && [[ ! -s "${TESTDIR}/recorder" ]] && grep -qF 'no ai_tools module is loaded' <<<"${unload_out}" \
+    && pass "a module whose name opens with ai_tools and is another package's is not unloaded" \
+    || fail "a foreign module named ai_toolsmith was read as this project's: ${unload_out//$'\n'/ | } (calls: $(tr '\n' ';' <"${TESTDIR}/recorder"))"
 # A listing that fails is a store that could not be read, not an empty one: the first read refuses before any unload,
 # the second refuses rather than claiming the store empty after one.
 unload_out="$(LIST_FAILS=1 run_unload ai_tools ai_tools_dotnet)"

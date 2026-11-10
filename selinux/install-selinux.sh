@@ -733,7 +733,7 @@ _read_loaded_policy_modules() {
     local listing
     listing="$(semodule -l 2>&1)" \
         || die MSG-A3V5 "could not read the module store -- ${listing//$'\n'/; }; $1; re-run once semodule answers: sudo $0 remove"
-    awk '/^ai_tools/{print $1}' <<<"${listing}"
+    awk '/^ai_tools(_|$)/' <<<"${listing}"
 }
 
 # _unload_modules: unload every loaded ai_tools* module in one transaction, then read the store back: libsemanage prints

@@ -94,21 +94,24 @@ ai_tools_selinux_groups__is_valid() {
 }
 
 # ai_tools_selinux_groups__is_loaded <name>: succeed when module ai_tools_<name> is currently loaded in the kernel.
-# `semodule -l` prints one module NAME per line with no version column (selinux-policy on RHEL/Rocky 9/10 and UEK R8),
-# so match the whole line exactly -- the same form tests/integration/selinux.sh uses for the core.
-#
-# The listing is captured first and matched from a here-string (ref-section-d9x2): an ai_tools* name sorts early
-# in a listing of some 400 modules, which semodule delivers in more than one write, so a search piped from it reads
-# a loaded module as absent at random, and each caller acts on that: no label registered, no group reported loaded.
 ai_tools_selinux_groups__is_loaded() { ai_tools_selinux_groups__is_module_loaded "ai_tools_${1}"; }
 
 # ai_tools_selinux_groups__is_module_loaded <module>: succeed when the named policy module is in the store. The probe
 # behind ai_tools_selinux_groups__is_loaded, taking a full module name so a group's former module can be asked
-# about too. Same capture-then-match shape.
+# about too. `semodule -l` prints one module name per line, and a second column, the checksum, under `--checksum` alone,
+# so the name is matched as a fixed string against the whole line, the form tests/integration/selinux.sh uses
+# for the core: a name that opens another module's does not match it. A listing semodule refuses reads as not loaded,
+# and a caller that tells a refused listing from an absent module reads semodule's status itself. An empty name is not
+# loaded: a here-string of an empty listing is one empty line, which an empty name would match.
+#
+# The listing is captured first and matched from a here-string (ref-section-d9x2): an ai_tools* name sorts early
+# in a listing of some 400 modules, which semodule delivers in more than one write, so a search piped from it reads
+# a loaded module as absent at random, and each caller acts on that: no label registered, no group reported loaded.
 ai_tools_selinux_groups__is_module_loaded() {
     local modules
+    [[ -n "$1" ]] || return 1
     modules="$(semodule -l 2>/dev/null || true)"
-    grep -qx "$1" <<<"${modules}"
+    grep -qxF -- "$1" <<<"${modules}"
 }
 
 # ai_tools_selinux_groups__read_compiled_module_version <file>: print the policy module version a compiled .pp was built
