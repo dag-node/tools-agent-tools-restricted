@@ -153,12 +153,25 @@ layout_fixture_is_clean() { [[ "$(layout_fixture_status "$1")" == rc=0 && "$(gre
 layout_fixture_has_observation() { grep -q "^$2	$3	$4	${5:-}" <<< "$1"; }
 # layout_fixture_brief <output> : a run's output for a failure line -- its first three lines, the count of the rest,
 # and its last line (the `rc=`), tabs and newlines as `| `, so a run over the whole tree does not report every row.
+# Where the last line is not `rc=0`, the `error` and `refused` lines among the rest follow the first three, ten at most,
+# so a run that failed on one row names that row and its reason.
 layout_fixture_brief() {
-    local -a brief_lines=()
-    local brief_text
+    local -a brief_lines=() brief_findings=()
+    local brief_text brief_line brief_rest
     mapfile -t brief_lines <<< "$1"
     brief_text="$(printf '%s\n' "${brief_lines[@]:0:3}" | tr '\n\t' '| ')"
-    (( ${#brief_lines[@]} > 4 )) && brief_text+="(+$(( ${#brief_lines[@]} - 4 )) more lines) "
+    brief_rest=$(( ${#brief_lines[@]} - 4 ))
+    if (( brief_rest > 0 )) && [[ "${brief_lines[-1]}" != rc=0 ]]; then
+        for brief_line in "${brief_lines[@]:3:brief_rest}"; do
+            (( ${#brief_findings[@]} < 10 )) || break
+            case "${brief_line}" in error$'\t'*|refused$'\t'*) brief_findings+=( "${brief_line}" ) ;; esac
+        done
+        if (( ${#brief_findings[@]} > 0 )); then
+            brief_text+="$(printf '%s\n' "${brief_findings[@]}" | tr '\n\t' '| ')"
+            brief_rest=$(( brief_rest - ${#brief_findings[@]} ))
+        fi
+    fi
+    (( brief_rest > 0 )) && brief_text+="(+${brief_rest} more lines) "
     (( ${#brief_lines[@]} > 3 )) && brief_text+="${brief_lines[-1]}"
     printf '%s' "${brief_text}"
 }
