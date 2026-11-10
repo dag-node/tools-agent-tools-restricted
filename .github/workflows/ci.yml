@@ -23,6 +23,13 @@ concurrency:
   # mismatch) must not cancel a release publish already in flight for that ref.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+# Naming the shell is what gives a step `pipefail`: a `run:` step with no `shell:` is `bash -e {0}`, where a producer
+# that fails ahead of a pipe goes unseen, and with `shell: bash` it is `bash --noprofile --norc -eo pipefail {0}`.
+# A step that also wants `-u` sets it itself.
+defaults:
+  run:
+    shell: bash
+
 # Every job names its Ubuntu release rather than ubuntu-latest, so a move of the runner image is a reviewed commit with
 # its own run.
 jobs:
