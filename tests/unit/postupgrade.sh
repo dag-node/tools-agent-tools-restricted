@@ -899,7 +899,7 @@ else
 fi
 
 # ── (I) `--check`: a collector that fails is an error row, and the run exits 5 ───────────────
-# The check reads each collector through a process substitution and waits for it, so a collector's exit is what says
+# The check reads each collector through the records reader (records.rule.md), so a collector's exit is what says
 # the reading was complete. `cut` is the last stage of the copies collector and the only step on the check's path
 # that runs it, so a `cut` that fails drives one collector failure. The stub needs a directory where its executable bit
 # is visible, which a noexec /tmp hides: the testdir is used when it qualifies and a directory beside the operator's
