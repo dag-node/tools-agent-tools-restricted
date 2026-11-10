@@ -244,11 +244,13 @@ collect_file_findings_from() {
 }
 
 # ── The secondary source: launch refusals, which only journald can hold ──────────────────────
-# list_launch_journal_lines <sandbox-uid> -- PRINT the lines ai-tools-run logged under that uid since the cutoff,
-# journalctl's stderr captured; exits with journalctl's status.
-list_launch_journal_lines() {
+# list_launch_refusal_lines <sandbox-uid> -- PRINT the lines carrying `REFUSED:` among those ai-tools-run logged
+# under that uid since the cutoff, journalctl's stderr captured. The filter is a stage of the collector, so the reader
+# holds the refusals and not every line the account wrote under the tag; awk reads to the end and exits 0, so under this
+# file's `pipefail` the status is journalctl's.
+list_launch_refusal_lines() {
     journalctl -q -t ai-tools-run "_UID=$1" --since "@${CUTOFF_EPOCH}" --no-pager --output=short-iso \
-        --output-fields=MESSAGE 2>"${STDERR_CAPTURE}"
+        --output-fields=MESSAGE 2>"${STDERR_CAPTURE}" | LC_ALL=C awk 'index($0, "REFUSED:")'
 }
 
 # collect_launch_refusals -- fill LAUNCH_REFUSALS with one `launch|<timestamp>|WARNING|<message>` per REFUSED line
@@ -275,9 +277,8 @@ collect_launch_refusals() {
         *) note_unreadable "the sandbox account ${SANDBOX_USER} could not be resolved (getent exited ${rc}: $(captured_stderr))"
            return 0 ;;
     esac
-    ai_tools_records_base__read_collector lines rc list_launch_journal_lines "${sandbox_uid}"
+    ai_tools_records_base__read_collector lines rc list_launch_refusal_lines "${sandbox_uid}"
     for line in "${lines[@]}"; do
-        [[ "${line}" == *'REFUSED:'* ]] || continue
         [[ "${line}" =~ ^([^[:space:]]+)[[:space:]]+[^[:space:]]+[[:space:]]+[^:]+:[[:space:]]+(.*)$ ]] || continue
         entry_timestamp="${BASH_REMATCH[1]}"
         entry_message="${BASH_REMATCH[2]}"
@@ -655,9 +656,13 @@ render_entrypoint_section() {
     printf '    %s\n' "journalctl -t ai-tools-hook _UID=\$(id -u ${SANDBOX_USER})"
 }
 
-# list_avc_record_lines <since-date> <since-time> -- PRINT the AVC records ausearch holds from that instant, searched
-# under the C locale and UTC, its stderr captured; exits with ausearch's status.
-list_avc_record_lines() { LC_ALL=C TZ=UTC ausearch -m AVC -ts "$1" "$2" 2>"${STDERR_CAPTURE}"; }
+# list_entrypoint_exec_records <since-date> <since-time> -- PRINT parse_entrypoint_exec_records' records for the AVC
+# records ausearch holds from that instant, searched under the C locale and UTC, its stderr captured. The parser is
+# a stage of the collector, so the reader holds the records this section's rule wrote and not every AVC record
+# of the window; it returns 0, so under this file's `pipefail` the status is ausearch's.
+list_entrypoint_exec_records() {
+    LC_ALL=C TZ=UTC ausearch -m AVC -ts "$1" "$2" 2>"${STDERR_CAPTURE}" | parse_entrypoint_exec_records
+}
 
 # collect_entrypoint_findings -- fill ENTRYPOINT_EXEC_STATE, ENTRYPOINT_EXEC_FINDINGS, the folded count
 # (ENTRYPOINT_SELF_EXEC_COUNT) and ENTRYPOINT_SELF_EXEC_NAMES -- what each counted dispatch was, so the count names
@@ -693,8 +698,8 @@ collect_entrypoint_findings() {
     local -a lines=()
     since_date="$(LC_ALL=C TZ=UTC date -d "@${CUTOFF_EPOCH}" '+%x')"
     since_time="$(LC_ALL=C TZ=UTC date -d "@${CUTOFF_EPOCH}" '+%X')"
-    ai_tools_records_base__read_collector lines rc list_avc_record_lines "${since_date}" "${since_time}"
-    while IFS= read -r line; do
+    ai_tools_records_base__read_collector lines rc list_entrypoint_exec_records "${since_date}" "${since_time}"
+    for line in "${lines[@]}"; do
         case "${line%%|*}" in
             self)
                 ENTRYPOINT_SELF_EXEC_COUNT=$(( ENTRYPOINT_SELF_EXEC_COUNT + 1 ))
@@ -704,7 +709,7 @@ collect_entrypoint_findings() {
             no-matches)
                 no_matches=yes ;;
         esac
-    done < <({ (( ${#lines[@]} == 0 )) || printf '%s\n' "${lines[@]}"; } | parse_entrypoint_exec_records)
+    done
     [[ "$(tr -d '\n' < "${STDERR_CAPTURE}" 2>/dev/null || true)" == '<no matches>' ]] && no_matches=yes
     case "${rc}" in
         0) ;;
