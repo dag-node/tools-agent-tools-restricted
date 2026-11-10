@@ -1,17 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/pipefail-readers.sh
-# Hermetic check that no script pipes a producer into a reader that exits early (ref-section-d9x2).
+# Hermetic check that no script pipes a producer into a reader that exits early (ref-section-d9x2), and that no script
+# but the two the records rule names reads a process substitution's exit status with `wait` (ref-section-u5t7).
 #
-# The gap this closes: under `pipefail` such a pipeline returns non-zero on input that matched, on a schedule the host
-# decides, so the shape passes review, ShellCheck and a quiet test run. tests/lib/pipefail-readers.py reads shell source
-# for it, and this file holds the scripts under src/, selinux/, packaging/, tools/ and tests/, install.sh
-# and the workflows' `run:` blocks to its report.
+# The gap this closes: under `pipefail` such a pipeline returns non-zero on input that matched, and bash returns -1
+# or 127 from such a `wait` for a collector that exited 0, each on a schedule the host decides, so either shape passes
+# review, ShellCheck and a quiet test run. tests/lib/pipefail-readers.py reads shell source for both, and this file
+# holds the scripts under src/, selinux/, packaging/, tools/ and tests/, install.sh and the workflows' `run:` blocks
+# to its report.
 #
-# Three sections. The first pins the mechanism the rule rests on, with a producer that prints more than a pipe holds,
-# so the result does not depend on the host's load. The second proves the scanner on a fixture holding one instance
-# of each shape it reports and each shape it must leave alone, so a clean tree is evidence about the tree. The third
-# reads the tree. Pure text over the sources; runs without root and skips outside a checkout.
+# Three sections. The first pins the mechanism the reader rule rests on, with a producer that prints more than a pipe
+# holds, so the result does not depend on the host's load; the lost status has no such row, since losing one takes
+# a stop of the shell between two statements of bash's own. The second proves the scanner on fixtures holding one
+# instance of each shape it reports and each shape it must leave alone, so a clean tree is evidence about the tree.
+# The third reads the tree. Pure text over the sources; runs without root and skips outside a checkout.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -118,6 +121,66 @@ else
     fail "the scanner's report over the fixture (rc=${rc}) is not the expected one: $(tr '\n' '|' <<<"${got}")"
 fi
 
+# A `wait` on a process substitution's PID. The reported lines read the status; the others discard it, wait for a job
+# or a coprocess, whose status bash returns, name a variable assigned again since, or are text.
+waits="${TESTDIR}/waits.sh"
+cat > "${waits}" <<'FIXTURE'
+#!/usr/bin/env bash
+set -euo pipefail
+exec {fd}< <(collector); pid=$!
+while IFS= read -r -u "${fd}" line; do :; done
+exec {fd}<&-
+wait "${pid}" || status=$?
+mapfile -t rows < <(collector); rows_pid=$!
+wait "$rows_pid"
+exec {fd}< <(collector --first \
+    --second)
+reader_pid=$!
+if wait "${reader_pid}"; then :; fi
+: < <(collector)
+wait $! && rc=0 || rc=$?
+bash -c 'exec {fd}< <(collector); pid=$!; wait "${pid}"'
+exec {out}> >(sanitizer); sanitizer_pid=$!
+wait "${sanitizer_pid}" 2>/dev/null || true
+wait "${sanitizer_pid}" || :
+worker & job_pid=$!
+wait "${job_pid}" || status=$?
+worker &
+job_pid=$!
+wait "${job_pid}"
+coproc helper { worker; }
+helper_pid=$!
+wait "${helper_pid}" || status=$?
+wait "${helper_PID}"
+pid=$$
+wait "${pid}"
+# wait "${rows_pid}"
+printf '%s\n' 'wait "${rows_pid}"'
+exec {fd}< <(collector); local declared_pid=$!
+wait "${declared_pid}"
+exec {fd}< <(collector); first_pid=$!
+copied_pid="${first_pid}"
+wait "${copied_pid}" || status=$?
+: < <(collector) && chained_pid=$!
+wait "${chained_pid}"
+FIXTURE
+expected="6 wait
+8 wait
+12 wait
+14 wait
+15 wait
+33 wait
+36 wait
+38 wait"
+rc=0; report="$(python3 "${SCANNER}" "${waits}")" || rc=$?
+got="$(sed -n 's/^[^:]*:\([0-9]*\): \([^:]*\):.*/\1 \2/p' <<<"${report}")"
+if (( rc == 1 )) && [[ "${got}" == "${expected}" ]]; then
+    pass "the scanner reports a wait that reads a process substitution's status: by the saved PID, saved on the next line, under if, by \$!, in a bash -c body, saved behind local, copied to another name, saved after &&"
+    pass "and leaves alone a wait whose status || true discards, a wait for a & job or a coproc, a variable assigned again, a comment, quoted text"
+else
+    fail "the scanner's report over the wait fixture (rc=${rc}) is not the expected one: $(tr '\n' '|' <<<"${got}")"
+fi
+
 clean="${TESTDIR}/clean.sh"
 # shellcheck disable=SC2016  # the fixture's own expansions, written as text
 printf '%s\n' '#!/usr/bin/env bash' 'out="$(producer)" || out=""' 'grep -q needle <<<"${out}"' > "${clean}"
@@ -215,16 +278,43 @@ if [[ -d "${ROOT}/.github/workflows" && " ${files[*]} " != *" .github/workflows/
     finish; exit 1
 fi
 # Exit 1 is the findings' status and carries a report; any other pairing of status and report is the scanner failing,
-# which is not a clean tree.
+# which is not a clean tree. The tree holds the two waits records.rule.md keeps (ref-section-u5t7), the collector
+# reader's own and the reconcile's under its deadline, so the scanner exits 1 over it and those two lines are
+# the control that it read the tree for the shape: each must be reported once, and no other wait.
+readonly -a KEPT_WAITS=(
+    "src/usr/local/lib/ai-tools/records-base.lib.sh"
+    "src/usr/local/libexec/ai-tools/ai-tools-admin.sh"
+)
 rc=0; report="$(cd "${ROOT}" && python3 "${SCANNER}" "${files[@]}" 2>"${TESTDIR}/scanner.err")" || rc=$?
-if (( rc == 0 )) && [[ -z "${report}" ]]; then
-    pass "${#files[@]} shell files and workflows: no stage after a pipe is an early-exit reader"
-elif (( rc == 1 )) && [[ -n "${report}" ]]; then
+if (( rc == 1 )) && [[ -n "${report}" ]]; then
+    reader_findings=0
+    declare -A wait_counts=()
     while IFS= read -r finding; do
-        fail "${finding} -- capture the producer's output and search the capture"
+        if [[ "${finding}" =~ ^([^:]+):[0-9]+:\ wait:\  ]]; then
+            wait_file="${BASH_REMATCH[1]}"
+            wait_counts["${wait_file}"]=$(( ${wait_counts["${wait_file}"]:-0} + 1 ))
+            if [[ " ${KEPT_WAITS[*]} " != *" ${wait_file} "* || "${wait_counts["${wait_file}"]}" -gt 1 ]]; then
+                fail "${finding} -- read the collector through ai_tools_records_base__read_collector"
+            fi
+        else
+            reader_findings=$(( reader_findings + 1 ))
+            fail "${finding} -- capture the producer's output and search the capture"
+        fi
     done <<<"${report}"
+    (( reader_findings > 0 )) \
+        || pass "${#files[@]} shell files and workflows: no stage after a pipe is an early-exit reader"
+    kept_reported=0
+    for wait_file in "${KEPT_WAITS[@]}"; do
+        if [[ "${wait_counts["${wait_file}"]:-0}" == 1 ]]; then
+            kept_reported=$(( kept_reported + 1 ))
+        else
+            fail "${wait_file}: ${wait_counts["${wait_file}"]:-0} wait(s) on a process substitution reported, want the one the rule keeps"
+        fi
+    done
+    (( kept_reported != ${#KEPT_WAITS[@]} || ${#wait_counts[@]} != ${#KEPT_WAITS[@]} )) \
+        || pass "a wait reads a process substitution's status in the collector reader and the reconcile's deadline loop alone"
 else
-    fail "the scanner exited ${rc} over the tree with $(wc -l <<<"${report}") report line(s): $(head -c 300 "${TESTDIR}/scanner.err" | tr '\n' '|')"
+    fail "the scanner exited ${rc} over the tree with $(wc -l <<<"${report}") report line(s), want 1 with the two kept waits: $(head -c 300 "${TESTDIR}/scanner.err" | tr '\n' '|')"
 fi
 
 finish

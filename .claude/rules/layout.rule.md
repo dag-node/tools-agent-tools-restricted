@@ -50,10 +50,10 @@ returns 2 without output, except the stream writer, which writes the one `error`
 and the dynamic rows sorted together by path under `LC_ALL=C` so a parent precedes every path under it, then an `error`
 line for each input it needed and could not read. It returns 0 for a complete discovery, 1 after an `error` line, and 2
 without output while the table did not validate, so a consumer tells a complete empty set from a failed discovery. Every
-consumer reads the set through `ai_tools_layout__read_entry_lines`, a collector under the rule
-[records](records.rule.md) states, which waits for the enumerator and appends one `error` line for a status the lines do
-not account for — 1 with no `error` line among them, or any other non-zero status — so an enumerator that ends
-on a shell error or a signal reads as an incomplete discovery and never as a complete smaller set.
+consumer reads the set through `ai_tools_layout__read_entry_lines`, which reads the enumerator as a collector
+through the reader [records](records.rule.md) states and appends one `error` line for a status the lines do not account
+for — 1 with no `error` line among them, or any other non-zero status — so an enumerator that ends on a shell error
+or a signal reads as an incomplete discovery and never as a complete smaller set.
 
 **A package applies while either of two files it ships exists.** `_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS` names two `files`
 rows per package, read with `lstat`, so one of them deleted is a `missing` row with its remedy and not a package gone

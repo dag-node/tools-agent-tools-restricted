@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/lib/ai-tools/records-base.lib.sh
 # The record model and the report state behind every record stream a report writes for a machine consumer: the column
-# registry, the severity and subject-type token sets, the two exit constants, and the fold that turns the severities
-# a run noted into its exit status. The wire format is records-tsv.lib.sh, which sources this file; the public contract
-# (the columns, their meaning, the escape, the identity recipe, the completion rules) is ai-tools-records(5),
-# and the rules a report follows when it calls these functions are .claude/rules/records.rule.md.
+# registry, the severity and subject-type token sets, the two exit constants, the fold that turns the severities a run
+# noted into its exit status, and the reader a report runs a collector through. The wire format is records-tsv.lib.sh,
+# which sources this file; the public contract (the columns, their meaning, the escape, the identity recipe,
+# the completion rules) is ai-tools-records(5), and the rules a report follows when it calls these functions are
+# .claude/rules/records.rule.md.
 #
 # AI_TOOLS_RECORDS_BASE__COLUMNS is the one code-side declaration of the stream's header: `name:class` in stream order.
 # The man page shows the same table for the operator, and tests/unit/records.sh holds the two to each other. A column is
@@ -63,6 +64,8 @@ readonly -a AI_TOOLS_RECORDS_BASE__SUBJECT_TYPES=( file directory link unit agen
 # shellcheck disable=SC2034  # read by every report that returns an exit status
 readonly AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS=4
 readonly AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE=5
+# The most runs ai_tools_records_base__read_collector gives a collector whose status bash did not return.
+readonly _AI_TOOLS_RECORDS_BASE__MAX_COLLECTOR_ATTEMPTS=3
 
 # The report state: the folded status (`ok`, `attention`, `unreadable`), whether the header was printed, and the run's
 # `observed-at`. Read and written by records-tsv.lib.sh's writer; a consumer reads them through
@@ -152,6 +155,56 @@ ai_tools_records_base__read_subject_type() {
         *': No such file or directory'|*': Not a directory') return 2 ;;
     esac
     return 1
+}
+
+# ai_tools_records_base__read_collector <lines-var> <status-var> <command> [<arg>...]: run <command> as a collector,
+# write its standard output into the caller's array <lines-var>, one element per line with the line feed removed,
+# and its exit status into <status-var>. Returns 0 once the collector ran, whatever its status, and 1 without running it
+# for fewer than three arguments, a name ai_tools_records_base__is_output_name_valid refuses, or one name given twice.
+# The consumer loops over the array after the call, in the report's own shell, and reports a non-zero status itself.
+#
+# <command> and its arguments are run as given, as one simple command with the caller's identity: no word is parsed
+# again as shell, and no name is checked against a list. A caller passes a function or a program it names in its own
+# source, and does not pass a command word read from a file, a collector's output or another account's input.
+#
+# The collector runs in a process substitution, so `errexit` is in force inside it where the caller has it set, also
+# when this function is called under an `if` or ahead of `||`: a collector function that reaches a failed command ends
+# there with that status and does not print a later line. `out="$(collector)" || status=$?` runs the same function
+# with `errexit` ignored, to its last command, and reads 0. A collector that needs a redirection, an environment
+# assignment or a pipe is a function that carries it, since the arguments are run as one simple command.
+#
+# The status is read with `wait` on the PID saved by the statement that opened the substitution, and bash does not
+# return it for every child. process_substitute (subst.c) unblocks SIGCHLD in restore_pipeline before procsub_add
+# records the child, and waitchld (jobs.c) drops the status of a child it reaps between the two; a child whose PID
+# the shell still holds an earlier substitution's record for is not found either. `wait` then returns -1 (bash 5.2)
+# or 127 (bash 5.3), whatever the collector exited with, and `$?` expands to that value as written: bash reduces
+# a function's `return` to eight bits and not a builtin's status, so the 5.2 value reads `-1` and not `255`, which stays
+# a collector's own exit. On either value this function discards the lines and runs the collector again,
+# _AI_TOOLS_RECORDS_BASE__MAX_COLLECTOR_ATTEMPTS runs at most, and the last run's lines and status are the result:
+# a collector that exits 127 itself, a command not found, runs that many times and reads 127. A collector is therefore
+# a command that reads, so a second run observes the host again and does not repeat a change to it.
+# args: $1 the caller's array for the lines  $2 the caller's variable for the exit status  $3... the collector
+ai_tools_records_base__read_collector() {
+    (( $# >= 3 )) || return 1
+    ai_tools_records_base__is_output_name_valid "$1" || return 1
+    ai_tools_records_base__is_output_name_valid "$2" || return 1
+    [[ "$1" != "$2" ]] || return 1
+    local _records_collector_lines_name="$1" _records_collector_status_name="$2"
+    local _records_collector_fd _records_collector_pid _records_collector_status _records_collector_attempt
+    shift 2
+    for (( _records_collector_attempt = 1; ; _records_collector_attempt++ )); do
+        exec {_records_collector_fd}< <("$@"); _records_collector_pid=$!
+        mapfile -t -u "${_records_collector_fd}" "${_records_collector_lines_name}"
+        exec {_records_collector_fd}<&-
+        _records_collector_status=0
+        wait "${_records_collector_pid}" 2>/dev/null || _records_collector_status=$?
+        case "${_records_collector_status}" in
+            -1|127) (( _records_collector_attempt < _AI_TOOLS_RECORDS_BASE__MAX_COLLECTOR_ATTEMPTS )) || break ;;
+            *) break ;;
+        esac
+    done
+    printf -v "${_records_collector_status_name}" '%s' "${_records_collector_status}"
+    return 0
 }
 
 # ai_tools_records_base__get_exit_status: return 0, AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS

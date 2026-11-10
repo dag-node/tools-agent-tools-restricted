@@ -1616,13 +1616,24 @@ _pu_clock_lines() {
     (( ${#_pu_clock_out[@]} == 0 ))
 }
 
+# _pu_list_baseline_copies <dir>: each package or installer copy under <dir>, one path per line in sort order; exits
+# with the walk's status.
+_pu_list_baseline_copies() {
+    find "$1" -maxdepth 3 -type f \( -name '*.rpmnew' -o -name '*.shipped' \) 2>/dev/null | sort
+}
+
+# _pu_list_rpmnew_copies <dir>: each package copy under <dir>, one path per line; exits with the walk's status.
+_pu_list_rpmnew_copies() {
+    find "$1" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null
+}
+
 # _pu_entries <root>: one "<file>|<kind>|<label>|<copy>" line per file with a baseline copy waiting -- the registry
 # first, then each one found under POSTUPGRADE_DIRS that the registry does not name. The copy is the newest beside
 # the file of the package's .rpmnew and the installer's .shipped (ai_tools_conf__find_latest_copy), so a host
 # whose install routes alternated is compared with the baseline that reached it last, whichever route brought it.
 _pu_entries() {
-    local root="$1" entry file kind label dir copy fd pid
-    local -a named=()
+    local root="$1" entry file kind label dir copy status
+    local -a named=() copies=()
     for entry in "${POSTUPGRADE_FILES[@]}"; do
         IFS='|' read -r file kind label <<< "${entry}"
         named+=("${root}${file}")
@@ -1631,8 +1642,8 @@ _pu_entries() {
     done
     for dir in "${POSTUPGRADE_DIRS[@]}"; do
         [[ -d "${root}${dir}" ]] || continue
-        exec {fd}< <(find "${root}${dir}" -maxdepth 3 -type f \( -name '*.rpmnew' -o -name '*.shipped' \) 2>/dev/null | sort); pid=$!
-        while IFS= read -r -u "${fd}" copy; do
+        ai_tools_records_base__read_collector copies status _pu_list_baseline_copies "${root}${dir}"
+        for copy in "${copies[@]}"; do
             case "${copy}" in
                 *.rpmnew)  file="${copy%.rpmnew}" ;;
                 *.shipped) file="$(sed -E 's/\.[0-9]{8}(-[0-9]+)?\.shipped$//' <<< "${copy}")"
@@ -1644,10 +1655,9 @@ _pu_entries() {
             if [[ "${file}" == *.conf ]]; then kind=keyval; else kind=show; fi
             printf '%s|%s|%s|%s\n' "${file}" "${kind}" "${file##*/}" "${copy}"
         done
-        exec {fd}<&-
         # A directory the walk could not read is a copy this collector may have missed, so the collector fails rather
         # than reporting the files it did find as the whole set.
-        wait "${pid}" || return 1
+        (( status == 0 )) || return 1
     done
     return 0
 }
@@ -1858,12 +1868,12 @@ postupgrade() {
 # of a permission rule, a key, and for an `error` one token naming the check -- so two findings on one file keep two
 # ids. No row carries an operator: every subject is under /etc or /opt/ai-tools, host-wide.
 #
-# The collectors feed the check through `< <(...)`, and _pu_run_check saves each one's PID on the statement that opens
-# it and waits for it once its output is read (records.rule.md), so a collector that exits non-zero is an `error` row
-# on the root it walked rather than a shorter set read as complete. They keep the line and `|` framing the interactive
-# report reads them with, which holds for a path the packages install and does not for a name the sandbox account plants
-# under an agent's config directory with a line feed in it: such a name splits into two rows and removes none, so it
-# adds findings to a run and does not make one read as clean.
+# The collectors feed the check through _pu_read_collector, which reads each through the records reader
+# (records.rule.md) and writes an `error` row on the root it walked where the collector exited non-zero, ahead
+# of the rows for the lines it printed, so a failed collector is not a shorter set read as complete. They keep the line
+# and `|` framing the interactive report reads them with, which holds for a path the packages install and does not
+# for a name the sandbox account plants under an agent's config directory with a line feed in it: such a name splits
+# into two rows and removes none, so it adds findings to a run and does not make one read as clean.
 _PU_ALL=0
 _PU_CODE=""
 _PU_SEVERITY=""
@@ -1925,27 +1935,29 @@ _pu_hook_finding() {
     _pu_write_finding "$1" file "$2" "$3" "${3%%: *}" "${3#*: }"
 }
 
-# _pu_wait_collector <pid> <subject-type> <subject> <source>: wait for a collector opened with `< <(...)`, and write
-# an `error` row naming it when it exited non-zero. Called in the report's own shell, after the collector's output is
-# read, with the PID saved on the statement that opened it.
-_pu_wait_collector() {
-    local status=0
-    wait "$1" || status=$?
-    (( status == 0 )) || _pu_write_finding error "$2" "$3" "the ${4} collector exited ${status}" "$4"
+# _pu_read_collector <lines-var> <subject-type> <subject> <source> <collector> [<arg>...]: read a collector's lines
+# into the caller's array through ai_tools_records_base__read_collector (records.rule.md), and write an `error` row
+# naming <source> when the collector exited non-zero. Called in the report's own shell; the caller loops over the array
+# after it, so the `error` row precedes the rows of the lines that collector did print.
+_pu_read_collector() {
+    local _pu_collector_lines_name="$1" _pu_collector_subject_type="$2" _pu_collector_subject="$3"
+    local _pu_collector_source="$4" _pu_collector_status=0
+    shift 4
+    ai_tools_records_base__read_collector "${_pu_collector_lines_name}" _pu_collector_status "$@"
+    (( _pu_collector_status == 0 )) || _pu_write_finding error "${_pu_collector_subject_type}" \
+        "${_pu_collector_subject}" "the ${_pu_collector_source} collector exited ${_pu_collector_status}" \
+        "${_pu_collector_source}"
 }
 
 # _pu_run_check <root>: every finding, through _pu_write_finding, without asking or writing. Each reads the same
 # predicate the report does. The caller reads the outcome off the report state, ai_tools_records_base__get_exit_status.
 _pu_run_check() {
-    local root="$1" file kind label scratch status key line state stype path detail live reference fd pid
-    local -a new_keys=() entries=() files_with_baseline=()
+    local root="$1" file kind label scratch status key line state stype path detail live reference collector_line
+    local -a new_keys=() entries=() files_with_baseline=() collector_lines=()
     ai_tools_records_base__begin_report
     _pu_kind_findings "${root}"
     _pu_registry_findings "${root}"
-    exec {fd}< <(_pu_entries "${root}"); pid=$!
-    mapfile -t -u "${fd}" files_with_baseline
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root:-/}" entries
+    _pu_read_collector files_with_baseline directory "${root:-/}" entries _pu_entries "${root}"
     # A file or copy dated after the clock: the comparison would pick the wrong copy, so each is an `error` row --
     # a check that could not run -- and the run does not compare a file.
     local -a clock_lines=()
@@ -1992,12 +2004,10 @@ _pu_run_check() {
         esac
     done
 
-    exec {fd}< <(_pu_orphans "${root}"); pid=$!
-    while IFS= read -r -u "${fd}" path; do
+    _pu_read_collector collector_lines directory "${root:-/}" orphans _pu_orphans "${root}"
+    for path in "${collector_lines[@]}"; do
         _pu_write_finding rpmnew-orphan file "${path}" "the file it belongs to is gone"
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root:-/}" orphans
 
     file="${root}/opt/ai-tools/.claude/settings.json"
     if [[ -f "${file}" ]]; then
@@ -2011,8 +2021,9 @@ _pu_run_check() {
     fi
 
     if declare -F ai_tools_providers__find_managed_file_missing_keys >/dev/null 2>&1; then
-        exec {fd}< <(_pu_managed_pairs "${root}"); pid=$!
-        while IFS=$'\t' read -r -u "${fd}" live reference; do
+        _pu_read_collector collector_lines directory "${root}/etc" managed-pairs _pu_managed_pairs "${root}"
+        for collector_line in "${collector_lines[@]}"; do
+            IFS=$'\t' read -r live reference <<< "${collector_line}"
             [[ -f "${live}" && -f "${reference}" ]] || continue
             cmp -s "${live}" "${reference}" && continue
             if line="$(ai_tools_providers__find_managed_file_missing_keys "${live}" "${reference}")"; then
@@ -2024,28 +2035,23 @@ _pu_run_check() {
                     managed-keys
             fi
         done
-        exec {fd}<&-
-        _pu_wait_collector "${pid}" directory "${root}/etc" managed-pairs
     else
         _pu_write_finding error directory "${root}/etc" "managed-file keys not checked: ${PROVIDERS_LIB} did not load" \
             managed-keys
     fi
 
-    exec {fd}< <(_pu_assets "${root}"); pid=$!
-    while IFS=$'\t' read -r -u "${fd}" state stype path detail; do
+    _pu_read_collector collector_lines directory "${root}/opt/ai-tools" assets _pu_assets "${root}"
+    for collector_line in "${collector_lines[@]}"; do
+        IFS=$'\t' read -r state stype path detail <<< "${collector_line}"
         if [[ "${state}" == error ]]; then
             _pu_write_finding error "${stype}" "${path}" "${detail}" shared-assets
         else
             _pu_write_finding "${state}" "${stype}" "${path}" "${detail}"
         fi
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root}/opt/ai-tools" assets
 
-    exec {fd}< <(_pu_copies "${root}"); pid=$!
-    while IFS= read -r -u "${fd}" path; do _pu_write_finding copy-kept file "${path}" ""; done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root:-/}" copies
+    _pu_read_collector collector_lines directory "${root:-/}" copies _pu_copies "${root}"
+    for path in "${collector_lines[@]}"; do _pu_write_finding copy-kept file "${path}" ""; done
 }
 
 # _pu_settings_findings <file> <copy>: the findings _pu_settings_rest reports for a settings file and its baseline copy
@@ -2074,7 +2080,8 @@ _pu_settings_findings() {
 # for a key the run would rewrite, list-unmigratable for an item no run can map, one row per item. A detection with no
 # plan to read -- providers.lib.sh did not load -- is a check that could not run.
 _pu_kind_findings() {
-    local file="$1/etc/ai-tools/operator.conf" verdict key old new fd pid
+    local file="$1/etc/ai-tools/operator.conf" verdict key old new plan_line
+    local -a plan_lines=()
     [[ -f "${file}" ]] || return 0
     if ! declare -F ai_tools_providers__plan_kind_migration >/dev/null 2>&1; then
         declare -F ai_tools_conf__find_unmigrated_items >/dev/null 2>&1 && [[ -n "$(ai_tools_conf__find_unmigrated_items "${file}")" ]] \
@@ -2082,15 +2089,14 @@ _pu_kind_findings() {
                 provider-names
         return 0
     fi
-    exec {fd}< <(ai_tools_providers__plan_kind_migration "${file}"); pid=$!
-    while IFS=$'\t' read -r -u "${fd}" verdict key old new; do
+    _pu_read_collector plan_lines file "${file}" kind-plan ai_tools_providers__plan_kind_migration "${file}"
+    for plan_line in "${plan_lines[@]}"; do
+        IFS=$'\t' read -r verdict key old new <<< "${plan_line}"
         case "${verdict}" in
             migrate) _pu_write_finding list-unmigrated file "${file}" "${key}: [${old// /, }] -> [${new// /, }]" "${key}" ;;
             blocked) _pu_write_finding list-unmigratable file "${file}" "${key}: ${old}" "${key}" "${old}" ;;
         esac
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" file "${file}" kind-plan
 }
 
 # _pu_registry_list <root>: `<operator>\t<uid>\t<state>\t<path>` per enrolled operator with a home on this host,
@@ -2133,9 +2139,11 @@ _pu_read_registry_refusal() {
 # account can change, are registry-invalid with the library's line. A legacy file whose exclusion crosses such a link is
 # registry-unmigrated as well, since the migration copies the line and the remedy is the same edit in either file.
 _pu_registry_findings() {
-    local root="$1" user uid state path kind owner mode reason refusal rc fd pid
-    exec {fd}< <(_pu_registry_list "${root}"); pid=$!
-    while IFS=$'\t' read -r -u "${fd}" user uid state path; do
+    local root="$1" user uid state path kind owner mode reason refusal rc registry_line
+    local -a registry_lines=()
+    _pu_read_collector registry_lines file "${root}/etc/ai-tools/operator.conf" registries _pu_registry_list "${root}"
+    for registry_line in "${registry_lines[@]}"; do
+        IFS=$'\t' read -r user uid state path <<< "${registry_line}"
         case "${state}" in
             legacy)
                 reason=""
@@ -2164,15 +2172,14 @@ _pu_registry_findings() {
                 esac ;;
         esac
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" file "${root}/etc/ai-tools/operator.conf" registries
 }
 
 # _pu_orphans <root>: each package copy whose file is gone, one path per line. rpm parks a copy only beside a file it
 # kept, so one of these is a file removed afterwards, and neither the report nor a merge otherwise reaches it. Exits
 # non-zero when a directory walk failed, since a copy it did not see is then not known to be absent.
 _pu_orphans() {
-    local root="$1" entry file kind label dir fd pid
+    local root="$1" entry file kind label dir status
+    local -a copies=()
     {
         for entry in "${POSTUPGRADE_FILES[@]}"; do
             IFS='|' read -r file kind label <<< "${entry}"
@@ -2180,12 +2187,11 @@ _pu_orphans() {
         done
         for dir in "${POSTUPGRADE_DIRS[@]}"; do
             [[ -d "${root}${dir}" ]] || continue
-            exec {fd}< <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null); pid=$!
-            while IFS= read -r -u "${fd}" file; do
+            ai_tools_records_base__read_collector copies status _pu_list_rpmnew_copies "${root}${dir}"
+            for file in "${copies[@]}"; do
                 [[ -e "${file%.rpmnew}" ]] || printf '%s\n' "${file}"
             done
-            exec {fd}<&-
-            wait "${pid}" || exit 1
+            (( status == 0 )) || exit 1
         done
         exit 0
     } | sort -u
@@ -3963,8 +3969,11 @@ layout_list() {
 }
 
 # layout_reconcile [--without-rpm]: bring every entry to its row through the library, each of its lines printed in this
-# command's voice as it arrives, then the counts. The library runs as a collector (records.rule.md): its PID is saved
-# on the statement that opens it, and its status, the outcome ai-tools-admin(8) states, is the command's.
+# command's voice as it arrives, then the counts. The library's PID is saved on the statement that opens it, and its
+# status, the outcome ai-tools-admin(8) states, is the command's. The run is not read
+# through ai_tools_records_base__read_collector (records.rule.md), which holds a collector's lines until it ends
+# and runs it again on a status bash did not return: the reconcile changes the host, so it runs once, and its lines are
+# read under the deadline as they arrive. A status bash did not return reads here as a failed run.
 #
 # The run is bounded by AI_TOOLS_LAYOUT_RUN_BOUND seconds (600 by default; a root-only test hook, tests.rule.md,
 # whose malformed value takes the default). The lock bounds how long a run waits for another; the deadline bounds
