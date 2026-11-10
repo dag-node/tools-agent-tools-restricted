@@ -22,9 +22,11 @@
 #     must reach its exit and return 5), the reset between two reports, and a write to a closed pipe;
 #   * the subject-type reader: one lstat, `file` for a regular file alone, a distinct status for a confirmed absence,
 #     and a refusal for an unnamed type or a read that did not complete;
-#   * the collector rules a report follows: the saved PID reporting a collector's exit where a bare `wait $!` reports
-#     the wrong process, a collector failing before and after a row, the cap that keeps a deliberate stop apart from a
-#     failure, and a path holding a tab and one holding a line feed carried end to end.
+#   * the collector rules a report follows: the reader returns a collector's lines and its exit status, runs it again
+#     where the status is one bash returns for a child it has no record of, the library's count of runs at most, keeps
+#     `errexit` in force inside the collector, and refuses a name it could shadow without a run; a collector failing
+#     before and after a row, the cap that keeps a deliberate stop apart from a failure, and a path holding a tab
+#     and one holding a line feed carried end to end.
 #
 # It loads the CHECKOUT's libraries by path, not the installed copies, and prints the two paths as its first output:
 # after an install the installed copy would otherwise pass while the checkout's code changes. The installed copy is
@@ -505,23 +507,76 @@ want="dir=0:directory empty=0:file file=0:file link=0:link dangling=0:link absen
     || fail "observed types: '${got}'"
 
 # ── Collectors ───────────────────────────────────────────────────────────────────────────────────
-section "records: the collector rules -- saved PID, failure, cap, exact bytes (unit)"
-# The saved PID reports the collector's exit; a bare `wait $!` after a loop body that opened another substitution
-# reports that inner process instead. The control shows the trap, the case shows the rule.
-outer_saved=0; outer_bare=0
-exec {fd}< <(printf 'a\nb\n'; exit 9); pid=$!
-while IFS= read -r -u "${fd}" _; do : < <(true); done
-exec {fd}<&-
-wait "${pid}" || outer_saved=$?
-exec {fd}< <(printf 'a\nb\n'; exit 9)
-while IFS= read -r -u "${fd}" _; do : < <(true); done
-exec {fd}<&-
-wait $! || outer_bare=$?
-if [[ "${outer_saved}" == 9 && "${outer_bare}" == 0 ]]; then
-    pass "the PID saved when the collector was opened reports its exit 9; a bare wait \$! after the loop reports 0"
-else
-    fail "saved-PID wait gave ${outer_saved}, bare wait gave ${outer_bare}"
-fi
+section "records: the collector rules -- the reader, failure, cap, exact bytes (unit)"
+# counted_collector <name> <exit>... : two lines naming this run's number, counted in ${TESTDIR}/runs-<name>, then
+# the exit status listed for that run, the last one for every run after the list.
+counted_collector() {
+    local name="$1" run
+    shift
+    local -a exits=( "$@" )
+    printf 'run\n' >> "${TESTDIR}/runs-${name}"
+    run="$(wc -l < "${TESTDIR}/runs-${name}")"
+    printf 'run %s first\nrun %s second\n' "${run}" "${run}"
+    return "${exits[run - 1]:-${exits[-1]}}"
+}
+# collector_runs <name> : how many times counted_collector ran under that name.
+collector_runs() { if [[ -e "${TESTDIR}/runs-$1" ]]; then wc -l < "${TESTDIR}/runs-$1"; else printf 0; fi; }
+# reader_case <label> <name> <expected status> <expected runs> <expected lines joined by |> <exit>...
+reader_case() {
+    local label="$1" name="$2" want_status="$3" want_runs="$4" want_lines="$5" status=unset joined runs
+    local -a lines=( stale )
+    shift 5
+    if ! ai_tools_records_base__read_collector lines status counted_collector "${name}" "$@"; then
+        fail "${label}: the reader returned non-zero"; return 0
+    fi
+    joined="$(IFS='|'; printf '%s' "${lines[*]}")"; runs="$(collector_runs "${name}")"
+    if [[ "${status}" == "${want_status}" && "${runs}" == "${want_runs}" && "${joined}" == "${want_lines}" ]]; then
+        pass "${label}: status ${status} after ${runs} run(s), lines '${joined}'"
+    else
+        fail "${label}: status ${status} after ${runs} run(s), lines '${joined}'; expected ${want_status}/${want_runs}/'${want_lines}'"
+    fi
+}
+attempts="${_AI_TOOLS_RECORDS_BASE__COLLECTOR_ATTEMPTS}"
+[[ "${attempts}" =~ ^[0-9]+$ ]] && (( attempts >= 2 )) && pass "the reader runs a collector ${attempts} times at most" \
+    || fail "the attempt count is '${attempts}'; the rows after this one need a whole number of 2 or more"
+reader_case "a collector exiting 0" clean 0 1 'run 1 first|run 1 second' 0
+reader_case "a collector exiting 9 is not run again" nine 9 1 'run 1 first|run 1 second' 9
+# 127 and -1 are what `wait` returns for a child bash has no record of. A collector cannot exit -1, so 127 stands
+# in for a lost status: the first run's lines are discarded with it.
+reader_case "a status of 127 on the first run, 0 on the second: the second run's lines alone" late 0 2 \
+    'run 2 first|run 2 second' 127 0
+reader_case "a status of 127 on every run: the last run's lines, and 127" never 127 "${attempts}" \
+    "run ${attempts} first|run ${attempts} second" 127
+# errexit_collector : a function that reaches a failed command between two lines.
+errexit_collector() { printf 'before\n'; false; printf 'after\n'; }
+got=""
+ai_tools_records_base__read_collector lines status errexit_collector; got+="plain=${status}:${lines[*]} "
+if ai_tools_records_base__read_collector lines status errexit_collector; then got+="if=${status}:${lines[*]} "; fi
+ai_tools_records_base__read_collector lines status errexit_collector || true; got+="or=${status}:${lines[*]} "
+substituted=0; substituted_out="$(errexit_collector)" || substituted=$?
+got+="substitution=${substituted}:${substituted_out//$'\n'/,}"
+want="plain=1:before if=1:before or=1:before substitution=0:before,after"
+[[ "${got}" == "${want}" ]] \
+    && pass "a collector ended by errexit reads 1 with no later line, also under if and ||; a command substitution read by || reads 0 and both lines" \
+    || fail "errexit inside the collector: '${got}'"
+lines=( stale ); status=unset
+ai_tools_records_base__read_collector lines status true
+[[ "${status}" == 0 && "${#lines[@]}" == 0 ]] && pass "an empty stream is an empty array and status 0" \
+    || fail "an empty stream gave status ${status} and ${#lines[@]} line(s)"
+got=""
+for refused in "_records_lines status" "lines _records_status" "lines AI_TOOLS_RECORDS_X" "lines LC_ALL" "lines 1bad" "lines lines"; do
+    read -r lines_name status_name <<<"${refused}"
+    rc=0; ai_tools_records_base__read_collector "${lines_name}" "${status_name}" counted_collector refused 0 || rc=$?
+    got+="${rc}"
+done
+rc=0; ai_tools_records_base__read_collector lines status || rc=$?; got+="${rc}"
+[[ "${got}" == 1111111 && "$(collector_runs refused)" == 0 ]] \
+    && pass "a refused output name, one name given twice and a call without a collector return 1 without a run" \
+    || fail "refusals returned '${got}' and the collector ran $(collector_runs refused) time(s)"
+got="$(IFS=$'\n\t'; ai_tools_records_base__read_collector lines status printf 'a b\tc\n  d  \n'
+       printf '%s:%s:[%s][%s]' "${status}" "${#lines[@]}" "${lines[0]}" "${lines[1]}")"
+[[ "${got}" == $'0:2:[a b\tc][  d  ]' ]] && pass "under the strict-mode IFS a line keeps its spaces and its tab" \
+    || fail "under the strict-mode IFS the reader gave $(hex "${got}")"
 
 # fixture_upstream <count> [<exit>]: <count> NUL-separated paths, then exit <exit> (default 0). Two of the paths carry
 # a tab and a line feed, so they cross every stage in the raw.
@@ -537,33 +592,37 @@ fixture_upstream() {
     return "${status}"
 }
 # fixture_collector <cap> <upstream args...>: the collector rule -- at most cap+1 records in the internal framing (each
-# field encoded, one record per line), the upstream's PID saved and waited for, 141/143 accepted only after a deliberate
-# stop, exit 0 after one.
+# field encoded, one record per line), the upstream a pipeline stage whose status is read from PIPESTATUS, 141/143
+# accepted only after a deliberate stop, exit 0 after one. The reading stage exits FIXTURE_STOPPED for that stop.
+readonly FIXTURE_STOPPED=3
 fixture_collector() {
-    local cap="$1" fd pid n=0 path encoded rc=0 stopped=0
+    local cap="$1"
+    local -a statuses=()
     shift
-    exec {fd}< <(fixture_upstream "$@"); pid=$!
-    while IFS= read -r -d '' -u "${fd}" path; do
-        ai_tools_records_tsv__encode_field encoded "${path}"
-        printf '%s\n' "${encoded}"
-        n=$(( n + 1 ))
-        if (( n > cap )); then stopped=1; break; fi
-    done
-    exec {fd}<&-
-    wait "${pid}" || rc=$?
-    if (( stopped )); then
-        case "${rc}" in 0|141|143) return 0 ;; esac
+    fixture_upstream "$@" | {
+        n=0
+        while IFS= read -r -d '' path; do
+            ai_tools_records_tsv__encode_field encoded "${path}"
+            printf '%s\n' "${encoded}"
+            n=$(( n + 1 ))
+            if (( n > cap )); then exit "${FIXTURE_STOPPED}"; fi
+        done
+    } && statuses=( "${PIPESTATUS[@]}" ) || statuses=( "${PIPESTATUS[@]}" )
+    if [[ "${statuses[1]}" == "${FIXTURE_STOPPED}" ]]; then
+        case "${statuses[0]}" in 0|141|143) return 0 ;; esac
     fi
-    return "${rc}"
+    return "${statuses[0]}"
 }
-# fixture_report <cap> <upstream args...>: the consumer -- decodes each record, keeps the first cap, emits scan-capped
-# at cap+1, and an error row when a record does not decode or the collector exits non-zero. Prints the stream.
+# fixture_report <cap> <upstream args...>: the consumer -- reads the collector through the library's reader, decodes
+# each record, keeps the first cap, emits scan-capped at cap+1, and an error row when a record does not decode
+# or the collector exits non-zero. Prints the stream.
 fixture_report() {
-    local cap="$1" fd pid line path n=0 rc=0 item
+    local cap="$1" line path n=0 rc=0 item
+    local -a lines=()
     shift
     ai_tools_records_base__begin_report
-    exec {fd}< <(fixture_collector "${cap}" "$@"); pid=$!
-    while IFS= read -r -u "${fd}" line; do
+    ai_tools_records_base__read_collector lines rc fixture_collector "${cap}" "$@"
+    for line in "${lines[@]}"; do
         n=$(( n + 1 ))
         if (( n > cap )); then
             ai_tools_records_tsv__frame_item_components item "${cap}"
@@ -576,8 +635,6 @@ fixture_report() {
         fi
         ai_tools_records_tsv__write_record "" "${TEST_CODE}" info hit file op "" "${path}" "a hit"
     done
-    exec {fd}<&-
-    wait "${pid}" || rc=$?
     if (( rc )); then
         ai_tools_records_tsv__write_record "" "${TEST_CODE}" unreadable error project op "" /proj "collector exited ${rc}"
     fi

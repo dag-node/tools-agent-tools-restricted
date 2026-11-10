@@ -20,8 +20,9 @@ sourcing `msg.lib.sh`, so a root helper sources the data layer alone:
 - **`records-base.lib.sh`** is the model and the report state: the column registry `AI_TOOLS_RECORDS_BASE__COLUMNS`
   (`name:class` in stream order, the one code-side declaration of the header), the severity and subject-type token sets,
   the two exit constants (the only place 4 and 5 are spelled in code), the fold that turns the severities a run noted
-  into `ai_tools_records_base__get_exit_status`, and `ai_tools_records_base__read_subject_type`, the one reader
-  of a subject's observed type. It is format-independent, so a later JSON writer reuses its predicate and its state.
+  into `ai_tools_records_base__get_exit_status`, `ai_tools_records_base__read_subject_type`, the one reader
+  of a subject's observed type, and `ai_tools_records_base__read_collector`, the one reader of a collector's lines
+  and exit status. It is format-independent, so a later JSON writer reuses its predicate and its state.
 - **`records-tsv.lib.sh`** is the wire format: the canonical escape and its strict decoder, the item framing, the record
   identity (the hash is over the TSV encoding, which is why the identity helper lives here) and the row writer.
 
@@ -48,12 +49,20 @@ counts, and which it leaves at 0, are in [cli](cli.rule.md).
   `begin_report`, `accumulate_severity`, `write_record` — is made in the report's own shell, never inside `$(...)`,
   a pipeline stage or the producer side of `< <(...)`, where it would update a subshell's copy that the exit status
   never reads.
-- **A collector's PID is saved on the statement that opens it, and waited for after its output is consumed.**
-  `wait "$pid"` returns the process substitution's exit status only when `pid` was taken from `$!` right
-  after the substitution was opened; a bare `wait $!` after a loop whose body opened another substitution waits
-  for that inner one and returns 0. The shape is `exec {fd}< <(collector); pid=$!`, the read loop, `exec {fd}<&-`, then
-  `wait "${pid}"` with the failure written as an `error` row. `mapfile -t rows < <(collector); pid=$!` is the same rule
-  for a consumer that does not run a command between the two statements.
+- **A collector is read through `ai_tools_records_base__read_collector`**, which runs it in a process substitution,
+  writes its lines into the caller's array and its exit status into the caller's variable. The consumer loops
+  over the array after the call, in the report's own shell, and writes a non-zero status as an `error` row. A `wait`
+  on the substitution's PID is not the reader: bash does not return the status of a child it reaped before it recorded
+  the child, and `wait` then reads -1 or 127 whatever the collector exited with. The helper discards the lines of a run
+  whose status reads as either value and runs the collector again, up to the count its header states, so no line
+  of a discarded run reaches the consumer; a collector is therefore a command that reads the host and does not change
+  it. A command substitution is not the reader either: `out="$(collector)" || status=$?` runs a collector function
+  with `errexit` ignored, so one that reaches a failed command reads as complete.
+- **A command that changes the host is not run again.** `system layout reconcile` reads `ai_tools_layout__reconcile`
+  under a deadline and prints each line as it arrives, so it keeps its own descriptor: the PID is saved on the statement
+  that opens the substitution (`exec {fd}< <(reconcile); pid=$!`) and waited for once the lines are read, since a bare
+  `wait $!` after a loop whose body opened another substitution returns that inner one's status. A status bash did not
+  return reads there as a failed run.
 - **Records cross between a collector and its consumer in the internal framing**, which keeps every field exact: each
   field `ENC`-encoded, fields tab-separated, one record per line feed. The consumer decodes each field
   with `ai_tools_records_tsv__decode_field`, and a record that does not decode, or has the wrong field count, is
@@ -82,9 +91,10 @@ SIGPIPE, exit 141, which the consumer would read as exit 5.
 
 1. The collector takes the cap `N` as an argument, emits at most `N + 1` complete records, and stops reading its
    upstream after the `N + 1`th.
-2. It saves its upstream's PID, closes the upstream's fd, and waits for it. It accepts exit 141 (SIGPIPE) or 143
-   (SIGTERM) **only when it stopped on purpose**; any other non-zero exit, and a 141 or 143 when it did not stop, make
-   the collector exit non-zero.
+2. It runs its upstream as a stage of a pipeline and reads that stage's exit from `PIPESTATUS`, where the stage
+   that reads the upstream exits with a status of its own for a stop on purpose. It accepts exit 141 (SIGPIPE) or 143
+   (SIGTERM) from the upstream **only when it stopped on purpose**; any other non-zero exit, and a 141 or 143 when it
+   did not stop, make the collector exit non-zero.
 3. It exits 0 after a deliberate stop.
 4. The consumer counts complete records: at `N + 1` it keeps the first `N`, drops the last, and emits the `scan-capped`
    row (severity `attention`, `item` holding the cap), so exactly `N` hits and more than `N` hits stay distinguishable.
