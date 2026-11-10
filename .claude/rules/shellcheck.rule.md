@@ -108,9 +108,11 @@ an ACL or a module listing grows past one write.
 
 So no stage after a pipe is one of those readers. The reader takes the producer's captured output
 (`out="$(producer)" || out=""`, then `grep -q … <<<"${out}"`), and a listing too long to hold is cut by a filter
-that reads to the end (`awk 'NR <= 50'`). The one exception is `head -c` in a pipeline whose status `|| true` discards,
-the bound on a stream that must not be read to its end. `tests/unit/pipefail-readers.sh` holds the scripts under `src/`,
-`selinux/`, `packaging/`, `tools/` and `tests/`, `install.sh` and the workflows to it.
+that reads to the end (`awk 'NR <= 50'`). A here-string ends in a newline, so an empty capture reaches the reader as one
+empty line: `grep -c` counts it and `grep -v` selects it, and a search of either kind tests the capture for empty first.
+The one exception is `head -c` in a pipeline whose status `|| true` discards, the bound on a stream that must not be
+read to its end. `tests/unit/pipefail-readers.sh` holds the scripts under `src/`, `selinux/`, `packaging/`, `tools/`
+and `tests/`, `install.sh` and the workflows to it.
 
 ## Design notes
 

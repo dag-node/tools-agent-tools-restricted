@@ -202,10 +202,12 @@ ai_tools_launch_wrapper__init() {
 # ai_tools_launch_wrapper__gate_operator -- refuse a caller outside the ai-ops operators group. The sudoers grant is
 # a %ai-ops group rule, so a non-operator fails at sudo regardless -- this gate turns that raw denial into a framed
 # refusal that names the right next step. `id -nG` (no user argument) lists THIS shell's live credential set, the same
-# set sudo enforces against; the space-padding makes the match exact so a group whose name merely contains "ai-ops"
-# cannot satisfy it. When the live check fails the refusal distinguishes three cases, because the fix differs in each:
-# the sandbox account (which must never be an operator), an operator whose shell predates the grant (a stale session --
-# re-login), and a genuine non-operator.
+# set sudo enforces against. The match is on the name between spaces, so a group whose name merely contains "ai-ops"
+# does not satisfy it. A group whose own name holds the word between spaces, which a directory service can deliver,
+# reads as membership here, and sudo's rule, which does not read this listing, then decides the launch. When the live
+# check fails the refusal distinguishes three cases, because the fix differs in each: the sandbox account (which must
+# never be an operator), an operator whose shell predates the grant (a stale session -- re-login), and a genuine
+# non-operator.
 ai_tools_launch_wrapper__gate_operator() {
     local name="${AI_TOOLS_LAUNCH_WRAPPER__NAME}" user
     user="$(id -un)"

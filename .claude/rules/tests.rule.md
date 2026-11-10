@@ -1610,9 +1610,7 @@ as the layout the policy rests on, one check per swap vector.
   [ref-section-c3u9](shellcheck.rule.md#ref-section-c3u9), and a test runs under the same mode as the code it drives.
 - **A reader that stops early fails the pipeline**, the shape the shellcheck rule states
   [ref-section-d9x2](shellcheck.rule.md#ref-section-d9x2), and every test file runs `set -euo pipefail`.
-  `if producer | grep -q …` then reports `FAIL`, and `x="$(producer | head -n 1)"` ends the file with no result line,
-  which the runner lists as failed with no `FAIL` line to read. It is a race, so it can pass by hand and fail in a root
-  run, and a file that fails with no `FAIL` line is checked for this shape first.
+  `unit/pipefail-readers.sh` holds `tests/` to that rule.
 - **A stub reads the caller's locals.** Bash scopes variables dynamically, so a stub function that reads a variable
   the case set (`getenforce() { printf '%s' "${selinux_mode}"; }`) sees the `local` of the same name in the function
   under test, unset there, and `set -u` ends the shell. The case reports a failure the code does not have. A stub reads
