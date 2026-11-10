@@ -64,8 +64,8 @@ readonly -a AI_TOOLS_RECORDS_BASE__SUBJECT_TYPES=( file directory link unit agen
 # shellcheck disable=SC2034  # read by every report that returns an exit status
 readonly AI_TOOLS_RECORDS_BASE__EXIT_FINDINGS=4
 readonly AI_TOOLS_RECORDS_BASE__EXIT_UNREADABLE=5
-# How many times ai_tools_records_base__read_collector runs a collector whose status bash did not return.
-readonly _AI_TOOLS_RECORDS_BASE__COLLECTOR_ATTEMPTS=3
+# The most runs ai_tools_records_base__read_collector gives a collector whose status bash did not return.
+readonly _AI_TOOLS_RECORDS_BASE__MAX_COLLECTOR_ATTEMPTS=3
 
 # The report state: the folded status (`ok`, `attention`, `unreadable`), whether the header was printed, and the run's
 # `observed-at`. Read and written by records-tsv.lib.sh's writer; a consumer reads them through
@@ -173,10 +173,12 @@ ai_tools_records_base__read_subject_type() {
 # return it for every child. process_substitute (subst.c) unblocks SIGCHLD in restore_pipeline before procsub_add
 # records the child, and waitchld (jobs.c) drops the status of a child it reaps between the two; a child whose PID
 # the shell still holds an earlier substitution's record for is not found either. `wait` then returns -1 (bash 5.2)
-# or 127 (bash 5.3), whatever the collector exited with. On either value this function discards the lines and runs
-# the collector again, _AI_TOOLS_RECORDS_BASE__COLLECTOR_ATTEMPTS runs at most, and the last run's lines and status are
-# the result: a collector that exits 127 itself, a command not found, runs that many times and reads 127. A collector is
-# therefore a command that reads, so a second run observes the host again and does not repeat a change to it.
+# or 127 (bash 5.3), whatever the collector exited with, and `$?` expands to that value as written: bash reduces
+# a function's `return` to eight bits and not a builtin's status, so the 5.2 value reads `-1` and not `255`, which stays
+# a collector's own exit. On either value this function discards the lines and runs the collector again,
+# _AI_TOOLS_RECORDS_BASE__MAX_COLLECTOR_ATTEMPTS runs at most, and the last run's lines and status are the result:
+# a collector that exits 127 itself, a command not found, runs that many times and reads 127. A collector is therefore
+# a command that reads, so a second run observes the host again and does not repeat a change to it.
 # args: $1 the caller's array for the lines  $2 the caller's variable for the exit status  $3... the collector
 ai_tools_records_base__read_collector() {
     (( $# >= 3 )) || return 1
@@ -193,7 +195,7 @@ ai_tools_records_base__read_collector() {
         _records_collector_status=0
         wait "${_records_collector_pid}" 2>/dev/null || _records_collector_status=$?
         case "${_records_collector_status}" in
-            -1|127) (( _records_collector_attempt < _AI_TOOLS_RECORDS_BASE__COLLECTOR_ATTEMPTS )) || break ;;
+            -1|127) (( _records_collector_attempt < _AI_TOOLS_RECORDS_BASE__MAX_COLLECTOR_ATTEMPTS )) || break ;;
             *) break ;;
         esac
     done

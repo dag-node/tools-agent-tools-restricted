@@ -1868,12 +1868,12 @@ postupgrade() {
 # of a permission rule, a key, and for an `error` one token naming the check -- so two findings on one file keep two
 # ids. No row carries an operator: every subject is under /etc or /opt/ai-tools, host-wide.
 #
-# The collectors feed the check through `< <(...)`, and _pu_run_check saves each one's PID on the statement that opens
-# it and waits for it once its output is read (records.rule.md), so a collector that exits non-zero is an `error` row
-# on the root it walked rather than a shorter set read as complete. They keep the line and `|` framing the interactive
-# report reads them with, which holds for a path the packages install and does not for a name the sandbox account plants
-# under an agent's config directory with a line feed in it: such a name splits into two rows and removes none, so it
-# adds findings to a run and does not make one read as clean.
+# The collectors feed the check through _pu_read_collector, which reads each through the records reader
+# (records.rule.md) and writes an `error` row on the root it walked where the collector exited non-zero, ahead
+# of the rows for the lines it printed, so a failed collector is not a shorter set read as complete. They keep the line
+# and `|` framing the interactive report reads them with, which holds for a path the packages install and does not
+# for a name the sandbox account plants under an agent's config directory with a line feed in it: such a name splits
+# into two rows and removes none, so it adds findings to a run and does not make one read as clean.
 _PU_ALL=0
 _PU_CODE=""
 _PU_SEVERITY=""
@@ -1952,8 +1952,8 @@ _pu_read_collector() {
 # _pu_run_check <root>: every finding, through _pu_write_finding, without asking or writing. Each reads the same
 # predicate the report does. The caller reads the outcome off the report state, ai_tools_records_base__get_exit_status.
 _pu_run_check() {
-    local root="$1" file kind label scratch status key line state stype path detail live reference collected_line
-    local -a new_keys=() entries=() files_with_baseline=() collected=()
+    local root="$1" file kind label scratch status key line state stype path detail live reference collector_line
+    local -a new_keys=() entries=() files_with_baseline=() collector_lines=()
     ai_tools_records_base__begin_report
     _pu_kind_findings "${root}"
     _pu_registry_findings "${root}"
@@ -2004,8 +2004,8 @@ _pu_run_check() {
         esac
     done
 
-    _pu_read_collector collected directory "${root:-/}" orphans _pu_orphans "${root}"
-    for path in "${collected[@]}"; do
+    _pu_read_collector collector_lines directory "${root:-/}" orphans _pu_orphans "${root}"
+    for path in "${collector_lines[@]}"; do
         _pu_write_finding rpmnew-orphan file "${path}" "the file it belongs to is gone"
     done
 
@@ -2021,9 +2021,9 @@ _pu_run_check() {
     fi
 
     if declare -F ai_tools_providers__find_managed_file_missing_keys >/dev/null 2>&1; then
-        _pu_read_collector collected directory "${root}/etc" managed-pairs _pu_managed_pairs "${root}"
-        for collected_line in "${collected[@]}"; do
-            IFS=$'\t' read -r live reference <<< "${collected_line}"
+        _pu_read_collector collector_lines directory "${root}/etc" managed-pairs _pu_managed_pairs "${root}"
+        for collector_line in "${collector_lines[@]}"; do
+            IFS=$'\t' read -r live reference <<< "${collector_line}"
             [[ -f "${live}" && -f "${reference}" ]] || continue
             cmp -s "${live}" "${reference}" && continue
             if line="$(ai_tools_providers__find_managed_file_missing_keys "${live}" "${reference}")"; then
@@ -2040,9 +2040,9 @@ _pu_run_check() {
             managed-keys
     fi
 
-    _pu_read_collector collected directory "${root}/opt/ai-tools" assets _pu_assets "${root}"
-    for collected_line in "${collected[@]}"; do
-        IFS=$'\t' read -r state stype path detail <<< "${collected_line}"
+    _pu_read_collector collector_lines directory "${root}/opt/ai-tools" assets _pu_assets "${root}"
+    for collector_line in "${collector_lines[@]}"; do
+        IFS=$'\t' read -r state stype path detail <<< "${collector_line}"
         if [[ "${state}" == error ]]; then
             _pu_write_finding error "${stype}" "${path}" "${detail}" shared-assets
         else
@@ -2050,8 +2050,8 @@ _pu_run_check() {
         fi
     done
 
-    _pu_read_collector collected directory "${root:-/}" copies _pu_copies "${root}"
-    for path in "${collected[@]}"; do _pu_write_finding copy-kept file "${path}" ""; done
+    _pu_read_collector collector_lines directory "${root:-/}" copies _pu_copies "${root}"
+    for path in "${collector_lines[@]}"; do _pu_write_finding copy-kept file "${path}" ""; done
 }
 
 # _pu_settings_findings <file> <copy>: the findings _pu_settings_rest reports for a settings file and its baseline copy

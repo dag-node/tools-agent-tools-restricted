@@ -536,17 +536,19 @@ reader_case() {
         fail "${label}: status ${status} after ${runs} run(s), lines '${joined}'; expected ${want_status}/${want_runs}/'${want_lines}'"
     fi
 }
-attempts="${_AI_TOOLS_RECORDS_BASE__COLLECTOR_ATTEMPTS}"
+attempts="${_AI_TOOLS_RECORDS_BASE__MAX_COLLECTOR_ATTEMPTS}"
 [[ "${attempts}" =~ ^[0-9]+$ ]] && (( attempts >= 2 )) && pass "the reader runs a collector ${attempts} times at most" \
     || fail "the attempt count is '${attempts}'; the rows after this one need a whole number of 2 or more"
 reader_case "a collector exiting 0" clean 0 1 'run 1 first|run 1 second' 0
 reader_case "a collector exiting 9 is not run again" nine 9 1 'run 1 first|run 1 second' 9
-# 127 and -1 are what `wait` returns for a child bash has no record of. A collector cannot exit -1, so 127 stands
-# in for a lost status: the first run's lines are discarded with it.
+# 127 and -1 are what `wait` returns for a child bash has no record of. No collector exits -1, and a function's
+# `return -1` reads 255, so 127 stands in for a lost status: the first run's lines are discarded with it. 255 is
+# a collector's own exit and is not run again.
 reader_case "a status of 127 on the first run, 0 on the second: the second run's lines alone" late 0 2 \
     'run 2 first|run 2 second' 127 0
 reader_case "a status of 127 on every run: the last run's lines, and 127" never 127 "${attempts}" \
     "run ${attempts} first|run ${attempts} second" 127
+reader_case "a collector exiting 255 is not run again" all-bits 255 1 'run 1 first|run 1 second' 255
 # errexit_collector : a function that reaches a failed command between two lines.
 errexit_collector() { printf 'before\n'; false; printf 'after\n'; }
 got=""
