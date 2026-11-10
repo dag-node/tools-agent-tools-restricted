@@ -869,8 +869,8 @@ drives the sweep over the rules the registry walks do not derive and the unload 
 fail direction: a module the store still lists after the transaction is a refusal whatever the exit status said.
 `_check_permissive_alignment` is driven over a `semodule` stub printing module names alone, where a loaded stale
 `permissive_<domain>` module must be named with its removal and a longer name must not read as it, and the script's text
-is held to capturing the listing in `_read_loaded_policy_modules` alone, with `list-groups` reading the core
-through the library predicate.
+is held to capturing the listing in `_list_loaded_ai_tools_modules` alone. The `list-groups` arm, read
+out of the script's dispatch, is run over the same kind of listing and must report the loaded core and a loaded group.
 
 `spec-selinux-erase.sh` runs the `ai-tools-selinux` `%postun` the same way, its body read as RPM parses it (`rpmspec -P`
 where the host has it) and run under `/bin/sh` with the session reader and the store tools stubbed as recorders:
@@ -1357,29 +1357,30 @@ the bind rather than sitting beside it, since a raise there would cost every lat
 to the harness as a driver that never ran.
 
 `selinux-groups.sh` pins the optional-group registry (`selinux-groups.lib.sh`, shared by `ai-tools-admin selinux`
-and `install-selinux.sh`): the four-field accessors (including the `stability` field, guarding the regression
-where a fourth pipe field bleeds into the reason), the validity predicate the `selinux groups enable` gate depends
-on (an unknown name is rejected), and the `is_experimental` predicate agreeing with the field (it decides whether
-`selinux groups enable` loads a shipped module or refuses and points to the source workflow). It then pins
-the compiled-module version readers `install-selinux.sh` consults before `make` or `semodule` sees a `.pp`: the version
-is read from fixture headers this file writes byte by byte (a module at the range's top, one newer than the range, one
-older, a corrupt header, the tag inside a text file, a missing file), the range from a stubbed `checkmodule`,
-and the predicate over them holds to its three answers — within the range, outside it, and unreadable, which is never
-either of the other two. The checkout's own build and the real `checkmodule` are read as controls that the readers parse
-libsepol's output, and whether that build loads on this host is a `note`, since it is a host state. And — because
-the shipped set is derived from the registry (`selinux/policy/shipped-modules.sh`, the list the spec's `%build`
-and `install.sh` compile; see [confinement](confinement.rule.md)) — registry↔shipped-set lockstep: the derivation yields
-a non-empty set holding the core, every name on it has a `.te` source, a group is on it exactly when the registry marks
-it **stable** (an experimental group on the list would ship unaudited; a stable one off it has no module
-for `selinux groups enable` to load), every policy module on disk is either a registered group or a **layout module**
-some shipped integration manifest declares (`selinux_layout_module`) and is then on the set, and no compiled `.pp` is
-tracked anywhere (a tracked one was built on some other host's headers). The lockstep half reads git track-state, so it
-needs the checkout. Its installed-host counterpart is in `integration/perms.sh`, which asserts the staged package
-directory holds that derived set and no other file, at the modes the RPM ships; the container self-test asserts the same
-set against the built `ai-tools-selinux` RPM with `rpm -qlp`. It also pins the former-module seam: each group split
-out of the old `ai_tools_netcore` module names it as its former module, the reverse read yields both groups (the set
-a swap loads in the old module's place, or a host loses the half it did not ask for), a group without a former module
-reports none, and no former name collides with a current group's module — the swap would otherwise unload a live group.
+and `install-selinux.sh`), read from the checkout where there is one, since the library does not carry a token
+substitution: the four-field accessors (including the `stability` field, guarding the regression where a fourth pipe
+field bleeds into the reason), the validity predicate the `selinux groups enable` gate depends on (an unknown name is
+rejected), and the `is_experimental` predicate agreeing with the field (it decides whether `selinux groups enable` loads
+a shipped module or refuses and points to the source workflow). It then pins the compiled-module version readers
+`install-selinux.sh` consults before `make` or `semodule` sees a `.pp`: the version is read from fixture headers this
+file writes byte by byte (a module at the range's top, one newer than the range, one older, a corrupt header, the tag
+inside a text file, a missing file), the range from a stubbed `checkmodule`, and the predicate over them holds to its
+three answers — within the range, outside it, and unreadable, which is never either of the other two. The checkout's own
+build and the real `checkmodule` are read as controls that the readers parse libsepol's output, and whether that build
+loads on this host is a `note`, since it is a host state. And — because the shipped set is derived from the registry
+(`selinux/policy/shipped-modules.sh`, the list the spec's `%build` and `install.sh` compile; see
+[confinement](confinement.rule.md)) — registry↔shipped-set lockstep: the derivation yields a non-empty set holding
+the core, every name on it has a `.te` source, a group is on it exactly when the registry marks it **stable** (an
+experimental group on the list would ship unaudited; a stable one off it has no module for `selinux groups enable`
+to load), every policy module on disk is either a registered group or a **layout module** some shipped integration
+manifest declares (`selinux_layout_module`) and is then on the set, and no compiled `.pp` is tracked anywhere (a tracked
+one was built on some other host's headers). The lockstep half reads git track-state, so it needs the checkout. Its
+installed-host counterpart is in `integration/perms.sh`, which asserts the staged package directory holds that derived
+set and no other file, at the modes the RPM ships; the container self-test asserts the same set against the built
+`ai-tools-selinux` RPM with `rpm -qlp`. It also pins the former-module seam: each group split out of the old
+`ai_tools_netcore` module names it as its former module, the reverse read yields both groups (the set a swap loads
+in the old module's place, or a host loses the half it did not ask for), a group without a former module reports none,
+and no former name collides with a current group's module — the swap would otherwise unload a live group.
 
 It closes with the registry's one impure accessor, `ai_tools_selinux_groups__is_loaded`. `semodule -l` needs several
 writes to deliver a few hundred module names, the listing the early-exit reader rule

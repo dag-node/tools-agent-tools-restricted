@@ -725,11 +725,11 @@ _drop_remaining_policy_type_rules() {
     done < <(ai_tools_relabel__list_local_rules_naming_policy_types)
 }
 
-# _read_loaded_policy_modules <consequence>: print the loaded ai_tools* module names, one per line. A listing semodule
+# _list_loaded_ai_tools_modules <consequence>: print the loaded ai_tools* module names, one per line. A listing semodule
 # refuses is a die carrying its reason and <consequence>, what the caller's step did not do: an empty store and a store
 # that cannot be read are told apart by semodule's status, since reading the second as the first would report `removed`
 # over whatever is loaded.
-_read_loaded_policy_modules() {
+_list_loaded_ai_tools_modules() {
     local listing
     listing="$(semodule -l 2>&1)" \
         || die MSG-A3V5 "could not read the module store -- ${listing//$'\n'/; }; $1; re-run once semodule answers: sudo $0 remove"
@@ -742,7 +742,7 @@ _read_loaded_policy_modules() {
 _unload_modules() {
     local -a loaded_modules=() remaining_modules=()
     local names reason
-    names="$(_read_loaded_policy_modules "nothing was unloaded")" || exit 1
+    names="$(_list_loaded_ai_tools_modules "nothing was unloaded")" || exit 1
     [[ -z "${names}" ]] || mapfile -t loaded_modules <<<"${names}"
     if [[ ${#loaded_modules[@]} -eq 0 ]]; then
         log "no ai_tools module is loaded"
@@ -750,7 +750,7 @@ _unload_modules() {
     fi
     log "unloading all ai_tools* modules: $(_list "${loaded_modules[@]}")"
     reason="$(_locked semodule -r "${loaded_modules[@]}" 2>&1 >/dev/null)" || true
-    names="$(_read_loaded_policy_modules "the unload ran, and what is loaded is not known")" || exit 1
+    names="$(_list_loaded_ai_tools_modules "the unload ran, and what is loaded is not known")" || exit 1
     [[ -z "${names}" ]] || mapfile -t remaining_modules <<<"${names}"
     [[ ${#remaining_modules[@]} -eq 0 ]] \
         || die MSG-R6M2 "left loaded: $(_list "${remaining_modules[@]}") -- ${reason//$'\n'/; }; review the local rules with 'sudo semanage fcontext -l -C | grep ai_tools', then re-run: sudo $0 remove"

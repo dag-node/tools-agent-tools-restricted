@@ -21,9 +21,9 @@
 # the install, and a config directory walk that left hardlinked files; _label_project and _unlabel_project
 # over the library's partial-walk and walker-missing statuses, and _unlabel_project over its absent-tree status.
 # for_each_project is driven through the checkout's conf.lib.sh over a registry holding each sign, and does not yield
-# an excluded path. _check_permissive_alignment is driven with the checkout's selinux-groups.lib.sh over a semodule stub
-# printing module names alone, and the script's text is held to capturing that listing in _read_loaded_policy_modules
-# alone, since the list-groups arm is not a function a case can run.
+# an excluded path. _check_permissive_alignment and the list-groups arm, read out of the script's dispatch, are driven
+# with the checkout's selinux-groups.lib.sh over a semodule stub printing module names alone, and the script's text is
+# held to capturing that listing in _list_loaded_ai_tools_modules alone.
 #
 # Unprivileged, and reads the checkout alone; skips outside one.
 
@@ -343,7 +343,7 @@ section "install-selinux.sh: remove drops every rule naming a policy type and re
 remove_text=""
 for name in warn die _list _resolve_walk_root _restore_account_tree_labels _revert_account_tree_labels _warn_walk_incomplete \
         _report_skipped_walk_entries _warn_walker_unavailable \
-        _resolve_pattern_tree _drop_remaining_policy_type_rules _read_loaded_policy_modules _unload_modules; do
+        _resolve_pattern_tree _drop_remaining_policy_type_rules _list_loaded_ai_tools_modules _unload_modules; do
     body="$(extract_function "${INSTALLER}" "${name}")"
     if [[ -z "${body}" ]]; then
         fail "install-selinux.sh does not define ${name}() in the form this file reads"
@@ -693,6 +693,7 @@ for excluded in proj/carved outside globbed-1; do
 done
 
 section "install-selinux.sh: a loaded module is read from a listing of names alone (unit)"
+readonly GROUPS_LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 alignment_text=""
 for name in warn _check_permissive_alignment; do
     body="$(extract_function "${INSTALLER}" "${name}")"
@@ -725,8 +726,7 @@ run_alignment() {
             printf "pad_module_%04d\n" $(seq 1 600)
         }
         _check_permissive_alignment
-    ' _ "${alignment_text}" "${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh" "${TESTDIR}/policy" "$@" \
-        2>&1 </dev/null || true
+    ' _ "${alignment_text}" "${GROUPS_LIB}" "${TESTDIR}/policy" "$@" 2>&1 </dev/null || true
 }
 alignment_out="$(run_alignment ai_tools permissive_ai_tools_t)"
 if grep -qF "stale semodule 'permissive_ai_tools_t' overrides compiled policy" <<<"${alignment_out}" \
@@ -744,7 +744,7 @@ else
 fi
 
 # find_listing_captures <file>: print each code line that captures `semodule -l`. The script matches the listing
-# in _read_loaded_policy_modules alone, which keeps semodule's status; every other reading is the library predicate's.
+# in _list_loaded_ai_tools_modules alone, which keeps semodule's status; every other reading is the library predicate's.
 # shellcheck disable=SC2016  # the pattern matches the literal $( text
 find_listing_captures() {
     grep -nF '$(semodule -l' "$1" | grep -vE '^[0-9]+:[[:space:]]*#' || true
@@ -757,20 +757,48 @@ else
     fail "control: the reader does not flag a capture of the module listing, so the check below cannot fail"
 fi
 captures="$(find_listing_captures "${INSTALLER}")"
-store_reader="$(extract_function "${INSTALLER}" _read_loaded_policy_modules)"
+store_reader_text="$(extract_function "${INSTALLER}" _list_loaded_ai_tools_modules)"
 # shellcheck disable=SC2016  # the pattern matches the literal $( text
-if [[ "$(grep -c . <<<"${captures}")" -eq 1 ]] && grep -qF '$(semodule -l' <<<"${store_reader}"; then
-    pass "the script captures the module listing in _read_loaded_policy_modules alone"
+if [[ "$(grep -c . <<<"${captures}")" -eq 1 ]] && grep -qF '$(semodule -l' <<<"${store_reader_text}"; then
+    pass "the script captures the module listing in _list_loaded_ai_tools_modules alone"
 else
-    fail "the script captures the module listing outside _read_loaded_policy_modules: ${captures//$'\n'/ | }"
+    fail "the script captures the module listing outside _list_loaded_ai_tools_modules: ${captures//$'\n'/ | }"
 fi
-# shellcheck disable=SC2016  # the pattern matches the literal ${MODULE} text
+# list-groups is an arm of the script's dispatch and not a function, so its text is read from `list-groups)` to the next
+# `;;` and run over the same kind of listing.
 list_groups_arm="$(awk '/^  list-groups\)/ { inside = 1; next } inside && /^    ;;/ { exit } inside' "${INSTALLER}")"
-# shellcheck disable=SC2016
-if grep -qF 'if ai_tools_selinux_groups__is_module_loaded "${MODULE}"; then' <<<"${list_groups_arm}"; then
-    pass "list-groups reads the core module through the library predicate"
+# run_list_groups <module>...: the arm's report where `semodule -l` prints the given names, one per line.
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+run_list_groups() {
+    bash -c '
+        set -euo pipefail
+        source "$2"
+        C_GRN="" C_DIM="" C_RST=""
+        POLICY_DIR="$3" MODULE=ai_tools
+        section() { printf "== %s\n" "$*"; }; log() { printf "+ %s\n" "$*"; }; say() { printf "%s\n" "$*"; }
+        list_groups_arm="$1"
+        shift 3
+        stub_modules=("$@")
+        semodule() { printf "%s\n" abrt "${stub_modules[@]}" zebra; }
+        eval "${list_groups_arm}"
+    ' _ "${list_groups_arm}" "${GROUPS_LIB}" "${TESTDIR}/policy" "$@" 2>&1 || true
+}
+if [[ -z "${list_groups_arm}" ]]; then
+    fail "install-selinux.sh does not hold a list-groups arm in the form this file reads"
 else
-    fail "list-groups does not read the core module through ai_tools_selinux_groups__is_module_loaded"
+    list_groups_out="$(run_list_groups ai_tools ai_tools_tmpmap)"
+    if grep -qF 'core module (ai_tools): loaded (ENFORCING)' <<<"${list_groups_out}" \
+            && grep -qE '\[LOADED\] +tmpmap ' <<<"${list_groups_out}"; then
+        pass "list-groups reports a loaded core module and a loaded group from a listing of names alone"
+    else
+        fail "list-groups did not report the loaded core module and group: ${list_groups_out//$'\n'/ | }"
+    fi
+    list_groups_out="$(run_list_groups ai_tools_tmpmap)"
+    if grep -qF 'core module (ai_tools): NOT loaded' <<<"${list_groups_out}"; then
+        pass "list-groups reports the core module as not loaded where the listing does not hold it (control)"
+    else
+        fail "control: a listing without the core module did not read as not loaded: ${list_groups_out//$'\n'/ | }"
+    fi
 fi
 
 # ── the script's text ─────────────────────────────────────────────────────────────────────────

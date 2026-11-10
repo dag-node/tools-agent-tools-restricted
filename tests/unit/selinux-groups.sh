@@ -24,10 +24,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 # Read-only (sources a world-readable lib, reads repo files); no root needed, like man.sh.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Installed copy first, then the source tree (the lib does not carry a token substitution, so the two are identical);
-# the lockstep half needs the checkout regardless.
-LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
-[[ -r "${LIB}" ]] || LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+# The checkout's copy first, then the installed one: the library does not carry a token substitution, so the checkout's
+# file is the artifact, and a branch's change to it is what a run in that checkout reads. The lockstep half needs
+# the checkout regardless.
+LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+[[ -r "${LIB}" ]] || LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 section "selinux-groups: registry accessors + filesystem lockstep (unit)"
 
 if [[ ! -r "${LIB}" ]]; then
