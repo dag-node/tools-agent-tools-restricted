@@ -62,8 +62,9 @@ counts, and which it leaves at 0, are in [cli](cli.rule.md).
   under a deadline and prints each line as it arrives, so it keeps its own descriptor: the PID is saved on the statement
   that opens the substitution (`exec {fd}< <(reconcile); pid=$!`) and waited for once the lines are read, since a bare
   `wait $!` after a loop whose body opened another substitution returns that inner one's status. A status bash did not
-  return reads there as a failed run. `tests/unit/pipefail-readers.sh` holds every other `wait` that names a process
-  substitution's PID to discarding its status ([tests](tests.rule.md)).
+  return reads there as a failed run. `tests/unit/pipefail-readers.sh` fails on any other `wait` its scanner ties
+  to a process substitution's PID and whose status is read; the scanner reads source text, and its header states
+  the forms it does not follow ([tests](tests.rule.md)).
 - **Records cross between a collector and its consumer in the internal framing**, which keeps every field exact: each
   field `ENC`-encoded, fields tab-separated, one record per line feed. The consumer decodes each field
   with `ai_tools_records_tsv__decode_field`, and a record that does not decode, or has the wrong field count, is

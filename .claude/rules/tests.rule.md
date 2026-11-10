@@ -1419,9 +1419,11 @@ asserts the reader matched a rule before the two sets are compared.
 [ref-section-u5t7](records.rule.md#ref-section-u5t7) through `tests/lib/pipefail-readers.py`, which reads shell source
 for an early-exit reader after a pipe and for a `wait` that reads a process substitution's exit status. A fixture
 for each proves the scanner on every shape it reports and every one it leaves alone: a `wait` whose status `|| true`
-discards, one for a `&` job and one for a `coproc` are not reported. Over the tree the scanner must report the `wait`
-in `ai_tools_records_base__read_collector` and the one in `system layout reconcile`'s deadline loop, once each, which is
-the control that it read the tree for the shape, and no other. A walk or a scan that did not complete fails the file.
+discards, one for a `&` job and one for a `coproc` are not reported. The scanner reads text and not control flow,
+and its header lists what it does not follow, a PID handed to a function among them, so a clean report bounds the shapes
+it names and is not a proof. Over the tree the scanner must report the `wait` in `ai_tools_records_base__read_collector`
+and the one in `system layout reconcile`'s deadline loop, once each, which is the control that it read the tree
+for the shape, and no other. A walk or a scan that did not complete fails the file.
 
 **`integration`** — checks that need a completed install and the running system (`perms.sh`, `wrapper.sh`, `hooks.sh`,
 `symlink-helper.sh`, `entrypoint-pin.sh`, `handback.sh`, `cli.sh`, `cli-flags.sh`, `ai-tools-run.sh`, `systemd.sh`,

@@ -156,16 +156,26 @@ pid=$$
 wait "${pid}"
 # wait "${rows_pid}"
 printf '%s\n' 'wait "${rows_pid}"'
+exec {fd}< <(collector); local declared_pid=$!
+wait "${declared_pid}"
+exec {fd}< <(collector); first_pid=$!
+copied_pid="${first_pid}"
+wait "${copied_pid}" || status=$?
+: < <(collector) && chained_pid=$!
+wait "${chained_pid}"
 FIXTURE
 expected="6 wait
 8 wait
 12 wait
 14 wait
-15 wait"
+15 wait
+33 wait
+36 wait
+38 wait"
 rc=0; report="$(python3 "${SCANNER}" "${waits}")" || rc=$?
 got="$(sed -n 's/^[^:]*:\([0-9]*\): \([^:]*\):.*/\1 \2/p' <<<"${report}")"
 if (( rc == 1 )) && [[ "${got}" == "${expected}" ]]; then
-    pass "the scanner reports a wait that reads a process substitution's status: by the saved PID, saved on the next line, under if, by \$!, in a bash -c body"
+    pass "the scanner reports a wait that reads a process substitution's status: by the saved PID, saved on the next line, under if, by \$!, in a bash -c body, saved behind local, copied to another name, saved after &&"
     pass "and leaves alone a wait whose status || true discards, a wait for a & job or a coproc, a variable assigned again, a comment, quoted text"
 else
     fail "the scanner's report over the wait fixture (rc=${rc}) is not the expected one: $(tr '\n' '|' <<<"${got}")"

@@ -20,10 +20,15 @@ whose status `|| true` or `|| :` discards. Text inside quotes, a comment or a he
 and neither is a `|` between the patterns of a `case` arm or inside `[[ ]]`.
 
 What it reports under the reader name `wait`: a `wait` naming a variable whose nearest assignment earlier in the file
-is `name=$!` after a statement holding a process substitution, or naming `$!` itself after such a statement, unless
-`|| true` or `|| :` discards its status. `$!` after a `&` job or a `coproc` is a job's PID, whose status bash returns,
-and is not reported. The scanner reports every such `wait`; which of them the rule keeps is the caller's to state.
-It does not follow a PID handed to a function that waits for its argument.
+is `name=$!` after a statement holding a process substitution, bare or behind `local` or another declaration word,
+or a copy of such a variable (`other=$name`), or naming `$!` itself after such a statement, unless `|| true` or `|| :`
+discards its status. `$!` after a `&` job or a `coproc` is a job's PID, whose status bash returns, and is not
+reported. The scanner reports every such `wait`; which of them the rule keeps is the caller's to state.
+
+What it does not follow, so a clean report is not a proof: a PID handed to a function that waits for its argument,
+a PID that reaches the variable through `read`, `printf -v` or a name reference, and control flow. The nearest earlier
+assignment is taken by position in the file, so one inside a branch that did not run reads as the last one,
+and a name two functions share reads as one variable.
 """
 import re
 import shlex
@@ -43,6 +48,7 @@ GREP_TAKES_ARGUMENT = "efABCDd"
 DISCARDED = re.compile(r"\s*\|\|\s*(?:true|:)(?=[\s;)&]|$)")
 SAVED_PID = re.compile(r"""(?<![A-Za-z0-9_])([A-Za-z_][A-Za-z0-9_]*)=["']?\$!""")
 ASSIGNMENT = re.compile(r"(?<![A-Za-z0-9_$\{])([A-Za-z_][A-Za-z0-9_]*)\+?=")
+COPIED = re.compile(r"""["']?\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))["']?(?=[\s;)&|]|$)""")
 WAIT_WORD = re.compile(r"(?<![A-Za-z0-9_./-])wait(?=[ \t])")
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*)|(!))")
 MASKED = "\x00"
@@ -402,21 +408,34 @@ def find_early_exit_readers(text, first_line=1):
     return sorted(set(findings))
 
 
-def previous_statement(mask, depth, at):
-    """Return (start, end, backgrounded) for the statement that ends before the word at `at`, at that word's depth."""
-    level = depth[at]
-    end = at
-    while end > 0 and mask[end - 1] in " \t\n;":
-        end -= 1
-    if end and mask[end - 1] == "&" and mask[end - 2:end - 1] != "&":
-        return end, end, True
-    start = end
+def statement_start(mask, depth, at, level):
+    """Return where the statement holding `at` starts: after the nearest separator before it at depth `level`."""
+    start = at
     while start > 0:
         before = mask[start - 1]
         if depth[start - 1] < level or (depth[start - 1] == level and before in ";\n&|"):
             break
         start -= 1
-    return start, end, False
+    return start
+
+
+def previous_statement(mask, depth, at):
+    """Return (start, end, backgrounded) for the statement before the one holding `at`, at that word's depth.
+
+    The statement holding `at` may open with a declaration word (`local pid=$!`), and `&&` or `||` may join the two.
+    """
+    level = depth[at]
+    end = statement_start(mask, depth, at, level)
+    while end > 0:
+        if mask[end - 1] in " \t\n;":
+            end -= 1
+        elif mask[end - 2:end] in ("&&", "||"):
+            end -= 2
+        else:
+            break
+    if end and mask[end - 1] == "&":
+        return end, end, True
+    return statement_start(mask, depth, end, level), end, False
 
 
 def follows_process_substitution(mask, depth, at):
@@ -435,9 +454,13 @@ def find_process_substitution_waits(text, first_line=1):
     for m in ASSIGNMENT.finditer(text):
         if mask[m.start()] == MASKED:
             continue
-        saved = SAVED_PID.match(text, m.start())
-        assignments.setdefault(m.group(1), []).append(
-            (m.start(), bool(saved) and follows_process_substitution(mask, depth, m.start())))
+        if SAVED_PID.match(text, m.start()):
+            saves = follows_process_substitution(mask, depth, m.start())
+        else:
+            copied = COPIED.match(text, m.end())
+            earlier = assignments.get(copied.group(1) or copied.group(2), ()) if copied else ()
+            saves = bool(earlier) and earlier[-1][1]        # a copy of a variable that holds one
+        assignments.setdefault(m.group(1), []).append((m.start(), saves))
     findings = []
     for m in WAIT_WORD.finditer(mask):
         level = depth[m.start()]
