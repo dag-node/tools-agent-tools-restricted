@@ -24,7 +24,8 @@
 set -uo pipefail
 IFS=$'\n\t'
 
-readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly DIR
 readonly MARKER="${DIR}/.avc-last-run"
 readonly SUBJ="ai_tools_t"
 

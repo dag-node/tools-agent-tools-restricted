@@ -76,7 +76,8 @@
 set -uo pipefail
 IFS=$'\n\t'
 
-readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly DIR
 readonly SUBJ="ai_tools_t"
 
 note() { printf '\033[1;36m[avc-denials]\033[0m %s\n' "$*"; }
@@ -195,11 +196,9 @@ avc_permissive_state() {
 }
 
 # avc_loaded_groups <semodule-list-output>: print the loaded `ai_tools_<name>` modules' <name> parts, comma-joined,
-# from `semodule -l` output (bare names on EL9, a version column on later releases). Prints nothing when only the core
-# is
-# loaded.
+# from `semodule -l` output, which holds one module name per line. Prints nothing when only the core is loaded.
 avc_loaded_groups() {
-  awk '{print $1}' <<<"$1" | sed -n 's/^ai_tools_\([a-z0-9_][a-z0-9_]*\)$/\1/p' | paste -sd, -
+  sed -n 's/^ai_tools_\([a-z0-9_][a-z0-9_]*\)$/\1/p' <<<"$1" | paste -sd, -
 }
 
 # avc_probe_status <log> <run-id> <window-start-epoch>: print the exit status the probe recorded in <log> for <run-id>,
@@ -734,6 +733,7 @@ config_home_t are dontaudit'd; AVCs visible under -DB."
     check HOM-002 SELinux "$(_R "list ${uhome} (user_home_dir_t)")" ls -a "${uhome}"
 
     _type="config_home_t (read dontaudit'd; AVC under -DB)"
+    # shellcheck disable=SC2088  # prose naming the directory, not a path to expand
     _why="~/.config holds credentials for hundreds of tools: kubectl configs with cluster tokens, AWS/GCP/Azure CLI creds, npm tokens, IDE settings with API keys. Even listing directory names reveals which services the user authenticates to."
     check HOM-003 SELinux "$(_R "list ${uhome}/.config (config_home_t)")" ls -a "${uhome}/.config"
   else
@@ -1290,9 +1290,7 @@ do_run() {
   # would tell the probe that no group is loaded, and every group check would then be judged against that.
   local modules
   modules="$(semodule -l 2>&1)" || { err "semodule -l failed; the loaded modules are unknown:"; err "${modules}"; exit 1; }
-  # RHEL9 `semodule -l` prints the bare module name (no version column), so match the name at EOL or before whitespace
-  # to cover both old and new output.
-  grep -qE '^ai_tools($|[[:space:]])' <<<"${modules}" \
+  grep -qx ai_tools <<<"${modules}" \
     || { err "core ai_tools module not loaded (install-selinux.sh install)"; exit 1; }
   # The loaded optional groups, which the session cannot read (the module store is root-only). Passed to the probe
   # so its group checks assert the outcome this configuration should give.
@@ -1343,7 +1341,12 @@ do_run() {
   PTY_FIXTURE_PID=""
   restore_dontaudit() {
     [[ -n "${PTY_FIXTURE_PID:-}" ]] && kill "${PTY_FIXTURE_PID}" 2>/dev/null
-    note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."
+    note "restoring dontaudit (semodule -B) ..."
+    if semodule -B >/dev/null 2>&1; then
+      note "dontaudit restored."
+    else
+      err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."
+    fi
   }
   trap restore_dontaudit EXIT INT TERM
   # Capture START before `semodule -DB`: the policy reload can trigger a log rotation at the exact same second, causing

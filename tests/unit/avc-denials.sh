@@ -125,8 +125,7 @@ expect "ai_tools_t listed" yes \
     "$(avc_permissive_state 0 "${nl}Permissive Types: 2${nl}   other_t${nl}   ai_tools_t")"
 
 section "loaded groups from semodule -l"
-expect "EL9 bare names" "localipc,tmpmap" "$(avc_loaded_groups "ai_tools${nl}ai_tools_localipc${nl}ai_tools_tmpmap${nl}apache")"
-expect "version column" "buildexec" "$(avc_loaded_groups "ai_tools 1.0${nl}ai_tools_buildexec 1.0${nl}zebra 1.0")"
+expect "names alone" "localipc,tmpmap" "$(avc_loaded_groups "ai_tools${nl}ai_tools_localipc${nl}ai_tools_tmpmap${nl}apache")"
 expect "core alone" "" "$(avc_loaded_groups "ai_tools${nl}apache")"
 expect "a name outside the charset is dropped" "tmpmap" \
     "$(avc_loaded_groups "ai_tools_tmpmap${nl}ai_tools_x;rm${nl}ai_tools_")"

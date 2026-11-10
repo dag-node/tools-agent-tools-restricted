@@ -483,11 +483,10 @@ _ai_tools_relabel__is_entrypoint_policy_active() {
     ai_tools_relabel__is_available || return 1
     command -v semanage >/dev/null 2>&1 || return 1
     command -v semodule  >/dev/null 2>&1 || return 1
-    # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE and pipefail then
-    # reports the probe failed -- see ai_tools_selinux_groups__is_loaded.
+    # Captured ahead of the search (ref-section-d9x2).
     local modules
     modules="$(semodule -l 2>/dev/null || true)"
-    grep -qE '^ai_tools([[:space:]]|$)' <<<"${modules}"
+    grep -qx ai_tools <<<"${modules}"
 }
 
 # Why the last file-context rule could not be registered -- semanage's own stderr, newlines collapsed to keep it on one

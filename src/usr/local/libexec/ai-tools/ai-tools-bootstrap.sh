@@ -540,7 +540,7 @@ offer_launch_requirements() {
     local -a unpinned=()
     (( _providers_loaded )) && [[ -f "${conf}" ]] || return 0
     command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == Enforcing ]] || return 0
-    # Captured before matching: `grep -q` exits on the match and leaves semodule to die of SIGPIPE mid-listing.
+    # Captured ahead of the search (ref-section-d9x2).
     modules="$(semodule -l 2>/dev/null)" || return 0
     grep -qx ai_tools <<< "${modules}" || return 0
     if ! ai_tools_conf__is_trusted "${conf}" 2>/dev/null; then

@@ -980,7 +980,7 @@ offer_selinux() {
     local loaded
     # `paste -d` takes a LIST of delimiters and cycles through them, so ', ' would alternate comma and space rather than
     # joining with both; join on the comma, then space it out.
-    loaded="$(semodule -l 2>/dev/null | grep '^ai_tools' | paste -sd ',' - | sed 's/,/, /g' || true)"
+    loaded="$(semodule -l 2>/dev/null | grep -E '^ai_tools(_|$)' | paste -sd ',' - | sed 's/,/, /g' || true)"
     [[ -n "${loaded}" ]] && loaded="[${loaded}]"
 
     # How a kept module actually behaves on THIS host: only global Enforcing mode blocks. Under Permissive the module is

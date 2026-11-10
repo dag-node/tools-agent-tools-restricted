@@ -23,6 +23,13 @@ concurrency:
   # mismatch) must not cancel a release publish already in flight for that ref.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+# Naming the shell is what gives a step `pipefail`: a `run:` step with no `shell:` is `bash -e {0}`, where a producer
+# that fails ahead of a pipe goes unseen, and with `shell: bash` it is `bash --noprofile --norc -eo pipefail {0}`.
+# A step that also wants `-u` sets it itself.
+defaults:
+  run:
+    shell: bash
+
 # Every job names its Ubuntu release rather than ubuntu-latest, so a move of the runner image is a reviewed commit with
 # its own run.
 jobs:
@@ -68,14 +75,16 @@ jobs:
           sudo install "shellcheck-${ver}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version
 
-      # Scope matches the documented baseline: src/**/*.sh, packaging/**/*.sh, and
-      # install.sh. tests/ and selinux/ scripts are not part of that baseline; extend
-      # the scope here and in the rule file together, after verifying each directory
-      # lints clean.
+      # Scope matches the baseline .claude/rules/shellcheck.rule.md states: the scripts
+      # under src/, packaging/, selinux/ and tools/, and install.sh. tests/ is outside it,
+      # for the reason the rule gives; a tree joins here and in the rule together, once
+      # it lints clean.
       - name: Lint the baseline against the repo's .shellcheckrc
         run: |
           find src -name '*.sh' -print0 | xargs -0 shellcheck
           find packaging -name '*.sh' -print0 | xargs -0 shellcheck
+          find selinux -name '*.sh' -print0 | xargs -0 shellcheck
+          find tools -name '*.sh' -print0 | xargs -0 shellcheck
           shellcheck install.sh
 
   # The typesafe integration's decide command is vendored from a signed release of

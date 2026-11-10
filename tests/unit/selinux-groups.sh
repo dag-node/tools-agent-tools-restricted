@@ -24,10 +24,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 # Read-only (sources a world-readable lib, reads repo files); no root needed, like man.sh.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Installed copy first, then the source tree (the lib does not carry a token substitution, so the two are identical);
-# the lockstep half needs the checkout regardless.
-LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
-[[ -r "${LIB}" ]] || LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+# The checkout's copy first, then the installed one: the library does not carry a token substitution, so the checkout's
+# file is the artifact, and a branch's change to it is what a run in that checkout reads. The lockstep half needs
+# the checkout regardless.
+LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+[[ -r "${LIB}" ]] || LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 section "selinux-groups: registry accessors + filesystem lockstep (unit)"
 
 if [[ ! -r "${LIB}" ]]; then
@@ -159,6 +160,24 @@ if ai_tools_selinux_groups__is_loaded definitelynotloaded; then
     fail "group_loaded reported an absent module as loaded"
 else
     pass "group_loaded reports an absent module as absent"
+fi
+# The name is matched as a fixed string against the whole line, and an empty name is not loaded: a here-string
+# of an empty listing is one empty line, which an empty name would match.
+if ai_tools_selinux_groups__is_module_loaded ai_tools && ! ai_tools_selinux_groups__is_module_loaded ai_tools_tmp; then
+    pass "a loaded name is loaded, and a name that opens a loaded module's is not"
+else
+    fail "the module probe did not match the whole line: ai_tools must be loaded and ai_tools_tmp must not"
+fi
+if ai_tools_selinux_groups__is_module_loaded 'ai_tools.*'; then
+    fail "the module probe read the name ai_tools.* as a pattern"
+else
+    pass "a name holding a regex metacharacter is matched as written"
+fi
+semodule() { return 1; }
+if ai_tools_selinux_groups__is_module_loaded ''; then
+    fail "an empty name read as loaded over a listing semodule refused"
+else
+    pass "an empty name is not loaded, whatever the listing"
 fi
 
 # --- A compiled module's version is read from its header and held against the range this host reads ---

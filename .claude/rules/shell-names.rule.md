@@ -114,6 +114,7 @@ Spell words in full. Keep these established short terms: `acl`, `dir`, `fcontext
 | `ai_tools_conf__allowlist_<verb>` | `ai-tools.sh` composes the name from the verb an operator typed; the family shares one stem. |
 | `ai_tools_log__<level>`, `ai_tools_msg__<class>`, a module's own `_warn` and `_notice` | Emitters are named for the class of message they produce (`info`, `warn`, `headline`), and a module's emitter for one situation adds it: `_ai_tools_toolchain__notice_state_left`. |
 | `ai_tools_launch_hook__append_args` | Contract of the `launch.d` seam. Every hook defines it. The wrapper sources only the launching agent's hook, calls it, and execs, so one definition exists per shell. |
+| The functions and globals a file under `tests/` defines for itself (`pass`, `fail`, `mktestdir`, `TESTDIR`) | The harness's functions are the vocabulary of every assertion, and a library's names carry the prefix, so a test's own name does not replace one. A test defines a module-form name only to stub the library function of that name, and its environment variables keep the external form (`AI_TOOLS_TEST_STRICT`). |
 
 ## Deferred
 

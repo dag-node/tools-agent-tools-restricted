@@ -371,13 +371,12 @@ entrypoint_exec_state() {
     mode="$(getenforce 2>"${STDERR_CAPTURE}")" && rc=0 || rc=$?
     (( rc == 0 )) || { printf 'unreadable getenforce exited %s: %s\n' "${rc}" "$(captured_stderr)"; return 0; }
     [[ "${mode}" == Enforcing || "${mode}" == Permissive ]] || { printf 'no-selinux\n'; return 0; }
-    # The listings are captured ahead of the search (ref-section-d9x2). semodule prints a module's name alone
-    # or with a version column, by release; either is the module being loaded.
+    # The listings are captured ahead of the search (ref-section-d9x2). semodule prints one module name per line.
     command -v semodule >/dev/null 2>&1 || { printf 'no-selinux\n'; return 0; }
     local modules
     modules="$(semodule -l 2>"${STDERR_CAPTURE}")" && rc=0 || rc=$?
     (( rc == 0 )) || { printf 'unreadable semodule -l exited %s: %s\n' "${rc}" "$(captured_stderr)"; return 0; }
-    grep -qE "^${SELINUX_CORE_MODULE}([[:space:]]|$)" <<<"${modules}" || { printf 'no-selinux\n'; return 0; }
+    grep -qxF -- "${SELINUX_CORE_MODULE}" <<<"${modules}" || { printf 'no-selinux\n'; return 0; }
     # sesearch (setools) is optional; without it the module's presence is the reading.
     if command -v sesearch >/dev/null 2>&1; then
         local rules

@@ -297,9 +297,7 @@ admin_command_check() {
         _admin_command_reason="$(coded_refusal MSG-D9F7 "not a script: ${fragment} -- a contributed command is an interpreted file")"
         return 1
     fi
-    # Captured before matching, never piped into `grep`/`head`: an early-exiting reader leaves the writer to die
-    # of SIGPIPE, which pipefail reports as a failed probe (see ai_tools_selinux_groups__is_loaded). Every read works
-    # on this one string.
+    # Captured ahead of the searches (ref-section-d9x2); every read works on this one string.
     header="$(head -n 20 "${fragment}" 2>/dev/null || true)"
     if ! grep -qxF -- "# ai-tools-admin-command: ${domain}" <<<"${header}"; then
         _admin_command_reason="$(coded_refusal MSG-H5F8 "no domain declaration: ${fragment} does not declare '# ai-tools-admin-command: ${domain}' in its first 20 lines -- reinstall the package that ships it")"
@@ -1069,11 +1067,8 @@ _restore_group_static_labels() {
 # bracketed [LOADED]/[disabled] state column as the group rows for one legend.
 sel_list() {
     require_selinux || return 0
-    local core_state='[disabled]' modules
-    # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE and pipefail then
-    # reports the probe failed -- see ai_tools_selinux_groups__is_loaded.
-    modules="$(semodule -l 2>/dev/null || true)"
-    grep -qx 'ai_tools' <<<"${modules}" && core_state='[LOADED]  '
+    local core_state='[disabled]'
+    ai_tools_selinux_groups__is_module_loaded ai_tools && core_state='[LOADED]  '
     printf '\nSELinux policy groups\n\n'
     printf '  %s core module (ai_tools) -- the confinement domain; DAC-only when disabled\n\n' "${core_state}"
     printf '  optional groups (all default: disabled)\n'
