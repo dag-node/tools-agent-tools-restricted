@@ -127,11 +127,11 @@ ai_tools_records_base__is_valid_record() {
     return 0
 }
 
-# _ai_tools_records_base__get_subject_type <variable> <type text>: write into <variable> the subject-type for the file
+# _ai_tools_records_base__parse_subject_type <variable> <type text>: write into <variable> the subject-type for the file
 # type stat(1) prints for `%F` under LC_ALL=C: `link`, `directory`, or `file` for a regular file, empty or not. Returns
 # 1 without writing for any other text. The one mapping the subject readers share; <variable> is a local of the reader
 # that calls it.
-_ai_tools_records_base__get_subject_type() {
+_ai_tools_records_base__parse_subject_type() {
     case "$2" in
         'symbolic link')                     printf -v "$1" link ;;
         directory)                           printf -v "$1" directory ;;
@@ -140,9 +140,9 @@ _ai_tools_records_base__get_subject_type() {
     esac
 }
 
-# _ai_tools_records_base__is_absence_reported <stat's error text>: 0 when stat(1) under LC_ALL=C reported ENOENT
+# _ai_tools_records_base__is_missing_path_error <stat's error text>: 0 when stat(1) under LC_ALL=C reported ENOENT
 # or ENOTDIR for the lstat, which is no entry at the path; 1 for any other text.
-_ai_tools_records_base__is_absence_reported() {
+_ai_tools_records_base__is_missing_path_error() {
     case "$1" in
         *': No such file or directory'|*': Not a directory') return 0 ;;
     esac
@@ -166,12 +166,12 @@ ai_tools_records_base__read_subject_type() {
     # `stat` without `-L` reads the entry itself; LC_ALL=C pins the type names and the two error texts this matches.
     # The output is matched whole, so a line stat(1) adds is an unrecognized read rather than a type.
     if _records_subject_type_described="$(LC_ALL=C stat -c %F -- "$1" 2>&1)"; then
-        _ai_tools_records_base__get_subject_type _records_subject_type_token "${_records_subject_type_described}" \
+        _ai_tools_records_base__parse_subject_type _records_subject_type_token "${_records_subject_type_described}" \
             || return 1
         printf '%s' "${_records_subject_type_token}"
         return 0
     fi
-    _ai_tools_records_base__is_absence_reported "${_records_subject_type_described}" && return 2
+    _ai_tools_records_base__is_missing_path_error "${_records_subject_type_described}" && return 2
     return 1
 }
 
@@ -191,15 +191,15 @@ ai_tools_records_base__read_subject_attributes() {
     ai_tools_records_base__is_output_name_valid "$2" && ai_tools_records_base__is_output_name_valid "$3" \
         && ai_tools_records_base__is_output_name_valid "$4" || return 1
     [[ "$2" != "$3" && "$2" != "$4" && "$3" != "$4" ]] || return 1
-    local _records_subject_attributes_printed _records_subject_attributes_type
+    local _records_subject_attributes_stat_output _records_subject_attributes_type
     local -a _records_subject_attributes_lines=()
-    if ! _records_subject_attributes_printed="$(LC_ALL=C stat --printf '%F\n%U:%G\n%a\n' -- "$1" 2>&1)"; then
-        _ai_tools_records_base__is_absence_reported "${_records_subject_attributes_printed}" && return 2
+    if ! _records_subject_attributes_stat_output="$(LC_ALL=C stat --printf '%F\n%U:%G\n%a\n' -- "$1" 2>&1)"; then
+        _ai_tools_records_base__is_missing_path_error "${_records_subject_attributes_stat_output}" && return 2
         return 1
     fi
-    mapfile -t _records_subject_attributes_lines <<<"${_records_subject_attributes_printed}"
+    mapfile -t _records_subject_attributes_lines <<<"${_records_subject_attributes_stat_output}"
     (( ${#_records_subject_attributes_lines[@]} == 3 )) || return 1
-    _ai_tools_records_base__get_subject_type _records_subject_attributes_type \
+    _ai_tools_records_base__parse_subject_type _records_subject_attributes_type \
         "${_records_subject_attributes_lines[0]}" || return 1
     [[ "${_records_subject_attributes_lines[1]}" == ?*:?* \
         && "${_records_subject_attributes_lines[2]}" =~ ^[0-7]{1,4}$ ]] || return 1

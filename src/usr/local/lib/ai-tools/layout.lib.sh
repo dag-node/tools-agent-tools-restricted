@@ -1229,8 +1229,8 @@ ai_tools_layout__read_entry_state() {
     local _layout_path="${_layout_fields[0]}" _layout_subject_type="${_layout_fields[1]}"
     local _layout_owner="${_layout_fields[2]}" _layout_mode="${_layout_fields[3]}" _layout_acl="${_layout_fields[4]}"
     local _layout_package="${_layout_fields[5]}" _layout_flags="${_layout_fields[6]}"
-    local _layout_operator="${_layout_fields[7]}" _layout_observed_type _layout_status _layout_key _layout_content
-    local _layout_excluded _layout_observed_owner _layout_observed_mode
+    local _layout_operator="${_layout_fields[7]}" _layout_observed_type _layout_key _layout_content
+    local _layout_excluded _layout_observed_owner _layout_observed_mode _layout_attributes_status
     local -A _layout_expected_state=() _layout_observed_state=()
     _layout_state=()
     _layout_state["path"]="${_layout_path}"; _layout_state["operator"]="${_layout_operator}"
@@ -1247,14 +1247,14 @@ ai_tools_layout__read_entry_state() {
     _ai_tools_layout__is_content_verification_required "${_layout_subject_type}" "${_layout_flags}" \
         && _layout_expected_state["content_checked"]=1
 
-    _layout_status=0
+    _layout_attributes_status=0
     ai_tools_records_base__read_subject_attributes "${_layout_path}" _layout_observed_type _layout_observed_owner \
-        _layout_observed_mode || _layout_status=$?
-    case "${_layout_status}" in
+        _layout_observed_mode || _layout_attributes_status=$?
+    case "${_layout_attributes_status}" in
         0) _layout_observed_state["type"]="${_layout_observed_type}" ;;
         2) _layout_observed_state["type"]=absent ;;
         *) _layout_observed_state["type"]=unreadable
-           _layout_observed_state["type_error"]="the entry is not a file, directory or link, or its type could not be read" ;;
+           _layout_observed_state["type_error"]="the entry is not a file, directory or link, or stat could not read it" ;;
     esac
     # A package file rpm records as excluded at install -- `not installed`, as tsflags=nodocs leaves a documentation
     # file, or `net shared` -- is absent by rpm's own decision, which the row reads as it reads an optional absence.
