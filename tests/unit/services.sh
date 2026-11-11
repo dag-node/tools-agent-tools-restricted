@@ -651,6 +651,45 @@ if declare -F ai_tools_services__read_remedy >/dev/null 2>&1; then
     else
         fail "a record with no remedy printed: $(ai_tools_services__read_remedy "${svc_rec}")"
     fi
+
+    # A sandbox-user unit's file is reloaded by that account's own manager, so its remedy names the machine-transport
+    # reload, and only where the reading of that manager was made: the property reader is stubbed to answer for the
+    # sandbox-user scope alone, so a reading taken in the system scope reads empty, and the probe's own root gate is
+    # pinned in the live-reading section below. The service record carries no remedy, so its reload prints alone;
+    # the timer's remedy follows the reload.
+    timer_rec="$(grep '^nvm-update\.timer|' <<<"${recs}" || true)"
+    timer_remedy="$(ai_tools_services__get_field "${timer_rec}" 6)"
+    user_reload="sudo systemctl --user -M ai-tools@.host daemon-reload"
+    user_remedy_case() {  # <label> <record> <account> <NeedDaemonReload> <want>
+        local got
+        got="$(
+            _AI_TOOLS_SERVICES__SANDBOX_ACCOUNT="$3"
+            _svc_need_reload="$4"
+            ai_tools_services__read_unit_property() {
+                [[ "$2" == NeedDaemonReload && "${3:-system}" == sandbox-user ]] && printf '%s' "${_svc_need_reload}"
+                return 0
+            }
+            ai_tools_services__read_remedy "$2"
+        )"
+        if [[ "${got}" == "$5" ]]; then
+            pass "read_remedy: $1"
+        else
+            fail "read_remedy: $1 -> '${got}', want '$5'"
+        fi
+    }
+    if [[ -z "${timer_remedy}" ]]; then
+        fail "the nvm-update.timer record carries no remedy, which the reload cases below follow"
+    fi
+    user_remedy_case "control: a sandbox-user unit its manager has loaded takes no reload" \
+        "${svc_rec}" ai-tools no ""
+    user_remedy_case "control: a sandbox-user unit with a remedy its manager has loaded takes the remedy as written" \
+        "${timer_rec}" ai-tools no "${timer_remedy}"
+    user_remedy_case "a changed sandbox-user unit with no remedy of its own takes its manager's reload alone" \
+        "${svc_rec}" ai-tools yes "${user_reload}"
+    user_remedy_case "a changed sandbox-user unit with a remedy takes its manager's reload ahead of it" \
+        "${timer_rec}" ai-tools yes "${user_reload} && ${timer_remedy}"
+    user_remedy_case "no sandbox account named: no reload is composed, whatever the reading" \
+        "${svc_rec}" "" yes ""
 else
     fail "services.lib.sh does not define ai_tools_services__read_remedy (${LIB})"
 fi

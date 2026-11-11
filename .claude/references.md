@@ -137,6 +137,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | p2n9 | [MSG-P2N9](../install.sh) | the asset reconcile did not complete (exit ${_reconcile_status}) -- run: atr admin assets reconcile | install.sh |  | warn |
 | e6n7 | [MSG-E6N7](../install.sh) | the shared assets were not seeded and the asset view was not reconciled: the assets lock could not be taken -- run: sudo ./install.sh install, once the other assets command has ended | install.sh |  | warn |
 | g3p2 | [MSG-G3P2](../install.sh) | could not write the timer stamp in /opt/ai-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update -- see: atr admin system layout | install.sh | packaging/ai-tools.spec | warn |
+| m2u5 | [MSG-M2U5](../install.sh) | could not reload the systemd --user manager of ${SANDBOX_USER}, which keeps running the nvm-update units it loaded before this install -- run: sudo systemctl --user -M ${SANDBOX_USER}@.host daemon-reload | install.sh | packaging/ai-tools.spec, tests/unit/spec-scriptlets.sh | warn |
 | m7k6 | [MSG-M7K6](../install.sh) | the systemd --user manager of ${SANDBOX_USER} did not come up -- the auto-update timer | install.sh |  | warn |
 | a7x8 | [MSG-A7X8](../install.sh) | toolchain not provisioned -- the wrapper/handback/SELinux checks skip or fail | install.sh |  | warn |
 | n7s2 | [MSG-N7S2](../install.sh) | operator.conf names providers without their kind prefix -- every launch refuses and the | install.sh | install.sh | warn |

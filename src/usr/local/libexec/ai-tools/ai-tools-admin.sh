@@ -2596,16 +2596,21 @@ status_services() {
         detail "$(ai_tools_services__get_field "${rec}" 5)"
         # A sandbox-user unit's commands name the sandbox ACCOUNT, and services.lib.sh is deployed with no
         # @SANDBOX_USER@ substitution, so they are composed here -- the same split the CLI makes, and the reason
-        # the registry's remedy field is empty for those units.
+        # the registry's remedy field is empty for those units. The remedy, which names the manager's daemon-reload
+        # where the unit's file changed since it was loaded, precedes the restart, and reset-failed precedes that:
+        # a unit whose retries spent its start limit refuses every start until it is reset.
+        remedy="$(ai_tools_services__read_remedy "${rec}")"
         if [[ "${scope}" != system ]]; then
             detail "sudo systemctl --user -M ${SANDBOX_USER}@.host status ${unit}"
             uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
             [[ -n "${uid}" ]] \
                 && detail "sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager"
+            [[ -n "${remedy}" ]] && detail "${remedy}"
+            detail "sudo systemctl --user -M ${SANDBOX_USER}@.host reset-failed ${unit}"
             detail "sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}"
+        elif [[ -n "${remedy}" ]]; then
+            detail "${remedy}"
         fi
-        remedy="$(ai_tools_services__read_remedy "${rec}")"
-        [[ -n "${remedy}" ]] && detail "${remedy}"
     done < <(ai_tools_services__list_records)
     return 0
 }
@@ -3443,6 +3448,7 @@ status() {
         "sudo systemctl start ai-tools-relabel.service" "run the relabel now; a FAILED above clears with a run that succeeds" \
         "sudo systemctl --user -M ${SANDBOX_USER}@.host status nvm-update.timer nvm-update.service" "the updater's schedule and its last run" \
         "sudo journalctl _SYSTEMD_USER_UNIT=nvm-update.service _UID=${sandbox_uid} -n 50" "what the updater printed" \
+        "sudo systemctl --user -M ${SANDBOX_USER}@.host reset-failed nvm-update.service" "clear a failed run and a spent start limit, which refuses every start" \
         "sudo systemctl --user -M ${SANDBOX_USER}@.host start nvm-update.service" "run the update now" \
         "sudo systemctl --user -M ${SANDBOX_USER}@.host daemon-reload" "reload that manager after a unit file changed on disk"
     printf '\n'

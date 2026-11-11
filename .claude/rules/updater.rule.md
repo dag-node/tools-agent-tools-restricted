@@ -268,7 +268,16 @@ would report as unknown and leave `ai_tools_services__is_attention_needed` unmov
 and the fault class does not: a broken toolchain or a failed signature check will fail the same way on a retry,
 and neither should churn against the registry. Retries are bounded by the unit's start limit, which `nvm-update.service`
 states with the outage it recovers, and then stop, leaving the stamp to age into `STALE` for an outage that lasts
-longer.
+longer. A unit that spent its start limit refuses every start, a manual one included, until
+`systemctl --user -M ai-tools@.host reset-failed nvm-update.service` clears it, so both status reports print that line
+ahead of the restart they name ([cli](cli.rule.md)).
+
+The units are `--user` units, and the systemd file triggers reload the system manager alone, so a running user manager
+keeps the unit text it loaded until it is told. The `ai-tools-integration-nodejs` `%posttrans` and `install.sh` reload
+it over the machine transport; the `%posttrans` does so only while that manager's `user@<uid>.service` is active, since
+a manager that is not running holds no stale unit, and each reports a reload that failed under `MSG-M2U5` with
+the command that repeats it, while the transaction or the install completes. A root caller's status report reads
+`NeedDaemonReload` of that manager and names the same reload ahead of the restart (`ai_tools_services__read_remedy`).
 
 This is the only recovery path a *failed* run has. The timer's `Persistent=true` covers a window missed while
 the manager was not running; a window taken by a run that then failed is spent, because systemd stamps a timer when it

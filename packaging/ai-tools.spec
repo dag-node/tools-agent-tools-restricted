@@ -1442,8 +1442,16 @@ fi
 systemctl start ai-tools-relabel.path 2>/dev/null || :
 # The nvm-update units are `--user` units of the sandbox account, and the systemd file triggers reload
 # the system manager alone: a running user manager keeps the unit text it loaded until it is told.
-# Reached over the machine transport where it runs; where it does not, no loaded unit is stale.
-systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
+# Reached over the machine transport while that manager runs; where it does not run, no loaded unit
+# is stale and nothing is said. A reload that fails while it runs leaves the units this transaction
+# replaced unloaded until the next reload, and is reported with the command that repeats it, under
+# the code install.sh defines for its own reload; the transaction completes either way.
+_nvm_uid="$(id -u ai-tools 2>/dev/null)" || _nvm_uid=""
+if [ -n "${_nvm_uid}" ] && systemctl is-active --quiet "user@${_nvm_uid}.service" 2>/dev/null; then
+    systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null \
+        || printf 'MSG-M2U5\nai-tools-integration-nodejs: could not reload the systemd --user manager of ai-tools, which keeps running the nvm-update units it loaded before this transaction -- run: sudo systemctl --user -M ai-tools@.host daemon-reload\n' >&2
+fi
+:
 
 %post -n ai-tools-integration-dotnet
 # Bring the sandbox-side dotnet state tree (writable NuGet cache, read-only shared tools) the

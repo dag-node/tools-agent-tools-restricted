@@ -478,9 +478,13 @@ being the authoritative one.
   covers a watcher run that failed before it reached any labelling at all.
 
   Every command for such a unit goes through root, and the CLI composes them rather than the registry storing them: each
-  names the sandbox **account**, and `services.lib.sh` is deployed with no `@SANDBOX_USER@` substitution. Status
-  and restart use the **machine transport**, which reaches that manager over the system bus where root is authorized,
-  where a plain `sudo -u` gets its own bus refused (`services.lib.sh`'s header). The journal query cannot use either:
+  names the sandbox **account**, and `services.lib.sh` is deployed with no `@SANDBOX_USER@` substitution. Status,
+  reset-failed and restart use the **machine transport**, which reaches that manager over the system bus where root is
+  authorized, where a plain `sudo -u` gets its own bus refused (`services.lib.sh`'s header). The reset precedes
+  the restart, since a unit that spent its start limit refuses every start until it is reset. Where the live reading
+  of that manager can be made — a root caller — and it reports the unit file changed since it was loaded, the remedy
+  line names that manager's `daemon-reload` ahead of both (`ai_tools_services__read_remedy`). The journal query cannot
+  use either:
   `journalctl --user-unit` as root reads **root's** user units, so the unit is selected by the journal fields instead
   (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field names and catches
   both the unit's own output and the `systemd-cat` lines its script emits.
