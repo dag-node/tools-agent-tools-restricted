@@ -619,9 +619,11 @@ row="$(grep "	error	host	" <<< "${out}" | awk 'NR == 1' || true)"
 [[ "$(column detail "${header}" "${row}")" == "the entry set exited 9" && "$(grep -c "	error	" <<< "${out}")" -eq 1 ]] \
     && grep -qx 'report_status=5' <<< "${out}" \
     && pass "the check stream writes one error row for a lost entry set and reports 5" || fail "lost set in the stream: $(tr '\n\t' '| ' <<< "${out}")"
-# The human table, through the admin helper sourced in a fresh shell with the library copy beside it.
+# The human table, through the admin helper sourced in a fresh shell with the library copy beside it. The copy's records
+# libraries load first and hold their load guards, so the helper's own source of the installed ones returns at the guard
+# and the layout copy meets the functions of this checkout.
 # shellcheck disable=SC2016  # the inner bash expands these
-out="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 3; source "$2" || exit 4
+out="$(bash -c 'source "${2%/*}/records-tsv.lib.sh" || exit 2; source "$1" >/dev/null 2>&1 || exit 3; source "$2" || exit 4
     ai_tools_layout__list_entries() { return 9; }
     rc=0; layout_write_table || rc=$?; printf "rc=%s\n" "${rc}"' _ "${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
     "${TESTDIR}/lib/layout.lib.sh" 2>&1)" || true
