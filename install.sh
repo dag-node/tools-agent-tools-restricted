@@ -3083,7 +3083,9 @@ do_install() {
         || warn MSG-G3P2 "could not write the timer stamp in /opt/ai-tools/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER}, so the first timer window runs an immediate update -- see: atr admin system layout"
     if (( manager_ready )); then
         log "enable nvm-update.timer in ${SANDBOX_USER}'s --user instance"
-        user_systemctl "${SANDBOX_USER}" daemon-reload
+        # The ai-tools-integration-nodejs %posttrans prints the same code for the same reload.
+        user_systemctl "${SANDBOX_USER}" daemon-reload \
+            || warn MSG-M2U5 "could not reload the systemd --user manager of ${SANDBOX_USER}, which keeps running the nvm-update units it loaded before this install -- run: sudo systemctl --user -M ${SANDBOX_USER}@.host daemon-reload"
         user_systemctl "${SANDBOX_USER}" start nvm-update.timer
     else
         # The symlink is in place, so the timer starts with the manager at next boot. Say what is not running now

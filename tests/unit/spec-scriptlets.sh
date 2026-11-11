@@ -17,7 +17,9 @@
 # Source order does not show that the writes wait on the reading; unit/spec-selinux-erase.sh runs the scriptlet
 # under stubs for that. The selinux %post is read for its walks over the trees the sandbox account writes: each runs
 # ai-tools-relabel-tree at the canonical path with its exit status kept, the section does not take a session reading
-# or run restorecon over those trees, and it runs the agent relabel once its lock is released.
+# or run restorecon over those trees, and it runs the agent relabel once its lock is released. The nodejs %posttrans is
+# read for its reload of the sandbox account's user manager: taken only while that manager's user@ unit is active,
+# a failed reload reported under its code, and the section closing on `:` so the transaction completes either way.
 #
 # Its last section reads the spec through RPM's macro expansion, which every scriptlet body passes
 # through before the shell does (the spec's preamble states the escaping rule): no scriptlet carries a percent run
@@ -178,6 +180,57 @@ else
         pass "the selinux %post walks /opt/ai-tools and the clone area at their canonical paths, their status kept, with no session reading, and runs the agent relabel once the lock is released"
     else
         fail "the selinux %post: ${post_findings//$'\n'/; }"
+    fi
+fi
+
+section "the nodejs %posttrans reloads the sandbox account's manager and reports a reload that failed (unit)"
+
+# list_user_reload_findings <section>: print each way the section departs from the reload of the sandbox account's user
+# manager -- no is-active read of that manager's user@ unit ahead of the reload, no reload, a reload whose status `|| :`
+# discards, no MSG-M2U5 report on the reload's failure, and a section that does not close on `:` -- one per line, over
+# its code lines. A printf line is kept, since the report is one, and the reload is matched at the start of a line,
+# so the command the report names is not read as the reload.
+list_user_reload_findings() {
+    local code active_line reload_line report_line last
+    code="$(grep -vE '^[[:space:]]*#' <<< "$1" || true)"
+    active_line="$(grep -nE 'systemctl is-active --quiet "user@\$\{[a-z_]+\}\.service"' <<< "${code}" || true)"
+    active_line="${active_line%%:*}"
+    reload_line="$(grep -nE '^[[:space:]]*systemctl --user -M ai-tools@\.host daemon-reload' <<< "${code}" || true)"
+    reload_line="${reload_line%%:*}"
+    report_line="$(grep -nE '^[[:space:]]*\|\| printf .MSG-M2U5\\n' <<< "${code}" || true)"
+    report_line="${report_line%%:*}"
+    if [[ -z "${reload_line}" ]]; then
+        printf 'no reload of the sandbox manager\n'
+    elif ! { [[ -n "${active_line}" ]] && (( active_line < reload_line )); }; then
+        printf 'no is-active read of the manager ahead of the reload\n'
+    fi
+    grep -E '^[[:space:]]*systemctl --user -M ai-tools@\.host daemon-reload.*\|\| :' <<< "${code}" \
+        | sed 's/^/the status is discarded: /' || true
+    if ! { [[ -n "${reload_line}" && -n "${report_line}" ]] && (( report_line == reload_line + 1 )); }; then
+        printf 'no MSG-M2U5 report on a failed reload\n'
+    fi
+    last="$(grep -vE '^[[:space:]]*$' <<< "${code}" | tail -n 1)"
+    [[ "${last}" =~ ^[[:space:]]*:[[:space:]]*$ ]] || printf 'the section does not close on :\n'
+}
+# The control is the form that reloads unconditionally and discards the failure.
+reload_control="$(printf '%s\n' '%posttrans -n ai-tools-integration-nodejs' \
+    'systemctl start ai-tools-relabel.path 2>/dev/null || :' \
+    'systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :' 'true')"
+posttrans_section=""
+for sec in "${sections[@]}"; do
+    [[ "${sec%%$'\n'*}" == "%posttrans -n ai-tools-integration-nodejs" ]] && posttrans_section="${sec}"
+done
+if [[ "$(list_user_reload_findings "${reload_control}" | grep -c .)" -ne 4 ]]; then
+    fail "control: the reader does not flag a missing is-active read, a discarded status, a missing report and a close other than :, so the check below cannot fail"
+elif [[ -z "${posttrans_section}" ]]; then
+    fail "the nodejs %posttrans section was not found; the parser or the spec changed shape"
+else
+    pass "the reader flags a missing is-active read, a discarded status, a missing report and a close other than : (control)"
+    reload_findings="$(list_user_reload_findings "${posttrans_section}")"
+    if [[ -z "${reload_findings}" ]]; then
+        pass "the nodejs %posttrans reloads the sandbox manager only while it runs, reports a failed reload under MSG-M2U5, and closes on :"
+    else
+        fail "the nodejs %posttrans: ${reload_findings//$'\n'/; }"
     fi
 fi
 

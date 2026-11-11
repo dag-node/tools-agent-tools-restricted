@@ -6075,7 +6075,7 @@ status_fmt_age() {
     ai_tools_services__format_age "${1:-}"
 }
 
-# status_sandbox_unit_commands <unit>  -- print the three commands that inspect and re-run a unit
+# status_sandbox_unit_commands <unit> [remedy]  -- print the commands that inspect and re-run a unit
 # living in the SANDBOX account's own `systemd --user` manager. That manager is unreachable from
 # the operator's session, so every one of them goes through root:
 #   * status/restart use the MACHINE transport (systemctl --user -M <account>@.host), which reaches
@@ -6087,15 +6087,21 @@ status_fmt_age() {
 #     _SYSTEMD_USER_UNIT and narrowed to the sandbox account by _UID (different field names AND
 #     together). This catches the unit's own output and the `systemd-cat` lines its script emits,
 #     since both are logged from the same cgroup.
+#   * reset-failed precedes the restart: a unit whose retries spent its start limit refuses every
+#     start until it is reset, and the reset is a no-op on a unit that has not failed.
+# [remedy] is ai_tools_services__read_remedy's line for the record, printed ahead of the restart:
+# where it names a daemon-reload, a restart before it runs the unit text the manager holds.
 # Composed here rather than stored in services.lib.sh because each names the sandbox account, and
 # that library is deployed with no @SANDBOX_USER@ substitution.
 status_sandbox_unit_commands() {
-    local unit="$1" uid
+    local unit="$1" remedy_line="${2:-}" uid
     uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
     say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host status ${unit}${C_RST}"
     if [[ -n "${uid}" ]]; then
         say "      ${C_BOLD}sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager${C_RST}"
     fi
+    [[ -z "${remedy_line}" ]] || say "      ${C_BOLD}${remedy_line}${C_RST}"
+    say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host reset-failed ${unit}${C_RST}"
     say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}${C_RST}"
 }
 
@@ -6922,11 +6928,10 @@ status_services() {
         if ai_tools_services__is_attention_needed "${state}"; then
             ai_tools_records_base__accumulate_severity attention
             say "      $(ai_tools_services__get_field "${rec}" 5)"
-            if [[ "${scope}" == sandbox-user ]]; then
-                status_sandbox_unit_commands "${unit}"
-            fi
             remedy="$(ai_tools_services__read_remedy "${rec}")"
-            if [[ -n "${remedy}" ]]; then
+            if [[ "${scope}" == sandbox-user ]]; then
+                status_sandbox_unit_commands "${unit}" "${remedy}"
+            elif [[ -n "${remedy}" ]]; then
                 say "      ${C_BOLD}${remedy}${C_RST}"
             fi
         fi

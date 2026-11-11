@@ -2401,6 +2401,10 @@ launcher ${launcher} not found at ${versioned_launcher} \-\- its symlink is skip
 ERROR.
 the SELinux policy modules did not compile (see above); fix the cause and re\-run
 .TP
+.B MSG-M2U5
+WARNING.
+could not reload the systemd \-\-user manager of ${SANDBOX_USER}, which keeps running the nvm\-update units it loaded before this install \-\- run: sudo systemctl \-\-user \-M ${SANDBOX_USER}@.host daemon\-reload
+.TP
 .B MSG-M7K6
 WARNING.
 the systemd \-\-user manager of ${SANDBOX_USER} did not come up \-\- the auto\-update timer
