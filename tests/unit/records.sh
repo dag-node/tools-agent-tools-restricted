@@ -506,6 +506,43 @@ want="dir=0:directory empty=0:file file=0:file link=0:link dangling=0:link absen
 [[ "${got}" == "${want}" ]] && pass "observed types: directory, file, link; 2 for an absence, 1 for a device or a failed read" \
     || fail "observed types: '${got}'"
 
+# attributes <path> : `<status>:<type>,<owner>,<mode>` of one read into variables that hold `kept` before it.
+attributes() {
+    local seen_type=kept seen_owner=kept seen_mode=kept status=0
+    ai_tools_records_base__read_subject_attributes "$1" seen_type seen_owner seen_mode || status=$?
+    printf '%s:%s,%s,%s' "${status}" "${seen_type}" "${seen_owner}" "${seen_mode}"
+}
+chmod 0640 "${types}/file"; chmod 2750 "${types}/dir"; chmod 0600 "${types}/empty"
+me="$(stat -c '%U:%G' "${types}/file")"
+link_mode="$(stat -c '%a' "${types}/link")"
+got=""
+for name in dir empty file link dangling absent file/below; do got+="${name}=$(attributes "${types}/${name}") "; done
+got+="device=$(attributes /dev/null) "
+got+="no-stat=$(PATH=/nonexistent attributes "${types}/file")"
+want="dir=0:directory,${me},2750 empty=0:file,${me},600 file=0:file,${me},640 link=0:link,${me},${link_mode}"
+want+=" dangling=0:link,${me},${link_mode} absent=2:kept,kept,kept file/below=2:kept,kept,kept"
+want+=" device=1:kept,kept,kept no-stat=1:kept,kept,kept"
+[[ "${me}" == ?*:?* && "${got}" == "${want}" ]] \
+    && pass "observed attributes: the type, the owner by name and the mode of the entry itself; no variable written on 1 or 2" \
+    || fail "observed attributes: '${got}', expected '${want}'"
+# A stat that prints a fourth line, as an account name holding a line feed would, is a read that did not complete.
+got="$(stat() { printf 'regular file\nsplit\nname:group\n644\n'; }; attributes "${types}/file")"
+[[ "${got}" == "1:kept,kept,kept" ]] && pass "output that is not the three lines is a failed read" \
+    || fail "a fourth line: '${got}'"
+got="$(stat() { printf 'regular file\nname:group\n-rw-r--r--\n'; }; attributes "${types}/file")"
+[[ "${got}" == "1:kept,kept,kept" ]] && pass "a mode that is not octal is a failed read" || fail "a symbolic mode: '${got}'"
+got=""
+for names in "seen_type seen_type seen_mode" "seen_type seen_owner seen_owner" "seen_type seen_owner seen_type" \
+        "_records_x seen_owner seen_mode" "seen_type 9owner seen_mode" "seen_type seen_owner LC_ALL" "seen_type seen_owner"; do
+    seen_type=kept seen_owner=kept seen_mode=kept status=0
+    # shellcheck disable=SC2086  # the names are split on purpose, one argument each
+    ai_tools_records_base__read_subject_attributes "${types}/file" ${names} || status=$?
+    got+="${status}:${seen_type},${seen_owner},${seen_mode} "
+done
+[[ "${got}" == "$(printf '1:kept,kept,kept %.0s' 1 2 3 4 5 6 7)" ]] \
+    && pass "a name given twice, a refused name and a missing name each return 1 without a write" \
+    || fail "refused output names: '${got}'"
+
 # ── Collectors ───────────────────────────────────────────────────────────────────────────────────
 section "records: the collector rules -- the reader, failure, cap, exact bytes (unit)"
 # counted_collector <name> <exit>... : two lines naming this run's number, counted in ${TESTDIR}/runs-<name>, then

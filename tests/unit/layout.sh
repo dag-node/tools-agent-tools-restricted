@@ -256,6 +256,16 @@ expect_read "an absent optional row"             "$(entry "${FX}/none" file "${m
 expect_read "a directory where a file belongs"   "$(entry "${FX}/dir" file "${me}" 0644 - ai-tools-base files)" "directory type-mismatch"
 expect_read "a dangling link"                    "$(entry "${FX}/dangling" link "${me}" 0777 - ai-tools-base files)" "link missing"
 expect_read "a link whose target exists"         "$(entry "${FX}/goodlink" link "${me}" 0777 - ai-tools-base files)" "link"
+# A stat that exits 0 with a fourth line, as an account name holding a line feed would print: the one read gave no
+# value, so the row is the type's unreadable with its detail, and no owner or mode finding follows.
+at_file="$(entry "${FX}/file" file nobody:nobody 0600 - ai-tools-base -)"
+got="$(stat() { printf 'regular file\nsplit\nname:group\n644\n'; }
+       declare -A rd_state=(); declare -a rd_findings=()
+       ai_tools_layout__read_entry_state "${at_file}" rd_state rd_findings || printf 'rc=%s ' "$?"
+       printf '%s|%s|%s|%s' "${rd_state[type]}" "${rd_state[type_error]:-}" "${rd_state[owner]:-none}" "${#rd_findings[@]}")"
+want="unreadable|the entry is not a file, directory or link, or its type, owner and mode could not be read or recognized|none|1"
+[[ "${got}" == "${want}" ]] && pass "output stat printed and the reader does not recognize is the type's unreadable, with one finding" \
+    || fail "unrecognized attributes: '${got}'"
 expect_read "a payload file under a pass without rpm reads unverified, no finding" \
     "$(entry "${FX}/file" file "${me}" 0644 - ai-tools-base files)" "file"
 declare -A st=(); declare -a found=()
@@ -619,9 +629,11 @@ row="$(grep "	error	host	" <<< "${out}" | awk 'NR == 1' || true)"
 [[ "$(column detail "${header}" "${row}")" == "the entry set exited 9" && "$(grep -c "	error	" <<< "${out}")" -eq 1 ]] \
     && grep -qx 'report_status=5' <<< "${out}" \
     && pass "the check stream writes one error row for a lost entry set and reports 5" || fail "lost set in the stream: $(tr '\n\t' '| ' <<< "${out}")"
-# The human table, through the admin helper sourced in a fresh shell with the library copy beside it.
+# The human table, through the admin helper sourced in a fresh shell with the library copy beside it. The copy's records
+# libraries load first and hold their load guards, so the helper's own source of the installed ones returns at the guard
+# and the layout copy meets the functions of this checkout.
 # shellcheck disable=SC2016  # the inner bash expands these
-out="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 3; source "$2" || exit 4
+out="$(bash -c 'source "${2%/*}/records-tsv.lib.sh" || exit 2; source "$1" >/dev/null 2>&1 || exit 3; source "$2" || exit 4
     ai_tools_layout__list_entries() { return 9; }
     rc=0; layout_write_table || rc=$?; printf "rc=%s\n" "${rc}"' _ "${ROOT}/src/usr/local/libexec/ai-tools/ai-tools-admin.sh" \
     "${TESTDIR}/lib/layout.lib.sh" 2>&1)" || true
