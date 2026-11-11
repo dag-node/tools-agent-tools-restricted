@@ -279,7 +279,7 @@ not ordered against it and connectivity is handled where it arises, in the run's
 The daily window is the host's local time; an operator moves it
 with `sudo systemctl --user -M ai-tools@.host edit nvm-update.timer`.
 
-The unit also caps the run: `MemoryHigh=1G`, `MemoryMax=2G`, `MemorySwapMax=0` and `TasksMax=256`, which a Node install
+The unit also caps the run: `MemoryHigh=2G`, `MemoryMax=3G`, `MemorySwapMax=0` and `TasksMax=256`, which a Node install
 and an npm install stay under. A run killed at the limit exits non-zero, which `Restart=on-failure` retries within
 the start limit and the stamp reports as `failed`. The manager applies the four where the host delegates the `memory`
 and `pids` controllers to it (cgroup v2), and accepts them without applying them on cgroup v1; an operator raises one
