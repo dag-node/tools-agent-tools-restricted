@@ -256,6 +256,16 @@ expect_read "an absent optional row"             "$(entry "${FX}/none" file "${m
 expect_read "a directory where a file belongs"   "$(entry "${FX}/dir" file "${me}" 0644 - ai-tools-base files)" "directory type-mismatch"
 expect_read "a dangling link"                    "$(entry "${FX}/dangling" link "${me}" 0777 - ai-tools-base files)" "link missing"
 expect_read "a link whose target exists"         "$(entry "${FX}/goodlink" link "${me}" 0777 - ai-tools-base files)" "link"
+# A stat that exits 0 with a fourth line, as an account name holding a line feed would print: the one read gave no
+# value, so the row is the type's unreadable with its detail, and no owner or mode finding follows.
+at_file="$(entry "${FX}/file" file nobody:nobody 0600 - ai-tools-base -)"
+got="$(stat() { printf 'regular file\nsplit\nname:group\n644\n'; }
+       declare -A rd_state=(); declare -a rd_findings=()
+       ai_tools_layout__read_entry_state "${at_file}" rd_state rd_findings || printf 'rc=%s ' "$?"
+       printf '%s|%s|%s|%s' "${rd_state[type]}" "${rd_state[type_error]:-}" "${rd_state[owner]:-none}" "${#rd_findings[@]}")"
+want="unreadable|the entry is not a file, directory or link, or its type, owner and mode could not be read or recognized|none|1"
+[[ "${got}" == "${want}" ]] && pass "output stat printed and the reader does not recognize is the type's unreadable, with one finding" \
+    || fail "unrecognized attributes: '${got}'"
 expect_read "a payload file under a pass without rpm reads unverified, no finding" \
     "$(entry "${FX}/file" file "${me}" 0644 - ai-tools-base files)" "file"
 declare -A st=(); declare -a found=()

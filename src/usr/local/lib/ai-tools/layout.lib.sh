@@ -1254,7 +1254,8 @@ ai_tools_layout__read_entry_state() {
         0) _layout_observed_state["type"]="${_layout_observed_type}" ;;
         2) _layout_observed_state["type"]=absent ;;
         *) _layout_observed_state["type"]=unreadable
-           _layout_observed_state["type_error"]="the entry is not a file, directory or link, or stat could not read it" ;;
+           _layout_observed_state["type_error"]="the entry is not a file, directory or link, or its type, owner"
+           _layout_observed_state["type_error"]+=" and mode could not be read or recognized" ;;
     esac
     # A package file rpm records as excluded at install -- `not installed`, as tsflags=nodocs leaves a documentation
     # file, or `net shared` -- is absent by rpm's own decision, which the row reads as it reads an optional absence.
