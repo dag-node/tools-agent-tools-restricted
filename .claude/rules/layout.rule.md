@@ -82,11 +82,12 @@ shipped data under `%files` without `%attr`, and every link target, which `integ
 
 `ai_tools_layout__read_entry_state` reads one entry into the caller's associative array and appends its findings
 to the caller's indexed array, validating both names as `records-base.lib.sh` validates its own
-([records](records.rule.md)). The fields are read in order: the type from one `lstat`, the owner and the mode without
-`-L`, the ACL text whole from one `getfacl -P` observation, the label
-through `ai_tools_project_permissions__get_context_type` over `matchpathcon` and `stat -c '%C'`, and the content
-of a package file from the collector. A row that is missing or of another type does not read further; a field
-whose reading did not complete is `unreadable` for that row, with the field named and every finding read before it kept.
+([records](records.rule.md)). The fields are read in order: the type, the owner and the mode from one `lstat`,
+through `ai_tools_records_base__read_subject_attributes`, so the three describe one inode, the ACL text whole from one
+`getfacl -P` observation, the label through `ai_tools_project_permissions__get_context_type` over `matchpathcon`
+and `stat -c '%C'`, and the content of a package file from the collector. A row that is missing or of another type does
+not read further; a field whose reading did not complete is `unreadable` for that row, with the field named and every
+finding read before it kept.
 
 **Label applicability.** `n/a` where `/sys/fs/selinux/enforce` does not exist or `getenforce` prints `Disabled`;
 on an enabled host a missing `matchpathcon`, a lookup that fails or a context that does not validate is `unreadable`,

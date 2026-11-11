@@ -3,9 +3,10 @@
 # /usr/local/lib/ai-tools/records-base.lib.sh
 # The record model and the report state behind every record stream a report writes for a machine consumer: the column
 # registry, the severity and subject-type token sets, the two exit constants, the fold that turns the severities a run
-# noted into its exit status, and the reader a report runs a collector through. The wire format is records-tsv.lib.sh,
-# which sources this file; the public contract (the columns, their meaning, the escape, the identity recipe,
-# the completion rules) is ai-tools-records(5), and the rules a report follows when it calls these functions are
+# noted into its exit status, the readers of what is at a subject's path, and the reader a report runs a collector
+# through. The wire format is records-tsv.lib.sh, which sources this file; the public contract (the columns, their
+# meaning, the escape, the identity recipe, the completion rules) is ai-tools-records(5), and the rules a report follows
+# when it calls these functions are
 # .claude/rules/records.rule.md.
 #
 # AI_TOOLS_RECORDS_BASE__COLUMNS is the one code-side declaration of the stream's header: `name:class` in stream order.
@@ -126,6 +127,28 @@ ai_tools_records_base__is_valid_record() {
     return 0
 }
 
+# _ai_tools_records_base__get_subject_type <variable> <type text>: write into <variable> the subject-type for the file
+# type stat(1) prints for `%F` under LC_ALL=C: `link`, `directory`, or `file` for a regular file, empty or not. Returns
+# 1 without writing for any other text. The one mapping the subject readers share; <variable> is a local of the reader
+# that calls it.
+_ai_tools_records_base__get_subject_type() {
+    case "$2" in
+        'symbolic link')                     printf -v "$1" link ;;
+        directory)                           printf -v "$1" directory ;;
+        'regular file'|'regular empty file') printf -v "$1" file ;;
+        *)                                   return 1 ;;
+    esac
+}
+
+# _ai_tools_records_base__is_absence_reported <stat's error text>: 0 when stat(1) under LC_ALL=C reported ENOENT
+# or ENOTDIR for the lstat, which is no entry at the path; 1 for any other text.
+_ai_tools_records_base__is_absence_reported() {
+    case "$1" in
+        *': No such file or directory'|*': Not a directory') return 0 ;;
+    esac
+    return 1
+}
+
 # ai_tools_records_base__read_subject_type <path>: print the observed subject-type of the entry at <path>, from one
 # lstat(2) of its last component: `link` for a symbolic link, `directory` for a directory, `file` for a regular file.
 # Returns 2 without printing where the lstat fails with ENOENT or ENOTDIR (no entry at <path>), and 1 without printing
@@ -139,22 +162,51 @@ ai_tools_records_base__is_valid_record() {
 # it under a trusted directory descriptor and inspects that descriptor instead.
 # args: $1 the subject's path
 ai_tools_records_base__read_subject_type() {
-    local _records_subject_type_described
+    local _records_subject_type_described _records_subject_type_token
     # `stat` without `-L` reads the entry itself; LC_ALL=C pins the type names and the two error texts this matches.
     # The output is matched whole, so a line stat(1) adds is an unrecognized read rather than a type.
     if _records_subject_type_described="$(LC_ALL=C stat -c %F -- "$1" 2>&1)"; then
-        case "${_records_subject_type_described}" in
-            'symbolic link')                    printf link ;;
-            directory)                          printf directory ;;
-            'regular file'|'regular empty file') printf file ;;
-            *)                                  return 1 ;;
-        esac
+        _ai_tools_records_base__get_subject_type _records_subject_type_token "${_records_subject_type_described}" \
+            || return 1
+        printf '%s' "${_records_subject_type_token}"
         return 0
     fi
-    case "${_records_subject_type_described}" in
-        *': No such file or directory'|*': Not a directory') return 2 ;;
-    esac
+    _ai_tools_records_base__is_absence_reported "${_records_subject_type_described}" && return 2
     return 1
+}
+
+# ai_tools_records_base__read_subject_attributes <path> <type-var> <owner-var> <mode-var>: the read
+# of ai_tools_records_base__read_subject_type with the owner and the mode the same lstat(2) returned. Writes
+# the subject-type into <type-var>, the owner as `<user>:<group>` by name into <owner-var>, and the permission bits
+# in octal as stat(1) prints them, without leading zeros, into <mode-var>. One stat(1) run prints the three, so they
+# describe one inode, and a caller that needs them forks once and not once per value.
+#
+# Returns as that function does, writing no variable: 2 where no entry is at <path>, and 1 for any other entry type
+# and for a read that did not complete, which includes output that is not the three lines it expects (an account name
+# holding a line feed). Returns 1 without reading for another argument count, a name
+# ai_tools_records_base__is_output_name_valid refuses, or one name given twice. The values label a row as the type does.
+# args: $1 the subject's path  $2 $3 $4 the caller's variables for the type, the owner and the mode
+ai_tools_records_base__read_subject_attributes() {
+    (( $# == 4 )) || return 1
+    ai_tools_records_base__is_output_name_valid "$2" && ai_tools_records_base__is_output_name_valid "$3" \
+        && ai_tools_records_base__is_output_name_valid "$4" || return 1
+    [[ "$2" != "$3" && "$2" != "$4" && "$3" != "$4" ]] || return 1
+    local _records_subject_attributes_printed _records_subject_attributes_type
+    local -a _records_subject_attributes_lines=()
+    if ! _records_subject_attributes_printed="$(LC_ALL=C stat --printf '%F\n%U:%G\n%a\n' -- "$1" 2>&1)"; then
+        _ai_tools_records_base__is_absence_reported "${_records_subject_attributes_printed}" && return 2
+        return 1
+    fi
+    mapfile -t _records_subject_attributes_lines <<<"${_records_subject_attributes_printed}"
+    (( ${#_records_subject_attributes_lines[@]} == 3 )) || return 1
+    _ai_tools_records_base__get_subject_type _records_subject_attributes_type \
+        "${_records_subject_attributes_lines[0]}" || return 1
+    [[ "${_records_subject_attributes_lines[1]}" == ?*:?* \
+        && "${_records_subject_attributes_lines[2]}" =~ ^[0-7]{1,4}$ ]] || return 1
+    printf -v "$2" '%s' "${_records_subject_attributes_type}"
+    printf -v "$3" '%s' "${_records_subject_attributes_lines[1]}"
+    printf -v "$4" '%s' "${_records_subject_attributes_lines[2]}"
+    return 0
 }
 
 # ai_tools_records_base__read_collector <lines-var> <status-var> <command> [<arg>...]: run <command> as a collector,

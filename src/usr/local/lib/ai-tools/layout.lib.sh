@@ -53,7 +53,8 @@ for _ai_tools_layout__required in ai_tools_conf__is_trusted ai_tools_conf__read_
         ai_tools_conf__is_portable_name_valid \
         ai_tools_conf__read_untrusted_reason ai_tools_conf__read_unreadable_reason \
         ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
-        ai_tools_records_base__read_subject_type ai_tools_records_base__read_collector \
+        ai_tools_records_base__read_subject_type ai_tools_records_base__read_subject_attributes \
+        ai_tools_records_base__read_collector \
         ai_tools_records_tsv__encode_field ai_tools_records_tsv__decode_field \
         ai_tools_records_tsv__frame_item_components ai_tools_records_tsv__write_record \
         ai_tools_project_permissions__get_context_type ai_tools_log__sanitize; do
@@ -1229,7 +1230,7 @@ ai_tools_layout__read_entry_state() {
     local _layout_owner="${_layout_fields[2]}" _layout_mode="${_layout_fields[3]}" _layout_acl="${_layout_fields[4]}"
     local _layout_package="${_layout_fields[5]}" _layout_flags="${_layout_fields[6]}"
     local _layout_operator="${_layout_fields[7]}" _layout_observed_type _layout_status _layout_key _layout_content
-    local _layout_excluded
+    local _layout_excluded _layout_observed_owner _layout_observed_mode
     local -A _layout_expected_state=() _layout_observed_state=()
     _layout_state=()
     _layout_state["path"]="${_layout_path}"; _layout_state["operator"]="${_layout_operator}"
@@ -1247,7 +1248,8 @@ ai_tools_layout__read_entry_state() {
         && _layout_expected_state["content_checked"]=1
 
     _layout_status=0
-    _layout_observed_type="$(ai_tools_records_base__read_subject_type "${_layout_path}")" || _layout_status=$?
+    ai_tools_records_base__read_subject_attributes "${_layout_path}" _layout_observed_type _layout_observed_owner \
+        _layout_observed_mode || _layout_status=$?
     case "${_layout_status}" in
         0) _layout_observed_state["type"]="${_layout_observed_type}" ;;
         2) _layout_observed_state["type"]=absent ;;
@@ -1272,14 +1274,9 @@ ai_tools_layout__read_entry_state() {
         if [[ "${_layout_subject_type}" == link ]]; then
             [[ -e "${_layout_path}" ]] || _layout_observed_state["link_target"]=dangling
         fi
-        _layout_observed_state["owner"]="$(LC_ALL=C stat -c '%U:%G' -- "${_layout_path}" 2>/dev/null)" \
-            || _layout_observed_state["owner_error"]="stat could not read the owner"
+        _layout_observed_state["owner"]="${_layout_observed_owner}"
         if [[ "${_layout_subject_type}" != link ]]; then
-            if _layout_observed_state["mode"]="$(LC_ALL=C stat -c '%a' -- "${_layout_path}" 2>/dev/null)"; then
-                printf -v '_layout_observed_state[mode]' '%04d' "${_layout_observed_state[mode]}"
-            else
-                _layout_observed_state["mode_error"]="stat could not read the mode"
-            fi
+            printf -v '_layout_observed_state[mode]' '%04d' "${_layout_observed_mode}"
             _ai_tools_layout__read_acl "${_layout_path}" _layout_observed_state
             _ai_tools_layout__read_entry_label_types "${_layout_path}" _layout_expected_state _layout_observed_state
             if (( ${_layout_expected_state[content_checked]:-0} )); then

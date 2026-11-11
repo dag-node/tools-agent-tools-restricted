@@ -21,8 +21,10 @@ sourcing `msg.lib.sh`, so a root helper sources the data layer alone:
   (`name:class` in stream order, the one code-side declaration of the header), the severity and subject-type token sets,
   the two exit constants (the only place 4 and 5 are spelled in code), the fold that turns the severities a run noted
   into `ai_tools_records_base__get_exit_status`, `ai_tools_records_base__read_subject_type`, the one reader
-  of a subject's observed type, and `ai_tools_records_base__read_collector`, the one reader of a collector's lines
-  and exit status. It is format-independent, so a later JSON writer reuses its predicate and its state.
+  of a subject's observed type, with `ai_tools_records_base__read_subject_attributes`, which reads the owner
+  and the mode from the same `lstat` and maps the type through the same function,
+  and `ai_tools_records_base__read_collector`, the one reader of a collector's lines and exit status. It is
+  format-independent, so a later JSON writer reuses its predicate and its state.
 - **`records-tsv.lib.sh`** is the wire format: the canonical escape and its strict decoder, the item framing, the record
   identity (the hash is over the TSV encoding, which is why the identity helper lives here) and the row writer.
 
