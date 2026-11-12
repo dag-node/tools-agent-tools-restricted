@@ -430,7 +430,7 @@ through the installed `/usr/sbin/ai-tools-admin` link, established as root first
 the status to the two a refusal produces. What the table and the reconcile are is [layout](layout.rule.md)'s.
 
 `source-modes.sh` and `source-text.sh` are the pair that reads the **repository's own record** rather than any deployed
-artifact, each covering a property no review catches unaided: the exec bit git tracks for every `.sh`, which must agree
+artifact, each covering a property no review catches unaided: the exec bit git tracks for every script, which must agree
 within a directory, and that every tracked text file ends with a newline. Both classify without a maintained list —
 the first by the majority bit in a directory, the second by git's own binary heuristic (a NUL byte in the first 8000
 bytes), so a file a later commit adds is judged the way `git diff` already judges it. `source-text.sh` reports one
