@@ -189,10 +189,13 @@ and `atr audit` reads those back ([launch](launch.rule.md), [cli](cli.rule.md)).
 
 A vendored helper a package ships beside its entrypoint keeps `lib_t`, which the domain may **execute** — codex's `rg`,
 `zsh` and `bwrap` all start inside a session, as does every `bin_t` file under `corecmd_exec_bin` — so what the entry
-type decides is domain **entry**, not executability. Exactly one inode per package may carry it: the one the manifest
-declares and the pin checksums. An agent whose platform-specific dependency is hardlinked into the declared path answers
-to two names on one inode and therefore one label, so that is counted by inode (`tests/integration/selinux.sh`);
-the hardlink itself, and what else rests on it, are in [agent-claude-code](agent-claude-code.rule.md).
+type decides is domain **entry**, not executability. It sits on the names a package's manifest declares and on no other
+file of the package (`tests/integration/selinux.sh`), and the pin checksums the one the launcher resolves to. An agent
+whose platform-specific dependency is hardlinked into the declared path answers to two names on one inode, and its
+manifest declares each, so a relabel that walks by path leaves the one label. Where that package's install copied
+the file, the second name is a second inode of the entry type: no launcher is linked at it, and an exec of it
+from inside a session is recorded like one of the entrypoint. The hardlink itself, and what else rests on it, are
+in [agent-claude-code](agent-claude-code.rule.md).
 
 Executability reaches past `bin_t`. `corecmd_exec_bin` also calls `files_exec_all_base_ro_files` (selinux-policy 42.1.18
 on EL10.2), which grants `execute`, `execute_no_trans` and `map` on every `base_ro_file_type`, `usr_t` among them,

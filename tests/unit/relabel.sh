@@ -514,6 +514,186 @@ else
     skip "the tree walk" "ai_tools_relabel__relabel_tree not defined by ${LIB}"
 fi
 
+# ── Every name of an entrypoint ───────────────────────────────────────────────────────────────
+# A package can give its entrypoint a second name, a hard link, and an inode holds one label: a relabel that walks
+# by path applies the rule of whichever name it meets first. So a manifest declares the second name as a pattern of its
+# own (entrypoint_link_fcontext), the relabel registers each rule ahead of its first restorecon and drops each ahead
+# of its first revert, and the names of each labelled inode are read, so a name no declared rule covers is reported.
+# The names read runs over real hard links; semanage, restorecon and the manifest reader are stubbed.
+section "relabel: every declared name of an entrypoint, and the names of its inode (unit)"
+if ! declare -F _ai_tools_relabel__find_uncovered_entrypoint_names >/dev/null 2>&1; then
+    skip "entrypoint names" "_ai_tools_relabel__find_uncovered_entrypoint_names not defined by ${LIB}"
+else
+    names_root="${TESTDIR}/names/node"
+    names_pkg="${names_root}/v1.2.3/lib/node_modules/@acme/experimental"
+    names_entry="${names_pkg}/bin/acme"
+    names_link="${names_pkg}/node_modules/@acme/experimental-linux-x64/acme"
+    mkdir -p "${names_pkg}/bin" "${names_pkg}/node_modules/@acme/experimental-linux-x64" "${TESTDIR}/names/elsewhere"
+    printf 'entrypoint\n' > "${names_entry}"
+    names_literal="$(ai_tools_relabel__get_fcontext_literal "${names_root}")"
+    names_entry_pattern="${names_literal}/[^/]+/lib/node_modules/@acme/experimental/bin/acme"
+    names_link_pattern="${names_literal}/[^/]+/lib/node_modules/@acme/experimental/node_modules/@acme/experimental-linux-[a-z0-9-]+/acme"
+
+    # names_are <link-count> <expected-status> <expected-lines> <why> <pattern>... : the names read of the entrypoint
+    #   under the fixture root. The link count is asserted first, so a row reads the state it names.
+    names_are() {
+        local links="$1" want_status="$2" want_lines="$3" why="$4" got status=0
+        shift 4
+        if [[ "$(stat -c '%h' -- "${names_entry}" 2>/dev/null)" != "${links}" ]]; then
+            fail "${why}: the fixture entrypoint does not have ${links} link(s)"
+            return 0
+        fi
+        got="$(_ai_tools_relabel__find_uncovered_entrypoint_names "${names_root}" "${names_entry}" "$@")" || status=$?
+        if [[ "${status}" -eq "${want_status}" && "${got}" == "${want_lines}" ]]; then
+            pass "${why}"
+        else
+            fail "${why}: status ${status}, lines '${got//$'\n'/ | }'"
+        fi
+    }
+    names_are 1 0 "" "control: an entrypoint with one name yields no line" "${names_entry_pattern}"
+    ln "${names_entry}" "${names_link}"
+    names_are 2 0 "" "two names, each matched by a declared pattern, yield no line" \
+        "${names_entry_pattern}" "${names_link_pattern}"
+    names_are 2 1 "unmapped ${names_link}" "a second name no declared pattern matches is unmapped" "${names_entry_pattern}"
+    ln "${names_entry}" "${names_pkg}/bin/acme-third"
+    names_are 3 1 "unmapped ${names_pkg}/bin/acme-third" "a third name is unmapped beside two that are matched" \
+        "${names_entry_pattern}" "${names_link_pattern}"
+    rm -f -- "${names_pkg}/bin/acme-third"
+    ln "${names_entry}" "${TESTDIR}/names/elsewhere/acme"
+    names_are 3 1 "outside ${names_entry} 1" "a name outside the root is counted from the link count" \
+        "${names_entry_pattern}" "${names_link_pattern}"
+    rm -f -- "${TESTDIR}/names/elsewhere/acme"
+    ln "${names_entry}" "${names_pkg}/bin/acme odd"
+    names_are 3 1 "unmapped unreportable-name" "a name outside the reportable character set is not printed" \
+        "${names_entry_pattern}" "${names_link_pattern}"
+    rm -f -- "${names_pkg}/bin/acme odd"
+    # A walk that fails: the names it printed still count, and names left unaccounted for read as unread.
+    find() { printf '%s\n' "${names_entry}" "${names_link}"; return 1; }
+    names_are 2 0 "" "a failed walk that printed every name, each matched, yields no line" \
+        "${names_entry_pattern}" "${names_link_pattern}"
+    find() { printf '%s\n' "${names_entry}"; return 1; }
+    names_are 2 1 "unread ${names_entry}" "a failed walk that left a name unaccounted for is unread, not outside" \
+        "${names_entry_pattern}" "${names_link_pattern}"
+    unset -f find
+    names_status=0
+    names_got="$(_ai_tools_relabel__find_uncovered_entrypoint_names "${names_root}" "${names_root}/absent" x)" || names_status=$?
+    if [[ "${names_status}" -eq 1 && "${names_got}" == "unread ${names_root}/absent" ]]; then
+        pass "a path whose link count cannot be read is unread"
+    else
+        fail "a path whose link count cannot be read: status ${names_status}, '${names_got}'"
+    fi
+
+    # The label and the revert, over the two hard-linked names. The containment is stubbed: the fixture is outside
+    # the root the library pins, and the predicate's own table is tests/unit/launcher-target.sh's.
+    names_saved="$(declare -f ai_tools_providers__read_agent_manifest_field ai_tools_providers__is_entrypoint_fcontext_valid \
+        _ai_tools_relabel__register_fcontext _ai_tools_relabel__find_entrypoint_paths _ai_tools_relabel__verify_label \
+        ai_tools_relabel__resolve_agent_entrypoint_path _ai_tools_relabel__find_uncovered_entrypoint_names \
+        _ai_tools_relabel__read_live_type _ai_tools_relabel__is_entrypoint_policy_active \
+        ai_tools_providers__list_enabled_agents ai_tools_control_plane__is_agent_config_dir_valid 2>/dev/null || true)"
+    names_declared_link="${names_link_pattern}"; names_refused=""; names_installed="${names_entry}"
+    ai_tools_providers__read_agent_manifest_field() {
+        case "$2" in
+            entrypoint_fcontext)      printf '%s' "${names_entry_pattern}" ;;
+            entrypoint_link_fcontext) printf '%s' "${names_declared_link}" ;;
+            *) : ;;
+        esac
+    }
+    ai_tools_providers__is_entrypoint_fcontext_valid() { [[ -n "$1" && "$1" != "${names_refused}" ]]; }
+    _ai_tools_relabel__register_fcontext() { CALLS+="$1 $4"$'\n'; return 0; }
+    _ai_tools_relabel__find_entrypoint_paths() {
+        if [[ "$1" == "${names_entry_pattern}" ]]; then printf '%s\n' "${names_entry}"; else printf '%s\n' "${names_link}"; fi
+    }
+    _ai_tools_relabel__verify_label() { CALLS+="verify $1"$'\n'; printf 'ok %s\n' "$1"; }
+    ai_tools_relabel__resolve_agent_entrypoint_path() { printf '%s\n' "${names_installed}"; }
+    _ai_tools_relabel__find_uncovered_entrypoint_names() {
+        NAMES_READS+="$2"$'\n'
+        [[ -z "${names_finding}" ]] || printf '%s\n' "${names_finding}"
+    }
+    # label_is <expected-status> <expected-lines> <why>
+    label_is() {
+        local status=0 got reads="${TESTDIR}/names/reads"
+        CALLS=""
+        # The function runs in a command substitution, so its register and verify order is read from a file.
+        got="$(_ai_tools_relabel__label_agent_entrypoint acme; rc=$?; printf '%s' "${CALLS}" > "${reads}"; exit "${rc}")" \
+            || status=$?
+        CALLS="$(cat "${reads}" 2>/dev/null || true)"
+        if [[ "${status}" -eq "$1" && "${got}" == "$2" ]]; then
+            pass "$3"
+        else
+            fail "$3: status ${status}, lines '${got//$'\n'/ | }'"
+        fi
+    }
+    names_finding=""
+    label_is 0 "ok ${names_entry}"$'\n'"ok ${names_link}" "both declared names are labelled and verified"
+    if [[ "${CALLS}" == "add ${names_entry_pattern}"$'\n'"add ${names_link_pattern}"$'\n'"verify ${names_entry}"$'\n'"verify ${names_link}" ]]; then
+        pass "each declared rule is registered, the entrypoint's first, ahead of the first restorecon"
+    else
+        fail "the register and verify order was '${CALLS//$'\n'/ | }'"
+    fi
+    names_finding="unmapped ${names_pkg}/bin/acme-third"
+    label_is 0 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"unmapped acme ${names_pkg}/bin/acme-third" \
+        "a names finding is printed once for the two names of one inode and leaves the status at 0"
+    names_finding=""
+    names_installed="${names_link}"
+    label_is 0 "ok ${names_entry}"$'\n'"ok ${names_link}" "a launcher that resolves to the declared link name is covered"
+    names_declared_link=""
+    label_is 1 "ok ${names_entry}"$'\n'"stale acme ${names_link}" \
+        "control: the same launcher is stale where the manifest does not declare the link name"
+    names_installed="${names_entry}"
+    names_declared_link="${names_link_pattern}"; names_refused="${names_link_pattern}"
+    label_is 1 "skip acme entrypoint_link_fcontext is not a plain path pattern under ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" \
+        "a link pattern the containment refuses stops the agent's entrypoint labelling"
+    if [[ -z "${CALLS}" ]]; then
+        pass "a refused link pattern registers no rule and restores no label"
+    else
+        fail "a refused link pattern still ran '${CALLS//$'\n'/ | }'"
+    fi
+    names_refused=""
+
+    # The revert: every declared rule is dropped ahead of the first restorecon.
+    _ai_tools_relabel__is_entrypoint_policy_active() { return 0; }
+    ai_tools_control_plane__is_agent_config_dir_valid() { return 1; }
+    _ai_tools_relabel__read_live_type() { printf 'lib_t\n'; }
+    restorecon() { CALLS+="restorecon ${*: -1}"$'\n'; return 0; }
+    CALLS=""; names_status=0
+    ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || names_status=$?
+    if [[ "${names_status}" -eq 0 \
+            && "${CALLS}" == "delete ${names_entry_pattern}"$'\n'"delete ${names_link_pattern}"$'\n'"restorecon ${names_entry}"$'\n'"restorecon ${names_link}"$'\n' ]]; then
+        pass "the revert drops each declared rule ahead of the first restorecon"
+    else
+        fail "the revert: status ${names_status}, calls '${CALLS//$'\n'/ | }'"
+    fi
+
+    # The live report reads the names of the inode a session execs.
+    ai_tools_providers__list_enabled_agents() { printf 'acme\t\t\n'; }
+    _ai_tools_relabel__read_live_type() { printf '%s\n' "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"; }
+    names_finding="outside ${names_entry} 1"; names_status=0
+    names_got="$(ai_tools_relabel__list_agent_labels)" || names_status=$?
+    if [[ "${names_status}" -eq 1 \
+            && "${names_got}" == "outside acme entrypoint ${names_entry} 1"$'\n'"ok acme entrypoint ${names_entry} ${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ]]; then
+        pass "the live report prints a names finding for the installed entrypoint and returns 1"
+    else
+        fail "the live report: status ${names_status}, '${names_got//$'\n'/ | }'"
+    fi
+    names_finding=""; names_status=0
+    names_got="$(ai_tools_relabel__list_agent_labels)" || names_status=$?
+    if [[ "${names_status}" -eq 0 && "${names_got}" == "ok acme entrypoint ${names_entry} ${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ]]; then
+        pass "control: the live report over an entrypoint whose names are covered returns 0"
+    else
+        fail "control: the live report: status ${names_status}, '${names_got//$'\n'/ | }'"
+    fi
+
+    unset -f ai_tools_providers__read_agent_manifest_field ai_tools_providers__is_entrypoint_fcontext_valid \
+        _ai_tools_relabel__register_fcontext _ai_tools_relabel__find_entrypoint_paths _ai_tools_relabel__verify_label \
+        ai_tools_relabel__resolve_agent_entrypoint_path _ai_tools_relabel__find_uncovered_entrypoint_names \
+        _ai_tools_relabel__read_live_type _ai_tools_relabel__is_entrypoint_policy_active \
+        ai_tools_providers__list_enabled_agents ai_tools_control_plane__is_agent_config_dir_valid restorecon \
+        names_are label_is
+    eval "${names_saved}"
+    unset names_saved names_root names_pkg names_entry names_link names_literal names_entry_pattern names_link_pattern \
+        names_declared_link names_refused names_installed names_finding names_status names_got CALLS NAMES_READS
+fi
+
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────
 # semanage's stderr is the only account of why a rule did not land, and "could not register its entrypoint file-context
 # rule" does not name a cause on its own -- an operator reading it has no next step to act on, and the condition (a

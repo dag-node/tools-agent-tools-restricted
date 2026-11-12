@@ -642,10 +642,11 @@ a repoint does, so the relabel watcher's reconcile runs and reports that agent's
 A freshly installed entrypoint is born the default type (`bin_t`/`lib_t`), so the `→ ai_tools_t` domain transition fires
 only once it carries `ai_tools_exec_t`. `ai-tools-relabel-agent` applies that label, and it is **agent-agnostic**:
 the base policy does not carry an entrypoint rule, so for each *enabled* agent the helper reads the path pattern
-that agent's manifest declares (`entrypoint_fcontext`, see [providers](providers.rule.md)), registers it as a local
-`semanage fcontext` rule mapping it to `ai_tools_exec_t`, restorecons every file it matches, and verifies each took
-the type. It runs as root (a domain that holds relabel), is idempotent, and no-ops when SELinux is off or the `ai_tools`
-module is not installed — there is then no `ai_tools_exec_t` to assign, the same condition `ai-tools-run` keys on.
+that agent's manifest declares (`entrypoint_fcontext`, and `entrypoint_link_fcontext` where its package gives the file
+a second name, see [providers](providers.rule.md)), registers each as a local `semanage fcontext` rule mapping it
+to `ai_tools_exec_t`, restorecons every file it matches, and verifies each took the type. It runs as root (a domain
+that holds relabel), is idempotent, and no-ops when SELinux is off or the `ai_tools` module is not installed — there is
+then no `ai_tools_exec_t` to assign, the same condition `ai-tools-run` keys on.
 
 The type and the Node versions root are pinned in `relabel.lib.sh`, and a declared pattern is accepted only when it can
 match no path outside that root (no traversal, no alternation, an anchored literal head —
@@ -696,7 +697,8 @@ and comparing it against the pin, which names a changed binary even where no rec
 Each run records what it could do about every enabled agent's labels,
 in `/var/opt/ai-tools/state/entrypoint-label.d/<agent>` — the same `KEY=value` grammar, directory ownership,
 and defensive reader as the pin beside it (`AGENT`, `RESULT=ok|failed|skipped`, `LABELLED`, and a `REASON` token
-on anything but `ok`). `ai-tools status` reports it under that agent's verification line (see [cli](cli.rule.md)).
+on anything but `ok`, and on an `ok` whose entrypoint has a name no declared rule covers). `ai-tools status` reports it
+under that agent's verification line (see [cli](cli.rule.md)).
 
 It exists because **the operator can observe neither the label nor the run that applies it**. The entrypoint is
 in a toolchain they cannot traverse, `matchpathcon` computes only what a label should be, and two of the three callers —
@@ -719,13 +721,36 @@ files it `failed` with the reason `walker-unavailable`; and a directory left at 
 exits non-zero, and `ai-tools-relabel.service`, a oneshot, reads failed until a run labels it.
 
 The helper then **reconciles** what it applied against what is installed: it resolves `/opt/ai-tools/bin/<launcher>`
-the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path the declared pattern
-does not cover, instead of the `none`/success a pattern matching no path would otherwise produce. So a relabel
-that exits 0 means the next launch will not fail closed on the entrypoint label, and the divergence is named
-as the cause rather than diagnosed as a missing install. It never labels the resolved path: the files that take
-`ai_tools_exec_t` stay exactly those the root-owned manifests declare (see
-[agent-claude-code](agent-claude-code.rule.md)). `ai-tools-relabel-agent --remove <agent>` is the erase-time
-counterpart: the agent package's `%preun` drops its rule while its manifest is still on disk.
+the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path no declared pattern
+covers, instead of the `none`/success a pattern matching no path would otherwise produce. So a relabel that exits 0
+means the next launch will not fail closed on the entrypoint label, and the divergence is named as the cause rather than
+diagnosed as a missing install. It never labels the resolved path: the files that take `ai_tools_exec_t` stay exactly
+those the root-owned manifests declare (see [agent-claude-code](agent-claude-code.rule.md)).
+`ai-tools-relabel-agent --remove <agent>` is the erase-time counterpart: the agent package's `%preun` drops its rules
+while its manifest is still on disk.
+
+**Every name of an entrypoint maps to the entry type.** An inode holds one label, and a package can give its entrypoint
+a second name, a hard link. A relabel that walks by path — `setfiles`, which the autorelabel boot runs — keeps
+the context of the name it meets first and reports the other as a conflicting specification, so with one name declared,
+directory order decides whether the inode keeps `ai_tools_exec_t`. A launch from an entrypoint that lost it is refused
+at the label preflight, and no unit runs the reconcile after a relabel of the whole host. A manifest therefore declares
+the second name as a pattern of its own, `entrypoint_link_fcontext`, held to the same containment and mapped to the same
+pinned type. The helper registers every declared rule ahead of its first `restorecon` and labels what each matches;
+`--remove` drops every rule ahead of its first revert, since a link name restored while its rule stands puts the type
+back on the inode the entrypoint's revert cleared. The reconcile counts a launcher that resolves to a declared link name
+as covered, by path and not by inode: the preflight requires the rule of the resolved path itself to map the entry type
+(`ai_tools_confinement__evaluate`), so a second name whose own rule maps another type is `stale`.
+
+**The names of each labelled inode are read.** For an entrypoint with more than one link the helper lists the inode's
+names under the Node versions root (`_ai_tools_relabel__find_uncovered_entrypoint_names`, a `find -xdev -samefile`),
+once per inode, and reports a name no declared pattern matches (`unmapped`), an inode with more links than names found,
+which is a name outside the toolchain that no contained pattern can cover (`outside`), and a read that left names
+unaccounted for (`unread`). Such a name comes from the vendor's package, from a process of the sandbox account outside
+`ai_tools_t`, or from root or an operator. A session does not add one: the policy does not grant `ai_tools_t` `link`
+on the entry type, which `selinux/avc/avc-denials.sh` (WLK-002) attempts from inside a session. A finding does not fail
+the run, since the inode carries its type and the next launch is confined. It is warned about under its own code
+and filed in the label record as `RESULT=ok` with a `REASON`, which `ai-tools status` reports and counts
+([cli](cli.rule.md)); `ai-tools-admin status` makes the same read live for the inode a session execs.
 
 **The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
 overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file
@@ -736,7 +761,7 @@ the launcher resolves to is a byte-identical copy of a match (`ai_tools_relabel_
 |---|---|---|---|
 | `stale` | some other file | the manifest has stopped describing its own package | a newer agent package (`dnf update 'ai-tools-agents-*'`) |
 | `incomplete` | no installed file | the package did not install the entrypoint it declares | the toolchain reinstall (`atr admin system bootstrap`) |
-| `copied` | some other file, byte-identical to the one the launcher resolves to | a copy of the tree replaced a symlink in the launcher's chain with its target | the toolchain run, which restores the links (`atr admin system bootstrap`) |
+| `copied` | some other file, byte-identical to the one the launcher resolves to and another inode | a copy of the tree replaced a symlink in the launcher's chain with its target | the toolchain run, which restores the links (`atr admin system bootstrap`) |
 
 Each is reported per agent as a warning and fails the run under its own code, and the split is what keeps the operator
 out of a loop: the missing executable comes from the sandbox toolchain rather than from the RPM, so an agent package

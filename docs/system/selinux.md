@@ -63,8 +63,13 @@ Two things are worth knowing before reaching for `restorecon` yourself:
   agent's own manifest** declares, so `atr admin system entrypoints relabel` —
   or `sudo selinux/install-selinux.sh relabel` from a checkout — applies them
   in the right order.
-- A bare recursive `restorecon` over `/opt/ai-tools` can leave a hardlinked
-  entrypoint mislabelled, which the next launch then refuses.
+- After a relabel of the whole host — an autorelabel boot, `fixfiles` — run
+  `atr admin system entrypoints relabel`. Each name an agent's package gives
+  its entrypoint has a rule of its own, so such a relabel leaves the entrypoint
+  on its type. A name without a rule is the exception, and `atr status` reports
+  one: a relabel can leave that entrypoint on another type, no unit runs
+  the reconcile afterwards, and on an enforcing host the agent's sessions then
+  refuse to start until the command has run.
 
 To inspect a denial:
 

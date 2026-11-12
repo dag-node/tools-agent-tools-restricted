@@ -190,19 +190,28 @@ else
     mkdir -p "${agents_dir}"; chmod 0755 "${agents_dir}"
     printf 'npm_package=@acme/experimental\nlauncher=acme\nentrypoint_fcontext=%s\n' \
         "${AGENT_PATTERNS[0]}" > "${agents_dir}/acme.conf"
-    printf 'npm_package=@beta/agent\nlauncher=beta\nentrypoint_fcontext=%s\n' \
-        "${AGENT_PATTERNS[1]}" > "${agents_dir}/beta.conf"
+    # beta's package gives its entrypoint a second name, which its manifest declares as a pattern of its own.
+    beta_link_pattern='/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@beta/agent/node_modules/@beta/agent-linux-[a-z0-9-]+/beta'
+    printf 'npm_package=@beta/agent\nlauncher=beta\nentrypoint_fcontext=%s\nentrypoint_link_fcontext=%s\n' \
+        "${AGENT_PATTERNS[1]}" "${beta_link_pattern}" > "${agents_dir}/beta.conf"
     # An agent with no entrypoint declaration: no pattern to match a record against, so it is not in the map at all.
     printf 'npm_package=@gamma/agent\nlauncher=gamma\n' > "${agents_dir}/gamma.conf"
     chmod 0644 "${agents_dir}"/*.conf
 
     AGENT_NAMES=(); AGENT_PATTERNS=()
     AI_TOOLS_AGENTS_DIR="${agents_dir}" build_agent_entrypoint_map
-    if [[ "${AGENT_NAMES[*]}" == "acme beta" ]]; then
-        pass "the map holds every installed agent declaring an entrypoint, in manifest order"
+    if [[ "${AGENT_NAMES[*]}" == "acme beta beta" ]]; then
+        pass "the map holds one entry per entrypoint pattern an installed agent declares, in manifest order"
     else
-        fail "the map holds '${AGENT_NAMES[*]}', expected 'acme beta'"
+        fail "the map holds '${AGENT_NAMES[*]}', expected 'acme beta beta'"
     fi
+    assert_class "an exec of the entrypoint by its second declared name resolves to its agent" \
+        "finding beta" \
+        "/opt/ai-tools/.nvm/versions/node/v9.9.9/lib/node_modules/@beta/agent/node_modules/@beta/agent-linux-x64/beta" \
+        "/opt/ai-tools/.nvm/versions/node/v9.9.9/lib/node_modules/@beta/agent/node_modules/@beta/agent-linux-x64/beta"
+    assert_class "a name beside the declared second name matches no pattern" \
+        "finding " \
+        "/opt/ai-tools/.nvm/versions/node/v9.9.9/lib/node_modules/@beta/agent/node_modules/@beta/agent-darwin-x64/beta" beta
     # Read back through the map the resolver built, so what classifies a record is the pattern a manifest carries rather
     # than the one this file set by hand.
     assert_class "a record classifies against the pattern the built map holds" \

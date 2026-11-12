@@ -35,6 +35,7 @@ a sudoers rule: it inherits the single `%ai-ops` grant on the shared shim.
 | `skills_dir` / `subagents_dir` | `skills` / `agents` | where shared assets are symlinked in ([shipped-assets](shipped-assets.rule.md)) |
 | `memory_file` | `CLAUDE.md` | where the shared orientation text is symlinked in — the one filename this product reads as user-scope instructions ([shipped-assets](shipped-assets.rule.md)) |
 | `entrypoint_fcontext` | a regex ending `…/@anthropic-ai/claude-code/bin/claude\.exe` | `ai-tools-relabel-agent` — which file takes `ai_tools_exec_t` |
+| `entrypoint_link_fcontext` | a regex ending `…/claude-code/node_modules/@anthropic-ai/claude-code-linux-[a-z0-9-]+/claude` | `ai-tools-relabel-agent`, `ai-tools-audit` — the platform package's name for that file, which takes the same type |
 | `default_enable` | `no` | the agents' baseline is empty: `ai-tools-bootstrap` writes the enabled set, so this agent runs where the operator chose it ([providers](providers.rule.md)) |
 | `release_manifest_url` / `release_key` / `release_fingerprint` | the vendor's per-release `manifest.json` template under `downloads.claude.ai`, the key file `keys/claude-code.asc` this package ships, and that key's fingerprint | `entrypoint-verify.lib.sh` — proves the installed `claude.exe` is the binary Anthropic published; the fields and the pin they feed are in [providers](providers.rule.md) and [updater](updater.rule.md) |
 
@@ -72,12 +73,17 @@ so the executable ships in a nested package
 - The declared `entrypoint_fcontext` matches only because that hardlink exists. It names the arch-independent
   `bin/claude.exe`, so it is not itself arch-specific — but it describes a *convenience name* the package creates, not
   where the payload ships.
-- A recursive `restorecon` over the toolchain visits **two names for one inode**, and the label the walk leaves is
-  whichever name it reached last — so a sweep wide enough to include the nested package can un-label the entrypoint.
-  The relabel helper itself never does: it `restorecon`s only the paths the declared pattern matches.
-- Any rule written against the nested path would have to span the arch variants, which a single anchored literal head
-  cannot. This is why the relabel's reconciliation **resolves** the entrypoint rather than declaring a second pattern
-  for it.
+- A relabel that walks the toolchain by path visits **two names for one inode**, and an inode holds one label:
+  `setfiles` keeps the context of the name it meets first, so with one name declared, directory order decides whether
+  the entrypoint keeps its type. The manifest therefore declares the nested name too (`entrypoint_link_fcontext`),
+  and each name maps to `ai_tools_exec_t` ([updater](updater.rule.md)).
+- The nested name spans the platform variants, so its pattern carries a class over the vendor's Linux platform names
+  (`claude-code-linux-[a-z0-9-]+`) where the containment refuses an alternation. A file the sandbox account's updater
+  placed at a name that class matches takes the entry type at the next relabel, as one placed at the declared path
+  in a version directory of that account's making already does; the type leads into `ai_tools_t` alone, and the pin
+  decides which file starts a session.
+- Where `install.cjs` copies in place of the hardlink, the nested file is a second inode of the entry type
+  ([confinement](confinement.rule.md)).
 
 **The binary is multi-call, so a session is not one process.** `claude.exe` bundles the search tools it uses and reaches
 each by exec'ing **[3]** with the tool's name as `argv0` — `rg`, `ugrep` and `bfs` — which `ai_tools_t`'s
@@ -99,7 +105,7 @@ ways:
   [confinement](confinement.rule.md)).
 - **`ai-tools-launcher-symlink`'s idempotency guard** resolves it the same way, so a repoint that would drive a needed
   relabel always fires while a daily no-op run stops churning the link.
-- **`ai-tools-relabel-agent` pattern-matches it.** It registers the manifest's `entrypoint_fcontext` as a local
+- **`ai-tools-relabel-agent` pattern-matches it.** It registers each entrypoint pattern the manifest declares as a local
   `semanage fcontext` rule and relabels the files a `find -regex` over that pattern returns (`relabel.lib.sh`).
 
 The two strategies agree only while the pattern describes where the package puts its executable. The guarantee that does
@@ -119,9 +125,9 @@ as root), applies the declared rule, and reconciles the two through the pure
 
 | state | verdict | outcome |
 |---|---|---|
-| the launcher resolves to a file the pattern covers | `ok` | labelled and verified |
+| the launcher resolves to a file a declared pattern covers | `ok` | labelled and verified |
 | the launcher does not resolve and the pattern does not match a file | `none` | the agent is not provisioned; no entrypoint to label |
-| the launcher **resolves** to a file the pattern does **not** cover | `stale` | **reported and the run exits non-zero** |
+| the launcher **resolves** to a file no declared pattern covers | `stale` | **reported and the run exits non-zero** |
 
 `stale` is the case a repackaged upstream produces — the pattern does not match the file while the chain still resolves,
 so the preflight's verdict is `unverifiable` and the launch is refused. The relabel names that cause and says the fix is

@@ -104,6 +104,36 @@ has_line "the agent is filed failed as walker-unavailable" "record acme failed w
 close_run $'skip acme no entrypoint_fcontext declared\nagent acme failed'
 has_line "control: a refused declaration is filed as rule-not-registered" "record acme failed rule-not-registered"
 
+# ── A name of an entrypoint no declared rule covers ──────────────────────────────────────────
+# The entrypoint carries its type, so the run exits 0; the finding is warned about under its code and the agent is filed
+# ok with the reason `atr status` counts. The first finding an agent has is the reason its record carries.
+section "a name of an entrypoint no declared rule covers is warned about and filed ok with its reason"
+close_run $'ok /fixture/bin/acme\nunmapped acme /fixture/bin/acme-third\nagent acme ok'
+assert_msg MSG-N4T2 "${OUT}" "an unmapped name is warned about under its code"
+has_line "the agent is filed ok with the unmapped reason" "record acme ok unmapped-entrypoint-name"
+if command grep -qF 'unmapped name for acme: /fixture/bin/acme-third' <<< "${OUT}"; then
+    pass "the warning names the agent and the name"
+else
+    fail "the warning does not name the agent and the name: ${OUT//$'\n'/ | }"
+fi
+if [[ "${RC}" -eq 0 ]]; then pass "the run exits 0 over an unmapped name"; else fail "the run exits ${RC} over an unmapped name"; fi
+close_run $'ok /fixture/bin/acme\noutside acme /fixture/bin/acme 2\nagent acme ok'
+assert_msg MSG-P5G9 "${OUT}" "a name outside the toolchain is warned about under its code"
+has_line "the agent is filed ok with the outside reason" "record acme ok entrypoint-name-outside-toolchain"
+if command grep -qF 'its entrypoint /fixture/bin/acme has 2 name(s) outside the sandbox toolchain' <<< "${OUT}"; then
+    pass "the warning carries the entrypoint and the count"
+else
+    fail "the warning does not carry the entrypoint and the count: ${OUT//$'\n'/ | }"
+fi
+close_run $'ok /fixture/bin/acme\nunread acme /fixture/bin/acme\nagent acme ok'
+assert_msg MSG-T7K7 "${OUT}" "names that could not be read are warned about under their code"
+has_line "the agent is filed ok with the unread reason" "record acme ok entrypoint-names-unread"
+close_run $'ok /fixture/bin/acme\nunmapped acme /fixture/bin/acme-third\noutside acme /fixture/bin/acme 1\nagent acme ok'
+has_line "the first finding is the reason the record carries" "record acme ok unmapped-entrypoint-name"
+# A names finding beside a failure: the failure's reason is the record's, and the names reason is not written over it.
+close_run $'bad /fixture/bin/acme lib_t ai_tools_exec_t\nunmapped acme /fixture/bin/acme-third\nagent acme failed'
+has_line "a failed agent keeps the failure's reason" "record acme failed did-not-take-its-type"
+
 # ── `--remove`: each status ai_tools_relabel__unlabel_agent_paths returns ────────────────────
 section "--remove renders each status of the agent unlabel, and an erase completes over a walk left"
 unlabel_probe="${TESTDIR}/unlabel-probe.sh"
