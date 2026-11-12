@@ -1531,6 +1531,38 @@ that writes the filesystem rides the same axis through the runas seam ([The runa
 seam](#the-runas-seam-and-why-it-needs-a-grant---for-alone-does-not)). `projects create` and `projects remove` add no
 helper and no sudoers rule.
 
+### How a root helper starts <a id="ref-section-g7c8"></a>
+
+Every file under `/usr/local/libexec/ai-tools` and every contributed command under `admin-commands.d` fixes where its
+interpreter and its commands are found, so neither follows the `PATH` its caller holds. A shell helper opens
+with `#!/usr/bin/bash -p`, and its first statements after the `set` line are `PATH=/usr/sbin:/usr/bin:/sbin:/bin`
+and `export PATH`. The interpreter path is what makes the `PATH` lines hold: `#!/usr/bin/env bash` finds `bash`
+through the caller's `PATH` before the first line of the script runs. `-p` starts bash in privileged mode, which does
+not read `BASH_ENV` or `ENV`, does not import a function from the environment, and ignores `SHELLOPTS`, `BASHOPTS`,
+`CDPATH` and `GLOBIGNORE` there. The value is the set sudoers' `secure_path` names on stock EL, so a helper reached
+through `sudo` runs as it did under that setting, and one a unit or the handback daemon starts loses `/usr/local/sbin`
+and `/usr/local/bin`. This project installs no command there that a helper runs by name, and a host tool installed there
+alone, `meld` for the post-upgrade merge or a `dotnet` outside the distribution's package, is not found on either route.
+
+The lines are written out in each helper and not loaded: a library is a file to find before the `PATH` is set,
+and `ai-tools-stop` requires none ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)).
+`tests/unit/root-helper-startup.sh` reads both directories by their listing and fails a file without them
+([tests](tests.rule.md)).
+
+`ai-tools-relabel-tree` opens with `#!/usr/bin/python3 -I`: isolated mode ignores the `PYTHON*` variables and leaves
+the script's directory and the user site directory off the import path. `ai-tools-handback` opens
+with `#!/usr/bin/python3` alone, since its unit sets the `PYTHON*` variables it runs under and isolated mode ignores
+them ([handback-bridge](handback-bridge.rule.md)).
+
+Who reaches the state the lines cover: `sudo` hands a helper `secure_path` and a reset environment by default,
+and systemd hands a unit its own, so the lines decide on a host whose sudoers leaves the caller's `PATH` in place,
+and for root running a helper from its own shell. The sandbox account reaches a root helper through the handback socket
+alone: it does not hold a sudo rule ([ref-list-b6z9](../../CLAUDE.md#ref-list-b6z9)), and the daemon starts the helper
+a verb names with the one argument it validated, under the environment of its own unit
+([handback-bridge](handback-bridge.rule.md)). The start has limits: a privileged-mode shell still hands an exported
+function and `BASH_ENV` to a `bash` child it starts, and no root helper starts one as root; and the variables
+the dynamic loader reads act before the interpreter runs, which `sudo` removes and a root caller sets for itself.
+
 ## Secret pre-check on claim/clone <a id="ref-section-u5h3"></a>
 
 Before granting access, the CLI runs `ai-tools-lockdown --gate`, one `sudo` call that lists the secret-matching files,

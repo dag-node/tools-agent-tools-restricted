@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-relabel-agent
 # Reconcile every enabled agent's entrypoint after a toolchain change, in two steps:
@@ -55,6 +55,10 @@
 #   ```
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 # Shared leveled logger: journald (always) + the root-only file /var/log/ai-tools/relabel.log (shared
 # with ai-tools-relabel). Best-effort -- a no-op fallback keeps the helper working if the lib is missing.

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-chown
 # Restores operator:ai-tools ownership on files and directories an agent session created or overwrote. Invoked as root
@@ -27,6 +27,10 @@
 # Installed 750 root:root, so only root runs it. Its domain rule is ownership-and-hooks.rule.md.
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 # Every refusal and the one NOTICE this helper emits print through this pair, so the component prefix is stated once
 # here instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its own line ahead

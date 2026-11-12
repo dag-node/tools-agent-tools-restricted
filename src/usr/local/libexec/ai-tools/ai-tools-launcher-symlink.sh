@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-launcher-symlink
 # Atomically repoints an agent's stable launcher symlink -- /opt/ai-tools/bin/<launcher> -- at a versioned binary
@@ -31,6 +31,10 @@
 #   ```
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly BIN_DIR="/opt/ai-tools/bin"
 MODE=repoint
