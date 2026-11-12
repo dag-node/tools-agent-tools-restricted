@@ -465,7 +465,9 @@ if declare -F ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_to
         # of the path's type. A path still at the entrypoint type, or one whose type cannot be read, returns 5
         # with the path named ahead of the walk's own lines; a path at its default returns the walk's status.
         entrypoint_saved="$(declare -f ai_tools_providers__is_entrypoint_fcontext_valid _ai_tools_relabel__find_entrypoint_paths \
-                                restorecon 2>/dev/null || true)"
+                                _ai_tools_relabel__count_unprintable_entrypoint_paths restorecon 2>/dev/null || true)"
+        # Stubbed beside the discovery, so the revert's count does not walk the host's toolchain.
+        _ai_tools_relabel__count_unprintable_entrypoint_paths() { printf '0\n'; }
         ai_tools_providers__read_agent_manifest_field() {
             case "$2" in config_dir) printf 'bin' ;; entrypoint_fcontext) printf '/fixture/claude\\.exe' ;; *) : ;; esac
         }
@@ -498,7 +500,7 @@ if declare -F ai_tools_relabel__relabel_tree >/dev/null 2>&1 && declare -F ai_to
                  _ai_tools_relabel__register_fcontext _ai_tools_relabel__read_live_type \
                  _ai_tools_relabel__is_entrypoint_policy_active ai_tools_providers__list_enabled_agents \
                  _ai_tools_relabel__label_agent_entrypoint ai_tools_providers__is_entrypoint_fcontext_valid \
-                 _ai_tools_relabel__find_entrypoint_paths restorecon
+                 _ai_tools_relabel__find_entrypoint_paths _ai_tools_relabel__count_unprintable_entrypoint_paths restorecon
         eval "${entrypoint_saved}"
         unset entrypoint_saved stub_live_type
         eval "${walk_saved}"
@@ -562,6 +564,32 @@ else
         else
             fail "control: a tree whose every match is printable counted '${names_got}'"
         fi
+        # The count's status is the walk's: a walk that failed is not read as a count of zero, and a root that is not
+        # there, the state before the toolchain is provisioned, does not hold a match.
+        names_status=0
+        names_got="$(_ai_tools_relabel__count_unprintable_entrypoint_paths "${names_entry_pattern}" "${names_root}/absent")" \
+            || names_status=$?
+        if [[ "${names_status}" -eq 0 && "${names_got}" == 0 ]]; then
+            pass "a root that is not there counts 0 and returns 0"
+        else
+            fail "a root that is not there: status ${names_status}, count '${names_got}'"
+        fi
+        find() { return 1; }
+        names_status=0
+        _ai_tools_relabel__count_unprintable_entrypoint_paths "${names_entry_pattern}" "${names_root}" >/dev/null || names_status=$?
+        if [[ "${names_status}" -ne 0 ]]; then
+            pass "a count whose walk failed returns non-zero"
+        else
+            fail "a count whose walk failed returned 0"
+        fi
+        names_status=0
+        _ai_tools_relabel__find_entrypoint_paths "${names_entry_pattern}" "${names_root}" >/dev/null || names_status=$?
+        if [[ "${names_status}" -ne 0 ]]; then
+            pass "a discovery whose walk failed returns non-zero"
+        else
+            fail "a discovery whose walk failed returned 0"
+        fi
+        unset -f find
         unset names_odd
     else
         skip "entrypoint discovery" "_ai_tools_relabel__count_unprintable_entrypoint_paths not defined by ${LIB}"
@@ -664,8 +692,6 @@ else
     else
         fail "a path whose link count cannot be read: status ${names_status}, '${names_got}'"
     fi
-    unset -f matchpathcon
-    unset names_entry_type names_link_type names_lookup
 
     # The label and the revert, over the two hard-linked names. The containment is stubbed: the fixture is outside
     # the root the library pins, and the predicate's own table is tests/unit/launcher-target.sh's.
@@ -746,6 +772,17 @@ else
         fail "a refused link pattern still ran '${CALLS//$'\n'/ | }'"
     fi
     names_refused=""
+    # The file-context database is what the launch preflight and the names read ask. One that does not answer
+    # for the toolchain's root stops the entrypoint's labelling ahead of its first rule.
+    names_lookup=fails
+    label_is 1 "skip acme could not read the file-context database, so the mapping of its entrypoint is not confirmed -- matchpathcon gave no answer for ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" \
+        "a file-context database that does not answer stops the agent's entrypoint labelling"
+    if [[ -z "${CALLS}" ]]; then
+        pass "a database that does not answer registers no rule and restores no label"
+    else
+        fail "a database that does not answer still ran '${CALLS//$'\n'/ | }'"
+    fi
+    names_lookup=ok
 
     # The revert: every declared rule is dropped ahead of the first restorecon.
     _ai_tools_relabel__is_entrypoint_policy_active() { return 0; }
@@ -769,6 +806,29 @@ else
         fail "the revert over an unprintable match: status ${names_status}, '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
     fi
     names_unprintable=0
+    # A walk that did not complete has not listed every file a dropped rule matched: the revert says so and returns 5,
+    # for the discovery and for the count alike.
+    names_revert_saved="$(declare -f _ai_tools_relabel__find_entrypoint_paths _ai_tools_relabel__count_unprintable_entrypoint_paths)"
+    _ai_tools_relabel__find_entrypoint_paths() { printf '%s\n' "${names_entry}"; return 1; }
+    CALLS=""; names_status=0
+    ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || names_status=$?
+    if [[ "${names_status}" -eq 5 && "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == *"did not complete, so a file may keep ${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"* \
+            && "${CALLS}" == *"restorecon ${names_entry}"* ]]; then
+        pass "a revert whose discovery walk failed reverts what it listed and returns 5 saying the walk did not complete"
+    else
+        fail "a revert whose discovery walk failed: status ${names_status}, '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
+    fi
+    eval "${names_revert_saved}"
+    _ai_tools_relabel__count_unprintable_entrypoint_paths() { printf '0\n'; return 1; }
+    CALLS=""; names_status=0
+    ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || names_status=$?
+    if [[ "${names_status}" -eq 5 && "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == *"did not complete"* ]]; then
+        pass "a revert whose count walk failed returns 5 saying the walk did not complete"
+    else
+        fail "a revert whose count walk failed: status ${names_status}, '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
+    fi
+    eval "${names_revert_saved}"
+    unset names_revert_saved
 
     # The live report reads the names of the inode a session execs.
     ai_tools_providers__list_enabled_agents() { printf 'acme\t\t\n'; }
@@ -802,10 +862,11 @@ else
         _ai_tools_relabel__read_live_type _ai_tools_relabel__is_entrypoint_policy_active \
         _ai_tools_relabel__count_unprintable_entrypoint_paths \
         ai_tools_providers__list_enabled_agents ai_tools_control_plane__is_agent_config_dir_valid restorecon \
-        names_are label_is
+        matchpathcon names_are label_is
     eval "${names_saved}"
     unset names_saved names_root names_pkg names_entry names_link names_literal names_entry_pattern names_link_pattern \
-        names_declared_link names_refused names_installed names_finding names_status names_got names_unprintable CALLS NAMES_READS
+        names_declared_link names_refused names_installed names_finding names_status names_got names_unprintable \
+        names_entry_type names_link_type names_lookup CALLS NAMES_READS
 fi
 
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────

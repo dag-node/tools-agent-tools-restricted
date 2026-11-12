@@ -1324,8 +1324,9 @@ that fails or that no rule answers, a walk that fails), and the label and the re
 declared rule registered ahead of the first `restorecon` and dropped ahead of the first revert, a refused link pattern,
 a launcher resolving to the declared link name as covered, the launcher's own path mapped to another type as a failure,
 and the discovery over matches at a path carrying a newline, a space or `..`, which it counts and does not print.
-The boundary half is a type rule, a session's link of an entrypoint, which `selinux/avc/avc-denials.sh` attempts
-as WLK-002.
+A revert whose discovery or count walk fails returns 5 saying the walk did not complete, and a file-context database
+that does not answer stops the entrypoint's labelling ahead of its first rule. The boundary half is a type rule,
+a session's link of an entrypoint, which `selinux/avc/avc-denials.sh` attempts as WLK-002.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read
