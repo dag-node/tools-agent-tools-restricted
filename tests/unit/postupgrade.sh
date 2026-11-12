@@ -901,40 +901,24 @@ fi
 # ── (I) `--check`: a collector that fails is an error row, and the run exits 5 ───────────────
 # The check reads each collector through the records reader (records.rule.md), so a collector's exit is what says
 # the reading was complete. `cut` is the last stage of the copies collector and the only step on the check's path
-# that runs it, so a `cut` that fails drives one collector failure. The stub needs a directory where its executable bit
-# is visible, which a noexec /tmp hides: the testdir is used when it qualifies and a directory beside the operator's
-# home otherwise, the fallback unit/agent-installs.sh takes for the same reason.
-x_bit_visible() {
-    local probe="$1/.x-probe.$$" ok=1
-    printf '' > "${probe}" 2>/dev/null || return 1
-    chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
-    [[ -x "${probe}" ]] && ok=0
-    rm -f "${probe}"
-    return "${ok}"
-}
-STUBS="${TESTDIR}/stubs"
-mkdir -p "${STUBS}"
-if ! x_bit_visible "${STUBS}"; then
-    mk_fixture_dir STUBS "${PROJECTS_HOME}" pustubs 2>/dev/null || STUBS=""
-    [[ -n "${STUBS}" ]] && chmod 0755 "${STUBS}"
-fi
-if [[ -z "${STUBS}" ]] || ! x_bit_visible "${STUBS}"; then
-    skip "--check on a failing collector" "no directory here reports a 0755 file as executable (a noexec mount)"
+# that runs it, so a `cut` that fails drives one collector failure. The helper is sourced and `cut` is a shell function
+# defined after the load: a root helper sets its own PATH, so a stub directory placed ahead on the caller's PATH is not
+# searched. The row's detail carries the stub's exit status, which is what shows the function is the `cut` that ran.
+reset_root
+cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
+check_rc=0
+# shellcheck disable=SC2016  # the body is the inner shell's, expanded there
+out="$(setsid env AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" bash -c '
+    helper="$1"; set --
+    source "${helper}"
+    cut() { return 7; }
+    system_dispatch post-upgrade --check' _ "${HELPER}" < /dev/null 2>&1)" || check_rc=$?
+if [[ "${check_rc}" == 5 && "$(grep -c . <<< "${out}")" == 2 ]] \
+        && has_finding MSG-Y3J5 "${ROOT}" error "the copies collector exited 7" copies \
+        && grep -q $'\tunreadable\terror\tdirectory\t' <<< "${out}"; then
+    pass "a collector that exits non-zero is one unreadable error row naming it, and the run exits 5"
 else
-    printf '#!/bin/sh\nexit 7\n' > "${STUBS}/cut"
-    chmod 0755 "${STUBS}/cut"
-    reset_root
-    cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
-    check_rc=0
-    out="$(setsid env PATH="${STUBS}:${PATH}" AI_TOOLS_POSTUPGRADE_ROOT="${ROOT}" "${HELPER}" system post-upgrade \
-        --check < /dev/null 2>&1)" || check_rc=$?
-    if [[ "${check_rc}" == 5 && "$(grep -c . <<< "${out}")" == 2 ]] \
-            && has_finding MSG-Y3J5 "${ROOT}" error "the copies collector exited 7" copies \
-            && grep -q $'\tunreadable\terror\tdirectory\t' <<< "${out}"; then
-        pass "a collector that exits non-zero is one unreadable error row naming it, and the run exits 5"
-    else
-        fail "a failing collector was not reported as unreadable (exit ${check_rc}): ${out}"
-    fi
+    fail "a failing collector was not reported as unreadable (exit ${check_rc}): ${out}"
 fi
 
 # ── (F2) The project registry migration ──────────────────────────────────────────────────────
