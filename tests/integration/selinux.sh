@@ -8,9 +8,10 @@
 # asserts: the system is Enforcing and neither domain is individually permissive; the module-presence probe ai-tools-run
 # reads resolves the way the shim expects; a sandbox clone takes ai_tools_project_t; each agent's declared entrypoint
 # rule still covers what its package installed; no link in the exec chain carries a type the confined domain may write;
-# one inode per agent package carries the domain entry type; every enrolled operator's config subtree carries
-# ai_tools_conf_t, the type the root helpers read that account's allowlist through; and the descriptor-pinned walk
-# labels a fixture tree as its rules give it, while a process of the sandbox account runs.
+# the domain entry type sits on the names an agent's manifest declares and each such name maps to it; every enrolled
+# operator's config subtree carries ai_tools_conf_t, the type the root helpers read that account's allowlist
+# through; and the descriptor-pinned walk labels a fixture tree as its rules give it, while a process of the sandbox
+# account runs.
 #
 # The layer is OPTIONAL -- the policy is its own subpackage, and a host may run DAC-only -- so with the module absent
 # the whole file SKIPS instead of demanding SELinux on a host that does not ship it. Run as root.
@@ -224,9 +225,19 @@ else
             matches+=("${p}")
             [[ "${p}" == "${installed}" ]] && covered=yes
         done < <(_ai_tools_relabel__find_entrypoint_paths "${pattern}")
+        # A launcher that resolves to the second name the manifest declares is covered too, as the relabel reads it.
+        link_pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_link_fcontext || true)"
+        if [[ -n "${link_pattern}" ]]; then
+            while IFS= read -r p; do
+                [[ "${p}" == "${installed}" ]] && covered=yes
+            done < <(_ai_tools_relabel__find_entrypoint_paths "${link_pattern}")
+        fi
         # The same copy reading the relabel makes, so the failure names the cause the relabel will.
         if [[ "${covered}" != yes && -f "${installed}" && ! -L "${installed}" ]]; then
-            for p in "${matches[@]}"; do cmp -s -- "${installed}" "${p}" && { copy=yes; break; }; done
+            for p in "${matches[@]}"; do
+                [[ "${installed}" -ef "${p}" ]] && continue
+                cmp -s -- "${installed}" "${p}" && { copy=yes; break; }
+            done
         fi
         case "$(ai_tools_relabel__evaluate_entrypoint_reconcile "${installed}" "${covered}" "${matched}" "${copy}")" in
             ok) pass "${agent}: its declared entrypoint rule covers ${installed}" ;;
@@ -236,6 +247,82 @@ else
         esac
     done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
     (( agents_seen > 0 )) || skip "entrypoint declaration reconciliation" "no enabled agent resolved"
+fi
+
+# (7a) Every name of an installed entrypoint maps to the entry type. A package can install its entrypoint under two
+# names that are hard links to one inode, and an inode holds one label: a relabel that walks by path (setfiles,
+# an autorelabel) keeps the context of the name it meets first and reports `conflicting specifications`, so one of two
+# version directories lost its entry type to an autorelabel on a host whose manifest declared one name. Three readings,
+# per enabled agent: no name of an entrypoint inode is outside the declared patterns (the relabel's own names read),
+# the file-context database maps each name to ai_tools_exec_t, and a setfiles dry run over the package reports neither
+# a conflict nor a change to an entrypoint name. The dry run is `setfiles -n` over the installed database, which does
+# not write a label. Root, to traverse the 0750 nvm tree.
+section "SELinux: every name of an installed entrypoint maps to the entry type"
+if ! declare -F _ai_tools_relabel__find_uncovered_entrypoint_names >/dev/null 2>&1 \
+        || ! declare -F _ai_tools_relabel__read_entrypoint_patterns >/dev/null 2>&1; then
+    skip "entrypoint names" "relabel.lib.sh does not define the names read"
+elif ! command -v matchpathcon >/dev/null 2>&1; then
+    skip "entrypoint names" "matchpathcon not available"
+else
+    names_seen=0
+    file_contexts="/etc/selinux/$(sed -n 's/^SELINUXTYPE=[[:space:]]*//p' /etc/selinux/config 2>/dev/null | tail -n 1)/contexts/files/file_contexts"
+    while IFS=$'\t' read -r agent _ _; do
+        [[ -n "${agent}" ]] || continue
+        declared=()
+        _ai_tools_relabel__read_entrypoint_patterns "${agent}" declared
+        (( ${#declared[@]} > 0 )) || continue
+        while IFS= read -r entry; do
+            [[ -n "${entry}" ]] || continue
+            names_seen=$(( names_seen + 1 ))
+            findings="$(_ai_tools_relabel__find_uncovered_entrypoint_names \
+                            "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" "${entry}" "${declared[@]}" || true)"
+            if [[ -z "${findings}" ]]; then
+                pass "${agent}: every name of ${entry} is covered by a pattern its manifest declares"
+            else
+                fail "${agent}: a name of ${entry} is outside the patterns its manifest declares -- ${findings//$'\n'/; }"
+            fi
+            names="$(find "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" -xdev -samefile "${entry}" 2>/dev/null || true)"
+            name_count=0; unmapped_names=""
+            while IFS= read -r name; do
+                [[ -n "${name}" ]] || continue
+                name_count=$(( name_count + 1 ))
+                expected="$(matchpathcon -n "${name}" 2>/dev/null | awk -F: '{print $3}' || true)"
+                [[ "${expected}" == ai_tools_exec_t ]] || unmapped_names+="${name} (${expected:-unread}) "
+            done <<< "${names}"
+            if (( name_count == 0 )); then
+                fail "${agent}: no name of ${entry} was found under ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}, so no mapping was read"
+            elif [[ -z "${unmapped_names}" ]]; then
+                pass "${agent}: the file-context database maps each of the ${name_count} name(s) of ${entry} to ai_tools_exec_t"
+            else
+                fail "${agent}: the file-context database maps a name of ${entry} to another type: ${unmapped_names}-- a relabel of the whole host can leave the entrypoint on it. Fix: sudo ai-tools-admin system entrypoints relabel"
+            fi
+            # The dry run, over the package directory the entrypoint sits in: the tree that holds each of its names.
+            package_dir="${entry%/bin/*}"
+            if ! command -v setfiles >/dev/null 2>&1 || [[ ! -f "${file_contexts}" ]]; then
+                skip "${agent} relabel dry run" "setfiles or ${file_contexts} not available"
+            elif [[ "${package_dir}" == "${entry}" || ! -d "${package_dir}" ]]; then
+                skip "${agent} relabel dry run" "no package directory read from ${entry}"
+            else
+                dry_status=0
+                dry_run="$(setfiles -n -v "${file_contexts}" "${package_dir}" 2>&1)" || dry_status=$?
+                changed=""
+                while IFS= read -r name; do
+                    [[ -n "${name}" ]] || continue
+                    grep -qF -- "${name} " <<<"${dry_run}" && changed+="${name} "
+                done <<< "${names}"
+                if grep -qF 'conflicting specifications' <<<"${dry_run}"; then
+                    fail "${agent}: a setfiles dry run over ${package_dir} reports conflicting specifications -- $(grep -F 'conflicting specifications' <<<"${dry_run}" | awk 'NR <= 2' | tr '\n' ' ')"
+                elif [[ -n "${changed}" ]]; then
+                    fail "${agent}: a setfiles dry run over ${package_dir} would change an entrypoint name: ${changed}"
+                elif (( dry_status != 0 )); then
+                    fail "${agent}: the setfiles dry run over ${package_dir} exited ${dry_status} -- $(awk 'NR <= 2' <<<"${dry_run}" | tr '\n' ' ')"
+                else
+                    pass "${agent}: a setfiles dry run over ${package_dir} reports no conflict and no change to an entrypoint name"
+                fi
+            fi
+        done < <(_ai_tools_relabel__find_entrypoint_paths "${declared[0]}")
+    done < <(ai_tools_providers__list_enabled_agents 2>/dev/null)
+    (( names_seen > 0 )) || skip "entrypoint names" "no enabled agent has an installed entrypoint"
 fi
 
 # (7b) The loaded core module audits an entrypoint exec made from inside a session. `ai-tools audit`'s kernel-record
@@ -574,7 +661,7 @@ fi
 # decides here is whether a file can be an entrypoint, which is why that is the assertion and the rest is a tally.
 #
 # Read-only: it stats live labels and runs no relabel. Root, to traverse the 0750 nvm tree.
-section "SELinux: one executable per agent package carries the domain entry type"
+section "SELinux: the domain entry type sits on the names an agent's manifest declares, and on no other"
 
 if ! declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 \
         || ! declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1; then
@@ -614,15 +701,26 @@ else
         done < <(find "${root}" -type f -perm -u+x 2>/dev/null)
         distinct="$(printf '%s' "${entry_inodes}" | sort -u | grep -c '^.' || true)"
         entry_inode="$(stat -c '%d:%i' -- "${entry}" 2>/dev/null || true)"
-        if [[ "${distinct}" -eq 1 && -n "${entry_inode}" ]] \
-                && grep -qxF "${entry_inode}" <<<"${entry_inodes}"; then
-            pass "${agent}: one inode in ${pkg} carries ai_tools_exec_t, and it is the declared entrypoint (${#entry_names[@]} name(s): ${entry_names[*]})"
-        elif [[ "${distinct}" -eq 0 ]]; then
+        # Every name carrying the type is one a pattern the manifest declares matches. A package whose install linked
+        # its platform binary has one such inode under two names; one whose install copied it has two inodes, each
+        # at a declared name.
+        declared=(); undeclared_names=""
+        _ai_tools_relabel__read_entrypoint_patterns "${agent}" declared
+        for f in "${entry_names[@]}"; do
+            name_declared=no
+            for declared_pattern in "${declared[@]}"; do
+                if [[ "${f}" =~ ^${declared_pattern}$ ]]; then name_declared=yes; break; fi
+            done
+            [[ "${name_declared}" == yes ]] || undeclared_names+="${f} "
+        done
+        if [[ "${distinct}" -eq 0 ]]; then
             fail "${agent}: no file under ${root} carries ai_tools_exec_t -- the manager has nothing to transition on and every launch fail-closes. Fix: sudo ai-tools-admin system entrypoints relabel"
-        elif [[ "${distinct}" -eq 1 ]]; then
-            fail "${agent}: the one inode carrying ai_tools_exec_t (${entry_names[*]}) is not the declared entrypoint ${entry} -- a binary no manifest claims is the domain's entry point"
+        elif [[ -n "${undeclared_names}" ]]; then
+            fail "${agent}: a file carries ai_tools_exec_t at a name no pattern its manifest declares matches (${undeclared_names}) -- a binary no manifest claims is a domain entry point"
+        elif [[ -z "${entry_inode}" ]] || ! grep -qxF "${entry_inode}" <<<"${entry_inodes}"; then
+            fail "${agent}: the declared entrypoint ${entry} is not among the files carrying ai_tools_exec_t (${entry_names[*]})"
         else
-            fail "${agent}: ${distinct} distinct inodes carry ai_tools_exec_t (${entry_names[*]}) -- each is a domain entrypoint the manifest does not declare and the pin does not cover"
+            pass "${agent}: ai_tools_exec_t in ${pkg} sits on the names its manifest declares alone, the launched entrypoint among them (${distinct} inode(s), ${#entry_names[@]} name(s): ${entry_names[*]})"
         fi
         # A name-wise breakdown beside the inode-wise verdict: the entrypoint's hardlinked names count twice here
         # and once there, so the two agree on a healthy package.
