@@ -574,6 +574,40 @@ else
         else
             fail "a root that is not there: status ${names_status}, count '${names_got}'"
         fi
+        # A root whose state cannot be read is not an absent one: stat's own reason decides, and anything but a missing
+        # path returns non-zero from the discovery and from the count.
+        stat() { printf "stat: cannot statx '%s': Permission denied\n" "${*: -1}" >&2; return 1; }
+        names_status=0
+        names_got="$(_ai_tools_relabel__count_unprintable_entrypoint_paths "${names_entry_pattern}" "${names_root}/absent")" \
+            || names_status=$?
+        if [[ "${names_status}" -ne 0 ]]; then
+            pass "a root whose state could not be read returns non-zero from the count"
+        else
+            fail "a root whose state could not be read counted '${names_got}' and returned 0"
+        fi
+        names_status=0
+        _ai_tools_relabel__find_entrypoint_paths "${names_entry_pattern}" "${names_root}/absent" >/dev/null || names_status=$?
+        if [[ "${names_status}" -ne 0 ]]; then
+            pass "a root whose state could not be read returns non-zero from the discovery"
+        else
+            fail "a root whose state could not be read returned 0 from the discovery"
+        fi
+        unset -f stat
+        names_status=0
+        _ai_tools_relabel__find_entrypoint_paths "${names_entry_pattern}" "${names_root}/absent" >/dev/null || names_status=$?
+        if [[ "${names_status}" -eq 0 ]]; then
+            pass "control: a root that is not there returns 0 from the discovery"
+        else
+            fail "control: a root that is not there returned ${names_status} from the discovery"
+        fi
+        : > "${TESTDIR}/names/not-a-directory"
+        names_status=0
+        _ai_tools_relabel__find_entrypoint_paths "${names_entry_pattern}" "${TESTDIR}/names/not-a-directory" >/dev/null || names_status=$?
+        if [[ "${names_status}" -ne 0 ]]; then
+            pass "a root that is a file returns non-zero from the discovery"
+        else
+            fail "a root that is a file returned 0 from the discovery"
+        fi
         find() { return 1; }
         names_status=0
         _ai_tools_relabel__count_unprintable_entrypoint_paths "${names_entry_pattern}" "${names_root}" >/dev/null || names_status=$?
@@ -772,16 +806,11 @@ else
         fail "a refused link pattern still ran '${CALLS//$'\n'/ | }'"
     fi
     names_refused=""
-    # The file-context database is what the launch preflight and the names read ask. One that does not answer
-    # for the toolchain's root stops the entrypoint's labelling ahead of its first rule.
+    # The mapping the launch preflight reads is the database's answer for the launcher's resolved path. A lookup
+    # that cannot be made fails the agent's entrypoint with the reason, after its declared names are labelled.
     names_lookup=fails
-    label_is 1 "skip acme could not read the file-context database, so the mapping of its entrypoint is not confirmed -- matchpathcon gave no answer for ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" \
-        "a file-context database that does not answer stops the agent's entrypoint labelling"
-    if [[ -z "${CALLS}" ]]; then
-        pass "a database that does not answer registers no rule and restores no label"
-    else
-        fail "a database that does not answer still ran '${CALLS//$'\n'/ | }'"
-    fi
+    label_is 1 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"skip acme could not read what the file-context database maps its entrypoint ${names_entry} to -- the launch preflight reads that mapping and refuses without it" \
+        "a launcher path whose mapping cannot be read fails the agent's entrypoint"
     names_lookup=ok
 
     # The revert: every declared rule is dropped ahead of the first restorecon.

@@ -767,9 +767,9 @@ under the versions root, and a path carrying a newline would read as two lines, 
 of that account's choosing handed to root's `restorecon`. A match at such a path is neither labelled nor reverted:
 a label run counts it in a `skip` line, and a revert returns the status of a path left at its type. A revert whose walk
 for those files did not complete has not listed every file a dropped rule matched, so it says that and returns the same
-status; a versions root that is not there does not hold a match. A file-context database that does not answer
-for the versions root stops an agent's entrypoint labelling ahead of its first rule, with the reason: neither the names
-read nor the launch preflight can confirm a mapping there.
+status. A versions root confirmed not there does not hold a match, and one whose state could not be read is a walk
+that did not complete. A lookup of the launcher's resolved path that cannot be made fails the agent's entrypoint
+with the reason, since the launch preflight reads that mapping and refuses without it.
 
 **The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
 overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file

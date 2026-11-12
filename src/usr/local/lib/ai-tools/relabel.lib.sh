@@ -545,6 +545,16 @@ _ai_tools_relabel__get_agent_config_pattern() {
     printf '%s/%s(/.*)?' "$(ai_tools_relabel__get_fcontext_literal "${CP_HOME}")" "$(ai_tools_relabel__get_fcontext_literal "$1")"
 }
 
+# _ai_tools_relabel__is_walk_root_absent <root> : succeed when <root> is confirmed not there, which is stat reporting
+#   that the path or a component of it does not exist. Fails for every other reading: a root that is there and is not
+#   a directory, and one whose state could not be read -- a directory on the way that cannot be searched, a refused
+#   or failed read -- so a caller does not take a root it could not read for an empty one.
+_ai_tools_relabel__is_walk_root_absent() {
+    local report
+    report="$(LC_ALL=C stat -- "$1" 2>&1 >/dev/null)" && return 1
+    [[ "${report}" == *": No such file or directory" ]]
+}
+
 # _ai_tools_relabel__find_entrypoint_paths <pattern> [root]: print each installed file the pattern matches, one path
 #   a line. find's POSIX-extended `-regex` matches the whole path, the same anchoring SELinux gives a file-context
 #   regex, so the set relabelled here is the set the rule governs -- no second pattern language.
@@ -559,9 +569,13 @@ _ai_tools_relabel__get_agent_config_pattern() {
 #   every caller in this library passes the pattern alone.
 #
 #   Returns find's status, so a caller that must know the walk completed captures the output and reads it; a root
-#   that is not there, the state before the toolchain is provisioned, does not hold a match, and the function returns 0.
+#   confirmed not there (_ai_tools_relabel__is_walk_root_absent), the state before the toolchain is provisioned,
+#   does not hold a match and returns 0, and one whose state could not be read returns 1.
 _ai_tools_relabel__find_entrypoint_paths() {
-    [[ -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]] || return 0
+    if [[ ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then
+        _ai_tools_relabel__is_walk_root_absent "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || return 1
+        return 0
+    fi
     find "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" -xdev -regextype posix-extended \
          -regex "$1" -regex "${_AI_TOOLS_RELABEL__REPORTABLE_PATH_REGEX}" ! -path '*..*' -type f 2>/dev/null
 }
@@ -569,10 +583,15 @@ _ai_tools_relabel__find_entrypoint_paths() {
 # _ai_tools_relabel__count_unprintable_entrypoint_paths <pattern> [root]: print how many installed files the pattern
 #   matches at a path _ai_tools_relabel__find_entrypoint_paths does not print. Each is counted by one byte of find's
 #   output, so no path is read. Returns find's status beside the count it could make, so a walk that failed is not
-#   read as a count of zero; a root that is not there counts 0 and returns 0.
+#   read as a count of zero; a root confirmed not there counts 0 and returns 0, and one whose state could not
+#   be read prints 0 and returns 1.
 _ai_tools_relabel__count_unprintable_entrypoint_paths() {
     local marks status=0
-    if [[ ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then printf '0\n'; return 0; fi
+    if [[ ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then
+        printf '0\n'
+        _ai_tools_relabel__is_walk_root_absent "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || return 1
+        return 0
+    fi
     marks="$(find "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" -xdev -regextype posix-extended \
                  -regex "$1" -type f \( ! -regex "${_AI_TOOLS_RELABEL__REPORTABLE_PATH_REGEX}" -o -path '*..*' \) \
                  -printf 'x' 2>/dev/null)" || status=$?
@@ -743,8 +762,8 @@ _ai_tools_relabel__report_current_label() {
 #   (_ai_tools_relabel__list_entrypoint_name_findings), once per inode, and a finding is printed and leaves
 #   the status alone: the inode carries its type, and the next launch is confined. The one finding that fails is
 #   the launcher's own resolved path mapped to another type (`mismapped`), which the launch preflight refuses on.
-#   A match at a path a status line does not print is not labelled and is counted in a `skip` line. A file-context
-#   database that does not answer for the toolchain's root is a refusal ahead of the first rule.
+#   A match at a path a status line does not print is not labelled and is counted in a `skip` line. A lookup
+#   of the launcher's resolved path that cannot be made fails the same way, with a `skip` line.
 _ai_tools_relabel__label_agent_entrypoint() {
     local agent="$1" pattern link_pattern declared_pattern path other seen finding detail unprintable_count
     local status=0 matched=no installed covered=no
@@ -758,14 +777,6 @@ _ai_tools_relabel__label_agent_entrypoint() {
     fi
     if ! ai_tools_providers__is_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"; then
         printf 'skip %s entrypoint_fcontext is not a plain path pattern under %s\n' \
-            "${agent}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"
-        return 1
-    fi
-    # The launch preflight reads the file-context database's mapping of the entrypoint, and so does the names read
-    # of this function. A database that does not answer for the toolchain's own root answers for no path under it,
-    # so the labelling stops here with the reason and does not close on a mapping it could not confirm.
-    if [[ -z "$(_ai_tools_relabel__read_mapped_type "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" || true)" ]]; then
-        printf 'skip %s could not read the file-context database, so the mapping of its entrypoint is not confirmed -- matchpathcon gave no answer for %s\n' \
             "${agent}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"
         return 1
     fi
@@ -799,6 +810,14 @@ _ai_tools_relabel__label_agent_entrypoint() {
             [[ "${path}" == "${installed}" ]] && covered=yes
             _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" || status=1
         done < <(_ai_tools_relabel__find_entrypoint_paths "${link_pattern}")
+    fi
+    # The mapping the launch preflight reads is the database's answer for the path the launcher resolves to. A lookup
+    # that cannot be made is a launch the preflight refuses, so it fails here with the reason, whatever the names read
+    # under this line reports for the inode.
+    if [[ -n "${installed}" && -z "$(_ai_tools_relabel__read_mapped_type "${installed}" || true)" ]]; then
+        printf 'skip %s could not read what the file-context database maps its entrypoint %s to -- the launch preflight reads that mapping and refuses without it\n' \
+            "${agent}" "${installed}"
+        status=1
     fi
     # The names of each labelled inode, read once per inode: the names of a hard-linked entrypoint are each a match.
     for path in "${matches[@]}" "${link_paths[@]}"; do
