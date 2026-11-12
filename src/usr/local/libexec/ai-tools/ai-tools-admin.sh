@@ -2893,9 +2893,9 @@ entrypoint_stale_mark() {
 }
 
 # status_labels: render ai_tools_relabel__list_agent_labels -- the live SELinux type of each enabled agent's own paths
-# and the names of its installed entrypoint's inode that no declared rule covers, which that function's header
-# specifies. It closes status_entrypoints rather than opening a section of its own, so each agent's pin and its labels
-# read together.
+# and the names of its installed entrypoint's inode that the file-context database maps to another type,
+# which that function's header specifies. It closes status_entrypoints rather than opening a section of its own, so each
+# agent's pin and its labels read together.
 status_labels() {
     # Base ships this library beside this tool, so a missing report means a broken or half-upgraded install rather than
     # an optional piece -- a reading that could not be made, counted as such, since that is what it is from the reader's
@@ -2926,15 +2926,15 @@ status_labels() {
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
             none) st "n/a" "${agent}  its ${what} is not installed -- nothing to label" ;;
             # The names of the inode a session execs, read live. The entrypoint carries its type; a relabel of the whole
-            # host that walks by path can leave it on the type of a name no rule covers.
-            unmapped) st UNMAPPED "${agent}  ${path} is a name of its ${what} that no file-context rule its manifest declares covers"
+            # host that walks by path can leave it on the type the database maps another of its names to.
+            unmapped) st UNMAPPED "${agent}  ${path} is a name of its ${what} that the file-context database maps to another type"
                   detail "after a relabel of the whole host: atr admin system entrypoints relabel"
-                  detail "a newer agent package covers a name the agent's own package placed"
+                  detail "a newer agent package covers a name the agent's own package placed; a local rule: semanage fcontext -C -l"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
             outside) st UNMAPPED "${agent}  its ${what} ${path} has ${actual} name(s) outside the sandbox toolchain, which no rule can cover"
                   detail "find $(stat -c '%m -xdev -inum %i' -- "${path}" 2>/dev/null || printf '<mount> -xdev -inum <inode>')"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
-            unread) st UNMAPPED "${agent}  the names of its ${what} ${path} could not be read -- a name no rule covers may exist"
+            unread) st UNMAPPED "${agent}  the names of its ${what} ${path}, or a name's mapping, could not be read"
                   detail "atr admin system entrypoints relabel"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
         esac

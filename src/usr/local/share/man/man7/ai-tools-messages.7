@@ -1710,7 +1710,7 @@ incomplete package for ${subject}: its launcher resolves to
 .TP
 .B MSG-N4T2
 WARNING.
-unmapped name for ${subject}: ${detail} is a name of its entrypoint that no file\-context rule its manifest declares covers \-\- the entrypoint is labelled, and a relabel of the whole host can leave it on that name's type; after one, run: sudo atr admin system entrypoints relabel; a newer agent package covers a name the agent's own package placed (dnf update 'ai\-tools\-agents\-*')
+unmapped name for ${subject}: ${detail} is a name of its entrypoint that the file\-context database maps to another type \-\- the entrypoint is labelled, and a relabel of the whole host can leave it on that type; after one, run: atr admin system entrypoints relabel; a newer agent package covers a name the agent's own package placed (dnf update 'ai\-tools\-agents\-*'), and a local rule that maps the name is listed by: sudo semanage fcontext \-C \-l
 .TP
 .B MSG-N9B9
 ERROR.
@@ -1742,7 +1742,7 @@ usage: ai\-tools\-relabel\-agent [\-\-remove <agent\-name>]
 .TP
 .B MSG-T7K7
 WARNING.
-names not read for ${subject}: the names of its entrypoint ${detail} could not be read \-\- a name no file\-context rule covers may exist; rerun: sudo atr admin system entrypoints relabel
+names not read for ${subject}: the names of its entrypoint ${detail}, or the type the file\-context database maps one to, could not be read \-\- a name mapped to another type may exist; rerun: atr admin system entrypoints relabel
 .TP
 .B MSG-U6H8
 WARNING.
@@ -2210,7 +2210,7 @@ left the policy loaded: an agent session, the toolchain update, or a step run as
 .TP
 .B MSG-J5F3
 WARNING.
-entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} \-\- a name of its entrypoint is outside every file\-context rule its manifest declares, or the names could not be read; atr admin system entrypoints relabel names each
+entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} \-\- the file\-context database maps a name of its entrypoint to another type, or the names could not be read; atr admin system entrypoints relabel names each
 .TP
 .B MSG-J7J5
 ERROR.

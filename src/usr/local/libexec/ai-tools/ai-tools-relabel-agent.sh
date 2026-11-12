@@ -22,9 +22,9 @@
 # applied, and a launcher the declared rule does not cover, each a session that breaks, and for every refusal ahead
 # of the work (a caller that is not root, a library that did not load, a usage error). Exits 0 where SELinux confinement
 # is inactive, an entrypoint could not be verified, a config directory's walk left hardlinked paths at their type,
-# an entrypoint has a name no declared rule covers (warned about and filed in the label record, since the entrypoint
-# carries its type), and under `--remove` wherever the rules were dropped, a config directory's walk that did not
-# complete included, so a package erase completes.
+# an entrypoint has a name the file-context database maps to another type (warned about and filed in the label record,
+# since the entrypoint carries its type), and under `--remove` wherever the rules were dropped, a config directory's
+# walk that did not complete included, so a package erase completes.
 #
 # It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext,
 # entrypoint_link_fcontext and config_dir in its manifest under /usr/local/lib/ai-tools/agents.d), and this helper
@@ -404,19 +404,21 @@ render_label_report() {
        ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
        the package is missing the executable a session is meant to exec"
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
-            # A name of a labelled entrypoint inode outside every rule the manifest declares. The entrypoint carries its
-            # type, so the run does not fail on it; the first finding an agent has is the reason its record carries.
+            # A name of a labelled entrypoint inode that the file-context database maps to another type. The entrypoint
+            # carries its type, so the run does not fail on it; the first finding an agent has is the reason its record
+            # carries. The command each line names is the operator's spelling: the CLI refuses root and calls sudo
+            # itself.
             unmapped) : "${agent_label_names_reason["${subject}"]:=unmapped-entrypoint-name}"
-                   warn MSG-N4T2 "unmapped name for ${subject}: ${detail} is a name of its entrypoint that no file-context rule its manifest declares covers -- the entrypoint is labelled, and a relabel of the whole host can leave it on that name's type; after one, run: sudo atr admin system entrypoints relabel; a newer agent package covers a name the agent's own package placed (dnf update 'ai-tools-agents-*')"
-                   ai_tools_log__warn "${subject}: ${detail} names its entrypoint and no declared file-context rule covers it" ;;
+                   warn MSG-N4T2 "unmapped name for ${subject}: ${detail} is a name of its entrypoint that the file-context database maps to another type -- the entrypoint is labelled, and a relabel of the whole host can leave it on that type; after one, run: atr admin system entrypoints relabel; a newer agent package covers a name the agent's own package placed (dnf update 'ai-tools-agents-*'), and a local rule that maps the name is listed by: sudo semanage fcontext -C -l"
+                   ai_tools_log__warn "${subject}: ${detail} names its entrypoint and the file-context database maps it to another type" ;;
             # The inode has names the walk under the toolchain did not find, counted from its link count.
             outside) : "${agent_label_names_reason["${subject}"]:=entrypoint-name-outside-toolchain}"
                    inode_location="$(stat -c '%m -xdev -inum %i' -- "${detail}" 2>/dev/null || true)"
                    warn MSG-P5G9 "name outside the toolchain for ${subject}: its entrypoint ${detail} has ${wanted} name(s) outside the sandbox toolchain, which no rule a manifest declares can cover -- the entrypoint is labelled, and a relabel of the whole host can leave it on such a name's type; list every name: sudo find ${inode_location:-<mount> -xdev -inum <inode>}"
                    ai_tools_log__warn "${subject}: entrypoint ${detail} has ${wanted} name(s) outside the sandbox toolchain" ;;
             unread) : "${agent_label_names_reason["${subject}"]:=entrypoint-names-unread}"
-                   warn MSG-T7K7 "names not read for ${subject}: the names of its entrypoint ${detail} could not be read -- a name no file-context rule covers may exist; rerun: sudo atr admin system entrypoints relabel"
-                   ai_tools_log__warn "${subject}: the names of its entrypoint ${detail} could not be read" ;;
+                   warn MSG-T7K7 "names not read for ${subject}: the names of its entrypoint ${detail}, or the type the file-context database maps one to, could not be read -- a name mapped to another type may exist; rerun: atr admin system entrypoints relabel"
+                   ai_tools_log__warn "${subject}: the names of its entrypoint ${detail}, or a name's mapping, could not be read" ;;
             # The config directory's walk completed and left hardlinked paths at their type; the library's line carries
             # their count, not their names.
             partial) say "${subject}: ${detail} hardlinked path(s) in its config directory kept their current type"

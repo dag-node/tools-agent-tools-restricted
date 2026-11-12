@@ -428,9 +428,9 @@ being the authoritative one.
   of failure, `not labelled` for a host with no entrypoint to label (the SELinux layer inactive, or an agent
   the toolchain has not provisioned), or `?` where no reconciliation has been recorded or this account cannot read
   the record, as for the pin. A recorded failure counts toward the exit status, since it is the one state that stops
-  the next launch. So does a `labelled` record that carries a reason: a name of the entrypoint is outside every rule its
-  manifest declares, or its names could not be read, and a relabel of the whole host can leave the entrypoint
-  on that name's type. The line under it names the reconcile command, which prints each name.
+  the next launch. So does a `labelled` record that carries a reason: the file-context database maps a name
+  of the entrypoint to another type, or its names could not be read, and a relabel of the whole host can leave
+  the entrypoint on that type. The line under it names the reconcile command, which prints each name.
 
   **One reason token is read rather than printed**, and it is the one whose remedy differs in kind: `incomplete-package`
   says the agent's package does not hold the executable its manifest declares, which no relabel can supply, so the line
@@ -599,8 +599,8 @@ that may be hours old; `ai_tools_relabel__list_agent_labels` reports the type ea
 that drifted since — an out-of-band `restorecon`, a package that reinstalled the binary — is visible without running
 the reconcile. It is **read-only**, which is what makes it safe to call from a report, and its whole difference
 from `ai_tools_relabel__label_agent_paths`; that function's header states which calls each one makes. It also reads
-the names of the inode a session execs and reports one no declared rule covers (`UNMAPPED`, counted), the live form
-of the reason the label record carries ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)).
+the names of the inode a session execs and reports one the file-context database maps to another type (`UNMAPPED`,
+counted), the live form of the reason the label record carries ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)).
 
 **The sandbox unit search path is a section of its own, because only root can read it.** A chain directory that exists
 at another owner or mode is `DRIFTED` and counts, with `atr admin system layout reconcile` as the remedy line, since

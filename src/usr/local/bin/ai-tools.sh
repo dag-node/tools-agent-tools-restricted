@@ -6479,7 +6479,7 @@ status_entrypoint_stale() {
 # with it.
 #
 # Returns 1 for a recorded failure, which is the one state that stops a launch, and for a labelled entrypoint
-# whose record carries a reason: a name of that file outside every rule its manifest declares, which a relabel
+# whose record carries a reason: a name of that file the file-context database maps to another type, which a relabel
 # of the whole host can turn into the first state. Returns STATUS_UNREADABLE when entrypoint-verify.lib.sh's record-path
 # reader is not defined, a library base ships that did not load.
 status_entrypoint_label() {
@@ -6502,14 +6502,14 @@ status_entrypoint_label() {
         ok)      printf '  %-28s %slabelled%s %s(%s)%s\n' "" "${C_DIM}" "${C_RST}" \
                      "${C_DIM}" "${age:-at an unknown time}" "${C_RST}"
                  # The one reason an `ok` record carries: the entrypoint took its type, and the names of that file were
-                 # read as not all covered by a rule (ai-tools-relabel-agent writes the token; updater.rule.md).
+                 # read as not all mapped to it (ai-tools-relabel-agent writes the token; updater.rule.md).
                  if [[ -n "${reason}" ]]; then
-                     printf '  %-28s %sNAME WITHOUT A RULE%s %s(%s)%s\n' "" "${C_YEL}" "${C_RST}" \
+                     printf '  %-28s %sUNMAPPED NAME%s %s(%s)%s\n' "" "${C_YEL}" "${C_RST}" \
                          "${C_DIM}" "${reason}" "${C_RST}"
-                     say "      a name of this agent's entrypoint is outside every file-context rule its manifest"
-                     say "      declares, or its names could not be read; a relabel of the whole host can leave"
-                     say "      the entrypoint on that name's type, and its sessions then refuse to start"
-                     say "      the names, and the remedy for each: ${C_BOLD}sudo atr admin system entrypoints relabel${C_RST}"
+                     say "      the file-context database maps a name of this agent's entrypoint to another type,"
+                     say "      or its names could not be read; a relabel of the whole host can leave the entrypoint"
+                     say "      on that type, and its sessions then refuse to start"
+                     say "      the names, and the remedy for each: ${C_BOLD}atr admin system entrypoints relabel${C_RST}"
                      return 1
                  fi ;;
         # One reason is read rather than only printed: `incomplete-package` (written by ai-tools-relabel-agent) says

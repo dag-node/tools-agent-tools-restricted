@@ -253,12 +253,12 @@ fi
 # names that are hard links to one inode, and an inode holds one label: a relabel that walks by path (setfiles,
 # an autorelabel) keeps the context of the name it meets first and reports `conflicting specifications`, so one of two
 # version directories lost its entry type to an autorelabel on a host whose manifest declared one name. Three readings,
-# per enabled agent: no name of an entrypoint inode is outside the declared patterns (the relabel's own names read),
-# the file-context database maps each name to ai_tools_exec_t, and a setfiles dry run over the package reports neither
-# a conflict nor a change to an entrypoint name. The dry run is `setfiles -n` over the installed database, which does
-# not write a label. Root, to traverse the 0750 nvm tree.
+# per enabled agent: the relabel's own names read does not report a finding for an entrypoint inode, the file-context
+# database maps each of its names to ai_tools_exec_t, read here apart from the library, and a setfiles dry run
+# over the package reports neither a conflict nor a change to an entrypoint name. The dry run is `setfiles -n`
+# over the installed database, which does not write a label. Root, to traverse the 0750 nvm tree.
 section "SELinux: every name of an installed entrypoint maps to the entry type"
-if ! declare -F _ai_tools_relabel__find_uncovered_entrypoint_names >/dev/null 2>&1 \
+if ! declare -F _ai_tools_relabel__list_entrypoint_name_findings >/dev/null 2>&1 \
         || ! declare -F _ai_tools_relabel__read_entrypoint_patterns >/dev/null 2>&1; then
     skip "entrypoint names" "relabel.lib.sh does not define the names read"
 elif ! command -v matchpathcon >/dev/null 2>&1; then
@@ -274,27 +274,36 @@ else
         while IFS= read -r entry; do
             [[ -n "${entry}" ]] || continue
             names_seen=$(( names_seen + 1 ))
-            findings="$(_ai_tools_relabel__find_uncovered_entrypoint_names \
-                            "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" "${entry}" "${declared[@]}" || true)"
+            findings="$(_ai_tools_relabel__list_entrypoint_name_findings \
+                            "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" "${entry}" || true)"
             if [[ -z "${findings}" ]]; then
-                pass "${agent}: every name of ${entry} is covered by a pattern its manifest declares"
+                pass "${agent}: the relabel's names read reports no finding for ${entry}"
             else
-                fail "${agent}: a name of ${entry} is outside the patterns its manifest declares -- ${findings//$'\n'/; }"
+                fail "${agent}: the relabel's names read reports a finding for ${entry} -- ${findings//$'\n'/; }"
             fi
-            names="$(find "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" -xdev -samefile "${entry}" 2>/dev/null || true)"
-            name_count=0; unmapped_names=""
-            while IFS= read -r name; do
-                [[ -n "${name}" ]] || continue
-                name_count=$(( name_count + 1 ))
+            # The same question asked apart from the library: one record per name, a path carrying a newline printed
+            # as a fixed word, and the database's answer for each name read here.
+            records="$(find "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" -xdev -samefile "${entry}" \
+                           \( -path $'*\n*' -printf 'newline\n' -o -printf 'name %p\n' \) 2>/dev/null || true)"
+            names=(); incorrect_or_unreadable_mappings=""
+            while IFS= read -r record; do
+                [[ -n "${record}" ]] || continue
+                if [[ "${record}" == newline ]]; then
+                    incorrect_or_unreadable_mappings+="a name carrying a newline (not looked up) "
+                    names+=("")
+                    continue
+                fi
+                name="${record#name }"
+                names+=("${name}")
                 expected="$(matchpathcon -n "${name}" 2>/dev/null | awk -F: '{print $3}' || true)"
-                [[ "${expected}" == ai_tools_exec_t ]] || unmapped_names+="${name} (${expected:-unread}) "
-            done <<< "${names}"
-            if (( name_count == 0 )); then
+                [[ "${expected}" == ai_tools_exec_t ]] || incorrect_or_unreadable_mappings+="${name} (${expected:-unread}) "
+            done <<< "${records}"
+            if (( ${#names[@]} == 0 )); then
                 fail "${agent}: no name of ${entry} was found under ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}, so no mapping was read"
-            elif [[ -z "${unmapped_names}" ]]; then
-                pass "${agent}: the file-context database maps each of the ${name_count} name(s) of ${entry} to ai_tools_exec_t"
+            elif [[ -z "${incorrect_or_unreadable_mappings}" ]]; then
+                pass "${agent}: the file-context database maps each of the ${#names[@]} name(s) of ${entry} to ai_tools_exec_t"
             else
-                fail "${agent}: the file-context database maps a name of ${entry} to another type: ${unmapped_names}-- a relabel of the whole host can leave the entrypoint on it. Fix: sudo ai-tools-admin system entrypoints relabel"
+                fail "${agent}: the file-context database does not map every name of ${entry} to ai_tools_exec_t: ${incorrect_or_unreadable_mappings}-- a relabel of the whole host can leave the entrypoint on another type. Fix: sudo ai-tools-admin system entrypoints relabel"
             fi
             # The dry run, over the package directory the entrypoint sits in: the tree that holds each of its names.
             package_dir="${entry%/bin/*}"
@@ -306,10 +315,10 @@ else
                 dry_status=0
                 dry_run="$(setfiles -n -v "${file_contexts}" "${package_dir}" 2>&1)" || dry_status=$?
                 changed=""
-                while IFS= read -r name; do
+                for name in "${names[@]}"; do
                     [[ -n "${name}" ]] || continue
                     grep -qF -- "${name} " <<<"${dry_run}" && changed+="${name} "
-                done <<< "${names}"
+                done
                 if grep -qF 'conflicting specifications' <<<"${dry_run}"; then
                     fail "${agent}: a setfiles dry run over ${package_dir} reports conflicting specifications -- $(grep -F 'conflicting specifications' <<<"${dry_run}" | awk 'NR <= 2' | tr '\n' ' ')"
                 elif [[ -n "${changed}" ]]; then

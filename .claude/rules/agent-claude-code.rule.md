@@ -127,12 +127,15 @@ as root), applies the declared rule, and reconciles the two through the pure
 |---|---|---|
 | the launcher resolves to a file a declared pattern covers | `ok` | labelled and verified |
 | the launcher does not resolve and the pattern does not match a file | `none` | the agent is not provisioned; no entrypoint to label |
-| the launcher **resolves** to a file no declared pattern covers | `stale` | **reported and the run exits non-zero** |
+| the launcher **resolves** to a file no declared pattern covers, while `entrypoint_fcontext` matches another file | `stale` | **reported and the run exits non-zero** |
 
-`stale` is the case a repackaged upstream produces — the pattern does not match the file while the chain still resolves,
-so the preflight's verdict is `unverifiable` and the launch is refused. The relabel names that cause and says the fix is
-upstream of it (update the agent package, whose manifest has stopped describing where its own executable installs),
-rather than reporting success and sending the operator back around a loop no rerun can clear.
+The same divergence reads `incomplete` where `entrypoint_fcontext` does not match an installed file, and `copied`
+where the resolved file is a byte-identical copy of a match on another inode, each with a remedy of its own
+([updater](updater.rule.md) holds the table). `stale` is the case a repackaged upstream produces — the pattern does not
+match the file while the chain still resolves, so the preflight's verdict is `unverifiable` and the launch is refused.
+The relabel names that cause and says the fix is upstream of it (update the agent package, whose manifest has stopped
+describing where its own executable installs), rather than reporting success and sending the operator back around a loop
+no rerun can clear.
 
 **It does not label the resolved path to compensate.** The set of files that ever take `ai_tools_exec_t` — the exec
 entrypoint of the confined domain — stays exactly the set the root-owned manifests declare. The resolved path is reached

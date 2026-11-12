@@ -518,11 +518,12 @@ fi
 # A package can give its entrypoint a second name, a hard link, and an inode holds one label: a relabel that walks
 # by path applies the rule of whichever name it meets first. So a manifest declares the second name as a pattern of its
 # own (entrypoint_link_fcontext), the relabel registers each rule ahead of its first restorecon and drops each ahead
-# of its first revert, and the names of each labelled inode are read, so a name no declared rule covers is reported.
-# The names read runs over real hard links; semanage, restorecon and the manifest reader are stubbed.
+# of its first revert, and the names of each labelled inode are read against the file-context database, so a name it
+# maps to another type is reported. The names read runs over real hard links; matchpathcon, semanage, restorecon
+# and the manifest reader are stubbed.
 section "relabel: every declared name of an entrypoint, and the names of its inode (unit)"
-if ! declare -F _ai_tools_relabel__find_uncovered_entrypoint_names >/dev/null 2>&1; then
-    skip "entrypoint names" "_ai_tools_relabel__find_uncovered_entrypoint_names not defined by ${LIB}"
+if ! declare -F _ai_tools_relabel__list_entrypoint_name_findings >/dev/null 2>&1; then
+    skip "entrypoint names" "_ai_tools_relabel__list_entrypoint_name_findings not defined by ${LIB}"
 else
     names_root="${TESTDIR}/names/node"
     names_pkg="${names_root}/v1.2.3/lib/node_modules/@acme/experimental"
@@ -534,60 +535,96 @@ else
     names_entry_pattern="${names_literal}/[^/]+/lib/node_modules/@acme/experimental/bin/acme"
     names_link_pattern="${names_literal}/[^/]+/lib/node_modules/@acme/experimental/node_modules/@acme/experimental-linux-[a-z0-9-]+/acme"
 
-    # names_are <link-count> <expected-status> <expected-lines> <why> <pattern>... : the names read of the entrypoint
-    #   under the fixture root. The link count is asserted first, so a row reads the state it names.
+    # The file-context database, stubbed: the entrypoint maps to the entry type, the link name to names_link_type,
+    # and every other name to lib_t; names_lookup selects a lookup that fails or one no rule answers.
+    names_link_type="${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"; names_lookup=ok
+    matchpathcon() {
+        local queried="${*: -1}"
+        case "${names_lookup}" in
+            fails) return 1 ;;
+            none)  printf '<<none>>\n'; return 0 ;;
+        esac
+        case "${queried}" in
+            "${names_entry}") printf 'system_u:object_r:%s:s0\n' "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ;;
+            "${names_link}")  printf 'system_u:object_r:%s:s0\n' "${names_link_type}" ;;
+            *)                printf 'system_u:object_r:lib_t:s0\n' ;;
+        esac
+    }
+    # names_are <link-count> <expected-status> <expected-lines> <why> : the names read of the entrypoint
+    #   under the fixture root, <expected-lines> in byte order. The link count is asserted first, so a row reads
+    #   the state it names.
     names_are() {
         local links="$1" want_status="$2" want_lines="$3" why="$4" got status=0
-        shift 4
         if [[ "$(stat -c '%h' -- "${names_entry}" 2>/dev/null)" != "${links}" ]]; then
             fail "${why}: the fixture entrypoint does not have ${links} link(s)"
             return 0
         fi
-        got="$(_ai_tools_relabel__find_uncovered_entrypoint_names "${names_root}" "${names_entry}" "$@")" || status=$?
+        got="$(_ai_tools_relabel__list_entrypoint_name_findings "${names_root}" "${names_entry}")" || status=$?
+        # The walk prints names in directory order, so the lines are compared sorted.
+        [[ -z "${got}" ]] || got="$(LC_ALL=C sort <<< "${got}")"
         if [[ "${status}" -eq "${want_status}" && "${got}" == "${want_lines}" ]]; then
             pass "${why}"
         else
             fail "${why}: status ${status}, lines '${got//$'\n'/ | }'"
         fi
     }
-    names_are 1 0 "" "control: an entrypoint with one name yields no line" "${names_entry_pattern}"
+    names_are 1 0 "" "control: an entrypoint with one name yields no line"
     ln "${names_entry}" "${names_link}"
-    names_are 2 0 "" "two names, each matched by a declared pattern, yield no line" \
-        "${names_entry_pattern}" "${names_link_pattern}"
-    names_are 2 1 "unmapped ${names_link}" "a second name no declared pattern matches is unmapped" "${names_entry_pattern}"
+    names_are 2 0 "" "two names the database maps to the entry type yield no line"
+    # A name a declared pattern matches, mapped to another type by a rule registered later: the database's answer
+    # decides, so the name is a finding.
+    names_link_type=lib_t
+    names_are 2 1 "unmapped ${names_link}" "a second name the database maps to another type is unmapped"
+    names_link_type="${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"
     ln "${names_entry}" "${names_pkg}/bin/acme-third"
-    names_are 3 1 "unmapped ${names_pkg}/bin/acme-third" "a third name is unmapped beside two that are matched" \
-        "${names_entry_pattern}" "${names_link_pattern}"
+    names_are 3 1 "unmapped ${names_pkg}/bin/acme-third" "a third name is unmapped beside two that are mapped"
     rm -f -- "${names_pkg}/bin/acme-third"
     ln "${names_entry}" "${TESTDIR}/names/elsewhere/acme"
-    names_are 3 1 "outside ${names_entry} 1" "a name outside the root is counted from the link count" \
-        "${names_entry_pattern}" "${names_link_pattern}"
+    names_are 3 1 "outside ${names_entry} 1" "a name outside the root is counted from the link count"
     rm -f -- "${TESTDIR}/names/elsewhere/acme"
     ln "${names_entry}" "${names_pkg}/bin/acme odd"
-    names_are 3 1 "unmapped unreportable-name" "a name outside the reportable character set is not printed" \
-        "${names_entry_pattern}" "${names_link_pattern}"
+    names_are 3 1 "unmapped unreportable-name" "a name outside the reportable character set is not printed"
     rm -f -- "${names_pkg}/bin/acme odd"
+    # A newline in a name: each name is one record of the walk, so a name that is the entrypoint's own path
+    # with a newline after it, one with a newline inside it, and one under a directory whose name carries a newline each
+    # read as a name of their own, not as a second sighting of a mapped path.
+    ln "${names_entry}" "${names_entry}"$'\n'
+    names_are 3 1 "unmapped unreportable-name" "a name that is the entrypoint's path and a trailing newline is a finding"
+    rm -f -- "${names_entry}"$'\n'
+    ln "${names_entry}" "${names_pkg}/bin/ac"$'\n'"me"
+    names_are 3 1 "unmapped unreportable-name" "a name with a newline inside it is a finding"
+    rm -f -- "${names_pkg}/bin/ac"$'\n'"me"
+    mkdir -p "${names_pkg}/odd"$'\n'"dir"
+    ln "${names_entry}" "${names_pkg}/odd"$'\n'"dir/acme"
+    names_are 3 1 "unmapped unreportable-name" "a name under a directory whose name carries a newline is a finding"
+    rm -rf -- "${names_pkg}/odd"$'\n'"dir"
+    # A lookup that cannot be made is unread, and a name no rule maps is unmapped: neither reads as covered.
+    names_lookup=fails
+    names_are 2 1 "unread ${names_entry}" "a mapping that cannot be read is unread, once for the inode"
+    names_lookup=none
+    names_are 2 1 "unmapped ${names_entry}"$'\n'"unmapped ${names_link}" "a name no rule maps is unmapped"
+    names_lookup=ok
     # A walk that fails: the names it printed still count, and names left unaccounted for read as unread.
-    find() { printf '%s\n' "${names_entry}" "${names_link}"; return 1; }
-    names_are 2 0 "" "a failed walk that printed every name, each matched, yields no line" \
-        "${names_entry_pattern}" "${names_link_pattern}"
-    find() { printf '%s\n' "${names_entry}"; return 1; }
-    names_are 2 1 "unread ${names_entry}" "a failed walk that left a name unaccounted for is unread, not outside" \
-        "${names_entry_pattern}" "${names_link_pattern}"
+    find() { printf 'name %s\n' "${names_entry}" "${names_link}"; return 1; }
+    names_are 2 0 "" "a failed walk that printed every name, each mapped, yields no line"
+    find() { printf 'name %s\n' "${names_entry}"; return 1; }
+    names_are 2 1 "unread ${names_entry}" "a failed walk that left a name unaccounted for is unread, not outside"
     unset -f find
     names_status=0
-    names_got="$(_ai_tools_relabel__find_uncovered_entrypoint_names "${names_root}" "${names_root}/absent" x)" || names_status=$?
+    names_got="$(_ai_tools_relabel__list_entrypoint_name_findings "${names_root}" "${names_root}/absent")" || names_status=$?
     if [[ "${names_status}" -eq 1 && "${names_got}" == "unread ${names_root}/absent" ]]; then
         pass "a path whose link count cannot be read is unread"
     else
         fail "a path whose link count cannot be read: status ${names_status}, '${names_got}'"
     fi
+    unset -f matchpathcon
+    unset names_link_type names_lookup
 
     # The label and the revert, over the two hard-linked names. The containment is stubbed: the fixture is outside
     # the root the library pins, and the predicate's own table is tests/unit/launcher-target.sh's.
     names_saved="$(declare -f ai_tools_providers__read_agent_manifest_field ai_tools_providers__is_entrypoint_fcontext_valid \
         _ai_tools_relabel__register_fcontext _ai_tools_relabel__find_entrypoint_paths _ai_tools_relabel__verify_label \
-        ai_tools_relabel__resolve_agent_entrypoint_path _ai_tools_relabel__find_uncovered_entrypoint_names \
+        ai_tools_relabel__resolve_agent_entrypoint_path _ai_tools_relabel__list_entrypoint_name_findings \
         _ai_tools_relabel__read_live_type _ai_tools_relabel__is_entrypoint_policy_active \
         ai_tools_providers__list_enabled_agents ai_tools_control_plane__is_agent_config_dir_valid 2>/dev/null || true)"
     names_declared_link="${names_link_pattern}"; names_refused=""; names_installed="${names_entry}"
@@ -605,7 +642,7 @@ else
     }
     _ai_tools_relabel__verify_label() { CALLS+="verify $1"$'\n'; printf 'ok %s\n' "$1"; }
     ai_tools_relabel__resolve_agent_entrypoint_path() { printf '%s\n' "${names_installed}"; }
-    _ai_tools_relabel__find_uncovered_entrypoint_names() {
+    _ai_tools_relabel__list_entrypoint_name_findings() {
         NAMES_READS+="$2"$'\n'
         [[ -z "${names_finding}" ]] || printf '%s\n' "${names_finding}"
     }
@@ -685,7 +722,7 @@ else
 
     unset -f ai_tools_providers__read_agent_manifest_field ai_tools_providers__is_entrypoint_fcontext_valid \
         _ai_tools_relabel__register_fcontext _ai_tools_relabel__find_entrypoint_paths _ai_tools_relabel__verify_label \
-        ai_tools_relabel__resolve_agent_entrypoint_path _ai_tools_relabel__find_uncovered_entrypoint_names \
+        ai_tools_relabel__resolve_agent_entrypoint_path _ai_tools_relabel__list_entrypoint_name_findings \
         _ai_tools_relabel__read_live_type _ai_tools_relabel__is_entrypoint_policy_active \
         ai_tools_providers__list_enabled_agents ai_tools_control_plane__is_agent_config_dir_valid restorecon \
         names_are label_is

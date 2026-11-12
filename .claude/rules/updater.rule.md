@@ -697,8 +697,8 @@ and comparing it against the pin, which names a changed binary even where no rec
 Each run records what it could do about every enabled agent's labels,
 in `/var/opt/ai-tools/state/entrypoint-label.d/<agent>` — the same `KEY=value` grammar, directory ownership,
 and defensive reader as the pin beside it (`AGENT`, `RESULT=ok|failed|skipped`, `LABELLED`, and a `REASON` token
-on anything but `ok`, and on an `ok` whose entrypoint has a name no declared rule covers). `ai-tools status` reports it
-under that agent's verification line (see [cli](cli.rule.md)).
+on anything but `ok`, and on an `ok` whose entrypoint has a name the file-context database maps to another type).
+`ai-tools status` reports it under that agent's verification line (see [cli](cli.rule.md)).
 
 It exists because **the operator can observe neither the label nor the run that applies it**. The entrypoint is
 in a toolchain they cannot traverse, `matchpathcon` computes only what a label should be, and two of the three callers —
@@ -742,15 +742,19 @@ as covered, by path and not by inode: the preflight requires the rule of the res
 (`ai_tools_confinement__evaluate`), so a second name whose own rule maps another type is `stale`.
 
 **The names of each labelled inode are read.** For an entrypoint with more than one link the helper lists the inode's
-names under the Node versions root (`_ai_tools_relabel__find_uncovered_entrypoint_names`, a `find -xdev -samefile`),
-once per inode, and reports a name no declared pattern matches (`unmapped`), an inode with more links than names found,
-which is a name outside the toolchain that no contained pattern can cover (`outside`), and a read that left names
-unaccounted for (`unread`). Such a name comes from the vendor's package, from a process of the sandbox account outside
-`ai_tools_t`, or from root or an operator. A session does not add one: the policy does not grant `ai_tools_t` `link`
-on the entry type, which `selinux/avc/avc-denials.sh` (WLK-002) attempts from inside a session. A finding does not fail
-the run, since the inode carries its type and the next launch is confined. It is warned about under its own code
-and filed in the label record as `RESULT=ok` with a `REASON`, which `ai-tools status` reports and counts
-([cli](cli.rule.md)); `ai-tools-admin status` makes the same read live for the inode a session execs.
+names under the Node versions root (`_ai_tools_relabel__list_entrypoint_name_findings`, a `find -xdev -samefile`), once
+per inode, asks the file-context database what it maps each name to, and reports a name mapped to another type
+(`unmapped`), an inode with more links than names found, which is a name outside the toolchain that no contained pattern
+can cover (`outside`), and a walk that left names unaccounted for or a mapping that could not be read (`unread`).
+The database's answer decides, and not a match against the manifest's patterns, since a local rule registered later can
+map a name a declared pattern matches to another type. Each name is one record of the walk, a path carrying a newline
+printed as a fixed word, so such a name is reported and cannot read as a second sighting of a mapped path. Such a name
+comes from the vendor's package, from a process of the sandbox account outside `ai_tools_t`, or from root
+or an operator. A session does not add one: the policy does not grant `ai_tools_t` `link` on the entry type,
+which `selinux/avc/avc-denials.sh` (WLK-002) attempts from inside a session. A finding does not fail the run, since
+the inode carries its type and the next launch is confined. It is warned about under its own code and filed in the label
+record as `RESULT=ok` with a `REASON`, which `ai-tools status` reports and counts ([cli](cli.rule.md));
+`ai-tools-admin status` makes the same read live for the inode a session execs.
 
 **The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
 overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file

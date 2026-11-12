@@ -136,8 +136,8 @@ so the base SELinux module declares **neither** and the manifest carries both:
 [updater](updater.rule.md)). `entrypoint_link_fcontext` is read by that helper and by the audit reader alone:
 the launcher target is matched against `entrypoint_fcontext`, so no writer of the launcher chain links a launcher
 at a name the second pattern alone covers. Why a second name takes a rule of its own, and the read that reports a name
-without one, are [updater](updater.rule.md)'s. A second agent package therefore brings both its binary and its state
-directory into this policy without touching the base.
+the file-context database maps to another type, are [updater](updater.rule.md)'s. A second agent package therefore
+brings both its binary and its state directory into this policy without touching the base.
 
 `config_dir` is more than a label: the agent's package **owns that directory** and the files in it (`settings.json`,
 the hooks), while the base pins its mode (`CP_AGENT_CONFIG_MODE`, setgid+sticky) and resolves the set of them
