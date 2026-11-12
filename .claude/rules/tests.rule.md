@@ -607,13 +607,14 @@ the set, so a helper added without the lines fails the file. The mechanics run o
 helper's own head with recorders named `bash` and `id` first on the caller's `PATH`, a `BASH_ENV` file and an exported
 function: the run reaches none of them, and three controls each undo one part of the head and show what it kept
 out, the `env` line running the planted `bash`, the head without its `PATH` lines running the planted `id`, and the head
-without `-p` taking the file and the function. That part execs its fixtures and takes `agent-installs.sh`'s fallback
-for a directory where a `0755` file is executable. As root it reads every installed helper through the same checker
-and runs `ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals under a `PATH` led by recorders, each held
-to its usage status and an empty recorder log, behind a control that a shell keeping its caller's `PATH` runs
-a recorder. The recorders are root-owned: a run that reached one would execute it as root, so a directory the sandbox
-account writes is not what leads that `PATH`. Its boundary half is `boundary/access.sh`, which holds every directory
-the `PATH` names and each interpreter out of the sandbox account's reach.
+without `-p` taking the file and the function. As root it reads every installed helper through the same checker and runs
+`ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals under a `PATH` led by recorders, each held to its
+usage status and an empty recorder log, behind a control that a shell keeping its caller's `PATH` runs a recorder.
+The recorders are root-owned, in a directory root made: a run that reached one would execute it as root, so a directory
+the sandbox account writes is not what leads that `PATH`. The mechanics and the planted runs exec their fixtures,
+from one directory where a `0755` file is executable: the testdir where it qualifies, and `agent-installs.sh`'s fallback
+beside the operator's home under a `noexec` `/tmp`. Its boundary half is `boundary/access.sh`, which holds every
+directory the `PATH` names and each interpreter out of the sandbox account's reach.
 
 `atr.sh` drives the short command over a copy of the wrapper whose two program paths are rewritten to recorders, its
 help library path to the checkout's and its domain and manifest directories to fixtures, with a recording `sudo` first

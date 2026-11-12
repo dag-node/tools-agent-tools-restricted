@@ -18,9 +18,10 @@
 #      a PATH led by a root-owned recorder directory. The recorders are root's own files: a run that reached one would
 #      execute it as root, and the suite does not execute a file another account can write (tests.rule.md).
 #
-# Parts 1 and 2 need neither root nor an install. Part 3 execs fixture files, so it needs a directory where a 0755 file
-# is executable. The boundary half is tests/boundary/access.sh: the sandbox account writes none of the directories
-# the PATH names.
+# Parts 1 and 2 need neither root nor an install. Parts 3 and 4 exec fixture files, so they need a directory
+# where a 0755 file is executable: the testdir where it qualifies, and a directory beside the operator's home otherwise,
+# the fallback tests/unit/agent-installs.sh takes. The boundary half is tests/boundary/access.sh: the sandbox account
+# writes none of the directories the PATH names.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -245,28 +246,35 @@ else
         fi
     done
 
-    # A root-owned recorder for each command the two runs resolve, first on PATH. The directory is root's and so is
-    # every file in it. The control shows a shell that does not set its own PATH takes the recorder.
-    root_plant="${TESTDIR}/root-plant"; root_log="${TESTDIR}/root-plant.log"
-    mkdir -p "${root_plant}"
-    for name in bash python3 env id date logger; do
-        printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${root_log}" > "${root_plant}/${name}"
-        chmod 0755 "${root_plant}/${name}"
-    done
-    if ! x_bit_visible "${root_plant}"; then
-        skip_required "installed helpers under a planted PATH" "the testdir does not report a 0755 file as executable"
+    # A root-owned recorder for each command the two runs resolve, first on PATH, in the directory the mechanics found
+    # executable: root made it, and the sandbox account does not write it. The control shows a shell that does not set
+    # its own PATH takes the recorder.
+    root_plant="${work:+${work}/root-plant}"; root_log="${work:+${work}/root-plant.log}"
+    if [[ -n "${root_plant}" ]]; then
+        mkdir -p "${root_plant}"
+        for name in bash python3 env id date logger; do
+            printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${root_log}" > "${root_plant}/${name}"
+            chmod 0755 "${root_plant}/${name}"
+        done
+    fi
+    if [[ -z "${root_plant}" ]] || ! x_bit_visible "${root_plant}"; then
+        skip_required "installed helpers under a planted PATH" "no directory here reports a 0755 file as executable (a noexec mount)"
     else
         env -i PATH="${root_plant}:/usr/bin:/bin" /bin/sh -c 'date' > /dev/null 2>&1 || true
         if [[ "$(cat "${root_log}" 2>/dev/null)" != date ]]; then
             fail "control: a shell under the planted PATH did not run the planted date, so the runs below show nothing"
         else
             pass "control: a shell that keeps its caller's PATH runs the planted date"
+            # The harness's log directory goes with the run, so a helper's refusal line lands there and not
+            # in the host's own trail.
+            planted_env=(PATH="${root_plant}:/usr/bin:/bin")
+            [[ -z "${AI_TOOLS_LOG_DIR:-}" ]] || planted_env+=(AI_TOOLS_LOG_DIR="${AI_TOOLS_LOG_DIR}")
             # run_planted <want-status> <what> <helper> [<arg>...]: the helper under the planted PATH, held to its usage
             # status and to an empty recorder log.
             run_planted() {
                 local want="$1" what="$2" status=0 reached=""; shift 2
                 rm -f "${root_log}"
-                env -i PATH="${root_plant}:/usr/bin:/bin" "$@" > /dev/null 2>&1 < /dev/null || status=$?
+                env -i "${planted_env[@]}" "$@" > /dev/null 2>&1 < /dev/null || status=$?
                 [[ ! -f "${root_log}" ]] || reached="$(tr '\n' ' ' < "${root_log}")"
                 if [[ "${status}" == "${want}" && -z "${reached}" ]]; then
                     pass "${what} exits ${want} under a planted PATH and runs no planted command"
