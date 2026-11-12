@@ -68,15 +68,13 @@ to sudoers matching, which targets the fixed path `/opt/ai-tools/bin/ai-tools-ru
 as `optionalDependencies` — one per platform/arch/libc (`@anthropic-ai/claude-code-<platform>-<arch>[-musl]`) —
 so the executable ships in a nested package
 (`…/claude-code/node_modules/@anthropic-ai/claude-code-<platform>-<arch>/claude`), and the `postinstall` script
-(`install.cjs`) hardlinks the one for this host to `bin/claude.exe`. Three consequences:
+(`install.cjs`) hardlinks the one for this host to `bin/claude.exe`. The consequences:
 
 - The declared `entrypoint_fcontext` matches only because that hardlink exists. It names the arch-independent
   `bin/claude.exe`, so it is not itself arch-specific — but it describes a *convenience name* the package creates, not
   where the payload ships.
-- A relabel that walks the toolchain by path visits **two names for one inode**, and an inode holds one label:
-  `setfiles` keeps the context of the name it meets first, so with one name declared, directory order decides whether
-  the entrypoint keeps its type. The manifest therefore declares the nested name too (`entrypoint_link_fcontext`),
-  and each name maps to `ai_tools_exec_t` ([updater](updater.rule.md)).
+- The package gives one inode **two names**, so the manifest declares the nested one too (`entrypoint_link_fcontext`).
+  Why each name of an entrypoint takes a rule of its own is [updater](updater.rule.md)'s.
 - The nested name spans the platform variants, so its pattern carries a class over the vendor's Linux platform names
   (`claude-code-linux-[a-z0-9-]+`) where the containment refuses an alternation. A file the sandbox account's updater
   placed at a name that class matches takes the entry type at the next relabel, as one placed at the declared path
@@ -120,22 +118,14 @@ resolution is the **check**, so the helper's exit status answers the question th
 be confined?
 
 For each enabled agent it resolves `/opt/ai-tools/bin/<launcher>` the same way the preflight does (`realpath -e`,
-as root), applies the declared rule, and reconciles the two through the pure
-`ai_tools_relabel__evaluate_entrypoint_reconcile` (`relabel.lib.sh`):
+as root), applies the declared rules, and reconciles the two through the pure
+`ai_tools_relabel__evaluate_entrypoint_reconcile` (`relabel.lib.sh`). The divergent verdicts, what tells them apart
+and the remedy each names are [updater](updater.rule.md)'s table; `ok` and `none` are that function's header's.
 
-| state | verdict | outcome |
-|---|---|---|
-| the launcher resolves to a file a declared pattern covers | `ok` | labelled and verified |
-| the launcher does not resolve and the pattern does not match a file | `none` | the agent is not provisioned; no entrypoint to label |
-| the launcher **resolves** to a file no declared pattern covers, while `entrypoint_fcontext` matches another file that the resolved one is not a byte-identical copy of | `stale` | **reported and the run exits non-zero** |
-
-The same divergence reads `incomplete` where `entrypoint_fcontext` does not match an installed file, and `copied`
-where the resolved file is a byte-identical copy of a match on another inode, each with a remedy of its own
-([updater](updater.rule.md) holds the table). `stale` is the case a repackaged upstream produces — the pattern does not
-match the file while the chain still resolves, so the preflight's verdict is `unverifiable` and the launch is refused.
-The relabel names that cause and says the fix is upstream of it (update the agent package, whose manifest has stopped
-describing where its own executable installs), rather than reporting success and sending the operator back around a loop
-no rerun can clear.
+For this package `stale` is the case a repackaged upstream produces: the pattern does not match the file while the chain
+still resolves, so the preflight's verdict is `unverifiable` and the launch is refused. The relabel names that cause
+and says the fix is upstream of it (update the agent package, whose manifest has stopped describing where its own
+executable installs), rather than reporting success and sending the operator back around a loop no rerun can clear.
 
 **It does not label the resolved path to compensate.** The set of files that ever take `ai_tools_exec_t` — the exec
 entrypoint of the confined domain — stays exactly the set the root-owned manifests declare. The resolved path is reached

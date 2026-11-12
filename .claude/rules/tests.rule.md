@@ -1317,15 +1317,11 @@ status lines: every path at its type exits 0, the control; a config directory le
 and exits 1; a walk that left hardlinked files is said with its count and filed by the agent's verdict; a walk
 that could not start is filed `walker-unavailable`, apart from a refused declaration's `rule-not-registered`; and a name
 of an entrypoint the file-context database maps to another type exits 0 under its code and is filed `ok` with its
-reason. `relabel.sh` drives the names read over a fixture of real hard links with the database's lookup stubbed (one
-name mapped to the entry type, to another type and unreadable, two and three names, a name a rule maps to another type,
-a name outside the root, a name carrying a newline at its end, inside it and in a directory component, a lookup
-that fails or that no rule answers, a walk that fails), and the label and the revert with the policy tools stubbed: each
-declared rule registered ahead of the first `restorecon` and dropped ahead of the first revert, a refused link pattern,
-a launcher resolving to the declared link name as covered, the launcher's own path mapped to another type as a failure,
-and the discovery over matches at a path carrying a newline, a space or `..`, which it counts and does not print.
-A revert whose discovery or count walk fails returns 5 saying the walk did not complete, and a file-context database
-that does not answer stops the entrypoint's labelling ahead of its first rule. The boundary half is a type rule,
+reason. `relabel.sh` owns four properties of the entrypoint's names, over real hard links with the policy tools
+and the database's lookup stubbed: every name is one finding whatever bytes it carries, and the database's answer
+decides it; every declared rule is registered ahead of the first `restorecon` and dropped ahead of the first revert;
+the discovery prints a path only where a status line prints it; and a read that could not be made, of a root, a walk
+or the launcher's own mapping, returns non-zero and is not read as no file found. The boundary half is a type rule,
 a session's link of an entrypoint, which `selinux/avc/avc-denials.sh` attempts as WLK-002.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
