@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-relabel
 # Apply (or revert) the ai_tools_project_t SELinux label on ONE approved project directory, so the confined agent
@@ -35,6 +35,11 @@
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
+
+# A fixed PATH, set before any command is resolved: with the interpreter line it is the start every root helper shares
+# (cli.rule.md, ref-section-g7c8), so a command is found in the system directories whatever PATH the caller holds.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly RELABEL_LIB="/usr/local/lib/ai-tools/relabel.lib.sh"
 

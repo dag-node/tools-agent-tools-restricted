@@ -3,10 +3,10 @@
 # tests/unit/admin-help.sh
 # The help contract on the admin side: a help request on any base path prints that path's help and does not run the
 # command, on ai-tools-admin and on the dotnet command it dispatches. The checkout's ai-tools-admin.sh and dotnet
-# fragment run as the projects user through runuser, with recorders first on PATH for the host tools the base commands
-# and the fragment reach first (`id`, `usermod`, `semodule`, `getent`, `systemctl`, `rpm`; `dotnet`, `restorecon`,
-# `semanage`, `getenforce`), so a command the help request ran would leave a line in the recorder log. Each row asserts
-# exit 0, the expected help, and an empty log. Beside them:
+# fragment run as the projects user through runuser, each as a copy whose PATH line names recorders first for the host
+# tools the base commands and the fragment reach first (`id`, `usermod`, `semodule`, `getent`, `systemctl`, `rpm`;
+# `dotnet`, `restorecon`, `semanage`, `getenforce`), so a command the help request ran would leave a line
+# in the recorder log. Each row asserts exit 0, the expected help, and an empty log. Beside them:
 #   * `operators add --version`, as root, is refused under MSG-J2S8 with no `id` call, and `operators add svc`, as
 #     root, is the control that reaches the `id` recorder;
 #   * `dotnet tools install help` and `tools install -- --help` are not help requests, so the projects user meets
@@ -58,6 +58,25 @@ EOF
     chmod 0755 "${FIXTURE}/bin/${tool}"
 done
 readonly RUN_PATH="${FIXTURE}/bin:/usr/bin:/bin"
+
+# Each program sets its own PATH as it starts (cli.rule.md, ref-section-g7c8), so a recorder ahead on the caller's PATH
+# is not searched. The rows run a copy whose PATH line names the recorder directory first, and the file stops unless
+# the copy differs from its source in that line alone: a row over any other text would report on another program.
+# recorder_copy <variable> : replace the program <variable> names with its copy.
+recorder_copy() {
+    local -n _program="$1"
+    local source="${_program}" copy changed
+    copy="${FIXTURE}/${source##*/}"
+    sed "s|^PATH=/usr/sbin:/usr/bin:/sbin:/bin\$|PATH=${RUN_PATH}|" -- "${source}" > "${copy}"
+    chmod 0644 "${copy}"
+    changed="$(diff -- "${source}" "${copy}" | grep '^[<>]' || true)"
+    [[ "${changed}" == "< PATH=/usr/sbin:/usr/bin:/sbin:/bin"$'\n'"> PATH=${RUN_PATH}" ]] || return 1
+    _program="${copy}"
+}
+if ! recorder_copy ADMIN || ! recorder_copy DOTNET; then
+    fail "a copy with its PATH line naming the recorders could not be made of ${ADMIN} or ${DOTNET} -- no row run"
+    finish; exit
+fi
 
 # run_as <user|root> <program> <arg>... : run <program> under the recorder PATH; sets RC, OUT (stdout) and ERR.
 run_as() {

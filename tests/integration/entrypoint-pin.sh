@@ -26,8 +26,9 @@
 # the semanage stub beside it is the assertion that it did not. The stubs need a directory where a 0755 file is VISIBLE
 # as executable: bash's PATH search asks access(2), which a noexec mount answers false, so a stub under such a /tmp is
 # passed over and the real command runs in its place -- a fixture rule in the host's policy store. The testdir is used
-# when it qualifies and a directory beside the operator's home otherwise, and the switch is asserted to have taken
-# before the first run and read back from the helper's own line after it. Run as root via sudo.
+# when it qualifies and a directory beside the operator's home otherwise. The helper sets its own PATH, so the runs go
+# through a copy of the deployed file whose PATH line names the stub directory first; the switch is asserted to have
+# taken before the first run and read back from the helper's own line after it. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -106,23 +107,40 @@ printf '#!/bin/sh\necho Disabled\n' > "${stub_bin}/getenforce"
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/semanage.log"\nexit 0\n' "${TESTDIR}" > "${stub_bin}/semanage"
 chmod 0755 "${stub_bin}/getenforce" "${stub_bin}/semanage"
 
-# run_reconcile : run the deployed helper over the fixture host, printing its combined output. Its exit status is
-# the caller's to read.
+# The helper sets its own PATH as it starts (cli.rule.md, ref-section-g7c8), so a stub directory ahead on the caller's
+# PATH is not searched. The runs go through a copy of the deployed helper whose PATH line names the stub directory
+# first, run as `bash <copy>` since the copy sits in the testdir.
+readonly HELPER_PATH_LINE='PATH=/usr/sbin:/usr/bin:/sbin:/bin'
+helper_copy="${TESTDIR}/ai-tools-relabel-agent"
+sed "s|^${HELPER_PATH_LINE}\$|PATH=${stub_bin}:${HELPER_PATH_LINE#PATH=}|" -- "${HELPER}" > "${helper_copy}"
+
+# run_reconcile : run the copy of the deployed helper over the fixture host, printing its combined output. Its exit
+# status is the caller's to read.
 run_reconcile() {
-    env PATH="${stub_bin}:${PATH}" \
-        AI_TOOLS_AGENTS_DIR="${agents_dir}" \
+    env AI_TOOLS_AGENTS_DIR="${agents_dir}" \
         AI_TOOLS_OPERATOR_CONF="${TESTDIR}/operator.conf" \
         AI_TOOLS_LAUNCHER_DIR="${launcher_dir}" \
         AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}" \
         AI_TOOLS_ENTRYPOINT_LABEL_DIR="${label_dir}" \
         AI_TOOLS_ENTRYPOINT_STALE_DIR="${stale_dir}" \
         AI_TOOLS_RELABEL_LOCK="${TESTDIR}/relabel.lock" \
-        "${HELPER}" 2>&1
+        bash "${helper_copy}" 2>&1
 }
 
 # The switch is asserted BEFORE the first run, and the file stops here when it did not take: a run whose PATH search
-# passes over the stubs registers the fixture's rule in the host's policy store, which no teardown here removes.
-resolved_stubs="$(env PATH="${stub_bin}:${PATH}" bash -c 'command -v getenforce semanage' 2>/dev/null || true)"
+# passes over the stubs registers the fixture's rule in the host's policy store, which no teardown here removes. Three
+# readings, each of which stops the file: the copy differs from the deployed helper in its PATH line alone,
+# so the helper's own text is what runs; the copy holds one PATH line, the rewritten one; and a shell given that line's
+# value resolves both commands to the stubs.
+copy_changes="$(diff -- "${HELPER}" "${helper_copy}" | grep '^[<>]' || true)"
+copy_path="$(sed -n 's/^PATH=//p' -- "${helper_copy}")"
+if [[ "${copy_changes}" != "< ${HELPER_PATH_LINE}"$'\n'"> PATH=${stub_bin}:${HELPER_PATH_LINE#PATH=}" \
+   || "${copy_path}" != "${stub_bin}:${HELPER_PATH_LINE#PATH=}" ]]; then
+    skip_required "observed-pin reconciliation" \
+        "the installed ${HELPER} does not hold the line ${HELPER_PATH_LINE}, so no copy can name the stubs -- reinstall to cover it"
+    finish; exit
+fi
+resolved_stubs="$(env -i PATH="${copy_path}" /usr/bin/bash -c 'command -v getenforce semanage' 2>/dev/null || true)"
 if [[ "${resolved_stubs}" != "${stub_bin}/getenforce"$'\n'"${stub_bin}/semanage" \
    || "$("${stub_bin}/getenforce" 2>/dev/null)" != Disabled ]]; then
     fail "the stubs are not what the helper's PATH resolves (got: ${resolved_stubs}) -- no reconciliation run"

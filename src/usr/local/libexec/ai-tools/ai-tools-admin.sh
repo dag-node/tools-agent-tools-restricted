@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-admin
 # Host administration for the ai-tools sandbox. A root helper (run via sudo), not an ai-tools CLI verb: it edits host
@@ -101,6 +101,11 @@
 # Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
 set -euo pipefail
+
+# A fixed PATH, set before any command is resolved: with the interpreter line it is the start every root helper shares
+# (cli.rule.md, ref-section-g7c8), so a command is found in the system directories whatever PATH the caller holds.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"

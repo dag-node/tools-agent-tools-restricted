@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # ai-tools-admin-command: dotnet
 # ai-tools-admin-api-min-version: 1.0
@@ -36,6 +36,11 @@
 # else. Its domain rule is dotnet.rule.md.
 
 set -euo pipefail
+
+# A fixed PATH, set before any command is resolved: with the interpreter line it is the start every root helper shares
+# (cli.rule.md, ref-section-g7c8), so a command is found in the system directories whatever PATH the caller holds.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly OPERATOR_CONF="/etc/ai-tools/operator.conf"
 

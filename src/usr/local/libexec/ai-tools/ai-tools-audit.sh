@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-audit
 # Answers one question: what was refused, rejected, stranded or flagged BETWEEN two points in time? It reports EVENTS,
@@ -55,6 +55,11 @@
 # Installed 750 root:root, so only root runs it. Its domain rule is cli.rule.md.
 
 set -euo pipefail
+
+# A fixed PATH, set before any command is resolved: with the interpreter line it is the start every root helper shares
+# (cli.rule.md, ref-section-g7c8), so a command is found in the system directories whatever PATH the caller holds.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 # The severity floor for a finding. NOTICE is included deliberately: ai-tools-chown records a breached secret
 # at that level, and a leaked credential is the single most actionable thing this command can surface.

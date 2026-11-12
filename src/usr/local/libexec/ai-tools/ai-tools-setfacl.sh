@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-setfacl
 # Applies the per-project POSIX ACL that lets the owning operator and the sandbox agent co-write an approved tree
@@ -27,6 +27,11 @@
 # 750 root:root. Its domain rule is cli.rule.md.
 
 set -euo pipefail
+
+# A fixed PATH, set before any command is resolved: with the interpreter line it is the start every root helper shares
+# (cli.rule.md, ref-section-g7c8), so a command is found in the system directories whatever PATH the caller holds.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 # Every refusal and every disclosure this helper prints goes through warn, so the component prefix is stated once here
 # instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its own line ahead

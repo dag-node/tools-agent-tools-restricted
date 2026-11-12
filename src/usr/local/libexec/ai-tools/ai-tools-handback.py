@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-handback
 # Socket-activated per-connection privilege bridge for the ai-tools sandbox.
@@ -44,6 +44,9 @@
 #
 # Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install. Its domain rule is
 # handback-bridge.rule.md.
+#
+# The interpreter line names Python by path (cli.rule.md, ref-section-g7c8). It does not pass `-I`: the unit sets
+# the `PYTHON*` variables this daemon runs under, and isolated mode ignores them.
 
 import datetime
 import os

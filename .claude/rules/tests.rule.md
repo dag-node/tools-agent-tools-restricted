@@ -599,6 +599,22 @@ file and an exported function, so their absence with `-p` is evidence rather tha
 wrapper's own test is `integration/wrapper.sh`, which proves the deployed wrapper reaches those gates in that order
 through its launcher symlinks.
 
+`root-helper-startup.sh` is the runtime half of the start every root helper shares
+([ref-section-g7c8](cli.rule.md#ref-section-g7c8)). Its checker is driven first over fixtures it must report — an `env`
+interpreter line, bash without `-p`, a missing, late or different `PATH` line, a missing `export` — beside ones it must
+pass, and then reads every file in the checkout's helper directory and contributed-command directory, the listing being
+the set, so a helper added without the lines fails the file. The mechanics run on a synthetic helper built from a real
+helper's own head with recorders named `bash` and `id` first on the caller's `PATH`, a `BASH_ENV` file and an exported
+function: the run reaches none of them, and three controls each undo one part of the head and show what it kept
+out, the `env` line running the planted `bash`, the head without its `PATH` lines running the planted `id`, and the head
+without `-p` taking the file and the function. That part execs its fixtures and takes `agent-installs.sh`'s fallback
+for a directory where a `0755` file is executable. As root it reads every installed helper through the same checker
+and runs `ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals under a `PATH` led by recorders, each held
+to its usage status and an empty recorder log, behind a control that a shell keeping its caller's `PATH` runs
+a recorder. The recorders are root-owned: a run that reached one would execute it as root, so a directory the sandbox
+account writes is not what leads that `PATH`. Its boundary half is `boundary/access.sh`, which holds every directory
+the `PATH` names and each interpreter out of the sandbox account's reach.
+
 `atr.sh` drives the short command over a copy of the wrapper whose two program paths are rewritten to recorders, its
 help library path to the checkout's and its domain and manifest directories to fixtures, with a recording `sudo` first
 on `PATH`: each argument reaches the program it names as one field, the empty one included, the program's exit status is
@@ -617,10 +633,11 @@ over a partial clone whose missing `HEAD` object fetches through a `core.sshComm
 80 columns, the admin's domain block over a root-owned fixture directory and its refusal line beside a group-writable
 fragment, the resolver as a table of command lines per program, the help command an unknown-command line names,
 the reserved base names, and a copy whose `conf.lib.sh` is unreachable returning non-zero at source. `admin-help.sh` is
-its admin-side counterpart over the checkout's programs: as the projects user, with recorders first on `PATH`
-for the host tools the base commands and the dotnet fragment reach first, a help request on each base path prints
-and leaves the recorder log empty; an unknown path's help request meets its arm's code; `operators add --version` is
-refused under its code before `id`, beside the control that reaches the `id` recorder.
+its admin-side counterpart over the checkout's programs, each run as a copy whose `PATH` line names recorders first
+for the host tools the base commands and the dotnet fragment reach first, the file stopping unless a copy differs
+from its source in that line alone: as the projects user, a help request on each base path prints and leaves
+the recorder log empty; an unknown path's help request meets its arm's code; `operators add --version` is refused
+under its code before `id`, beside the control that reaches the `id` recorder.
 
 `man.sh` is a pure text-sync check over this project's man pages and what each documents. The two command pages are held
 to the command rows `help.lib.sh` holds for their program, read through its list readers in a shell of their own,
@@ -1531,9 +1548,11 @@ and the helper's second half is switched off at the probe the labelling library 
 `Disabled`) with a `semanage` stub beside it as the assertion that no policy-store write was attempted — the same line
 the rest of the suite draws around the host's SELinux policy. The stubs are placed where a 0755 file is visible
 as executable, since bash's `PATH` search asks `access(2)` and a `noexec` mount answers false, so a stub under such
-a `/tmp` is passed over and the real command runs — a fixture rule left in the host's policy store. The file therefore
-asserts before its first run that `command -v` under the helper's `PATH` resolves to the stubs and stops when it does
-not, and reads the switch back from the helper's own inactive line after the run.
+a `/tmp` is passed over and the real command runs — a fixture rule left in the host's policy store. The helper sets its
+own `PATH` ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)), so the runs go through a copy of the deployed file
+whose `PATH` line names the stub directory first. The file asserts before its first run that the copy differs
+from the deployed helper in that line alone and that `command -v` under the line's value resolves to the stubs, stops
+when either does not hold, and reads the switch back from the helper's own inactive line after the run.
 
 `typesafe.sh` holds the installed decide command to the release it is vendored from and to its refusals. The installed
 directory must hold exactly the files the pin lists, so a module a release adds cannot be left out and one it drops
@@ -1559,12 +1578,15 @@ plane, cannot reach the operator's credential stores (`~/.ssh`, `~/.gnupg`, …)
 privilege), plus the account hygiene that invariant leans on (nologin shell, locked password, non-membership
 in `ai-ops`). It also asserts the agent cannot write the **pin**, the pin directory, the shipped signing key,
 or the verifier library — the inputs that decide what a verified checksum is — so it can neither record nor authorise
-a checksum for a binary it modified. Those are root-owned files, so they are DAC facts and this vantage sees them. Its
-one assertion that is not a permission check is the journald one: it *writes* a line as the agent under a root helper's
-syslog tag and asserts journald files it under the sandbox uid and not under `_UID=0`. That is the boundary half
-of the documented query form (see [logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is
-the uid the sender cannot set, not the tag. A host with no journald skips: an absent line is not evidence. Two readings
-there are **positive** and are asserted as such, because each records a decision: the agent package's `package.json`
+a checksum for a binary it modified. Those are root-owned files, so they are DAC facts and this vantage sees them.
+The same holds for where a root helper starts ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)): `access.sh` reads
+the `PATH` line from the installed stop helper and asserts the agent writes none of the directories it names, neither
+interpreter, and no ancestor of either, behind a control that the probe reports `/tmp` writable. Its one assertion
+that is not a permission check is the journald one: it *writes* a line as the agent under a root helper's syslog tag
+and asserts journald files it under the sandbox uid and not under `_UID=0`. That is the boundary half of the documented
+query form (see [logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid
+the sender cannot set, not the tag. A host with no journald skips: an absent line is not evidence. Two readings there
+are **positive** and are asserted as such, because each records a decision: the agent package's `package.json`
 under the toolchain **is** account-writable, which is why the declared version is not a trust input and the observed pin
 tier states a limit rather than a guarantee (the type layout is what closes it, asserted in `integration/selinux.sh`),
 and each agent's config directory **is** agent-writable, since the hooks that write `.sweep-marker`

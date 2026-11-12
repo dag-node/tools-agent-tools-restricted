@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-stop
 # Stops running agent sessions and everything they spawned. This is the stop rung of the incident ladder: the one
@@ -80,9 +80,9 @@
 # NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a half-finished kill.
 set -uo pipefail
 
-# A fixed PATH, set before anything is resolved. This helper runs as root and is reachable directly as well
-# as through the CLI, so it must not resolve `sleep`, `id` or `realpath` through a PATH an invoker chose. sudoers
-# `secure_path` normally covers the sudo route; this covers the direct one too, at no cost.
+# A fixed PATH, set before any command is resolved, so `sleep`, `id` and `realpath` are found in the system directories
+# whatever PATH the caller holds: sudoers `secure_path` covers the sudo route, and this covers a direct run as well.
+# With the interpreter line it is the start every root helper shares (cli.rule.md, ref-section-g7c8).
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 

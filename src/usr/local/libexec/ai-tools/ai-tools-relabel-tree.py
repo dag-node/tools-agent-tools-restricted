@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-relabel-tree
 # Descriptor-pinned recursive SELinux relabel of one tree, the walk `restorecon -FR` makes, for a tree the sandbox
@@ -58,6 +58,9 @@
 # relabel_tree() takes its collaborators as parameters, so tests/unit/relabel-tree-harness.py imports this file by path
 # and drives it with fakes; main() binds the real ones. Installed 0750 root:root as ai-tools-relabel-tree. Its domain
 # rule is cli.rule.md.
+#
+# The interpreter line names Python by path and starts it in isolated mode (`-I`), so neither the caller's PATH nor its
+# `PYTHON*` variables decide what this file imports (cli.rule.md, ref-section-g7c8).
 
 import ctypes
 import errno
