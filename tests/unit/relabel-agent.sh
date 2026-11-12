@@ -139,6 +139,16 @@ assert_msg MSG-T7K7 "${OUT}" "names that could not be read are warned about unde
 has_line "the agent is filed ok with the unread reason" "record acme ok entrypoint-names-unread"
 close_run $'ok /fixture/bin/acme\nunmapped acme /fixture/bin/acme-third\noutside acme /fixture/bin/acme 1\nagent acme ok'
 has_line "the first finding is the reason the record carries" "record acme ok unmapped-entrypoint-name"
+# The launcher's own path mapped to another type is not a names finding: the launch preflight refuses on it,
+# so the library fails the agent and the record carries the reason.
+close_run $'ok /fixture/bin/acme\nmismapped acme /fixture/bin/acme\nagent acme failed'
+assert_msg MSG-R2W5 "${OUT}" "a launcher path mapped to another type is warned about under its code"
+has_line "the agent is filed failed with the mapping reason" "record acme failed entrypoint-mapping-overridden"
+if command grep -qF 'its next session refuses to start' <<< "${OUT}"; then
+    pass "the warning says the next session is refused"
+else
+    fail "the warning does not say the next session is refused: ${OUT//$'\n'/ | }"
+fi
 # A names finding beside a failure: the failure's reason is the record's, and the names reason is not written over it.
 close_run $'bad /fixture/bin/acme lib_t ai_tools_exec_t\nunmapped acme /fixture/bin/acme-third\nagent acme failed'
 has_line "a failed agent keeps the failure's reason" "record acme failed did-not-take-its-type"

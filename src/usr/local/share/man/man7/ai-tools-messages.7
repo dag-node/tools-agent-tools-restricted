@@ -1688,6 +1688,10 @@ entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will
 ERROR.
 a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: atr admin system bootstrap, then rerun
 .TP
+.B MSG-K2Z7
+ERROR.
+a file\-context rule outside the manifests stops this relabel: the file\-context database maps the entrypoint of ${mismapped} agent(s) to another type, so each launch of such an agent is refused; remove or correct the local rule (sudo semanage fcontext \-C \-l lists them), then rerun
+.TP
 .B MSG-K4D7
 WARNING.
 could not record ${agent}'s stale pin for atr status \-\- the reports will render its pin as current
@@ -1723,6 +1727,10 @@ an agent's file\-context rule could not be applied (see above)
 .B MSG-P5G9
 WARNING.
 name outside the toolchain for ${subject}: its entrypoint ${detail} has ${wanted} name(s) outside the sandbox toolchain, which no rule a manifest declares can cover \-\- the entrypoint is labelled, and a relabel of the whole host can leave it on such a name's type; list every name: sudo find ${inode_location:\-<mount> \-xdev \-inum <inode>}
+.TP
+.B MSG-R2W5
+WARNING.
+wrong mapping for ${subject}: the file\-context database maps its entrypoint ${detail} to another type than the entry type \-\- its next session refuses to start, whatever type the file carries now; a local rule that maps the path is listed by: sudo semanage fcontext \-C \-l
 .TP
 .B MSG-R5M2
 WARNING.
@@ -2203,6 +2211,10 @@ left the labels on $1 as they were: the tree walker /usr/local/libexec/ai\-tools
 .B MSG-G9M3
 WARNING.
 incomplete package for ${subject}: its launcher resolves to
+.TP
+.B MSG-H4U3
+WARNING.
+wrong mapping for ${subject}: the file\-context database maps its entrypoint ${detail} to another type \-\- every launch will fail closed; a local rule that maps the path is listed by: sudo semanage fcontext \-C \-l
 .TP
 .B MSG-H5V4
 ERROR.

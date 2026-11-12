@@ -600,7 +600,8 @@ that drifted since — an out-of-band `restorecon`, a package that reinstalled t
 the reconcile. It is **read-only**, which is what makes it safe to call from a report, and its whole difference
 from `ai_tools_relabel__label_agent_paths`; that function's header states which calls each one makes. It also reads
 the names of the inode a session execs and reports one the file-context database maps to another type (`UNMAPPED`,
-counted), the live form of the reason the label record carries ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)).
+counted, and `NOT LABELLED` where it is the entrypoint's own path, the mapping the launch preflight reads), the live
+form of the reason the label record carries ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)).
 
 **The sandbox unit search path is a section of its own, because only root can read it.** A chain directory that exists
 at another owner or mode is `DRIFTED` and counts, with `atr admin system layout reconcile` as the remedy line, since

@@ -758,6 +758,15 @@ the run, since the inode carries its type and the next launch is confined. It is
 and filed in the label record as `RESULT=ok` with a `REASON`, which `ai-tools status` reports and counts
 ([cli](cli.rule.md)); `ai-tools-admin status` makes the same read live for the inode a session execs.
 
+**Two readings are not names findings.** The path a launcher resolves to, mapped to another type (`mismapped`), is
+the mapping the launch preflight reads, and the preflight refuses on it whatever type the file carries. The run fails
+on it under its own code, and `ai-tools-admin status` reports it `NOT LABELLED`. The discovery of the files a pattern
+matches (`_ai_tools_relabel__find_entrypoint_paths`) prints a path only while it is drawn from the reportable character
+set: the class in a declared pattern matches a newline and a space, the sandbox account names the directories
+under the versions root, and a path carrying a newline would read as two lines, the second an absolute path
+of that account's choosing handed to root's `restorecon`. A match at such a path is neither labelled nor reverted:
+a label run counts it in a `skip` line, and a revert returns the status of a path left at its type.
+
 **The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
 overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file
 the launcher resolves to is a byte-identical copy of a match (`ai_tools_relabel__evaluate_entrypoint_reconcile`,

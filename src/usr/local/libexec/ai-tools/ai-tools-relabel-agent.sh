@@ -19,12 +19,13 @@
 # .claude/rules/updater.rule.md.
 #
 # Exits 1 for an entrypoint that does not match its pin, a path that did not take its type, a rule that could not be
-# applied, and a launcher the declared rule does not cover, each a session that breaks, and for every refusal ahead
-# of the work (a caller that is not root, a library that did not load, a usage error). Exits 0 where SELinux confinement
-# is inactive, an entrypoint could not be verified, a config directory's walk left hardlinked paths at their type,
-# an entrypoint has a name the file-context database maps to another type (warned about and filed in the label record,
-# since the entrypoint carries its type), and under `--remove` wherever the rules were dropped, a config directory's
-# walk that did not complete included, so a package erase completes.
+# applied, a launcher the declared rule does not cover, and a launcher's path the file-context database maps to another
+# type, each a session that breaks, and for every refusal ahead of the work (a caller that is not root, a library
+# that did not load, a usage error). Exits 0 where SELinux confinement is inactive, an entrypoint could not be verified,
+# a config directory's walk left hardlinked paths at their type, an entrypoint has a name the file-context database maps
+# to another type (warned about and filed in the label record, since the entrypoint carries its type),
+# and under `--remove` wherever the rules were dropped, a config directory's walk that did not complete included,
+# so a package erase completes.
 #
 # It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext,
 # entrypoint_link_fcontext and config_dir in its manifest under /usr/local/lib/ai-tools/agents.d), and this helper
@@ -371,7 +372,7 @@ fi
 #   travels with a "bad" line, since an agent declares two paths that carry different types.
 render_label_report() {
     local verdict subject detail wanted inode_location
-    labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0
+    labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0 mismapped=0
     declare -gA agent_label_outcome=() agent_label_reason=() agent_label_names_reason=()
     [[ -n "$1" ]] || return 0
     while read -r verdict subject detail wanted; do
@@ -404,6 +405,12 @@ render_label_report() {
        ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
        the package is missing the executable a session is meant to exec"
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
+            # The path the launcher resolves to, mapped to another type by the file-context database. The launch
+            # preflight reads that mapping and refuses, whatever type the file carries, so the run fails on it.
+            mismapped) mismapped=$(( mismapped + 1 ))
+                   agent_label_reason["${subject}"]="entrypoint-mapping-overridden"
+                   warn MSG-R2W5 "wrong mapping for ${subject}: the file-context database maps its entrypoint ${detail} to another type than the entry type -- its next session refuses to start, whatever type the file carries now; a local rule that maps the path is listed by: sudo semanage fcontext -C -l"
+                   ai_tools_log__warn "${subject}: the file-context database maps its entrypoint ${detail} to another type" ;;
             # A name of a labelled entrypoint inode that the file-context database maps to another type. The entrypoint
             # carries its type, so the run does not fail on it; the first finding an agent has is the reason its record
             # carries. The command each line names is the operator's spelling: the CLI refuses root and calls sudo
@@ -477,6 +484,8 @@ record_label_outcomes
     || die MSG-J3A6 "a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: atr admin system bootstrap, then rerun"
 (( incomplete == 0 )) \
     || die MSG-D7H2 "an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: atr admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out"
+(( mismapped == 0 )) \
+    || die MSG-K2Z7 "a file-context rule outside the manifests stops this relabel: the file-context database maps the entrypoint of ${mismapped} agent(s) to another type, so each launch of such an agent is refused; remove or correct the local rule (sudo semanage fcontext -C -l lists them), then rerun"
 (( stale == 0 )) \
     || die MSG-M2M5 "a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai-tools-agents-*'), then rerun"
 # A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run refuses the launch)

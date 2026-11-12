@@ -535,6 +535,38 @@ else
     names_entry_pattern="${names_literal}/[^/]+/lib/node_modules/@acme/experimental/bin/acme"
     names_link_pattern="${names_literal}/[^/]+/lib/node_modules/@acme/experimental/node_modules/@acme/experimental-linux-[a-z0-9-]+/acme"
 
+    # Discovery prints a match only at a path a status line prints. The class in a declared pattern matches a newline
+    # and a space, so a version directory named with one holds a file the pattern matches: printed, the first would read
+    # as two paths, the second an absolute one outside the root, and each is counted instead.
+    if declare -F _ai_tools_relabel__count_unprintable_entrypoint_paths >/dev/null 2>&1; then
+        for names_odd in "v9.9.9"$'\n' "v8 8" "v7..7"; do
+            mkdir -p "${names_root}/${names_odd}/lib/node_modules/@acme/experimental/bin"
+            printf 'entrypoint\n' > "${names_root}/${names_odd}/lib/node_modules/@acme/experimental/bin/acme"
+        done
+        names_got="$(_ai_tools_relabel__find_entrypoint_paths "${names_entry_pattern}" "${names_root}")"
+        if [[ "${names_got}" == "${names_entry}" ]]; then
+            pass "discovery prints the one match at a printable path, and no part of a path carrying a newline"
+        else
+            fail "discovery printed '${names_got//$'\n'/ | }', expected '${names_entry}' alone"
+        fi
+        names_got="$(_ai_tools_relabel__count_unprintable_entrypoint_paths "${names_entry_pattern}" "${names_root}")"
+        if [[ "${names_got}" == 3 ]]; then
+            pass "the matches at a path carrying a newline, a space or '..' are counted"
+        else
+            fail "the unprintable matches were counted as '${names_got}', expected 3"
+        fi
+        for names_odd in "v9.9.9"$'\n' "v8 8" "v7..7"; do rm -rf -- "${names_root:?}/${names_odd}"; done
+        names_got="$(_ai_tools_relabel__count_unprintable_entrypoint_paths "${names_entry_pattern}" "${names_root}")"
+        if [[ "${names_got}" == 0 ]]; then
+            pass "control: a tree whose every match is printable counts 0"
+        else
+            fail "control: a tree whose every match is printable counted '${names_got}'"
+        fi
+        unset names_odd
+    else
+        skip "entrypoint discovery" "_ai_tools_relabel__count_unprintable_entrypoint_paths not defined by ${LIB}"
+    fi
+
     # The file-context database, stubbed: the entrypoint maps to the entry type, the link name to names_link_type,
     # and every other name to lib_t; names_lookup selects a lookup that fails or one no rule answers.
     names_entry_type="${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"; names_link_type="${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"
@@ -641,7 +673,12 @@ else
         _ai_tools_relabel__register_fcontext _ai_tools_relabel__find_entrypoint_paths _ai_tools_relabel__verify_label \
         ai_tools_relabel__resolve_agent_entrypoint_path _ai_tools_relabel__list_entrypoint_name_findings \
         _ai_tools_relabel__read_live_type _ai_tools_relabel__is_entrypoint_policy_active \
+        _ai_tools_relabel__count_unprintable_entrypoint_paths \
         ai_tools_providers__list_enabled_agents ai_tools_control_plane__is_agent_config_dir_valid 2>/dev/null || true)"
+    names_unprintable=0
+    _ai_tools_relabel__count_unprintable_entrypoint_paths() {
+        if [[ "$1" == "${names_entry_pattern}" ]]; then printf '%s\n' "${names_unprintable}"; else printf '0\n'; fi
+    }
     names_declared_link="${names_link_pattern}"; names_refused=""; names_installed="${names_entry}"
     ai_tools_providers__read_agent_manifest_field() {
         case "$2" in
@@ -685,7 +722,15 @@ else
     names_finding="unmapped ${names_pkg}/bin/acme-third"
     label_is 0 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"unmapped acme ${names_pkg}/bin/acme-third" \
         "a names finding is printed once for the two names of one inode and leaves the status at 0"
+    # The launcher's own resolved path mapped to another type is the mapping the launch preflight reads: a failure.
+    names_finding="unmapped ${names_entry}"
+    label_is 1 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"mismapped acme ${names_entry}" \
+        "the launcher's resolved path mapped to another type is mismapped and fails the agent's entrypoint"
     names_finding=""
+    names_unprintable=2
+    label_is 0 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"skip acme left 2 file(s) an entrypoint rule matches unlabelled -- each path carries a character a status line does not print" \
+        "matches at an unprintable path are counted in a skip line and leave the status at 0"
+    names_unprintable=0
     names_installed="${names_link}"
     label_is 0 "ok ${names_entry}"$'\n'"ok ${names_link}" "a launcher that resolves to the declared link name is covered"
     names_declared_link=""
@@ -716,6 +761,15 @@ else
         fail "the revert: status ${names_status}, calls '${CALLS//$'\n'/ | }'"
     fi
 
+    names_unprintable=1; CALLS=""; names_status=0
+    ai_tools_relabel__unlabel_agent_paths acme >/dev/null 2>&1 || names_status=$?
+    if [[ "${names_status}" -eq 5 && "${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}" == "1 file(s) a dropped entrypoint rule matched were not reverted"* ]]; then
+        pass "the revert returns 5 naming a match at an unprintable path it did not revert"
+    else
+        fail "the revert over an unprintable match: status ${names_status}, '${AI_TOOLS_RELABEL__TREE_DIAGNOSTICS}'"
+    fi
+    names_unprintable=0
+
     # The live report reads the names of the inode a session execs.
     ai_tools_providers__list_enabled_agents() { printf 'acme\t\t\n'; }
     _ai_tools_relabel__read_live_type() { printf '%s\n' "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"; }
@@ -726,6 +780,13 @@ else
         pass "the live report prints a names finding for the installed entrypoint and returns 1"
     else
         fail "the live report: status ${names_status}, '${names_got//$'\n'/ | }'"
+    fi
+    names_finding="unmapped ${names_entry}"; names_status=0
+    names_got="$(ai_tools_relabel__list_agent_labels)" || names_status=$?
+    if [[ "${names_status}" -eq 1 && "${names_got}" == "mismapped acme entrypoint ${names_entry}"$'\n'* ]]; then
+        pass "the live report reads the entrypoint's own path mapped to another type as mismapped"
+    else
+        fail "the live report over a mismapped entrypoint: status ${names_status}, '${names_got//$'\n'/ | }'"
     fi
     names_finding=""; names_status=0
     names_got="$(ai_tools_relabel__list_agent_labels)" || names_status=$?
@@ -739,11 +800,12 @@ else
         _ai_tools_relabel__register_fcontext _ai_tools_relabel__find_entrypoint_paths _ai_tools_relabel__verify_label \
         ai_tools_relabel__resolve_agent_entrypoint_path _ai_tools_relabel__list_entrypoint_name_findings \
         _ai_tools_relabel__read_live_type _ai_tools_relabel__is_entrypoint_policy_active \
+        _ai_tools_relabel__count_unprintable_entrypoint_paths \
         ai_tools_providers__list_enabled_agents ai_tools_control_plane__is_agent_config_dir_valid restorecon \
         names_are label_is
     eval "${names_saved}"
     unset names_saved names_root names_pkg names_entry names_link names_literal names_entry_pattern names_link_pattern \
-        names_declared_link names_refused names_installed names_finding names_status names_got CALLS NAMES_READS
+        names_declared_link names_refused names_installed names_finding names_status names_got names_unprintable CALLS NAMES_READS
 fi
 
 # ── Reporting WHY a file-context rule was refused ─────────────────────────────────────────────

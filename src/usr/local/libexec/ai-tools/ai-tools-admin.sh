@@ -2931,6 +2931,11 @@ status_labels() {
                   detail "after a relabel of the whole host: atr admin system entrypoints relabel"
                   detail "a newer agent package covers a name the agent's own package placed; a local rule: semanage fcontext -C -l"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            # The entrypoint's own path, mapped to another type: the mapping the launch preflight reads.
+            mismapped) st "NOT LABELLED" "${agent}  the file-context database maps its ${what} ${path} to another type"
+                  detail "its next session refuses to launch, whatever type the file carries now"
+                  detail "a local rule that maps the path: semanage fcontext -C -l"
+                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
             unchecked) st UNMAPPED "${agent}  ${actual} name(s) of its ${what} ${path} carry a character a status line does not print; their mapping was not read"
                   detail "find $(stat -c '%m -xdev -inum %i' -- "${path}" 2>/dev/null || printf '<mount> -xdev -inum <inode>')"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
