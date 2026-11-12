@@ -601,20 +601,23 @@ through its launcher symlinks.
 
 `root-helper-startup.sh` is the runtime half of the start every root helper shares
 ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)). Its checker is driven first over fixtures it must report — an `env`
-interpreter line, bash without `-p`, a missing, late or different `PATH` line, a missing `export` — beside ones it must
-pass, and then reads every file in the checkout's helper directory and contributed-command directory, the listing being
-the set, so a helper added without the lines fails the file. The mechanics run on a synthetic helper built from a real
-helper's own head with recorders named `bash` and `id` first on the caller's `PATH`, a `BASH_ENV` file and an exported
-function: the run reaches none of them, and three controls each undo one part of the head and show what it kept
-out, the `env` line running the planted `bash`, the head without its `PATH` lines running the planted `id`, and the head
-without `-p` taking the file and the function. As root it reads every installed helper through the same checker and runs
-`ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals under a `PATH` led by recorders, each held to its
-usage status and an empty recorder log, behind a control that a shell keeping its caller's `PATH` runs a recorder.
-The recorders are root-owned, in a directory root made: a run that reached one would execute it as root, so a directory
-the sandbox account writes is not what leads that `PATH`. The mechanics and the planted runs exec their fixtures,
-from one directory where a `0755` file is executable: the testdir where it qualifies, and `agent-installs.sh`'s fallback
-beside the operator's home under a `noexec` `/tmp`. Its boundary half is `boundary/access.sh`, which holds every
-directory the `PATH` names and each interpreter out of the sandbox account's reach.
+interpreter line, bash without `-p`, a missing, late or different `PATH` line, a missing `export`, a Python line without
+`-I` under any name but the one the file exempts, `ai-tools-handback` — beside ones it must pass, and then reads every
+file in the checkout's helper directory and contributed-command directory, the listing being the set, so a helper added
+without the lines fails the file. The mechanics run on a synthetic helper built from a real helper's own head
+with recorders named `bash` and `id` first on the caller's `PATH`, a `BASH_ENV` file and an exported function: the run
+reaches none of them, and three controls each undo one part of the head and show what it kept out, the `env` line
+running the planted `bash`, the head without its `PATH` lines running the planted `id`, and the head without `-p` taking
+the file and the function. The walker's own interpreter line is driven the same way over a script importing a module
+the caller's `PYTHONPATH` names, beside `python3` without `-I` as the control that imports it. As root it reads every
+installed helper through the same checker and runs `ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals
+under a `PATH` led by recorders, each held to its usage status and an empty recorder log, behind a control that a shell
+keeping its caller's `PATH` runs a recorder. The recorders are root-owned, in a directory root made: a run that reached
+one would execute it as root, so a directory the sandbox account writes is not what leads that `PATH`. The mechanics
+and the planted runs exec their fixtures, from one directory where a `0755` file is executable: the testdir where it
+qualifies, and `agent-installs.sh`'s fallback beside the operator's home under a `noexec` `/tmp`. Its boundary half is
+`boundary/access.sh`, which holds every directory the `PATH` names, every command in them and each interpreter
+out of the sandbox account's reach.
 
 `atr.sh` drives the short command over a copy of the wrapper whose two program paths are rewritten to recorders, its
 help library path to the checkout's and its domain and manifest directories to fixtures, with a recording `sudo` first
@@ -1582,45 +1585,48 @@ or the verifier library — the inputs that decide what a verified checksum is �
 a checksum for a binary it modified. Those are root-owned files, so they are DAC facts and this vantage sees them.
 The same holds for where a root helper starts ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)): `access.sh` reads
 the `PATH` line from the installed stop helper and asserts the agent writes none of the directories it names, neither
-interpreter, and no ancestor of either, behind a control that the probe reports `/tmp` writable. Its one assertion
-that is not a permission check is the journald one: it *writes* a line as the agent under a root helper's syslog tag
-and asserts journald files it under the sandbox uid and not under `_UID=0`. That is the boundary half of the documented
-query form (see [logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid
-the sender cannot set, not the tag. A host with no journald skips: an absent line is not evidence. Two readings there
-are **positive** and are asserted as such, because each records a decision: the agent package's `package.json`
-under the toolchain **is** account-writable, which is why the declared version is not a trust input and the observed pin
-tier states a limit rather than a guarantee (the type layout is what closes it, asserted in `integration/selinux.sh`),
-and each agent's config directory **is** agent-writable, since the hooks that write `.sweep-marker`
-and `.session-active` run as the agent and those files carry cadence rather than a guarantee. A third records the reach
-this vantage has and a session does not: the account's own `--user manager` answers it over its bus, which is
-why the route by which an environment variable would reach `nvm-update.service` is closed by the domain rather than
-by any permission — the unit *files* being root-owned is the half asserted here, and `selinux/avc/avc-testsuite.sh` asks
-the bus from inside a session, the one vantage whose answer is about the domain. The probe is read-only in both places,
-since no automated file writes live runtime state. `providers.sh` asserts the deployed half of "the sandbox cannot widen
-its own surface": none of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories,
-the manifests, fragments and contributed commands in them, codex's `/etc/codex` and the two managed files in it,
-or the `ai-tools-run` shim and the `bin` directory holding it is agent-writable — nor the launch wrapper, the launcher
-links, the launch hooks and `launch.d`, and the libraries the wrapper loads (`launch-wrapper`, `safe-paths`, `msg`),
-which is the one cross-principal escalation in the chain, code running **as the operator** before any drop
-to the sandbox account — while the NuGet restore cache the dotnet integration needs **is** — both directions matter,
-since a read-only cache breaks the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d`
-and the `dotnet` command in it are the highest-privilege pair in that list: what a writable one would buy is not a wider
-session but a command `ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh`
-and `unit/admin-commands.sh`, which assert the runtime refusals; this one asserts the agent cannot reach the state those
-refusals exist to catch. `filters.sh` is the same pair for the command filters: the engine, `filters.d` and the rule
-sets in it, `operator.conf`, and the agent-side hook body are all asserted non-agent-writable — the engine because it is
-sourced as the agent on every Bash call, the rule sets because they decide what every command in a session becomes.
-`assets.sh` is the pair for the set verifier: the library, the shipped package-signing key and the keyring written
-from it, the bindings directory and each binding in it are asserted non-agent-writable and at the modes they ship
-with, since a writable one would let the agent name its own key as a set's signer; and the resolver's inputs and outputs
--- `assets.lib.sh`, `operator.conf`, the three roots and the sets under them, the view, the lock, and each enabled
-agent's kind directories -- are asserted out of the agent's reach, with `atr admin assets reconcile` refused
-as that account. These probe **DAC and account state** from the sandbox account's vantage — they run as the sandbox
-*user*, not inside the `ai_tools_t` SELinux domain (a launched session), so they assert the filesystem/credential
-boundary; the SELinux enforcing posture is asserted separately in `integration/selinux.sh`. A property the **type layout
-alone** enforces is therefore not assertable here, and reads as its DAC answer: the agent's inability to write its own
-entrypoint is one (DAC permits it — the account owns that tree), so it is asserted in `integration/selinux.sh`
-as the layout the policy rests on, one check per swap vector.
+interpreter, and no ancestor of either, behind a control that the probe reports `/tmp` writable. It then tests every
+entry in those directories in one shell run as the agent, a link as the file it resolves to, since a command can be
+writable through its own mode or an ACL entry where its directory is not; that shell prints its own control
+and the count of entries it tested, and the row fails without both. Its one assertion that is not a permission check is
+the journald one: it *writes* a line as the agent under a root helper's syslog tag and asserts journald files it
+under the sandbox uid and not under `_UID=0`. That is the boundary half of the documented query form (see
+[logging](logging.rule.md)) — the forgery is reachable, and what makes it separable is the uid the sender cannot set,
+not the tag. A host with no journald skips: an absent line is not evidence. Two readings there are **positive** and are
+asserted as such, because each records a decision: the agent package's `package.json` under the toolchain **is**
+account-writable, which is why the declared version is not a trust input and the observed pin tier states a limit rather
+than a guarantee (the type layout is what closes it, asserted in `integration/selinux.sh`), and each agent's config
+directory **is** agent-writable, since the hooks that write `.sweep-marker` and `.session-active` run as the agent
+and those files carry cadence rather than a guarantee. A third records the reach this vantage has and a session does
+not: the account's own `--user manager` answers it over its bus, which is why the route by which an environment variable
+would reach `nvm-update.service` is closed by the domain rather than by any permission — the unit *files* being
+root-owned is the half asserted here, and `selinux/avc/avc-testsuite.sh` asks the bus from inside a session, the one
+vantage whose answer is about the domain. The probe is read-only in both places, since no automated file writes live
+runtime state. `providers.sh` asserts the deployed half of "the sandbox cannot widen its own surface": none
+of `operator.conf`, `conf.lib.sh`, `providers.lib.sh`, the four provider directories, the manifests, fragments
+and contributed commands in them, codex's `/etc/codex` and the two managed files in it, or the `ai-tools-run` shim
+and the `bin` directory holding it is agent-writable — nor the launch wrapper, the launcher links, the launch hooks
+and `launch.d`, and the libraries the wrapper loads (`launch-wrapper`, `safe-paths`, `msg`), which is the one
+cross-principal escalation in the chain, code running **as the operator** before any drop to the sandbox account — while
+the NuGet restore cache the dotnet integration needs **is** — both directions matter, since a read-only cache breaks
+the integration as surely as a writable tools dir breaks the boundary. `admin-commands.d` and the `dotnet` command in it
+are the highest-privilege pair in that list: what a writable one would buy is not a wider session but a command
+`ai-tools-admin` runs as root. It is the counterpart to `unit/providers.sh` and `unit/admin-commands.sh`, which assert
+the runtime refusals; this one asserts the agent cannot reach the state those refusals exist to catch. `filters.sh` is
+the same pair for the command filters: the engine, `filters.d` and the rule sets in it, `operator.conf`,
+and the agent-side hook body are all asserted non-agent-writable — the engine because it is sourced as the agent
+on every Bash call, the rule sets because they decide what every command in a session becomes. `assets.sh` is the pair
+for the set verifier: the library, the shipped package-signing key and the keyring written from it, the bindings
+directory and each binding in it are asserted non-agent-writable and at the modes they ship with, since a writable one
+would let the agent name its own key as a set's signer; and the resolver's inputs and outputs -- `assets.lib.sh`,
+`operator.conf`, the three roots and the sets under them, the view, the lock, and each enabled agent's kind directories
+-- are asserted out of the agent's reach, with `atr admin assets reconcile` refused as that account. These probe **DAC
+and account state** from the sandbox account's vantage — they run as the sandbox *user*, not inside the `ai_tools_t`
+SELinux domain (a launched session), so they assert the filesystem/credential boundary; the SELinux enforcing posture is
+asserted separately in `integration/selinux.sh`. A property the **type layout alone** enforces is therefore not
+assertable here, and reads as its DAC answer: the agent's inability to write its own entrypoint is one (DAC permits it —
+the account owns that tree), so it is asserted in `integration/selinux.sh` as the layout the policy rests on, one check
+per swap vector.
 
 ## Quirks
 

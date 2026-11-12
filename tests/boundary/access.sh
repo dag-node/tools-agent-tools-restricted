@@ -148,6 +148,38 @@ else
     else
         pass "cannot write any of the ${#_start_seen[@]} paths a root helper starts from (${_start_path}, the interpreters, their ancestors)"
     fi
+
+    # The commands in those directories. A file can be writable where its directory is not, through its own mode
+    # or an ACL entry, so each entry is tested too, in one shell run as the agent: `-w` asks access(2), which follows
+    # a link to the file it resolves to and reads one the agent cannot reach as not writable. The directories a link
+    # passes through on the way are not walked. The shell prints its own control and the number of entries it tested,
+    # so a run that tested none, or whose test cannot answer yes, does not read as a pass.
+    _start_dirs=()
+    for _entry in "${_start_entries[@]}"; do
+        _real="$(realpath -e -- "${_entry}" 2>/dev/null)" || continue
+        [[ " ${_start_dirs[*]} " == *" ${_real} "* ]] || _start_dirs+=("${_real}")
+    done
+    # shellcheck disable=SC2016  # the body is the agent shell's, expanded there
+    _start_report="$(runuser -u "${SANDBOX_USER}" -- /usr/bin/bash -c '
+        shopt -s dotglob nullglob
+        [[ -w /tmp ]] && printf "control\n"
+        count=0
+        for dir in "$@"; do
+            for entry in "${dir}"/*; do
+                count=$(( count + 1 ))
+                [[ -w "${entry}" ]] && printf "writable %s\n" "${entry}"
+            done
+        done
+        printf "count %s\n" "${count}"' _ "${_start_dirs[@]}" 2>/dev/null)" || _start_report=""
+    _start_count="$(sed -n 's/^count //p' <<< "${_start_report}")"
+    _start_commands="$(sed -n 's/^writable //p' <<< "${_start_report}")"
+    if ! grep -qx control <<< "${_start_report}" || [[ ! "${_start_count}" =~ ^[1-9][0-9]*$ ]]; then
+        fail "the agent-side test of the commands in ${_start_dirs[*]} did not run to its end (control or count missing) -- not checked"
+    elif [[ -n "${_start_commands}" ]]; then
+        fail "can write a command a root helper may run: $(tr '\n' ' ' <<< "${_start_commands}")"
+    else
+        pass "cannot write any of the ${_start_count} entries in ${_start_dirs[*]}, each link read as the file it resolves to"
+    fi
 fi
 
 # The boundary half of `ai-tools-unclaim --unlisted` (see unit/unclaim.sh for the runtime half). That mode acts outside

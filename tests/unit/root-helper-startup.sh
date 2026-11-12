@@ -30,17 +30,29 @@ readonly CHECKOUT_DIRS=("${ROOT}/src/usr/local/libexec/ai-tools" "${ROOT}/src/us
 readonly INSTALLED_DIRS=(/usr/local/libexec/ai-tools /usr/local/lib/ai-tools/admin-commands.d)
 readonly SHELL_LINE='#!/usr/bin/bash -p'
 readonly PATH_LINE='PATH=/usr/sbin:/usr/bin:/sbin:/bin'
+# The Python helpers whose line does not pass `-I`, by name. ai-tools-handback is started by its unit alone and takes
+# the `PYTHON*` variables that unit sets, which isolated mode ignores (cli.rule.md, ref-section-g7c8).
+readonly PYTHON_WITHOUT_ISOLATION=(ai-tools-handback)
 
 # read_startup_finding <file>: print what <file>'s start lacks, or no line where it conforms. A shell helper opens
 # with SHELL_LINE and its first three statements are a `set` line ending in `pipefail`, PATH_LINE and `export PATH`,
-# comments and blank lines aside. A Python helper opens with /usr/bin/python3 and at most one option cluster. Returns 2
-# for a file it cannot read, which is a reading not made and never a conforming file.
+# comments and blank lines aside. A Python helper opens with /usr/bin/python3 and one option cluster holding `I`,
+# and with /usr/bin/python3 alone where PYTHON_WITHOUT_ISOLATION names it. Returns 2 for a file it cannot read, which is
+# a reading not made and never a conforming file.
 read_startup_finding() {
-    local file="$1" first line
+    local file="$1" first line name exempt
     local -a statements=()
     [[ -f "${file}" && -r "${file}" ]] || return 2
     IFS= read -r first < "${file}" || return 2
-    if [[ "${first}" =~ ^'#!/usr/bin/python3'(\ -[A-Za-z]+)?$ ]]; then
+    if [[ "${first}" =~ ^'#!/usr/bin/python3 -'[A-Za-z]*I[A-Za-z]*$ ]]; then
+        return 0
+    fi
+    if [[ "${first}" == '#!/usr/bin/python3' ]]; then
+        name="${file##*/}"; name="${name%.py}"
+        for exempt in "${PYTHON_WITHOUT_ISOLATION[@]}"; do
+            [[ "${name}" != "${exempt}" ]] || return 0
+        done
+        printf 'the interpreter line does not start Python in isolated mode (-I): %s\n' "${first}"
         return 0
     fi
     if [[ "${first}" != "${SHELL_LINE}" ]]; then
@@ -100,11 +112,14 @@ write_fixture late-pin     "${SHELL_LINE}" 'set -euo pipefail' 'NAME="$(id -un)"
 write_fixture other-path   "${SHELL_LINE}" 'set -euo pipefail' 'PATH=/usr/local/bin:/usr/bin' 'export PATH'
 write_fixture no-export    "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LINE}" 'readonly NAME=value'
 write_fixture no-set       "${SHELL_LINE}" "${PATH_LINE}" 'export PATH'
-write_fixture python       '#!/usr/bin/python3' 'import os'
-write_fixture python-flags '#!/usr/bin/python3 -I' 'import os'
-write_fixture python-env   '#!/usr/bin/env python3' 'import os'
+write_fixture python-isolated      '#!/usr/bin/python3 -I' 'import os'
+write_fixture python-cluster       '#!/usr/bin/python3 -IBu' 'import os'
+write_fixture ai-tools-handback.py '#!/usr/bin/python3' 'import os'
+write_fixture python-bare          '#!/usr/bin/python3' 'import os'
+write_fixture python-other-flag    '#!/usr/bin/python3 -B' 'import os'
+write_fixture python-env           '#!/usr/bin/env python3' 'import os'
 
-for name in conforming no-errexit python python-flags; do
+for name in conforming no-errexit python-isolated python-cluster ai-tools-handback.py; do
     status=0; finding="$(read_startup_finding "${fixtures}/${name}")" || status=$?
     if (( status == 0 )) && [[ -z "${finding}" ]]; then
         pass "the checker passes the ${name} fixture"
@@ -123,6 +138,8 @@ done <<'EOF'
 env-line|the interpreter line is #!/usr/bin/env bash
 no-privilege|the interpreter line is #!/usr/bin/bash
 python-env|the interpreter line is #!/usr/bin/env python3
+python-bare|the interpreter line does not start Python in isolated mode
+python-other-flag|the interpreter line is #!/usr/bin/python3 -B
 no-pin|the statement after the set line is not
 late-pin|the statement after the set line is not
 other-path|the statement after the set line is not
@@ -227,6 +244,42 @@ else
             pass "control: without -p the helper takes the BASH_ENV file and the exported function"
         else
             fail "control: the head without -p printed '${start_out}' and reached: ${start_log:-nothing}"
+        fi
+    fi
+
+    # The walker's own interpreter line over a script that imports a module the caller's PYTHONPATH names. The module
+    # writes the log when it loads; the control is the same script on /usr/bin/python3 without an option.
+    walker_source="${CHECKOUT_DIRS[0]}/ai-tools-relabel-tree.py"
+    [[ -r "${walker_source}" ]] || walker_source="${INSTALLED_DIRS[0]}/ai-tools-relabel-tree"
+    if [[ ! -r "${walker_source}" ]]; then
+        skip "the walker's isolated start" "the walker is not readable to take its interpreter line from"
+    else
+        mkdir -p "${work}/pymod"
+        printf 'open(%s, "a").write("python-module\\n")\n' "'${log}'" > "${work}/pymod/ai_tools_planted.py"
+        {
+            head -n 1 -- "${walker_source}"
+            printf '%s\n' 'try:' '    import ai_tools_planted' 'except ImportError:' '    pass' 'print("end")'
+        } > "${work}/walker"
+        sed '1s|.*|#!/usr/bin/python3|' -- "${work}/walker" > "${work}/walker-not-isolated"
+        chmod 0755 "${work}/walker" "${work}/walker-not-isolated"
+        # run_walker <file>: sets start_out and start_log as run_start does.
+        run_walker() {
+            rm -f "${log}"
+            start_out="$(env -i PATH=/usr/bin:/bin PYTHONPATH="${work}/pymod" PYTHONDONTWRITEBYTECODE=1 "$1" 2>/dev/null)" || true
+            start_log=""
+            [[ ! -f "${log}" ]] || start_log="$(tr '\n' ' ' < "${log}")"
+        }
+        run_walker "${work}/walker"
+        if [[ "${start_out}" == end && -z "${start_log}" ]]; then
+            pass "the walker's interpreter line keeps a module on the caller's PYTHONPATH out of the run"
+        else
+            fail "the run under the walker's interpreter line printed '${start_out}' and reached: ${start_log:-nothing}"
+        fi
+        run_walker "${work}/walker-not-isolated"
+        if [[ "${start_out}" == end && "${start_log}" == 'python-module ' ]]; then
+            pass "control: without -I the script imports the caller's module"
+        else
+            fail "control: python3 without -I printed '${start_out}' and reached: ${start_log:-nothing}"
         fi
     fi
 fi
