@@ -59,10 +59,10 @@ EOF
 done
 readonly RUN_PATH="${FIXTURE}/bin:/usr/bin:/bin"
 
-# Each program sets its own PATH as it starts (cli.rule.md, ref-section-g7c8), so a recorder ahead on the caller's PATH
-# is not searched. The rows run a copy whose PATH line names the recorder directory first, and the file stops unless
-# the copy differs from its source in that line alone: a row over any other text would report on another program.
-# recorder_copy <variable> : replace the program <variable> names with its copy.
+# Each program sets its own PATH as it starts (cli.rule.md, ref-section-g7c8), so the rows run a copy whose PATH line
+# names the recorder directory first, and the file stops unless the copy differs from its source in that line alone:
+# a row over any other text would report on another program. recorder_copy <variable> : replace the program <variable>
+# names with its copy.
 recorder_copy() {
     local -n _program="$1"
     local source="${_program}" copy changed

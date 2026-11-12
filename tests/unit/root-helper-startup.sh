@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
 # tests/unit/root-helper-startup.sh
-# The runtime half of the start every root helper shares (cli.rule.md, ref-section-g7c8): the interpreter named
-# by absolute path, bash in privileged mode, and a fixed PATH as the first statements after the `set` line. A helper
-# without them resolves its interpreter and its commands through the PATH its caller holds.
+# The runtime half of the start every root helper shares (cli.rule.md, ref-section-g7c8).
 #
 # Four parts, each reading more of a host than the one before:
 #
@@ -30,8 +28,7 @@ readonly CHECKOUT_DIRS=("${ROOT}/src/usr/local/libexec/ai-tools" "${ROOT}/src/us
 readonly INSTALLED_DIRS=(/usr/local/libexec/ai-tools /usr/local/lib/ai-tools/admin-commands.d)
 readonly SHELL_LINE='#!/usr/bin/bash -p'
 readonly PATH_LINE='PATH=/usr/sbin:/usr/bin:/sbin:/bin'
-# The Python helpers whose line does not pass `-I`, by name. ai-tools-handback is started by its unit alone and takes
-# the `PYTHON*` variables that unit sets, which isolated mode ignores (cli.rule.md, ref-section-g7c8).
+# The Python helpers whose line does not pass `-I`, by name; the rule states why (cli.rule.md, ref-section-g7c8).
 readonly PYTHON_WITHOUT_ISOLATION=(ai-tools-handback)
 
 # read_startup_finding <file>: print what <file>'s start lacks, or no line where it conforms. A shell helper opens

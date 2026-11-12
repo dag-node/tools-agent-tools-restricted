@@ -114,11 +114,10 @@ else
 fi
 
 # The boundary half of the start every root helper shares (cli.rule.md, ref-section-g7c8; unit/root-helper-startup.sh is
-# the runtime half). A helper finds its interpreter at a fixed path and its commands in the directories its PATH line
-# names, so from the agent's side none of them may be writable: not a directory on that PATH, not an interpreter, and no
-# ancestor of either, where a rename would put another directory at the name. The PATH is read from the installed stop
-# helper, as root, so the row follows the line the helpers carry. The control is a directory the account does write:
-# a probe that could not answer yes there would pass every path under it.
+# the runtime half). From the agent's side none of what a helper starts from may be writable: not a directory on its
+# PATH, not an interpreter, and no ancestor of either, where a rename would put another directory at the name. The PATH
+# is read from the installed stop helper, as root, so the row follows the line the helpers carry. The control is
+# a directory the account does write: a probe that could not answer yes there would pass every path under it.
 _start_helper="${sbindir}/ai-tools-stop"
 _start_path="$(sed -n 's/^PATH=//p' -- "${_start_helper}" 2>/dev/null)" || _start_path=""
 if [[ ! "${_start_path}" =~ ^/[^[:space:]]*$ ]]; then

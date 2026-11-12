@@ -226,9 +226,9 @@ in place, unregistered. See [cli](.claude/rules/cli.rule.md).
   and gives the child no controlling terminal, no inherited descriptor, a clean environment and a bound on its run,
   and what it prints reaches a terminal or the journal through the shared allowlist sanitizer. A function that executes
   such a file requires that identity of its own process. The test suite, which runs as root, holds to the same rule. See
-  [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9). A root helper names its interpreter by absolute
-  path and sets its own `PATH` to the system directories as it starts, so the commands it runs are found there whatever
-  `PATH` its caller holds ([ref-section-g7c8](.claude/rules/cli.rule.md#ref-section-g7c8)).
+  [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9). A root helper finds its interpreter
+  and the commands it runs in the system directories, whatever `PATH` its caller holds
+  ([ref-section-g7c8](.claude/rules/cli.rule.md#ref-section-g7c8)).
 - **Root does not write through a path component the sandbox can replace.** No root or operator process places a name,
   or sets an owner, a mode or an ACL, by a path with a component `SANDBOX_USER` can rename, remove or create —
   a directory that account owns, or one it holds group write on — because `chown`, `chmod`, `setfacl` and `install -d`

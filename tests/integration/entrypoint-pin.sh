@@ -26,9 +26,9 @@
 # the semanage stub beside it is the assertion that it did not. The stubs need a directory where a 0755 file is VISIBLE
 # as executable: bash's PATH search asks access(2), which a noexec mount answers false, so a stub under such a /tmp is
 # passed over and the real command runs in its place -- a fixture rule in the host's policy store. The testdir is used
-# when it qualifies and a directory beside the operator's home otherwise. The helper sets its own PATH, so the runs go
-# through a copy of the deployed file whose PATH line names the stub directory first; the switch is asserted to have
-# taken before the first run and read back from the helper's own line after it. Run as root via sudo.
+# when it qualifies and a directory beside the operator's home otherwise. The runs go through a copy of the deployed
+# file whose PATH line names the stub directory first; the switch is asserted to have taken before the first run
+# and read back from the helper's own line after it. Run as root via sudo.
 
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
@@ -107,9 +107,9 @@ printf '#!/bin/sh\necho Disabled\n' > "${stub_bin}/getenforce"
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/semanage.log"\nexit 0\n' "${TESTDIR}" > "${stub_bin}/semanage"
 chmod 0755 "${stub_bin}/getenforce" "${stub_bin}/semanage"
 
-# The helper sets its own PATH as it starts (cli.rule.md, ref-section-g7c8), so a stub directory ahead on the caller's
-# PATH is not searched. The runs go through a copy of the deployed helper whose PATH line names the stub directory
-# first, run as `bash <copy>` since the copy sits in the testdir.
+# The helper sets its own PATH as it starts (cli.rule.md, ref-section-g7c8), so the runs go through a copy
+# of the deployed helper whose PATH line names the stub directory first, run as `bash <copy>` since the copy sits
+# in the testdir.
 readonly HELPER_PATH_LINE='PATH=/usr/sbin:/usr/bin:/sbin:/bin'
 helper_copy="${TESTDIR}/ai-tools-relabel-agent"
 sed "s|^${HELPER_PATH_LINE}\$|PATH=${stub_bin}:${HELPER_PATH_LINE#PATH=}|" -- "${HELPER}" > "${helper_copy}"

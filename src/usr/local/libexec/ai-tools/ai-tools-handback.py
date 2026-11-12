@@ -43,10 +43,7 @@
 # afterwards.  See handback-bridge.rule.md.
 #
 # Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install. Its domain rule is
-# handback-bridge.rule.md.
-#
-# The interpreter line names Python by path (cli.rule.md, ref-section-g7c8). It does not pass `-I`: the unit sets
-# the `PYTHON*` variables this daemon runs under, and isolated mode ignores them.
+# handback-bridge.rule.md; its interpreter line, and why it does not pass `-I`, are cli.rule.md's (ref-section-g7c8).
 
 import datetime
 import os

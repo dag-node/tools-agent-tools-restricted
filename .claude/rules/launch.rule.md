@@ -23,8 +23,8 @@ Every agent's command runs one wrapper, `/usr/local/bin/ai-tools-launch` (`ai-to
 as the invoking operator. An `ai-tools-agents-*` package ships its launcher as a symlink to it,
 `/usr/local/bin/<launcher>`, and the name the wrapper was invoked as (`$0`) selects the agent. `path-order.sh`, wired
 into the operator's dotfiles by `atr admin operators add`, ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims,
-so a launcher shadows the nvm-managed one of the same name on the operator's PATH. The wrapper's startup hardening —
-the interpreter by absolute path in privileged mode, PATH pinned — is stated in its header.
+so a launcher shadows the nvm-managed one of the same name on the operator's PATH. The wrapper starts as a root helper
+does ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)), with a `PATH` of its own that its header states.
 
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
 `ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_wrapper__init <name>`, which loads

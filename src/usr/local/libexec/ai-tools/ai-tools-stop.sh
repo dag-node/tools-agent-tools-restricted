@@ -80,9 +80,7 @@
 # NOT `set -e`: see inverted convention 1. An unexpected non-zero must never abandon a half-finished kill.
 set -uo pipefail
 
-# A fixed PATH, set before any command is resolved, so `sleep`, `id` and `realpath` are found in the system directories
-# whatever PATH the caller holds: sudoers `secure_path` covers the sudo route, and this covers a direct run as well.
-# With the interpreter line it is the start every root helper shares (cli.rule.md, ref-section-g7c8).
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8).
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 

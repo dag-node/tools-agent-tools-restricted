@@ -902,8 +902,8 @@ fi
 # The check reads each collector through the records reader (records.rule.md), so a collector's exit is what says
 # the reading was complete. `cut` is the last stage of the copies collector and the only step on the check's path
 # that runs it, so a `cut` that fails drives one collector failure. The helper is sourced and `cut` is a shell function
-# defined after the load: a root helper sets its own PATH, so a stub directory placed ahead on the caller's PATH is not
-# searched. The row's detail carries the stub's exit status, which is what shows the function is the `cut` that ran.
+# defined after the load, since a root helper sets its own PATH (cli.rule.md, ref-section-g7c8). The row's detail
+# carries the stub's exit status, which is what shows the function is the `cut` that ran.
 reset_root
 cp "${SHIPPED_SETTINGS}" "${SETTINGS}"
 check_rc=0

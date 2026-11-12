@@ -1558,11 +1558,10 @@ Who reaches the state the lines cover: `sudo` hands a helper `secure_path` and a
 and systemd hands a unit its own, so the lines decide on a host whose sudoers leaves the caller's `PATH` in place,
 and for root running a helper from its own shell. The sandbox account reaches a root helper through the handback socket
 alone: it does not hold a sudo rule ([ref-list-b6z9](../../CLAUDE.md#ref-list-b6z9)), and the daemon starts the helper
-a verb names with the one argument it validated, under the environment of its own unit, so a request carries a verb
-and a path across the socket and no variable of the session's ([handback-bridge](handback-bridge.rule.md)). The start
-has limits: a privileged-mode shell still hands an exported function and `BASH_ENV` to a `bash` child it starts, and no
-root helper starts one as root; and the variables the dynamic loader reads act before the interpreter runs, which `sudo`
-removes and a root caller sets for itself.
+a verb names with the one argument it validated, under the environment of its own unit
+([handback-bridge](handback-bridge.rule.md)). The start has limits: a privileged-mode shell still hands an exported
+function and `BASH_ENV` to a `bash` child it starts, and no root helper starts one as root; and the variables
+the dynamic loader reads act before the interpreter runs, which `sudo` removes and a root caller sets for itself.
 
 ## Secret pre-check on claim/clone <a id="ref-section-u5h3"></a>
 
