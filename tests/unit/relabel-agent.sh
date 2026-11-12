@@ -125,6 +125,15 @@ if command grep -qF 'its entrypoint /fixture/bin/acme has 2 name(s) outside the 
 else
     fail "the warning does not carry the entrypoint and the count: ${OUT//$'\n'/ | }"
 fi
+close_run $'ok /fixture/bin/acme\nunchecked acme /fixture/bin/acme 2\nagent acme ok'
+assert_msg MSG-D9H5 "${OUT}" "names a status line does not print are warned about under their code"
+has_line "the agent is filed ok with the unchecked reason" "record acme ok entrypoint-name-unchecked"
+if command grep -qF '2 name(s) of its entrypoint /fixture/bin/acme carry a character' <<< "${OUT}" \
+        && command grep -qF 'was not read' <<< "${OUT}" && ! command grep -qF 'maps to another type' <<< "${OUT}"; then
+    pass "the warning says the mapping was not read, and does not say it maps to another type"
+else
+    fail "the unchecked warning misstates what was read: ${OUT//$'\n'/ | }"
+fi
 close_run $'ok /fixture/bin/acme\nunread acme /fixture/bin/acme\nagent acme ok'
 assert_msg MSG-T7K7 "${OUT}" "names that could not be read are warned about under their code"
 has_line "the agent is filed ok with the unread reason" "record acme ok entrypoint-names-unread"

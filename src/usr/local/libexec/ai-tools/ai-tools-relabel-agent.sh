@@ -411,6 +411,12 @@ render_label_report() {
             unmapped) : "${agent_label_names_reason["${subject}"]:=unmapped-entrypoint-name}"
                    warn MSG-N4T2 "unmapped name for ${subject}: ${detail} is a name of its entrypoint that the file-context database maps to another type -- the entrypoint is labelled, and a relabel of the whole host can leave it on that type; after one, run: atr admin system entrypoints relabel; a newer agent package covers a name the agent's own package placed (dnf update 'ai-tools-agents-*'), and a local rule that maps the name is listed by: sudo semanage fcontext -C -l"
                    ai_tools_log__warn "${subject}: ${detail} names its entrypoint and the file-context database maps it to another type" ;;
+            # Names of the inode that a status line does not print, a space or a newline in one among the causes: each
+            # is a name no manifest pattern can match, and its mapping was not looked up.
+            unchecked) : "${agent_label_names_reason["${subject}"]:=entrypoint-name-unchecked}"
+                   inode_location="$(stat -c '%m -xdev -inum %i' -- "${detail}" 2>/dev/null || true)"
+                   warn MSG-D9H5 "name not checked for ${subject}: ${wanted} name(s) of its entrypoint ${detail} carry a character outside the set a status line prints, and the type the file-context database maps each to was not read -- the entrypoint is labelled, and a relabel of the whole host can leave it on such a name's type; list every name: sudo find ${inode_location:-<mount> -xdev -inum <inode>}"
+                   ai_tools_log__warn "${subject}: ${wanted} name(s) of its entrypoint ${detail} were not printed and their mapping was not read" ;;
             # The inode has names the walk under the toolchain did not find, counted from its link count.
             outside) : "${agent_label_names_reason["${subject}"]:=entrypoint-name-outside-toolchain}"
                    inode_location="$(stat -c '%m -xdev -inum %i' -- "${detail}" 2>/dev/null || true)"

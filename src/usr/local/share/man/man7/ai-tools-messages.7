@@ -1664,6 +1664,10 @@ could not verify the entrypoint for ${agent} against release ${version} (see abo
 ERROR.
 an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: atr admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out
 .TP
+.B MSG-D9H5
+WARNING.
+name not checked for ${subject}: ${wanted} name(s) of its entrypoint ${detail} carry a character outside the set a status line prints, and the type the file\-context database maps each to was not read \-\- the entrypoint is labelled, and a relabel of the whole host can leave it on such a name's type; list every name: sudo find ${inode_location:\-<mount> \-xdev \-inum <inode>}
+.TP
 .B MSG-E4U5
 WARNING.
 relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
@@ -2210,7 +2214,7 @@ left the policy loaded: an agent session, the toolchain update, or a step run as
 .TP
 .B MSG-J5F3
 WARNING.
-entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} \-\- the file\-context database maps a name of its entrypoint to another type, or the names could not be read; atr admin system entrypoints relabel names each
+entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} \-\- the file\-context database maps a name of its entrypoint to another type, or a name could not be read or checked; atr admin system entrypoints relabel names each
 .TP
 .B MSG-J7J5
 ERROR.

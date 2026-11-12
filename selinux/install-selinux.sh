@@ -829,8 +829,8 @@ verify_agent_labels() {
                 # A name of a labelled entrypoint inode that the file-context database maps to another type, or names
                 # that could not be read. Not `bad`: the entrypoint carries its type. ai-tools-relabel-agent names
                 # the remedy per finding.
-                unmapped|outside|unread)
-                      warn MSG-J5F3 "entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} -- the file-context database maps a name of its entrypoint to another type, or the names could not be read; atr admin system entrypoints relabel names each" ;;
+                unmapped|unchecked|outside|unread)
+                      warn MSG-J5F3 "entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} -- the file-context database maps a name of its entrypoint to another type, or a name could not be read or checked; atr admin system entrypoints relabel names each" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
                 # so `failed` prints, naming the agent those lines omit.

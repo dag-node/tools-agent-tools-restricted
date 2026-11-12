@@ -6507,7 +6507,7 @@ status_entrypoint_label() {
                      printf '  %-28s %sUNMAPPED NAME%s %s(%s)%s\n' "" "${C_YEL}" "${C_RST}" \
                          "${C_DIM}" "${reason}" "${C_RST}"
                      say "      the file-context database maps a name of this agent's entrypoint to another type,"
-                     say "      or its names could not be read; a relabel of the whole host can leave the entrypoint"
+                     say "      or a name could not be read or checked; a relabel of the whole host can leave the entrypoint"
                      say "      on that type, and its sessions then refuse to start"
                      say "      the names, and the remedy for each: ${C_BOLD}atr admin system entrypoints relabel${C_RST}"
                      return 1

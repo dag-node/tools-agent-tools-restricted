@@ -127,7 +127,7 @@ as root), applies the declared rule, and reconciles the two through the pure
 |---|---|---|
 | the launcher resolves to a file a declared pattern covers | `ok` | labelled and verified |
 | the launcher does not resolve and the pattern does not match a file | `none` | the agent is not provisioned; no entrypoint to label |
-| the launcher **resolves** to a file no declared pattern covers, while `entrypoint_fcontext` matches another file | `stale` | **reported and the run exits non-zero** |
+| the launcher **resolves** to a file no declared pattern covers, while `entrypoint_fcontext` matches another file that the resolved one is not a byte-identical copy of | `stale` | **reported and the run exits non-zero** |
 
 The same divergence reads `incomplete` where `entrypoint_fcontext` does not match an installed file, and `copied`
 where the resolved file is a byte-identical copy of a match on another inode, each with a remedy of its own

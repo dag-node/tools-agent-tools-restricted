@@ -1317,13 +1317,13 @@ status lines: every path at its type exits 0, the control; a config directory le
 and exits 1; a walk that left hardlinked files is said with its count and filed by the agent's verdict; a walk
 that could not start is filed `walker-unavailable`, apart from a refused declaration's `rule-not-registered`; and a name
 of an entrypoint the file-context database maps to another type exits 0 under its code and is filed `ok` with its
-reason. `relabel.sh` drives the names read over a fixture of real hard links with the database's lookup stubbed (one,
-two and three names, a name a rule maps to another type, a name outside the root, a name carrying a newline at its end,
-inside it and in a directory component, a lookup that fails or that no rule answers, a walk that fails), and the label
-and the revert with the policy tools stubbed: each declared rule registered ahead of the first `restorecon` and dropped
-ahead of the first revert, a refused link pattern, and a launcher resolving to the declared link name as covered.
-The boundary half is a type rule, a session's link of an entrypoint, which `selinux/avc/avc-denials.sh` attempts
-as WLK-002.
+reason. `relabel.sh` drives the names read over a fixture of real hard links with the database's lookup stubbed (one
+name mapped to the entry type, to another type and unreadable, two and three names, a name a rule maps to another type,
+a name outside the root, a name carrying a newline at its end, inside it and in a directory component, a lookup
+that fails or that no rule answers, a walk that fails), and the label and the revert with the policy tools stubbed: each
+declared rule registered ahead of the first `restorecon` and dropped ahead of the first revert, a refused link pattern,
+and a launcher resolving to the declared link name as covered. The boundary half is a type rule, a session's link
+of an entrypoint, which `selinux/avc/avc-denials.sh` attempts as WLK-002.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read

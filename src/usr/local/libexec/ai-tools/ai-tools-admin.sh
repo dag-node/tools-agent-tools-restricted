@@ -2931,6 +2931,9 @@ status_labels() {
                   detail "after a relabel of the whole host: atr admin system entrypoints relabel"
                   detail "a newer agent package covers a name the agent's own package placed; a local rule: semanage fcontext -C -l"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            unchecked) st UNMAPPED "${agent}  ${actual} name(s) of its ${what} ${path} carry a character a status line does not print; their mapping was not read"
+                  detail "find $(stat -c '%m -xdev -inum %i' -- "${path}" 2>/dev/null || printf '<mount> -xdev -inum <inode>')"
+                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
             outside) st UNMAPPED "${agent}  its ${what} ${path} has ${actual} name(s) outside the sandbox toolchain, which no rule can cover"
                   detail "find $(stat -c '%m -xdev -inum %i' -- "${path}" 2>/dev/null || printf '<mount> -xdev -inum <inode>')"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;

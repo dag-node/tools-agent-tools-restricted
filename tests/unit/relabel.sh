@@ -537,7 +537,8 @@ else
 
     # The file-context database, stubbed: the entrypoint maps to the entry type, the link name to names_link_type,
     # and every other name to lib_t; names_lookup selects a lookup that fails or one no rule answers.
-    names_link_type="${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"; names_lookup=ok
+    names_entry_type="${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"; names_link_type="${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"
+    names_lookup=ok
     matchpathcon() {
         local queried="${*: -1}"
         case "${names_lookup}" in
@@ -545,7 +546,7 @@ else
             none)  printf '<<none>>\n'; return 0 ;;
         esac
         case "${queried}" in
-            "${names_entry}") printf 'system_u:object_r:%s:s0\n' "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ;;
+            "${names_entry}") printf 'system_u:object_r:%s:s0\n' "${names_entry_type}" ;;
             "${names_link}")  printf 'system_u:object_r:%s:s0\n' "${names_link_type}" ;;
             *)                printf 'system_u:object_r:lib_t:s0\n' ;;
         esac
@@ -568,7 +569,14 @@ else
             fail "${why}: status ${status}, lines '${got//$'\n'/ | }'"
         fi
     }
-    names_are 1 0 "" "control: an entrypoint with one name yields no line"
+    names_are 1 0 "" "control: an entrypoint with one name, mapped to the entry type, yields no line"
+    # One link is one name, the path itself, and its mapping is read too: a local rule registered after the label leaves
+    # the live type in place and the launch preflight refusing.
+    names_entry_type=lib_t
+    names_are 1 1 "unmapped ${names_entry}" "an entrypoint with one name the database maps to another type is unmapped"
+    names_entry_type="${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"; names_lookup=fails
+    names_are 1 1 "unread ${names_entry}" "an entrypoint with one name whose mapping cannot be read is unread"
+    names_lookup=ok
     ln "${names_entry}" "${names_link}"
     names_are 2 0 "" "two names the database maps to the entry type yield no line"
     # A name a declared pattern matches, mapped to another type by a rule registered later: the database's answer
@@ -583,21 +591,28 @@ else
     names_are 3 1 "outside ${names_entry} 1" "a name outside the root is counted from the link count"
     rm -f -- "${TESTDIR}/names/elsewhere/acme"
     ln "${names_entry}" "${names_pkg}/bin/acme odd"
-    names_are 3 1 "unmapped unreportable-name" "a name outside the reportable character set is not printed"
+    names_are 3 1 "unchecked ${names_entry} 1" "a name outside the reportable character set is unchecked, not printed"
     rm -f -- "${names_pkg}/bin/acme odd"
     # A newline in a name: each name is one record of the walk, so a name that is the entrypoint's own path
     # with a newline after it, one with a newline inside it, and one under a directory whose name carries a newline each
     # read as a name of their own, not as a second sighting of a mapped path.
     ln "${names_entry}" "${names_entry}"$'\n'
-    names_are 3 1 "unmapped unreportable-name" "a name that is the entrypoint's path and a trailing newline is a finding"
+    names_are 3 1 "unchecked ${names_entry} 1" "a name that is the entrypoint's path and a trailing newline is a finding"
     rm -f -- "${names_entry}"$'\n'
     ln "${names_entry}" "${names_pkg}/bin/ac"$'\n'"me"
-    names_are 3 1 "unmapped unreportable-name" "a name with a newline inside it is a finding"
+    names_are 3 1 "unchecked ${names_entry} 1" "a name with a newline inside it is a finding"
     rm -f -- "${names_pkg}/bin/ac"$'\n'"me"
     mkdir -p "${names_pkg}/odd"$'\n'"dir"
     ln "${names_entry}" "${names_pkg}/odd"$'\n'"dir/acme"
-    names_are 3 1 "unmapped unreportable-name" "a name under a directory whose name carries a newline is a finding"
+    names_are 3 1 "unchecked ${names_entry} 1" "a name under a directory whose name carries a newline is a finding"
     rm -rf -- "${names_pkg}/odd"$'\n'"dir"
+    # Two such names are one line carrying their count, beside a third name's own finding.
+    ln "${names_entry}" "${names_pkg}/bin/acme odd"
+    ln "${names_entry}" "${names_pkg}/bin/acme"$'\t'"tab"
+    ln "${names_entry}" "${names_pkg}/bin/acme-third"
+    names_are 5 1 "unchecked ${names_entry} 2"$'\n'"unmapped ${names_pkg}/bin/acme-third" \
+        "two unprintable names are counted on one line beside a printable name's finding"
+    rm -f -- "${names_pkg}/bin/acme odd" "${names_pkg}/bin/acme"$'\t'"tab" "${names_pkg}/bin/acme-third"
     # A lookup that cannot be made is unread, and a name no rule maps is unmapped: neither reads as covered.
     names_lookup=fails
     names_are 2 1 "unread ${names_entry}" "a mapping that cannot be read is unread, once for the inode"
@@ -618,7 +633,7 @@ else
         fail "a path whose link count cannot be read: status ${names_status}, '${names_got}'"
     fi
     unset -f matchpathcon
-    unset names_link_type names_lookup
+    unset names_entry_type names_link_type names_lookup
 
     # The label and the revert, over the two hard-linked names. The containment is stubbed: the fixture is outside
     # the root the library pins, and the predicate's own table is tests/unit/launcher-target.sh's.

@@ -562,12 +562,14 @@ _ai_tools_relabel__read_mapped_type() {
     printf '%s\n' "${type}"
 }
 
-# _ai_tools_relabel__list_entrypoint_name_findings <root> <path> : read every name the inode of <path> has under <root>
-#   on <path>'s filesystem (`find -xdev -samefile`), ask the file-context database what it maps each name to, and print
-#   one line per finding:
-#     unmapped <name>        the database maps that name to another type than the entrypoint's, so a relabel that walks
-#                            by path can leave the inode on it; a name outside the reportable character set, one
-#                            carrying a newline among them, prints as `unreportable-name` without a lookup
+# _ai_tools_relabel__list_entrypoint_name_findings <root> <path> : ask the file-context database what it maps each name
+#   of <path>'s inode to, and print one line per finding. A file with one link has one name, <path> itself; for one
+#   with more, every name under <root> on <path>'s filesystem is read (`find -xdev -samefile`).
+#     unmapped <name>        the database maps that name to another type than the entrypoint's: for <path> itself
+#                            the launch preflight refuses, and for another name a relabel that walks by path can
+#                            leave the inode on that type
+#     unchecked <path> <n>   <n> names of the inode are outside the reportable character set, one carrying a newline
+#                            among them; such a name is not printed and its mapping is not looked up
 #     outside <path> <n>     the inode has <n> more links than names found: it has names outside <root>,
 #                            which no rule a manifest declares can cover, since each is contained to that root
 #     unread <path>          the link count or a name's mapping could not be read, or the walk failed and left names
@@ -575,28 +577,31 @@ _ai_tools_relabel__read_mapped_type() {
 #   The database's own answer decides, not a match against the manifest's patterns: a local rule registered later
 #   can map a name a declared pattern matches to another type. Each name is one record of the walk whatever bytes it
 #   holds, since find prints a fixed word for a path carrying a newline, so such a name cannot end one record and begin
-#   another. Returns 0 with no line for a file with one link, and for one whose every name is found and mapped
-#   to the entry type, whatever the walk exited with; returns 1 with a finding. <root> is an argument,
-#   so tests/unit/relabel.sh drives the read over a fixture of real hard links. A read, as root over the 0750 toolchain;
-#   it runs on a relabel and in the root status report, not on a launch.
+#   another. Returns 0 with no line where every name is found and mapped to the entry type, whatever the walk exited
+#   with; returns 1 with a finding. <root> is an argument, so tests/unit/relabel.sh drives the read over a fixture
+#   of real hard links. A read, as root over the 0750 toolchain; it runs on a relabel and in the root status report, not
+#   on a launch.
 _ai_tools_relabel__list_entrypoint_name_findings() {
     local root="$1" path="$2" link_count records record name mapped_type
-    local found_count=0 walk_status=0 mapping_unread=no status=0
+    local found_count=0 unchecked_count=0 walk_status=0 mapping_unread=no status=0
     link_count="$(stat -c '%h' -- "${path}" 2>/dev/null)" || link_count=""
     if [[ ! "${link_count}" =~ ^[0-9]+$ ]]; then
         printf 'unread %s\n' "${path}"
         return 1
     fi
-    (( link_count > 1 )) || return 0
-    records="$(find "${root}" -xdev -samefile "${path}" \
-                   \( -path $'*\n*' -printf 'newline\n' -o -printf 'name %p\n' \) 2>/dev/null)" || walk_status=$?
+    if (( link_count > 1 )); then
+        records="$(find "${root}" -xdev -samefile "${path}" \
+                       \( -path $'*\n*' -printf 'newline\n' -o -printf 'name %p\n' \) 2>/dev/null)" || walk_status=$?
+    else
+        # One name, the path itself, so no walk: its mapping is read like any other name's.
+        records="name ${path}"
+    fi
     while IFS= read -r record; do
         [[ -n "${record}" ]] || continue
         found_count=$(( found_count + 1 ))
         name="${record#name }"
         if [[ "${record}" == newline ]] || ! _ai_tools_relabel__is_entrypoint_path_reportable "${name}"; then
-            printf 'unmapped unreportable-name\n'
-            status=1
+            unchecked_count=$(( unchecked_count + 1 ))
             continue
         fi
         mapped_type="$(_ai_tools_relabel__read_mapped_type "${name}" || true)"
@@ -607,6 +612,10 @@ _ai_tools_relabel__list_entrypoint_name_findings() {
             status=1
         fi
     done <<< "${records}"
+    if (( unchecked_count > 0 )); then
+        printf 'unchecked %s %s\n' "${path}" "${unchecked_count}"
+        status=1
+    fi
     if (( found_count < link_count && walk_status == 0 )); then
         printf 'outside %s %s\n' "${path}" "$(( link_count - found_count ))"
         status=1
@@ -843,6 +852,8 @@ _ai_tools_relabel__label_agent_config_dir() {
 #     unmapped <agent> <name>          a name of a labelled entrypoint inode that the file-context
 #                                      database maps to another type; the inode carries its type,
 #                                      and a relabel that walks by path can leave it on that one
+#     unchecked <agent> <path> <n>     <n> names of the inode of <path> carry a character a status line
+#                                      does not print, and their mapping was not looked up
 #     outside <agent> <path> <n>       the inode of <path> has <n> names outside the toolchain, which
 #                                      no declared rule can cover
 #     unread <agent> <path>            the names of that inode, or a name's mapping, could not be read
@@ -861,7 +872,7 @@ _ai_tools_relabel__label_agent_config_dir() {
 #                                      toolchain they cannot read.
 #   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could
 #   not be registered, or an entrypoint is installed that the declared rule does not govern, and 2
-#   when the SELinux layer is inactive (no work to do). An `unmapped`, `outside` or `unread` line leaves
+#   when the SELinux layer is inactive (no work to do). An `unmapped`, `unchecked`, `outside` or `unread` line leaves
 #   the status and the agent's closing line as they are: the caller records and counts it.
 ai_tools_relabel__label_agent_paths() {
     _ai_tools_relabel__is_entrypoint_policy_active || return 2
@@ -959,10 +970,12 @@ ai_tools_relabel__unlabel_agent_paths() {
 #                                                  state)
 #     unmapped <agent> entrypoint <name>           a name of the installed entrypoint's inode that the
 #                                                  file-context database maps to another type
+#     unchecked <agent> entrypoint <path> <n>      <n> of its names carry a character a status line does
+#                                                  not print, and their mapping was not looked up
 #     outside <agent> entrypoint <path> <n>        that inode has <n> names outside the toolchain
 #     unread <agent> entrypoint <path>             its names, or a name's mapping, could not be read
 #   <what> is one token, `entrypoint` or `config-directory`, so the field after it is always the
-#   path and a caller never has to count words. The three names lines are
+#   path and a caller never has to count words. The names lines are
 #   _ai_tools_relabel__list_entrypoint_name_findings's, read for the inode a session execs.
 #   Returns 0 when every path it could inspect carries its type and no names line was printed, 1 otherwise, 2 when
 #   the SELinux layer is inactive, which yields an empty report and is not a fault, and 3 with an empty
