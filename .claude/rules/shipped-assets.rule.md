@@ -54,9 +54,12 @@ what keep it from growing:
 - **It routes nowhere.** No "see also", no skill to invoke, no path to read — a route out spends the tokens the file
   exists to save.
 - **It does not carry conduct.** How an agent behaves at a boundary lives in `CLAUDE.md`, the README's agent section,
-  and the governance skill. The one exception is where the *action* a boundary invites is itself the problem: recording
-  an exec bit with `git update-index --chmod=+x` defers an escalation to the operator's next checkout, so the line
-  that names the failed `chmod` names that too, and says to surface it instead.
+  and the governance skill. The one exception is where the *action* a boundary invites is itself the problem. A `chmod`
+  fails once the handback has given the file to the operator, and the routes that remain to an execute bit — a `chmod`
+  while the session still owns the file, and `git update-index --chmod=+x`, which records the bit for the operator's
+  next checkout — each hand the operator an executable file the operator did not decide on. The handback keeps an owner
+  execute bit it finds ([ownership-and-hooks](ownership-and-hooks.rule.md)), so the line that names the failed `chmod`
+  names each route and says to surface the `chmod` instead.
 
 **It is not a security control**, and is not argued for as one: an agent inclined to probe is not deterred by a file it
 can read. The enforced invariants hold either way; this saves work.
