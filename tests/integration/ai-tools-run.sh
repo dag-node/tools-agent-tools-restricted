@@ -660,9 +660,17 @@ else
         [[ "${crun_lib_text}" =~ source\ \"\$\{AI_TOOLS_RUN__LIB_DIR\}/([a-z0-9-]+\.lib\.sh)\" ]] || continue
         (( crun_lib_line < crun_capture_read_line )) && crun_early_libs+=("/usr/local/lib/ai-tools/${BASH_REMATCH[1]}")
     done < <(grep -nE '^[^#]*source "\$\{AI_TOOLS_RUN__LIB_DIR\}/' "${CRUN}" || true)
-    crun_verifier_loading_libraries="$(grep -lE '^[^#]*source[^#]*entrypoint-verify\.lib\.sh' -- "${crun_early_libs[@]}" 2>/dev/null || true)"
+    # grep exits 1 where no library matches and above 1 where it could not read one, which is not a reading that none
+    # loads the verifier. With no library named it would read this file's stdin, so the empty list is decided first.
+    crun_verifier_loading_libraries="" crun_library_search_status=0
+    if (( ${#crun_early_libs[@]} > 0 )); then
+        crun_verifier_loading_libraries="$(grep -lE '^[^#]*source[^#]*entrypoint-verify\.lib\.sh' -- "${crun_early_libs[@]}" 2>/dev/null < /dev/null)" \
+            || crun_library_search_status=$?
+    fi
     if (( ${#crun_early_libs[@]} == 0 )); then
         fail "the libraries ai-tools-run sources ahead of the override read were not found where this reads them"
+    elif (( crun_library_search_status > 1 )); then
+        fail "a library ai-tools-run sources ahead of the override read could not be read (grep exit ${crun_library_search_status}), so whether one loads entrypoint-verify.lib.sh is not known: ${crun_early_libs[*]}"
     elif [[ -n "${crun_verifier_loading_libraries}" ]]; then
         fail "a library ai-tools-run sources ahead of the override read names entrypoint-verify.lib.sh: ${crun_verifier_loading_libraries//$'\n'/ }"
     else
