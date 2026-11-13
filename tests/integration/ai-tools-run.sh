@@ -660,11 +660,11 @@ else
         [[ "${crun_lib_text}" =~ source\ \"\$\{AI_TOOLS_RUN__LIB_DIR\}/([a-z0-9-]+\.lib\.sh)\" ]] || continue
         (( crun_lib_line < crun_capture_read_line )) && crun_early_libs+=("/usr/local/lib/ai-tools/${BASH_REMATCH[1]}")
     done < <(grep -nE '^[^#]*source "\$\{AI_TOOLS_RUN__LIB_DIR\}/' "${CRUN}" || true)
-    crun_early_loader="$(grep -lE '^[^#]*source[^#]*entrypoint-verify\.lib\.sh' -- "${crun_early_libs[@]}" 2>/dev/null || true)"
+    crun_verifier_loading_libraries="$(grep -lE '^[^#]*source[^#]*entrypoint-verify\.lib\.sh' -- "${crun_early_libs[@]}" 2>/dev/null || true)"
     if (( ${#crun_early_libs[@]} == 0 )); then
         fail "the libraries ai-tools-run sources ahead of the override read were not found where this reads them"
-    elif [[ -n "${crun_early_loader}" ]]; then
-        fail "a library ai-tools-run sources ahead of the override read names entrypoint-verify.lib.sh: ${crun_early_loader//$'\n'/ }"
+    elif [[ -n "${crun_verifier_loading_libraries}" ]]; then
+        fail "a library ai-tools-run sources ahead of the override read names entrypoint-verify.lib.sh: ${crun_verifier_loading_libraries//$'\n'/ }"
     else
         pass "none of the ${#crun_early_libs[@]} libraries ai-tools-run sources ahead of the override read loads entrypoint-verify.lib.sh"
     fi

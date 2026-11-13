@@ -51,13 +51,13 @@ get_program_name() {
     printf '%s\n' "${name%.py}"
 }
 
-# read_startup_finding <file>: print what <file>'s start lacks, or no line where it conforms. A shell program opens
-# with SHELL_LINE and its first three statements are a `set` line ending in `pipefail`, its PATH line and `export PATH`,
-# comments and blank lines aside; the PATH line is PATH_LINE unless PATH_LITERAL_BY_PROGRAM names the program. A Python
-# helper opens with /usr/bin/python3 and one option cluster holding `I`, and with /usr/bin/python3 alone
-# where PYTHON_WITHOUT_ISOLATION names it; a program SHELL_START_PROGRAMS names is held to the shell start alone.
+# find_program_startup_violation <file>: print what <file>'s start lacks, or no line where it conforms. A shell program
+# opens with SHELL_LINE and its first three statements are a `set` line ending in `pipefail`, its PATH line
+# and `export PATH`, comments and blank lines aside; the PATH line is PATH_LINE unless PATH_LITERAL_BY_PROGRAM names
+# the program. A Python helper opens with /usr/bin/python3 and one option cluster holding `I`, and with /usr/bin/python3
+# alone where PYTHON_WITHOUT_ISOLATION names it; a program SHELL_START_PROGRAMS names is held to the shell start alone.
 # Returns 2 for a file it cannot read, which is a reading not made and never a conforming file.
-read_startup_finding() {
+find_program_startup_violation() {
     local file="$1" first line name exempt path_line
     local -a statements=()
     [[ -f "${file}" && -r "${file}" ]] || return 2
@@ -94,19 +94,20 @@ read_startup_finding() {
     fi
 }
 
-# check_directory <label> <dir>: every regular file in <dir> through the checker. One failure per file that does not
-# conform or could not be read, and one pass carrying the count, so a listing that found no file is not a pass.
-check_directory() {
-    local label="$1" dir="$2" file finding status count=0 bad=0
+# check_program_startup_directory <label> <dir>: every regular file in <dir> through the checker. One failure per file
+# that does not conform or could not be read, and one pass carrying the count, so a listing that found no file is not
+# a pass.
+check_program_startup_directory() {
+    local label="$1" dir="$2" file violation status count=0 bad=0
     for file in "${dir}"/*; do
         [[ -f "${file}" && ! -L "${file}" ]] || continue
         count=$(( count + 1 ))
         status=0
-        finding="$(read_startup_finding "${file}")" || status=$?
+        violation="$(find_program_startup_violation "${file}")" || status=$?
         if (( status != 0 )); then
             fail "${label}: ${file##*/} could not be read"; bad=$(( bad + 1 ))
-        elif [[ -n "${finding}" ]]; then
-            fail "${label}: ${file##*/}: ${finding}"; bad=$(( bad + 1 ))
+        elif [[ -n "${violation}" ]]; then
+            fail "${label}: ${file##*/}: ${violation}"; bad=$(( bad + 1 ))
         fi
     done
     if (( count == 0 )); then
@@ -116,10 +117,10 @@ check_directory() {
     fi
 }
 
-# require_program <label> <dir> <file>: <dir>/<file> is a regular file and not a link, so check_directory read it.
-# check_directory passes over a link and passes on the files it counted, so a named program absent or replaced by a link
-# would leave the directory's pass standing.
-require_program() {
+# require_regular_program_file <label> <dir> <file>: <dir>/<file> is a regular file and not a link,
+# so check_program_startup_directory read it. That check passes over a link and passes on the files it counted,
+# so a named program absent or replaced by a link would leave the directory's pass standing.
+require_regular_program_file() {
     local label="$1" dir="$2" file="$3"
     if [[ -f "${dir}/${file}" && ! -L "${dir}/${file}" ]]; then
         pass "${label}: ${dir}/${file} is a regular file and was read"
@@ -216,19 +217,19 @@ printf '%s\n' '#!/usr/bin/python3 -I' 'import os' > "${fixtures}/python-named/nv
 printf '%s\n' '#!/usr/bin/python3 -I' 'import os' > "${fixtures}/python-named/ai-tools-run"
 
 for name in conforming no-errexit python-isolated python-cluster ai-tools-handback.py nvm-update.sh; do
-    status=0; finding="$(read_startup_finding "${fixtures}/${name}")" || status=$?
-    if (( status == 0 )) && [[ -z "${finding}" ]]; then
+    status=0; violation="$(find_program_startup_violation "${fixtures}/${name}")" || status=$?
+    if (( status == 0 )) && [[ -z "${violation}" ]]; then
         pass "the checker passes the ${name} fixture"
     else
-        fail "the checker reported the ${name} fixture (status ${status}): ${finding}"
+        fail "the checker reported the ${name} fixture (status ${status}): ${violation}"
     fi
 done
 while IFS='|' read -r name want; do
-    status=0; finding="$(read_startup_finding "${fixtures}/${name}")" || status=$?
-    if (( status == 0 )) && [[ "${finding}" == "${want}"* ]]; then
+    status=0; violation="$(find_program_startup_violation "${fixtures}/${name}")" || status=$?
+    if (( status == 0 )) && [[ "${violation}" == "${want}"* ]]; then
         pass "the checker reports the ${name} fixture"
     else
-        fail "the checker read the ${name} fixture as (status ${status}): ${finding:-conforming}"
+        fail "the checker read the ${name} fixture as (status ${status}): ${violation:-conforming}"
     fi
 done <<'EOF'
 env-line|the interpreter line is #!/usr/bin/env bash
@@ -246,7 +247,7 @@ nvm-update|the statement after the set line is not PATH=/usr/local/bin:/usr/bin:
 python-named/nvm-update.sh|the interpreter line is #!/usr/bin/python3 -I
 python-named/ai-tools-run|the interpreter line is #!/usr/bin/python3 -I
 EOF
-status=0; read_startup_finding "${fixtures}/absent" > /dev/null || status=$?
+status=0; find_program_startup_violation "${fixtures}/absent" > /dev/null || status=$?
 if (( status == 2 )); then
     pass "a file the checker cannot read is a reading not made (status 2)"
 else
@@ -257,14 +258,14 @@ fi
 section "program start: every program in the checkout (unit)"
 for dir in "${CHECKOUT_DIRS[@]}"; do
     if [[ -d "${dir}" ]]; then
-        check_directory "checkout" "${dir}"
+        check_program_startup_directory "checkout" "${dir}"
     else
         skip "checkout programs" "${dir} is not in this tree"
     fi
 done
 if [[ -d "${CHECKOUT_DIRS[2]}" ]]; then
-    require_program "checkout" "${CHECKOUT_DIRS[2]}" ai-tools-run.sh
-    require_program "checkout" "${CHECKOUT_DIRS[2]}" nvm-update.sh
+    require_regular_program_file "checkout" "${CHECKOUT_DIRS[2]}" ai-tools-run.sh
+    require_regular_program_file "checkout" "${CHECKOUT_DIRS[2]}" nvm-update.sh
 fi
 
 # ── 3. The mechanics ─────────────────────────────────────────────────────────────────────────
@@ -341,10 +342,10 @@ else
         [[ ! -f "${log}" ]] || start_log="$(tr '\n' ' ' < "${log}")"
     }
 
-    # drive_head <label> <source> <command>: a synthetic program from <source>'s own text through its `export PATH`
-    # line, whose body calls <command> and names an imported function where it finds one, run with the three controls.
-    # The body exits before any line of the program past its head.
-    drive_head() {
+    # test_program_startup_head <label> <source> <command>: a synthetic program from <source>'s own text through its
+    # `export PATH` line, whose body calls <command> and names an imported function where it finds one, run
+    # with the three controls. The body exits before any line of the program past its head.
+    test_program_startup_head() {
         local label="$1" source="$2" command="$3" path_line synthetic="${work}/${1// /-}"
         path_line="${PATH_LITERAL_BY_PROGRAM[$(get_program_name "${source}")]:-${PATH_LINE}}"
         {
@@ -391,7 +392,7 @@ else
         head_source="${head_checkout}"
         [[ -r "${head_source}" ]] || head_source="${head_installed}"
         if [[ -r "${head_source}" ]]; then
-            drive_head "${head_label}" "${head_source}" "${head_command}"
+            test_program_startup_head "${head_label}" "${head_source}" "${head_command}"
         else
             skip "the ${head_label}'s mechanics" "neither ${head_checkout} nor ${head_installed} is readable to take the head from"
         fi
@@ -442,7 +443,7 @@ elif [[ ! -d "${INSTALLED_DIRS[0]}" ]]; then
 else
     for dir in "${INSTALLED_DIRS[@]}"; do
         if [[ -d "${dir}" ]]; then
-            check_directory "installed" "${dir}"
+            check_program_startup_directory "installed" "${dir}"
         elif [[ "${dir}" == "${INSTALLED_DIRS[1]}" ]]; then
             note "installed programs" "${dir} is absent: no package on this host contributes a command"
         else
@@ -451,9 +452,9 @@ else
     done
     # ai-tools-base installs the shim beside the helpers. The updater ships with its unit
     # in ai-tools-integration-nodejs, so it is required where that unit is installed.
-    require_program "installed" "${INSTALLED_DIRS[2]}" ai-tools-run
+    require_regular_program_file "installed" "${INSTALLED_DIRS[2]}" ai-tools-run
     if [[ -e "${NVM_UPDATE_UNIT}" || -L "${NVM_UPDATE_UNIT}" ]]; then
-        require_program "installed" "${INSTALLED_DIRS[2]}" nvm-update.sh
+        require_regular_program_file "installed" "${INSTALLED_DIRS[2]}" nvm-update.sh
     else
         note "installed programs" "${NVM_UPDATE_UNIT} is absent: ai-tools-integration-nodejs is not installed, so the updater is not required"
     fi
