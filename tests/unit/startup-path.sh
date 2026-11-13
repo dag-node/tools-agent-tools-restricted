@@ -128,11 +128,67 @@ require_program() {
 }
 
 mktestdir
+# Root writes fixtures into the testdir by name and part 4 executes some of them, so before the first entry is made
+# there the testdir and each ancestor are held (read_unheld_component), its default ACL is removed, so an entry made
+# inside does not inherit write from one /tmp hands down (clear_default_acl), and every entry from here on is created
+# under umask 077 and given its mode after. A testdir that does not hold ends the file before any write in it.
+umask 077
+testdir_unheld="$(read_unheld_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
+if [[ -z "${testdir_unheld}" ]] && ! clear_default_acl "${TESTDIR}"; then
+    testdir_unheld="${TESTDIR} (its default ACL could not be removed or read)"
+fi
+if [[ -n "${testdir_unheld}" ]]; then
+    fail "the testdir: another account could replace or write an entry in ${testdir_unheld}, so no fixture is written there"
+    finish
+    exit 1
+fi
+# make_held_dir <dir>: create <dir> under the testdir's guard and hold it before anything is written in it; returns 1
+# with the failure recorded where it does not hold.
+make_held_dir() {
+    local unheld
+    mkdir -- "$1" 2>/dev/null || { fail "could not create ${1}"; return 1; }
+    unheld="$(read_unheld_component "$1" 0 "${PROJECTS_UID}")"
+    [[ -z "${unheld}" ]] || { fail "another account could replace or write an entry in ${unheld}"; return 1; }
+}
+
+# ── 0. The fixture guards ────────────────────────────────────────────────────────────────────
+# The two harness predicates every later write here rests on, over fixtures each must decide: a directory carrying
+# a default ACL that grants write loses it and a directory made under it afterwards carries base entries alone,
+# and the chain reader names a group-writable directory and a link while it holds a sticky one.
+section "program start: the fixture guards (unit)"
+guards="${TESTDIR}/guards"
+if make_held_dir "${guards}"; then
+    mkdir -- "${guards}/hostile" "${guards}/group-writable" "${guards}/sticky"
+    chmod 0700 "${guards}/hostile"; chmod 0770 "${guards}/group-writable"; chmod 1777 "${guards}/sticky"
+    ln -s "${guards}/sticky" "${guards}/link"
+    if ! setfacl -d -m g::rwx,o::rwx,m::rwx -- "${guards}/hostile" 2>/dev/null \
+            || [[ -z "$(getfacl -d --omit-header -- "${guards}/hostile" 2>/dev/null)" ]]; then
+        fail "control: a default ACL could not be set on ${guards}/hostile, so clear_default_acl is not driven"
+    elif ! clear_default_acl "${guards}/hostile"; then
+        fail "clear_default_acl did not remove the default ACL of ${guards}/hostile"
+    else
+        mkdir -- "${guards}/hostile/child"
+        guard_child_acl="$(getfacl -c -- "${guards}/hostile/child" 2>/dev/null | sed '/^$/d' | tr '\n' ' ')" \
+            || guard_child_acl=""
+        if [[ "${guard_child_acl}" == 'user::rwx group::--- other::--- ' ]]; then
+            pass "clear_default_acl removes a default ACL that grants write, and a directory made after carries base entries alone"
+        else
+            fail "a directory made after clear_default_acl carries: ${guard_child_acl:-an ACL getfacl could not read}"
+        fi
+    fi
+    if [[ "$(read_unheld_component "${guards}/group-writable" 0 "${PROJECTS_UID}")" == "${guards}/group-writable "* \
+            && "$(read_unheld_component "${guards}/link" 0 "${PROJECTS_UID}")" == "${guards}/link "* \
+            && -z "$(read_unheld_component "${guards}/sticky" 0 "${PROJECTS_UID}")" ]]; then
+        pass "read_unheld_component names a group-writable directory and a link, and holds a sticky one"
+    else
+        fail "read_unheld_component misread the group-writable, link or sticky fixture under ${guards}"
+    fi
+fi
 
 # ── 1. The checker ───────────────────────────────────────────────────────────────────────────
 section "program start: the checker reports each departure (unit)"
 fixtures="${TESTDIR}/fixtures"
-mkdir -p "${fixtures}"
+make_held_dir "${fixtures}" || { finish; exit 1; }
 # write_fixture <name> <line>...: one fixture file from its lines.
 write_fixture() { local name="$1"; shift; printf '%s\n' "$@" > "${fixtures}/${name}"; }
 write_fixture conforming   "${SHELL_LINE}" '# SPDX' '' '# header' 'set -euo pipefail' '' '# why' "${PATH_LINE}" 'export PATH' 'id'
@@ -156,7 +212,7 @@ write_fixture nvm-update.sh   "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LITERA
 write_fixture updater-literal "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LITERAL_BY_PROGRAM[nvm-update]}" 'export PATH'
 write_fixture nvm-update      "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LINE}" 'export PATH'
 # The shim and the updater are held to the shell start, so an isolated Python line under either name is reported.
-mkdir -p "${fixtures}/python-named"
+mkdir -- "${fixtures}/python-named"
 printf '%s\n' '#!/usr/bin/python3 -I' 'import os' > "${fixtures}/python-named/nvm-update.sh"
 printf '%s\n' '#!/usr/bin/python3 -I' 'import os' > "${fixtures}/python-named/ai-tools-run"
 
@@ -242,8 +298,7 @@ unheld_reading="$(read_unheld_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
 if [[ -n "${unheld_reading}" ]]; then
     work_unheld="${unheld_reading}"
 else
-    mkdir -p "${TESTDIR}/mechanics"
-    if x_bit_visible "${TESTDIR}/mechanics"; then work="${TESTDIR}/mechanics"; fi
+    if make_held_dir "${TESTDIR}/mechanics" && x_bit_visible "${TESTDIR}/mechanics"; then work="${TESTDIR}/mechanics"; fi
 fi
 if [[ -z "${work}" ]]; then
     unheld_reading="$(read_unheld_component "${PROJECTS_HOME}" 0 "${PROJECTS_UID}")"
@@ -257,7 +312,6 @@ if [[ -z "${work}" ]]; then
 fi
 if [[ -n "${work}" ]]; then
     chmod 0755 "${work}"
-    umask 077
     if ! clear_default_acl "${work}"; then
         work_unheld+="${work_unheld:+; }${work} (its default ACL could not be removed or read)"; work=""
     else

@@ -601,8 +601,12 @@ through its launcher symlinks.
 
 `startup-path.sh` is the runtime half of the start every root helper shares
 ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)), which the confinement shim and the updater take as well
-([launch](launch.rule.md), [updater](updater.rule.md)). Its checker is driven first over fixtures it must report —
-an `env` interpreter line, bash without `-p`, a missing, late or different `PATH` line, a missing `export`, a Python
+([launch](launch.rule.md), [updater](updater.rule.md)). Before its first write it holds its testdir and each ancestor
+(`read_unheld_component`, `lib/harness.sh`), removes the testdir's default ACL (`clear_default_acl`) and creates every
+entry under `umask 077`, ending the file where one of these does not hold, and drives those two predicates
+over fixtures: a default ACL that grants write removed and a directory made after carrying base entries alone,
+a group-writable directory and a link named, a sticky one held. Its checker is driven next over fixtures it must report
+— an `env` interpreter line, bash without `-p`, a missing, late or different `PATH` line, a missing `export`, a Python
 line without `-I` under any name but the one the file exempts, `ai-tools-handback` — beside ones it must pass, and then
 reads every file in the checkout's helper directory, contributed-command directory and `/opt/ai-tools/bin`, the listing
 being the set, so a program added without the lines fails the file. A program's `PATH` line is the helpers' value unless
