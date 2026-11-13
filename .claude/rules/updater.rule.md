@@ -760,17 +760,17 @@ and filed in the label record as `RESULT=ok` with a `REASON`, which `ai-tools st
 
 **Two readings are not names findings.** The path a launcher resolves to, mapped to another type (`mismapped`), is
 the mapping the launch preflight reads, and the preflight refuses on it whatever type the file carries. The run fails
-on it under its own code, and `ai-tools-admin status` reports it `NOT LABELLED`. The discovery of the files a pattern
-matches (`_ai_tools_relabel__find_entrypoint_paths`) prints a path only while it is drawn from the reportable character
-set: the class in a declared pattern matches a newline and a space, the sandbox account names the directories
-under the versions root, and a path carrying a newline would read as two lines, the second an absolute path
-of that account's choosing handed to root's `restorecon`. A match at such a path is neither labelled nor reverted:
-a label run counts it in a `skip` line, and a revert returns the status of a path left at its type. A revert whose walk
-for those files did not complete has not listed every file a dropped rule matched, so it says that and returns the same
-status. A versions root confirmed not there does not hold a match; one whose state could not be read, and a symbolic
-link in its place, which is not followed, are each a walk that did not complete. A lookup of the launcher's resolved
-path that cannot be made fails the agent's entrypoint with the reason, since the launch preflight reads that mapping
-and refuses without it.
+on it after warning under its own code, and `ai-tools-admin status` reports it `NOT LABELLED`. The discovery
+of the files a pattern matches (`_ai_tools_relabel__find_entrypoint_paths`) prints a path only while it is drawn
+from the reportable character set: the class in a declared pattern matches a newline and a space, the sandbox account
+names the directories under the versions root, and a path carrying a newline would read as two lines, the second
+an absolute path of that account's choosing handed to root's `restorecon`. A match at such a path is neither labelled
+nor reverted: a label run counts it in a `skip` line, and a revert returns the status of a path left at its type.
+A revert whose walk for those files did not complete has not listed every file a dropped rule matched, so it says
+that and returns the same status. A versions root confirmed not there does not hold a match; one whose state could not
+be read, and a symbolic link in its place, which is not followed, are each a walk that did not complete. A lookup
+of the launcher's resolved path that cannot be made fails the agent's entrypoint with the reason, since the launch
+preflight reads that mapping and refuses without it.
 
 **The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
 overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file

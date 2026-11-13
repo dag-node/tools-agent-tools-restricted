@@ -372,7 +372,7 @@ fi
 #   travels with a "bad" line, since an agent declares two paths that carry different types.
 render_label_report() {
     local verdict subject detail wanted inode_location
-    labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0 mismapped=0
+    labelled=0 stale=0 incomplete=0 copied=0
     declare -gA agent_label_outcome=() agent_label_reason=() agent_label_names_reason=()
     [[ -n "$1" ]] || return 0
     while read -r verdict subject detail wanted; do
@@ -380,8 +380,7 @@ render_label_report() {
             ok)    labelled=$(( labelled + 1 ))
                    say "labelled: ${subject}"
                    ai_tools_log__info "relabelled ${subject}" ;;
-            bad)   mislabelled=$(( mislabelled + 1 ))
-                   warn MSG-G7C7 "wrong type on ${subject}: it is '${detail}', NOT ${wanted}"
+            bad)   warn MSG-G7C7 "wrong type on ${subject}: it is '${detail}', NOT ${wanted} -- 'sudo restorecon -nv ${subject}' shows the type a relabel sets, and 'sudo semanage fcontext -C -l' lists the local rules; then rerun: atr admin system entrypoints relabel"
                    ai_tools_log__warn "${subject} did not take ${wanted} (now '${detail}')" ;;
             stale) stale=$(( stale + 1 ))
                    agent_label_reason["${subject}"]="stale-declaration"
@@ -407,9 +406,8 @@ render_label_report() {
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
             # The path the launcher resolves to, mapped to another type by the file-context database. The launch
             # preflight reads that mapping and refuses, whatever type the file carries, so the run fails on it.
-            mismapped) mismapped=$(( mismapped + 1 ))
-                   agent_label_reason["${subject}"]="entrypoint-mapping-overridden"
-                   warn MSG-R2W5 "wrong mapping for ${subject}: the file-context database maps its entrypoint ${detail} to another type than the entry type -- its next session refuses to start, whatever type the file carries now; a local rule that maps the path is listed by: sudo semanage fcontext -C -l"
+            mismapped) agent_label_reason["${subject}"]="entrypoint-mapping-overridden"
+                   warn MSG-R2W5 "wrong mapping for ${subject}: the file-context database maps its entrypoint ${detail} to another type than the entry type -- its next session refuses to start, whatever type the file carries now; list local rules with 'sudo semanage fcontext -C -l', correct the rule mapping the path, then rerun: atr admin system entrypoints relabel"
                    ai_tools_log__warn "${subject}: the file-context database maps its entrypoint ${detail} to another type" ;;
             # A name of a labelled entrypoint inode that the file-context database maps to another type. The entrypoint
             # carries its type, so the run does not fail on it; the first finding an agent has is the reason its record
@@ -487,17 +485,14 @@ record_label_outcomes
     || die MSG-J3A6 "a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: atr admin system bootstrap, then rerun"
 (( incomplete == 0 )) \
     || die MSG-D7H2 "an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: atr admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out"
-(( mismapped == 0 )) \
-    || die MSG-K2Z7 "a file-context rule outside the manifests stops this relabel: the file-context database maps the entrypoint of ${mismapped} agent(s) to another type, so each launch of such an agent is refused; remove or correct the local rule (sudo semanage fcontext -C -l lists them), then rerun"
 (( stale == 0 )) \
     || die MSG-M2M5 "a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai-tools-agents-*'), then rerun"
-# A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run refuses the launch)
-# and a mislabelled config directory leaves the agent unable to write its own state. Fail rather than report success --
-# this is the earlier, clearer signal.
-(( mislabelled == 0 )) \
-    || die MSG-A3B5 "the relabel did not take: ${mislabelled} path(s) did not take their type -- is the ai_tools module loaded? run: sudo selinux/install-selinux.sh install"
+# Every other failure the library returned: a path that did not take its type, a launcher path the database maps
+# to another type, a rule that could not be registered. Each is a session that breaks, a mislabelled entrypoint refused
+# at launch and a mislabelled config directory left unwritable to the agent, and each was warned about with its path,
+# its cause and its remedy, so one closing line fails the run over all of them.
 (( status == 0 )) \
-    || die MSG-N9B9 "an agent's file-context rule could not be applied (see above)"
+    || die MSG-N9B9 "agent labelling did not complete -- see the warnings above"
 
 if (( labelled > 0 )); then
     say "all ${labelled} path(s) labelled -- exit any running session and relaunch"

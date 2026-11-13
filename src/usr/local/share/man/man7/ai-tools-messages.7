@@ -1652,10 +1652,6 @@ ERROR.
 unknown option: ${a} (allowed: \-\-remove)
 .SS ai-tools-relabel-agent
 .TP
-.B MSG-A3B5
-ERROR.
-the relabel did not take: ${mislabelled} path(s) did not take their type \-\- is the ai_tools module loaded? run: sudo selinux/install\-selinux.sh install
-.TP
 .B MSG-B6H9
 WARNING.
 could not verify the entrypoint for ${agent} against release ${version} (see above) \-\- pin unchanged
@@ -1678,7 +1674,7 @@ could not record ${1}'s labelling outcome for atr status
 .TP
 .B MSG-G7C7
 WARNING.
-wrong type on ${subject}: it is '${detail}', NOT ${wanted}
+wrong type on ${subject}: it is '${detail}', NOT ${wanted} \-\- 'sudo restorecon \-nv ${subject}' shows the type a relabel sets, and 'sudo semanage fcontext \-C \-l' lists the local rules; then rerun: atr admin system entrypoints relabel
 .TP
 .B MSG-H9M5
 WARNING.
@@ -1687,10 +1683,6 @@ entrypoint verifier unavailable (${ENTRYPOINT_VERIFY_LIB}) \-\- entrypoints will
 .B MSG-J3A6
 ERROR.
 a copied toolchain link stops this relabel: ${copied} agent(s) resolve their launcher to a copy of the entrypoint rather than to it, so the file a session execs cannot be labelled; the toolchain run restores the links: atr admin system bootstrap, then rerun
-.TP
-.B MSG-K2Z7
-ERROR.
-a file\-context rule outside the manifests stops this relabel: the file\-context database maps the entrypoint of ${mismapped} agent(s) to another type, so each launch of such an agent is refused; remove or correct the local rule (sudo semanage fcontext \-C \-l lists them), then rerun
 .TP
 .B MSG-K4D7
 WARNING.
@@ -1722,7 +1714,7 @@ unmapped name for ${subject}: ${detail} is a name of its entrypoint that the fil
 .TP
 .B MSG-N9B9
 ERROR.
-an agent's file\-context rule could not be applied (see above)
+agent labelling did not complete \-\- see the warnings above
 .TP
 .B MSG-P5G9
 WARNING.
@@ -1730,7 +1722,7 @@ name outside the toolchain for ${subject}: its entrypoint ${detail} has ${wanted
 .TP
 .B MSG-R2W5
 WARNING.
-wrong mapping for ${subject}: the file\-context database maps its entrypoint ${detail} to another type than the entry type \-\- its next session refuses to start, whatever type the file carries now; a local rule that maps the path is listed by: sudo semanage fcontext \-C \-l
+wrong mapping for ${subject}: the file\-context database maps its entrypoint ${detail} to another type than the entry type \-\- its next session refuses to start, whatever type the file carries now; list local rules with 'sudo semanage fcontext \-C \-l', correct the rule mapping the path, then rerun: atr admin system entrypoints relabel
 .TP
 .B MSG-R5M2
 WARNING.
