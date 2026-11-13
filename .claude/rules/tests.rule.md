@@ -609,9 +609,10 @@ being the set, so a program added without the lines fails the file. A program's 
 the file's own table names the program, and the updater is named there with its unit's value: the name is the file's
 without `.sh`, so the checkout copy and the installed one read alike, and a fixture carrying the updater's value
 under another name, and one carrying the helpers' value under the updater's, are each reported. The shim and the updater
-are required by name as regular files in both trees, the installed updater where its unit is installed, so a copy absent
-or replaced by a link does not leave the directory's pass standing. The mechanics run on a synthetic program built
-from each of three real heads — a root helper's, the shim's and the updater's — with recorders named `bash`, `id`
+are held to the shell start by name, ahead of the Python rule, so an isolated Python line under either name is reported.
+Both are required by name as regular files in both trees, the installed updater where its unit is installed, so a copy
+absent or replaced by a link does not leave the directory's pass standing. The mechanics run on a synthetic program
+built from each of three real heads — a root helper's, the shim's and the updater's — with recorders named `bash`, `id`
 and `mktemp` first on the caller's `PATH`, a `BASH_ENV` file and an exported function: the run reaches none of them,
 and three controls each undo one part of the head and show what it kept out, the `env` line running the planted `bash`,
 the head without its `PATH` lines running the recorder for the command the program runs first by name, and the head
@@ -626,15 +627,20 @@ execute it as root, so a directory the sandbox account writes is not what leads 
 and the planted runs exec their fixtures, from one directory where a `0755` file is executable: the testdir where it
 qualifies, and `agent-installs.sh`'s fallback beside the operator's home under a `noexec` `/tmp`. Its boundary half is
 `boundary/access.sh`, which holds every directory the installed stop helper's `PATH` names and every directory
-the installed updater's names, where its unit is installed, every command in them and each interpreter
-out of the sandbox account's reach, and holds the installed shim's `PATH` line to the stop helper's.
+the installed updater's names, wherever the updater is installed, with or without its unit, every command in them
+and each interpreter out of the sandbox account's reach, and holds the installed shim's `PATH` line to the stop
+helper's. Root lists each of those directories, a directory it cannot list failing the row, and the account tests
+the entries root listed, so a directory the account searches without listing does not leave its commands untested.
 `integration/ai-tools-run.sh` runs the installed shim as the sandbox account under a `PATH` led by root-owned recorders
 in a fixture directory inside `/opt/ai-tools`, which the account traverses and executes from on every host a session
-runs on, read from its log before the refusal it prints, beside a control that a command run under that `PATH` reaches
-one. The same file runs the shim's capture of `AI_TOOLS_ENTRYPOINT_PIN_DIR`, the library's default and the audit line,
-read out of the installed files, with the variable unset, empty and set, behind a control that the capture run
-after the default reads an unset variable as an override, and reads as source that the capture precedes the library's
-first load.
+runs on. Root writes the fixture by path, so the row first holds `/opt/ai-tools` and each ancestor, and then
+the fixture, to a root-owned directory without group or other write that is not a link, and fails with no write
+where one is not. The recorders are read from their log before the refusal it prints, beside a control that a command
+run under that `PATH` reaches one. The same file runs the shim's capture of `AI_TOOLS_ENTRYPOINT_PIN_DIR`, the library's
+default and the audit line, read out of the installed files, with the variable unset, empty and set, behind a control
+that the capture run after the default reads an unset variable as an override, and reads as source that the line
+clearing the field and the line reading the variable each precede the library's first load, in that order, and that no
+library the shim sources ahead of the read loads it.
 
 `atr.sh` drives the short command over a copy of the wrapper whose two program paths are rewritten to recorders, its
 help library path to the checkout's and its domain and manifest directories to fixtures, with a recording `sudo` first

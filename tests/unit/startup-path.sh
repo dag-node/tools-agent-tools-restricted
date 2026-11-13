@@ -36,6 +36,9 @@ readonly SHELL_LINE='#!/usr/bin/bash -p'
 readonly PATH_LINE='PATH=/usr/sbin:/usr/bin:/sbin:/bin'
 # A program whose PATH line is another value, by program name: the updater carries its unit's PATH (updater.rule.md).
 declare -rA PATH_LITERAL_BY_PROGRAM=([nvm-update]='PATH=/usr/local/bin:/usr/bin:/bin')
+# The programs that take the shell start whatever their first line, by program name: the shim and the updater,
+# which the launch and the update unit run as bash.
+declare -rA SHELL_START_PROGRAMS=([ai-tools-run]=1 [nvm-update]=1)
 # The Python helpers whose line does not pass `-I`, by name; the rule states why (cli.rule.md, ref-section-g7c8).
 readonly PYTHON_WITHOUT_ISOLATION=(ai-tools-handback)
 
@@ -51,8 +54,8 @@ get_program_name() {
 # with SHELL_LINE and its first three statements are a `set` line ending in `pipefail`, its PATH line and `export PATH`,
 # comments and blank lines aside; the PATH line is PATH_LINE unless PATH_LITERAL_BY_PROGRAM names the program. A Python
 # helper opens with /usr/bin/python3 and one option cluster holding `I`, and with /usr/bin/python3 alone
-# where PYTHON_WITHOUT_ISOLATION names it. Returns 2 for a file it cannot read, which is a reading not made and never
-# a conforming file.
+# where PYTHON_WITHOUT_ISOLATION names it; a program SHELL_START_PROGRAMS names is held to the shell start alone.
+# Returns 2 for a file it cannot read, which is a reading not made and never a conforming file.
 read_startup_finding() {
     local file="$1" first line name exempt path_line
     local -a statements=()
@@ -60,15 +63,17 @@ read_startup_finding() {
     IFS= read -r first < "${file}" || return 2
     name="$(get_program_name "${file}")"
     path_line="${PATH_LITERAL_BY_PROGRAM[${name}]:-${PATH_LINE}}"
-    if [[ "${first}" =~ ^'#!/usr/bin/python3 -'[A-Za-z]*I[A-Za-z]*$ ]]; then
-        return 0
-    fi
-    if [[ "${first}" == '#!/usr/bin/python3' ]]; then
-        for exempt in "${PYTHON_WITHOUT_ISOLATION[@]}"; do
-            [[ "${name}" != "${exempt}" ]] || return 0
-        done
-        printf 'the interpreter line does not start Python in isolated mode (-I): %s\n' "${first}"
-        return 0
+    if [[ -z "${SHELL_START_PROGRAMS[${name}]:-}" ]]; then
+        if [[ "${first}" =~ ^'#!/usr/bin/python3 -'[A-Za-z]*I[A-Za-z]*$ ]]; then
+            return 0
+        fi
+        if [[ "${first}" == '#!/usr/bin/python3' ]]; then
+            for exempt in "${PYTHON_WITHOUT_ISOLATION[@]}"; do
+                [[ "${name}" != "${exempt}" ]] || return 0
+            done
+            printf 'the interpreter line does not start Python in isolated mode (-I): %s\n' "${first}"
+            return 0
+        fi
     fi
     if [[ "${first}" != "${SHELL_LINE}" ]]; then
         printf 'the interpreter line is %s\n' "${first}"
@@ -150,6 +155,10 @@ write_fixture python-env           '#!/usr/bin/env python3' 'import os'
 write_fixture nvm-update.sh   "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LITERAL_BY_PROGRAM[nvm-update]}" 'export PATH'
 write_fixture updater-literal "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LITERAL_BY_PROGRAM[nvm-update]}" 'export PATH'
 write_fixture nvm-update      "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LINE}" 'export PATH'
+# The shim and the updater are held to the shell start, so an isolated Python line under either name is reported.
+mkdir -p "${fixtures}/python-named"
+printf '%s\n' '#!/usr/bin/python3 -I' 'import os' > "${fixtures}/python-named/nvm-update.sh"
+printf '%s\n' '#!/usr/bin/python3 -I' 'import os' > "${fixtures}/python-named/ai-tools-run"
 
 for name in conforming no-errexit python-isolated python-cluster ai-tools-handback.py nvm-update.sh; do
     status=0; finding="$(read_startup_finding "${fixtures}/${name}")" || status=$?
@@ -179,6 +188,8 @@ no-export|the PATH line is not followed by export PATH
 no-set|the first statement is not the set line
 updater-literal|the statement after the set line is not PATH=/usr/sbin:/usr/bin:/sbin:/bin
 nvm-update|the statement after the set line is not PATH=/usr/local/bin:/usr/bin:/bin
+python-named/nvm-update.sh|the interpreter line is #!/usr/bin/python3 -I
+python-named/ai-tools-run|the interpreter line is #!/usr/bin/python3 -I
 EOF
 status=0; read_startup_finding "${fixtures}/absent" > /dev/null || status=$?
 if (( status == 2 )); then

@@ -255,15 +255,36 @@ refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-launch
 # (1b) The shim's start (launch.rule.md): the same refusal under a caller's PATH led by recorders named for its
 # interpreter and the commands it runs first. Each recorder appends its name to a log the sandbox account writes inside
 # a root-owned directory, which root reads as data with a bound. The directory is a fixture inside /opt/ai-tools,
-# the account's home: root-owned and not group-writable, so the account cannot replace a component of the path,
-# and a directory the account traverses and executes from on every host a session runs on, which /tmp and an operator's
-# home are not. The control runs `id` under the same PATH and must reach its recorder. Any log entry after the shim
-# fails the row whatever the shim printed, since a shim holding its interpreter line and lacking its PATH lines reaches
-# a planted `stat` at its first gate.
+# the account's home, which the account traverses and executes from on every host a session runs on, where /tmp
+# and an operator's home need not be. Root writes through that path by name, so the row first holds /opt/ai-tools
+# and each ancestor to a root-owned directory, not a link, without group or other write, and the fixture to a root-owned
+# directory, not a link, once it exists: inside such a chain the account cannot rename a component, so every later write
+# in the fixture lands where root made it. A chain that does not hold fails the row with no write. The control runs `id`
+# under the same PATH and must reach its recorder. Any log entry after the shim fails the row whatever the shim printed,
+# since a shim holding its interpreter line and lacking its PATH lines reaches a planted `stat` at its first gate.
+# read_unheld_component <dir>: print the first of <dir> and its ancestors that is not a root-owned directory free
+# of group and other write, or a link; no line where the whole chain holds.
+read_unheld_component() {
+    local dir="$1" meta
+    while :; do
+        meta="$(stat -c '%u %a' -- "${dir}" 2>/dev/null)" || meta=""
+        if [[ -L "${dir}" || ! -d "${dir}" || "${meta%% *}" != 0 || ! "${meta##* }" =~ ^[0-7]+$ ]] \
+                || (( (0${meta##* } & 022) != 0 )); then
+            printf '%s (%s)\n' "${dir}" "${meta:-unreadable}"
+            return 0
+        fi
+        [[ "${dir}" != / ]] || return 0
+        dir="$(dirname -- "${dir}")"
+    done
+}
 plant_root=""
-mk_fixture_dir plant_root /opt/ai-tools startpath 2>/dev/null || plant_root=""
-if [[ -z "${plant_root}" ]]; then
+plant_unheld="$(read_unheld_component /opt/ai-tools)"
+if [[ -n "${plant_unheld}" ]]; then
+    fail "ai-tools-run under a planted PATH: ${plant_unheld} is not a root-owned directory free of group and other write, so root does not write a fixture through it"
+elif ! mk_fixture_dir plant_root /opt/ai-tools startpath 2>/dev/null || [[ -z "${plant_root}" ]]; then
     fail "ai-tools-run under a planted PATH: no fixture directory could be made in /opt/ai-tools"
+elif [[ -n "$(read_unheld_component "${plant_root}")" ]]; then
+    fail "ai-tools-run under a planted PATH: the fixture ${plant_root} is not the root-owned directory mktemp made"
 else
     chmod 0755 "${plant_root}"
     plants="${plant_root}/bin"; plant_log="${plant_root}/record.log"
@@ -612,23 +633,42 @@ fi
 # the line in the host's journal, so the shim's own capture lines, the library's default line and the audit line are
 # read out of the installed files and run in a shell of their own with `audit` printing its message: unset, empty
 # and set, in the shim's order. The control runs the same lines with the capture after the default, the order a moved
-# capture would take, and must read an unset variable as an override. The order in the shim is read as source.
+# capture would take, and must read an unset variable as an override. The order in the shim is read as source,
+# for the line that clears the field and for the line that reads the variable, each ahead of the library's first source.
 # shellcheck disable=SC2016  # grep patterns over the shim's and the library's own text
 crun_capture="$(grep -E '^entrypoint_pin_dir_field=""$|^\[\[ -z "\$\{AI_TOOLS_ENTRYPOINT_PIN_DIR:-\}" \]\] \|\| entrypoint_pin_dir_field=' "${CRUN}" || true)"
 crun_capture_line="$(grep -m1 -n '^entrypoint_pin_dir_field=""$' "${CRUN}" | cut -d: -f1 || true)"
 # shellcheck disable=SC2016
-crun_verify_source_line="$(grep -m1 -n '^if source "\${AI_TOOLS_RUN__LIB_DIR}/entrypoint-verify.lib.sh"' "${CRUN}" | cut -d: -f1 || true)"
+crun_capture_read_line="$(grep -m1 -n '^\[\[ -z "\${AI_TOOLS_ENTRYPOINT_PIN_DIR:-}" \]\] || entrypoint_pin_dir_field=' "${CRUN}" | cut -d: -f1 || true)"
+# shellcheck disable=SC2016
+crun_verify_source_line="$(grep -m1 -nE '^[^#]*source "\$\{AI_TOOLS_RUN__LIB_DIR\}/entrypoint-verify\.lib\.sh"' "${CRUN}" | cut -d: -f1 || true)"
 crun_audit="$(grep -E '^audit info "entrypoint: ' "${CRUN}" || true)"
 # shellcheck disable=SC2016
 crun_pin_default="$(grep -E '^: "\$\{AI_TOOLS_ENTRYPOINT_PIN_DIR:=' /usr/local/lib/ai-tools/entrypoint-verify.lib.sh 2>/dev/null || true)"
-if [[ "$(wc -l <<< "${crun_capture}")" != 2 || -z "${crun_capture_line}" || -z "${crun_verify_source_line}" \
+if [[ "$(wc -l <<< "${crun_capture}")" != 2 || -z "${crun_capture_line}" || -z "${crun_capture_read_line}" \
+        || -z "${crun_verify_source_line}" \
         || "$(wc -l <<< "${crun_audit}")" != 1 || -z "${crun_audit}" || -z "${crun_pin_default}" ]]; then
     fail "the audit line's override field: its capture, the library's first source, the audit line or the library's default is no longer where this reads it"
 else
-    if (( crun_capture_line < crun_verify_source_line )); then
-        pass "ai-tools-run records whether the caller set AI_TOOLS_ENTRYPOINT_PIN_DIR before the first source of entrypoint-verify.lib.sh"
+    # The libraries the shim sources ahead of the read, named by its own source lines, must not load the verifier
+    # themselves, or its default would be assigned before the line this row reads.
+    crun_early_libs=()
+    while IFS=: read -r crun_lib_line crun_lib_text; do
+        [[ "${crun_lib_text}" =~ source\ \"\$\{AI_TOOLS_RUN__LIB_DIR\}/([a-z0-9-]+\.lib\.sh)\" ]] || continue
+        (( crun_lib_line < crun_capture_read_line )) && crun_early_libs+=("/usr/local/lib/ai-tools/${BASH_REMATCH[1]}")
+    done < <(grep -nE '^[^#]*source "\$\{AI_TOOLS_RUN__LIB_DIR\}/' "${CRUN}" || true)
+    crun_early_loader="$(grep -lE '^[^#]*source[^#]*entrypoint-verify\.lib\.sh' -- "${crun_early_libs[@]}" 2>/dev/null || true)"
+    if (( ${#crun_early_libs[@]} == 0 )); then
+        fail "the libraries ai-tools-run sources ahead of the override read were not found where this reads them"
+    elif [[ -n "${crun_early_loader}" ]]; then
+        fail "a library ai-tools-run sources ahead of the override read names entrypoint-verify.lib.sh: ${crun_early_loader//$'\n'/ }"
     else
-        fail "ai-tools-run records the pin directory override (line ${crun_capture_line}) after it first sources entrypoint-verify.lib.sh (line ${crun_verify_source_line})"
+        pass "none of the ${#crun_early_libs[@]} libraries ai-tools-run sources ahead of the override read loads entrypoint-verify.lib.sh"
+    fi
+    if (( crun_capture_line < crun_capture_read_line && crun_capture_read_line < crun_verify_source_line )); then
+        pass "ai-tools-run reads whether the caller set AI_TOOLS_ENTRYPOINT_PIN_DIR after clearing the field and before the first source of entrypoint-verify.lib.sh"
+    else
+        fail "ai-tools-run clears the override field at line ${crun_capture_line} and reads AI_TOOLS_ENTRYPOINT_PIN_DIR at line ${crun_capture_read_line}, which must both precede its first source of entrypoint-verify.lib.sh (line ${crun_verify_source_line}), in that order"
     fi
     # audit_field_line <first> <second> <env>...: the audit message the lines print in <first>, <second> order.
     audit_field_line() {
