@@ -35,9 +35,9 @@ fi
 # shellcheck source=../../src/usr/local/lib/ai-tools/agent-installs.lib.sh
 source "${LIB}"
 
-# x_bit_visible <dir>: succeed when a 0755 file created there reads as executable. Probes rather than reading mount
-# options, so it answers for whatever combination of mount flag and filesystem applies here.
-x_bit_visible() {
+# can_mark_file_executable <dir>: succeed when a 0755 file created there reads as executable. Probes rather than reading
+# mount options, so it answers for whatever combination of mount flag and filesystem applies here.
+can_mark_file_executable() {
     local probe="$1/.x-probe.$$" ok=1
     printf '' > "${probe}" 2>/dev/null || return 1
     chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
@@ -59,14 +59,14 @@ build_tree() {
 mktestdir
 FIXTURE_ROOT="${TESTDIR}"
 build_tree "${FIXTURE_ROOT}"
-if ! x_bit_visible "${FIXTURE_ROOT}/usr/bin"; then
+if ! can_mark_file_executable "${FIXTURE_ROOT}/usr/bin"; then
     mk_fixture_dir FIXTURE_ROOT "${PROJECTS_HOME}" agentinstalls 2>/dev/null || FIXTURE_ROOT=""
     if [[ -n "${FIXTURE_ROOT}" ]]; then
         chmod 0755 "${FIXTURE_ROOT}"
         build_tree "${FIXTURE_ROOT}"
     fi
 fi
-if [[ -z "${FIXTURE_ROOT}" ]] || ! x_bit_visible "${FIXTURE_ROOT}/usr/bin"; then
+if [[ -z "${FIXTURE_ROOT}" ]] || ! can_mark_file_executable "${FIXTURE_ROOT}/usr/bin"; then
     skip "agent installs" "no directory here reports a 0755 file as executable (a noexec mount)"
     finish; exit
 fi

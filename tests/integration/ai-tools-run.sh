@@ -252,6 +252,75 @@ refused() {
 out="$(run_crun AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
 refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-launcher path" MSG-Z2J9 "${rc}" "${out}"
 
+# (1b) The shim's start (launch.rule.md): the same refusal under a caller's PATH led by recorders named for its
+# interpreter and the commands it runs first. Each recorder appends its name to a log the sandbox account writes inside
+# a root-owned directory, which root reads as data with a bound. The directory is a fixture inside /opt/ai-tools,
+# the account's home, which the account traverses and executes from on every host a session runs on, where /tmp
+# and an operator's home need not be, written under the fixture rule (tests.rule.md, ref-section-j9n3) with root the one
+# owner. The control runs `id` under the same PATH and must reach its recorder. Any log entry after the shim fails
+# the row whatever the shim printed, since a shim holding its interpreter line and lacking its PATH lines reaches
+# a planted `stat` at its first gate.
+recorder_root=""
+recorder_unprotected="$(find_unprotected_path_component /opt/ai-tools 0)"
+if [[ -n "${recorder_unprotected}" ]]; then
+    fail "ai-tools-run under a planted PATH: another account could replace an entry in ${recorder_unprotected}, so root does not write a fixture through it"
+elif ! mk_fixture_dir recorder_root /opt/ai-tools startpath 2>/dev/null || [[ -z "${recorder_root}" ]]; then
+    fail "ai-tools-run under a planted PATH: no fixture directory could be made in /opt/ai-tools"
+elif [[ -n "$(find_unprotected_path_component "${recorder_root}" 0)" ]]; then
+    fail "ai-tools-run under a planted PATH: the fixture ${recorder_root} is not the root-owned directory mktemp made"
+else
+    # The log alone is handed to the sandbox account. The caller's umask is restored after the row.
+    chmod 0755 "${recorder_root}"
+    recorder_umask="$(umask)"; umask 077
+    recorder_dir="${recorder_root}/bin"; recorder_log="${recorder_root}/record.log"
+    recorder_ready=0
+    if ! clear_default_acl "${recorder_root}"; then
+        fail "ai-tools-run under a planted PATH: the default ACL of ${recorder_root} could not be removed or read, so an entry made in it could be another account's to write"
+    elif ! mkdir -- "${recorder_dir}" || ! chmod 0755 "${recorder_dir}" || [[ -n "$(find_unprotected_path_component "${recorder_dir}" 0)" ]]; then
+        fail "ai-tools-run under a planted PATH: ${recorder_dir} is not a root-owned directory another account cannot write an entry in"
+    else
+        recorder_ready=1
+    fi
+    if (( recorder_ready )); then
+        for name in bash env id stat date logger mktemp; do
+            printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${recorder_log}" > "${recorder_dir}/${name}"
+            chmod 0755 "${recorder_dir}/${name}"
+        done
+        # reset_recorder_log: an empty log the sandbox account appends to. read_recorder_log: set recorder_reached
+        # to the log's entries on one line, the first 4 KiB alone, and to `<unreadable>` where the log is not a regular
+        # file.
+        reset_recorder_log() {
+            rm -f -- "${recorder_log}"; : > "${recorder_log}"
+            chown "${SANDBOX_USER}" "${recorder_log}"; chmod 0644 "${recorder_log}"
+        }
+        read_recorder_log() {
+            recorder_reached='<unreadable> '
+            [[ -f "${recorder_log}" && ! -L "${recorder_log}" ]] || return 0
+            recorder_reached="$(head -c 4096 -- "${recorder_log}" | tr '\n' ' ')" || recorder_reached='<unreadable> '
+        }
+        reset_recorder_log
+        timeout 10 runuser -u "${SANDBOX_USER}" -- env PATH="${recorder_dir}:/usr/bin:/bin" id > /dev/null 2>&1 < /dev/null || true
+        read_recorder_log
+        if [[ "${recorder_reached}" != 'id ' ]]; then
+            fail "control: a command run as ${SANDBOX_USER} under the planted PATH did not reach the planted id (reached: ${recorder_reached:-no recorder}), so the shim's run under it is not driven"
+        else
+            pass "control: a command run as ${SANDBOX_USER} under the planted PATH runs the planted id"
+            reset_recorder_log
+            out="$(run_crun PATH="${recorder_dir}:/usr/bin:/bin" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+            read_recorder_log
+            if [[ -n "${recorder_reached}" ]]; then
+                fail "ai-tools-run under a planted PATH ran the caller's ${recorder_reached}(exit ${rc})"
+            elif (( rc != 0 )) && ! grep -qx 'MSG-Z2J9' <<<"${out}" && { grep -qxE 'MSG-(Z9C8|V3Q5|H4E2)' <<<"${out}" \
+                    || grep -qE 'is not root-owned or is writable|must run as|ai-ops operators group|no agent is enabled|enabled agents could not be resolved' <<<"${out}"; }; then
+                skip "ai-tools-run under a planted PATH" "it ran no planted command and refused at a gate ahead of the executable check: $(head -n 3 <<<"${out}" | tr '\n' ' ')"
+            else
+                refused "ai-tools-run under a planted PATH runs no planted command and refuses at the executable check" MSG-Z2J9 "${rc}" "${out}"
+            fi
+        fi
+    fi
+    umask "${recorder_umask}"
+fi
+
 # (2) A correctly-shaped AI_TOOLS_AGENT_EXEC carrying '/../' is refused by the traversal guard.
 out="$(run_crun AI_TOOLS_AGENT_EXEC="/opt/ai-tools/.nvm/versions/node/v1.2.3/../bin/${launcher}")" && rc=0 || rc=$?
 # By code: the traversal refusal must be the executable's, not the project directory's.
@@ -553,6 +622,93 @@ elif (( crun_cleanup_gate_line < crun_cleanup_line && crun_cleanup_line < crun_r
     pass "ai-tools-run cleans the launch caches for a session launch alone, ahead of the last-moment re-check"
 else
     fail "the cache cleanup step (line ${crun_cleanup_line}) is not inside the session-launch gate (line ${crun_cleanup_gate_line}) ahead of the re-check (line ${crun_recheck_line})"
+fi
+
+# The `entrypoint:` audit line names an override only where the caller set AI_TOOLS_ENTRYPOINT_PIN_DIR, which holds
+# while the shim reads the variable before entrypoint-verify.lib.sh assigns its default. Driving a launch would leave
+# the line in the host's journal, so the shim's own capture lines, the library's default line and the audit line are
+# read out of the installed files and run in a shell of their own with `audit` printing its message: unset, empty
+# and set, in the shim's order. The control runs the same lines with the capture after the default, the order a moved
+# capture would take, and must read an unset variable as an override. The order in the shim is read as source,
+# for the line that clears the field and for the line that reads the variable, each ahead of the library's first source.
+# shellcheck disable=SC2016  # grep patterns over the shim's and the library's own text
+crun_capture="$(grep -E '^AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=""$|^\[\[ -z "\$\{AI_TOOLS_ENTRYPOINT_PIN_DIR:-\}" \]\] \|\| AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=' "${CRUN}" || true)"
+crun_capture_line="$(grep -m1 -n '^AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=""$' "${CRUN}" | cut -d: -f1 || true)"
+# shellcheck disable=SC2016
+crun_capture_read_line="$(grep -m1 -n '^\[\[ -z "\${AI_TOOLS_ENTRYPOINT_PIN_DIR:-}" \]\] || AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=' "${CRUN}" | cut -d: -f1 || true)"
+# shellcheck disable=SC2016
+crun_verify_source_line="$(grep -m1 -nE '^[^#]*source "\$\{AI_TOOLS_RUN__LIB_DIR\}/entrypoint-verify\.lib\.sh"' "${CRUN}" | cut -d: -f1 || true)"
+crun_audit="$(grep -E '^audit info "entrypoint: ' "${CRUN}" || true)"
+# shellcheck disable=SC2016
+crun_pin_default="$(grep -E '^: "\$\{AI_TOOLS_ENTRYPOINT_PIN_DIR:=' /usr/local/lib/ai-tools/entrypoint-verify.lib.sh 2>/dev/null || true)"
+if [[ "$(wc -l <<< "${crun_capture}")" != 2 || -z "${crun_capture_line}" || -z "${crun_capture_read_line}" \
+        || -z "${crun_verify_source_line}" \
+        || "$(wc -l <<< "${crun_audit}")" != 1 || -z "${crun_audit}" || -z "${crun_pin_default}" ]]; then
+    crun_missing=()
+    [[ "$(wc -l <<< "${crun_capture}")" == 2 && -n "${crun_capture_line}" ]] \
+        || crun_missing+=("the two AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD capture lines in ${CRUN}")
+    [[ -n "${crun_capture_read_line}" ]] || crun_missing+=("the line in ${CRUN} that reads AI_TOOLS_ENTRYPOINT_PIN_DIR")
+    [[ -n "${crun_verify_source_line}" ]] || crun_missing+=("the source of entrypoint-verify.lib.sh in ${CRUN}")
+    [[ "$(wc -l <<< "${crun_audit}")" == 1 && -n "${crun_audit}" ]] || crun_missing+=("one entrypoint audit line in ${CRUN}")
+    [[ -n "${crun_pin_default}" ]] || crun_missing+=("the pin directory default in the installed entrypoint-verify.lib.sh")
+    fail "the audit line's override field is not read, missing: $(IFS=';'; printf '%s' "${crun_missing[*]}" | sed 's/;/; /g') -- an installed shim older than this checkout reads this way until a reinstall"
+else
+    # The libraries the shim sources ahead of the read, named by its own source lines, must not load the verifier
+    # themselves, or its default would be assigned before the line this row reads.
+    crun_early_libs=()
+    while IFS=: read -r crun_lib_line crun_lib_text; do
+        [[ "${crun_lib_text}" =~ source\ \"\$\{AI_TOOLS_RUN__LIB_DIR\}/([a-z0-9-]+\.lib\.sh)\" ]] || continue
+        (( crun_lib_line < crun_capture_read_line )) && crun_early_libs+=("/usr/local/lib/ai-tools/${BASH_REMATCH[1]}")
+    done < <(grep -nE '^[^#]*source "\$\{AI_TOOLS_RUN__LIB_DIR\}/' "${CRUN}" || true)
+    # grep exits 1 where no library matches and above 1 where it could not read one, which is not a reading that none
+    # loads the verifier. With no library named it would read this file's stdin, so the empty list is decided first.
+    crun_verifier_loading_libraries="" crun_library_search_status=0
+    if (( ${#crun_early_libs[@]} > 0 )); then
+        crun_verifier_loading_libraries="$(grep -lE '^[^#]*source[^#]*entrypoint-verify\.lib\.sh' -- "${crun_early_libs[@]}" 2>/dev/null < /dev/null)" \
+            || crun_library_search_status=$?
+    fi
+    if (( ${#crun_early_libs[@]} == 0 )); then
+        fail "the libraries ai-tools-run sources ahead of the override read were not found where this reads them"
+    elif (( crun_library_search_status > 1 )); then
+        fail "a library ai-tools-run sources ahead of the override read could not be read (grep exit ${crun_library_search_status}), so whether one loads entrypoint-verify.lib.sh is not known: ${crun_early_libs[*]}"
+    elif [[ -n "${crun_verifier_loading_libraries}" ]]; then
+        fail "a library ai-tools-run sources ahead of the override read names entrypoint-verify.lib.sh: ${crun_verifier_loading_libraries//$'\n'/ }"
+    else
+        pass "none of the ${#crun_early_libs[@]} libraries ai-tools-run sources ahead of the override read loads entrypoint-verify.lib.sh"
+    fi
+    if (( crun_capture_line < crun_capture_read_line && crun_capture_read_line < crun_verify_source_line )); then
+        pass "ai-tools-run reads whether the caller set AI_TOOLS_ENTRYPOINT_PIN_DIR after clearing the field and before the first source of entrypoint-verify.lib.sh"
+    else
+        fail "ai-tools-run clears the override field at line ${crun_capture_line} and reads AI_TOOLS_ENTRYPOINT_PIN_DIR at line ${crun_capture_read_line}, which must both precede its first source of entrypoint-verify.lib.sh (line ${crun_verify_source_line}), in that order"
+    fi
+    # audit_field_line <first> <second> <env>...: the audit message the lines print in <first>, <second> order.
+    audit_field_line() {
+        local first="$1" second="$2"; shift 2
+        env -i PATH=/usr/bin:/bin "$@" /usr/bin/bash -c 'set -euo pipefail
+            audit() { printf "%s\n" "$2"; }
+            agent_name=acme entrypoint_pin_verdict=ok require_entrypoint_verify=no
+            eval "$1"; eval "$2"; eval "$3"' _ "${first}" "${second}" "${crun_audit}" 2>&1 || true
+    }
+    crun_want='entrypoint: agent=acme pin=ok require=no'
+    crun_unset="$(audit_field_line "${crun_capture}" "${crun_pin_default}")"
+    crun_empty="$(audit_field_line "${crun_capture}" "${crun_pin_default}" AI_TOOLS_ENTRYPOINT_PIN_DIR=)"
+    crun_set="$(audit_field_line "${crun_capture}" "${crun_pin_default}" AI_TOOLS_ENTRYPOINT_PIN_DIR=/nonexistent/pins)"
+    crun_moved="$(audit_field_line "${crun_pin_default}" "${crun_capture}")"
+    if [[ "${crun_moved}" != "${crun_want} pin_dir=override" ]]; then
+        fail "control: the capture run after the library's default did not read an unset variable as an override ('${crun_moved}'), so the rows show nothing"
+    else
+        pass "control: the capture run after the library's default reads an unset variable as an override"
+        if [[ "${crun_unset}" == "${crun_want}" && "${crun_empty}" == "${crun_want}" ]]; then
+            pass "the entrypoint audit line carries no pin_dir field with AI_TOOLS_ENTRYPOINT_PIN_DIR unset or empty"
+        else
+            fail "the entrypoint audit line with AI_TOOLS_ENTRYPOINT_PIN_DIR unset read '${crun_unset}', empty '${crun_empty}'"
+        fi
+        if [[ "${crun_set}" == "${crun_want} pin_dir=override" ]]; then
+            pass "the entrypoint audit line carries pin_dir=override, and not the path, where the caller set AI_TOOLS_ENTRYPOINT_PIN_DIR"
+        else
+            fail "the entrypoint audit line with AI_TOOLS_ENTRYPOINT_PIN_DIR set read '${crun_set}'"
+        fi
+    fi
 fi
 
 # The live listing the cleaner reads, as the sandbox account with its runtime directory named as the shim names it:

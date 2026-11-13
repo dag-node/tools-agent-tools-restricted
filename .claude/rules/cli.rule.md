@@ -1550,9 +1550,10 @@ and `/usr/local/bin`. This project installs no command there that a helper runs 
 alone, `meld` for the post-upgrade merge or a `dotnet` outside the distribution's package, is not found on either route.
 
 The lines are written out in each helper and not loaded: a library is a file to find before the `PATH` is set,
-and `ai-tools-stop` requires none ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)).
-`tests/unit/root-helper-startup.sh` reads both directories by their listing and fails a file without them
-([tests](tests.rule.md)).
+and `ai-tools-stop` requires none ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)). The confinement shim
+and the updater under `/opt/ai-tools/bin` run as the sandbox account and start the same way, the updater with its unit's
+`PATH` ([launch](launch.rule.md), [updater](updater.rule.md)). `tests/unit/startup-path.sh` reads each of those
+directories by its listing and fails a file without the lines ([tests](tests.rule.md)).
 
 `ai-tools-relabel-tree` opens with `#!/usr/bin/python3 -I`: isolated mode ignores the `PYTHON*` variables and leaves
 the script's directory and the user site directory off the import path. `ai-tools-handback` opens

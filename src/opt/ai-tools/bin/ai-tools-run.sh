@@ -1,17 +1,19 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/bin/ai-tools-run
 # Confinement shim: runs one sandboxed agent session as @SANDBOX_USER@, inside a transient `systemd --user service`
 # whose properties are the session's security boundary.
 #
-# Invoked only by an agent's launch wrapper, which resolves and validates the versioned executable and drops privilege:
+# Invoked by an agent's launch wrapper, which resolves and validates the versioned executable and drops privilege:
 #
 #   ```bash
 #   sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@ -- /opt/ai-tools/bin/ai-tools-run [args...]
 #   ```
 #
 # with AI_TOOLS_AGENT_EXEC (the versioned executable) and AI_TOOLS_PROJECT_DIR (the session's working directory) carried
-# through sudo's env_keep. Both are re-validated here, so neither side is a single point of trust.
+# through sudo's env_keep. Both are re-validated here, so neither side is a single point of trust. The sudoers rule
+# permits an operator the same call without the wrapper, so this file's own start does not rest on the wrapper's
+# environment (launch.rule.md).
 #
 # What is CHECKED is what is EXEC'd. AI_TOOLS_AGENT_EXEC names the versioned launcher symlink; this shim resolves it
 # once, contains the target to the same semver version directory, and uses that single path for the SELinux label
@@ -46,6 +48,11 @@
 # modify, unlink, or replace it.
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8);
+# launch.rule.md states which route to this shim they decide.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly AI_TOOLS_RUN__LIB_DIR="/usr/local/lib/ai-tools"
 readonly AI_TOOLS_RUN__NVM_DIR="/opt/ai-tools/.nvm"
@@ -121,6 +128,14 @@ if [[ " $(id -nG "@SANDBOX_USER@" 2>/dev/null) " == *" ai-ops "* ]]; then
     refuse '@SANDBOX_USER@ is a member of the ai-ops operators group -- refusing to launch' \
            'remove it:  sudo gpasswd -d @SANDBOX_USER@ ai-ops'
 fi
+
+# sudoers does not keep AI_TOOLS_ENTRYPOINT_PIN_DIR, so a launch through the wrapper does not carry it; a caller
+# that sets it moves the pins the clock gate and the pin check read. Whether one did is recorded here,
+# before entrypoint-verify.lib.sh assigns its default on its first source, so the `entrypoint:` audit line names
+# an override and not the default.
+AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=""
+[[ -z "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-}" ]] || AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=" pin_dir=override"
+readonly AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD
 
 # ── The clock ────────────────────────────────────────────────────────────────────────────────
 # Every record this launch leaves -- the audit line, the unit's journal, the handback stamps -- carries the system
@@ -744,7 +759,7 @@ fi
 require_entrypoint_verify=no
 declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
     && ai_tools_entrypoint_verify__is_required && require_entrypoint_verify=yes
-audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}"
+audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}${AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD}"
 
 case "${entrypoint_pin_verdict}" in
     mismatch)

@@ -61,8 +61,9 @@ package_dir="${TESTDIR}/toolchain/lib/node_modules/@test/pinprobe"
 mkdir -p "${agents_dir}" "${launcher_dir}" "${pin_dir}" "${label_dir}" "${stale_dir}" "${package_dir}/bin"
 chmod 0755 "${agents_dir}" "${launcher_dir}" "${pin_dir}" "${label_dir}" "${stale_dir}"
 
-# x_bit_visible <dir> : succeed when a 0755 file created in <dir> answers `-x`, which is what bash's PATH search asks.
-x_bit_visible() {
+# can_mark_file_executable <dir> : succeed when a 0755 file created in <dir> answers `-x`, which is what bash's PATH
+# search asks.
+can_mark_file_executable() {
     local probe="$1/.x-probe.$$" ok=1
     printf '' > "${probe}" 2>/dev/null || return 1
     chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
@@ -72,10 +73,10 @@ x_bit_visible() {
 }
 stub_bin="${TESTDIR}/stub-bin"
 mkdir -p "${stub_bin}"
-if ! x_bit_visible "${stub_bin}"; then
+if ! can_mark_file_executable "${stub_bin}"; then
     mk_fixture_dir stub_bin "${PROJECTS_HOME}" pinstubs 2>/dev/null || stub_bin=""
 fi
-if [[ -z "${stub_bin}" ]] || ! x_bit_visible "${stub_bin}"; then
+if [[ -z "${stub_bin}" ]] || ! can_mark_file_executable "${stub_bin}"; then
     skip "observed-pin reconciliation" "no directory here reports a 0755 file as executable (a noexec mount), so the SELinux half cannot be stubbed off"
     finish; exit
 fi

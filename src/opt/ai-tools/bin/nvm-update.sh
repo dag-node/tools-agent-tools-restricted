@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/bin/nvm-update.sh
 # Updates Node.js and sandbox npm tools under /opt/ai-tools. Runs as the ai-tools user in its own
@@ -32,6 +32,10 @@
 # Why the split is coarse and why an offline run is not a failure: updater.rule.md (ref-section-z2h7).
 
 set -euo pipefail
+# The interpreter line and the PATH lines are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+# The value is the one nvm-update.service sets, so a run by hand finds its commands where the unit's run does.
+PATH=/usr/local/bin:/usr/bin:/bin
+export PATH
 IFS=$'\n\t'
 
 readonly AI_TOOLS_NVM_UPDATE__BIN_DIR="/opt/ai-tools/bin"

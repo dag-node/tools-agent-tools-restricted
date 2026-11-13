@@ -187,7 +187,7 @@ else
 fi
 
 # The same agreement through the real re-link, on a version directory shaped like npm leaves it.
-x_bit_visible() {
+can_mark_file_executable() {
     local probe="$1/.x-probe.$$" ok=1
     printf '' > "${probe}" 2>/dev/null || return 1
     chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
@@ -196,11 +196,11 @@ x_bit_visible() {
     return "${ok}"
 }
 FIXTURE_ROOT="${TESTDIR}"
-if ! x_bit_visible "${FIXTURE_ROOT}"; then
+if ! can_mark_file_executable "${FIXTURE_ROOT}"; then
     mk_fixture_dir FIXTURE_ROOT "${PROJECTS_HOME}" codexpackage 2>/dev/null || FIXTURE_ROOT=""
     [[ -n "${FIXTURE_ROOT}" ]] && chmod 0755 "${FIXTURE_ROOT}"
 fi
-if [[ -z "${FIXTURE_ROOT}" ]] || ! x_bit_visible "${FIXTURE_ROOT}"; then
+if [[ -z "${FIXTURE_ROOT}" ]] || ! can_mark_file_executable "${FIXTURE_ROOT}"; then
     skip "re-link through the manifest's own keys" "no directory here reports a 0755 file as executable (a noexec mount)"
 else
     ver="${FIXTURE_ROOT}/versions/node/v1.2.3"

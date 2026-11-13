@@ -144,8 +144,8 @@ only when the module is loaded) rather than read from the module store with `sem
 the account: `ai-tools-run` runs as the sandbox account, which cannot read the root-only store, so that read returns
 a systematic false "no" — which on the unresolved-label branch would fail *open*, launching DAC-only where the module is
 loaded. The `matchpathcon` probe does not need any privilege — it reads the world-readable file-contexts — and the agent
-cannot influence it, file-contexts and the shim both being root-owned. A lookup that fails is an unread input and never
-an absent module, for the same reason.
+cannot influence it, file-contexts and the shim both being root-owned. A lookup that fails is an unread input:
+under the requirement it refuses, and is not read as the absent module that launches there with a warning.
 
 `ai-tools-run` performs that probing and I/O; the launch-vs-refuse decision is the pure `ai_tools_confinement__evaluate`
 (`confinement.lib.sh`), which carries its inputs and the verdict token for each combination as its contract, and is
@@ -164,8 +164,10 @@ domain does not block without `AI_TOOLS_REQUIRE_SELINUX`). Where the label does 
 on module presence: **present** means confinement is installed yet the transition is unverifiable, so it refuses
 (`unverifiable`, → `atr admin system entrypoints relabel`, or the policy package reinstalled) rather than launch
 DAC-only and silently drop confinement; **absent** means the SELinux layer was never installed here, so it launches —
-an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or permissive mode. The check
-is a no-op where SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
+an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or permissive mode. A module
+state that could not be read launches the same way while `AI_TOOLS_REQUIRE_SELINUX` is `no`, which is the operator's
+declaration that the host is DAC-only, and refuses under the requirement (`require-unattested`). The check is a no-op
+where SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
 
 One residual the `matchpathcon` probe cannot see: a module **staged in the store but with its file-contexts never
 loaded** into the running policy reads as "absent" (the core-owned path resolves to its default type), so that narrow

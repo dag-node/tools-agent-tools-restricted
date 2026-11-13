@@ -153,7 +153,10 @@ after it was verified, and refuses the launch unconditionally. An **unpinned** e
 and launches normally — it is equally the state of an air-gapped host, one whose vendor published no manifest
 for the installed release, and one that has not reconciled yet — unless `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` declares
 otherwise, the same operator-asserts-intent shape as `AI_TOOLS_REQUIRE_SELINUX`. The verdict rides the per-launch audit
-line.
+line. That line also carries `pin_dir=override`, and not the path, for a launch whose caller set
+`AI_TOOLS_ENTRYPOINT_PIN_DIR` to a non-empty value, the root-only test hook that moves the directory the pin is read
+from ([ref-section-b4y9](tests.rule.md#ref-section-b4y9)); sudoers does not keep the name, so a launch through `sudo`
+does not carry the field.
 
 That re-check **narrows** the window a concurrent same-uid process would have to win, from the whole preflight
 to the `systemd-run` round trip; it does not close it. Only an exec root the agent cannot write does —
@@ -202,6 +205,16 @@ It **pins** three things itself: `HOME=/opt/ai-tools`, `SHELL=/usr/bin/bash`, an
 identity and shell tooling are the sandbox's rather than whatever the operator's login carries. `HOME` stays
 `/opt/ai-tools` because the agent's control plane (`settings.json`, the hooks) is root-owned and `ai_tools_home_t`,
 and is not relocated into the agent-writable project tree.
+
+**The shim itself starts as a root helper does** ([ref-section-g7c8](cli.rule.md#ref-section-g7c8) holds the lines
+and their limits). It runs its commands by name as the sandbox account before the unit exists, outside `ai_tools_t`
+and the unit's properties, and under those lines each one resolves in a root-owned system directory. The route the lines
+decide is an operator's direct `sudo -u SANDBOX_USER /opt/ai-tools/bin/ai-tools-run`, which the `%ai-ops` rule permits,
+on a host whose sudoers does not set `secure_path`: `sudo` then hands the shim the operator's own `PATH`,
+where the wrapper's route hands it the wrapper's, root-owned directories alone. That `PATH` is the shim's alone:
+the session's is assembled apart from it and handed to the unit. `tests/integration/ai-tools-run.sh` runs the installed
+shim under a `PATH` led by recorders, and the static read and the boundary half are the helpers'
+([tests](tests.rule.md)).
 
 Everything **agent-specific** — a config directory, a compile cache, an autoupdater switch — is pinned by that agent's
 own session-env fragment rather than here, so the shim stays agent-agnostic (see [providers](providers.rule.md),

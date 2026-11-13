@@ -69,9 +69,13 @@ expect_verdict ok 0 Permissive yes ai_tools_exec_t lib_t init_t
 expect_verdict ok 0 Disabled   yes ai_tools_exec_t lib_t init_t
 expect_verdict ok 0 unknown    yes ai_tools_exec_t lib_t init_t
 # Enforcing, label unresolved, and the module is ABSENT -> the SELinux layer was never installed on this host
-# (intentional DAC-only deployment), so launch. This is the sole remaining fail-open, gated on the module being absent
-# -- asserted, not incidental.
+# (intentional DAC-only deployment), so launch. This is the fail-open without the requirement, gated on the module being
+# absent or unread -- asserted, not incidental.
 expect_verdict ok 0 Enforcing no "" lib_t init_t
+# A module state that could not be read launches the same way: without the requirement the operator has declared
+# the host DAC-only, enforcing or not. The same inputs under the requirement refuse as unattested.
+expect_verdict ok 0 Enforcing "" "" lib_t init_t
+expect_verdict require-unattested 1 Enforcing "" "" lib_t init_t yes
 
 # ── The module-presence probe classifier (ai_tools_confinement__evaluate_module_present) ── ai-tools-run derives
 # the `module-present` verdict input from `matchpathcon` on a CORE-owned path, because it runs as the sandbox account

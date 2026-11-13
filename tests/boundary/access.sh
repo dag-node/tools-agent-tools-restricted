@@ -113,21 +113,39 @@ else
     fail "can list ${sbindir} -- agent can enumerate root helper names"
 fi
 
-# The boundary half of the start every root helper shares (cli.rule.md, ref-section-g7c8; unit/root-helper-startup.sh is
-# the runtime half). From the agent's side none of what a helper starts from may be writable: not a directory on its
-# PATH, not an interpreter, and no ancestor of either, where a rename would put another directory at the name. The PATH
-# is read from the installed stop helper, as root, so the row follows the line the helpers carry. The control is
-# a directory the account does write: a probe that could not answer yes there would pass every path under it.
+# The boundary half of the start every root helper shares (cli.rule.md, ref-section-g7c8; unit/startup-path.sh is
+# the runtime half), which the shim and the updater take as well. From the agent's side none of what a program starts
+# from may be writable: not a directory on its PATH, not an interpreter, and no ancestor of either, where a rename would
+# put another directory at the name. The PATHs are read as root from the installed stop helper, whose line the helpers
+# and the shim carry, and from the installed updater, whose line is its unit's, wherever the updater is installed: a run
+# by hand does not need the unit, so the unit's absence is noted and does not take the updater's directories
+# off the row. The control is a directory the account does write: a probe that could not answer yes there would pass
+# every path under it.
 _start_helper="${sbindir}/ai-tools-stop"
 _start_path="$(sed -n 's/^PATH=//p' -- "${_start_helper}" 2>/dev/null)" || _start_path=""
+_start_updater=/opt/ai-tools/bin/nvm-update.sh
+_start_updater_unit=/usr/lib/systemd/user/nvm-update.service
+_updater_path=""
+if [[ -e "${_start_updater}" || -L "${_start_updater}" ]]; then
+    if [[ -f "${_start_updater}" && ! -L "${_start_updater}" ]]; then
+        _updater_path="$(sed -n 's/^PATH=//p' -- "${_start_updater}" 2>/dev/null)" || _updater_path=""
+    fi
+    [[ -n "${_updater_path}" ]] || _updater_path="<unread>"
+    [[ -e "${_start_updater_unit}" || -L "${_start_updater_unit}" ]] \
+        || note "the updater's start" "${_start_updater} is installed without ${_start_updater_unit}: a partial install, and its PATH is checked all the same"
+elif [[ -e "${_start_updater_unit}" || -L "${_start_updater_unit}" ]]; then
+    note "the updater's start" "${_start_updater_unit} is installed without ${_start_updater}: a partial install, with no updater PATH to check"
+fi
 if [[ ! "${_start_path}" =~ ^/[^[:space:]]*$ ]]; then
     fail "could not read one PATH line from ${_start_helper} -- the directories a root helper finds its commands in are not checked"
+elif [[ -n "${_updater_path}" && ! "${_updater_path}" =~ ^/[^[:space:]]*$ ]]; then
+    fail "could not read one PATH line from ${_start_updater} -- the directories the updater finds its commands in are not checked"
 elif ! runuser -u "${SANDBOX_USER}" -- test -w /tmp 2>/dev/null; then
     fail "control: the write probe does not report /tmp writable for ${SANDBOX_USER} -- the helpers' command directories are not checked"
 else
     declare -A _start_seen=()
     _start_writable=() _start_unresolved=()
-    IFS=: read -r -a _start_entries <<< "${_start_path}"
+    IFS=: read -r -a _start_entries <<< "${_start_path}${_updater_path:+:${_updater_path}}"
     for _entry in "${_start_entries[@]}" /usr/bin/bash /usr/bin/python3; do
         if ! _real="$(realpath -e -- "${_entry}" 2>/dev/null)"; then
             _start_unresolved+=("${_entry}"); continue
@@ -141,44 +159,77 @@ else
         done
     done
     if (( ${#_start_unresolved[@]} > 0 )); then
-        fail "a path a root helper starts from does not resolve on this host: ${_start_unresolved[*]}"
+        fail "a path a root helper, the shim or the updater starts from does not resolve on this host: ${_start_unresolved[*]}"
     elif (( ${#_start_writable[@]} > 0 )); then
-        fail "can write ${_start_writable[*]} -- agent could place the interpreter or a command a root helper runs"
+        fail "can write ${_start_writable[*]} -- agent could place the interpreter or a command a root helper, the shim or the updater runs"
     else
-        pass "cannot write any of the ${#_start_seen[@]} paths a root helper starts from (${_start_path}, the interpreters, their ancestors)"
+        pass "cannot write any of the ${#_start_seen[@]} paths a root helper, the shim or the updater starts from (${_start_path}${_updater_path:+ and ${_updater_path}}, the interpreters, their ancestors)"
     fi
 
     # The commands in those directories. A file can be writable where its directory is not, through its own mode
-    # or an ACL entry, so each entry is tested too, in one shell run as the agent: `-w` asks access(2), which follows
-    # a link to the file it resolves to and reads one the agent cannot reach as not writable. The directories a link
-    # passes through on the way are not walked. The shell prints its own control and the number of entries it tested,
-    # so a run that tested none, or whose test cannot answer yes, does not read as a pass.
-    _start_dirs=()
+    # or an ACL entry, so each entry is tested too. Root lists each directory, and a directory root cannot list fails
+    # the row: the account need not list a directory it searches, so a listing made as the account would leave
+    # the entries of such a directory untested. The listing ends on a marker no absolute path is, so one that did not
+    # run to its end is told apart. The entries are then tested in one shell run as the agent: `-w` asks access(2),
+    # which follows a link to the file it resolves to and reads one the agent cannot reach as not writable.
+    # The directories a link passes through on the way are not walked. The shell prints its own control and the number
+    # of entries it tested, which must be the number root listed.
+    _start_dirs=() _start_unlisted=()
     for _entry in "${_start_entries[@]}"; do
         _real="$(realpath -e -- "${_entry}" 2>/dev/null)" || continue
         [[ " ${_start_dirs[*]} " == *" ${_real} "* ]] || _start_dirs+=("${_real}")
     done
+    for _dir in "${_start_dirs[@]}"; do
+        [[ -d "${_dir}" && -r "${_dir}" && -x "${_dir}" ]] || _start_unlisted+=("${_dir}")
+    done
+    _start_listed=()
+    mapfile -d '' -t _start_listed < <(
+        shopt -s dotglob nullglob
+        for _dir in "${_start_dirs[@]}"; do
+            for _listed in "${_dir}"/*; do printf '%s\0' "${_listed}"; done
+        done
+        printf 'end-of-listing\0')
+    if (( ${#_start_listed[@]} > 0 )) && [[ "${_start_listed[-1]}" == end-of-listing ]]; then
+        unset '_start_listed[-1]'
+        _start_listing_complete=1
+    else
+        _start_listing_complete=0
+    fi
     # shellcheck disable=SC2016  # the body is the agent shell's, expanded there
     _start_report="$(runuser -u "${SANDBOX_USER}" -- /usr/bin/bash -c '
-        shopt -s dotglob nullglob
         [[ -w /tmp ]] && printf "control\n"
         count=0
-        for dir in "$@"; do
-            for entry in "${dir}"/*; do
-                count=$(( count + 1 ))
-                [[ -w "${entry}" ]] && printf "writable %s\n" "${entry}"
-            done
+        for entry in "$@"; do
+            count=$(( count + 1 ))
+            [[ -w "${entry}" ]] && printf "writable %s\n" "${entry}"
         done
-        printf "count %s\n" "${count}"' _ "${_start_dirs[@]}" 2>/dev/null)" || _start_report=""
+        printf "count %s\n" "${count}"' _ "${_start_listed[@]}" 2>/dev/null)" || _start_report=""
     _start_count="$(sed -n 's/^count //p' <<< "${_start_report}")"
     _start_commands="$(sed -n 's/^writable //p' <<< "${_start_report}")"
-    if ! grep -qx control <<< "${_start_report}" || [[ ! "${_start_count}" =~ ^[1-9][0-9]*$ ]]; then
-        fail "the agent-side test of the commands in ${_start_dirs[*]} did not run to its end (control or count missing) -- not checked"
+    if (( ${#_start_unlisted[@]} > 0 )); then
+        fail "root cannot list ${_start_unlisted[*]} -- the commands in it are not checked"
+    elif (( ! _start_listing_complete )) || (( ${#_start_listed[@]} == 0 )); then
+        fail "root's listing of ${_start_dirs[*]} did not run to its end or found no entry -- the commands in them are not checked"
+    elif ! grep -qx control <<< "${_start_report}" || [[ "${_start_count}" != "${#_start_listed[@]}" ]]; then
+        fail "the agent-side test of the ${#_start_listed[@]} entries root listed in ${_start_dirs[*]} did not run to its end (control missing or ${_start_count:-no} entries tested) -- not checked"
     elif [[ -n "${_start_commands}" ]]; then
-        fail "can write a command a root helper may run: $(tr '\n' ' ' <<< "${_start_commands}")"
+        fail "can write a command a root helper, the shim or the updater may run: $(tr '\n' ' ' <<< "${_start_commands}")"
     else
-        pass "cannot write any of the ${_start_count} entries in ${_start_dirs[*]}, each link read as the file it resolves to"
+        pass "cannot write any of the ${_start_count} entries root listed in ${_start_dirs[*]}, each link read as the file it resolves to"
     fi
+fi
+
+# The confinement shim starts as the helpers do (launch.rule.md), so the directories the root helpers' start row proves
+# out of the account's reach are the ones the shim finds its commands in while its PATH line carries the stop helper's
+# value. Read as root from the installed shim.
+_start_shim=/opt/ai-tools/bin/ai-tools-run
+_shim_path="$(sed -n 's/^PATH=//p' -- "${_start_shim}" 2>/dev/null)" || _shim_path=""
+if [[ ! "${_shim_path}" =~ ^/[^[:space:]]*$ ]]; then
+    fail "could not read one PATH line from ${_start_shim} -- the directories the shim finds its commands in are not checked"
+elif [[ "${_shim_path}" != "${_start_path}" ]]; then
+    fail "${_start_shim} sets PATH=${_shim_path}, not the root helpers' ${_start_path} -- the root helpers' start row does not cover its directories"
+else
+    pass "${_start_shim} sets the root helpers' PATH, so the root helpers' start row covers the directories it finds its commands in"
 fi
 
 # The boundary half of `ai-tools-unclaim --unlisted` (see unit/unclaim.sh for the runtime half). That mode acts outside

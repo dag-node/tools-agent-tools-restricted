@@ -274,6 +274,44 @@ mk_fixture_file() {
     _cleanup+=("${_out}")
 }
 
+# find_unprotected_path_component <dir> <uid>...: print the first of <dir> and its ancestors where an account outside
+# <uid> could replace an entry, as `<path> (<uid> <mode>)`, and no line where the whole chain is protected. An owner
+# the caller passes is not held out: it can rename an entry in a directory it owns. A component is protected while it is
+# a directory and not a link, owned by one of <uid>, and either without group and other write or sticky, since a sticky
+# directory lets an account rename only the entries it owns; a component stat cannot read prints `unreadable` and is not
+# protected. The first step of the fixture rule (tests.rule.md, ref-section-j9n3).
+find_unprotected_path_component() {
+    local dir="$1" meta owner mode allowed protected
+    shift
+    while :; do
+        meta="$(stat -c '%u %a' -- "${dir}" 2>/dev/null)" || meta=""
+        owner="${meta%% *}"; mode="${meta##* }"
+        protected=0
+        if [[ -n "${meta}" && ! -L "${dir}" && -d "${dir}" && "${mode}" =~ ^[0-7]+$ ]]; then
+            for allowed in "$@"; do
+                [[ "${owner}" == "${allowed}" ]] && protected=1
+            done
+            (( protected && (0${mode} & 022) != 0 && (0${mode} & 01000) == 0 )) && protected=0
+        fi
+        if (( ! protected )); then
+            printf '%s (%s)\n' "${dir}" "${meta:-unreadable}"
+            return 0
+        fi
+        [[ "${dir}" != / ]] || return 0
+        dir="$(dirname -- "${dir}")"
+    done
+}
+
+# clear_default_acl <dir>: remove <dir>'s default ACL, and succeed only when getfacl then reads none, so an entry
+# created inside takes its mode from the creating process alone. A read that cannot be made fails, as an ACL left
+# in place does. The second step of the fixture rule (tests.rule.md, ref-section-j9n3).
+clear_default_acl() {
+    local acl
+    setfacl -k -- "$1" 2>/dev/null || return 1
+    acl="$(getfacl -d --omit-header -- "$1" 2>/dev/null)" || return 1
+    [[ -z "${acl//[[:space:]]/}" ]]
+}
+
 # Teardown removes every artifact a test registered, on any exit. Nothing outside these paths is ever touched. It
 # returns success unconditionally: it runs in the EXIT trap, and under `set -e` a non-zero teardown status -- e.g.
 # the empty-_cleanup loop where the final `[[ -n "" ]]` is false, or an `rm` of an already-gone path -- would otherwise
@@ -327,6 +365,15 @@ extract_function() { sed -n "/^$2() {/,/^}/p" -- "$1"; }
 # thing) and register it for teardown. Mode 0755 so an `sudo -u ai-tools` boundary check can traverse in to a fixture
 # (the fixture's own mode is what the check exercises). Sets the global TESTDIR.
 mktestdir() {
+    local unprotected
+    # Root creates the testdir under /tmp and changes it by path, so /tmp and each ancestor are checked first
+    # (tests.rule.md, ref-section-j9n3). A /tmp that fails the check ends the file before the testdir exists.
+    unprotected="$(find_unprotected_path_component /tmp 0)"
+    if [[ -n "${unprotected}" ]]; then
+        fail "the testdir: another account could replace an entry in ${unprotected}, so no testdir is made there"
+        finish || true
+        exit 1
+    fi
     mk_fixture_dir TESTDIR /tmp "${TEST_STEM}"
     chmod 0755 "${TESTDIR}"
 }
