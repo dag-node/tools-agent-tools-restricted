@@ -203,6 +203,16 @@ identity and shell tooling are the sandbox's rather than whatever the operator's
 `/opt/ai-tools` because the agent's control plane (`settings.json`, the hooks) is root-owned and `ai_tools_home_t`,
 and is not relocated into the agent-writable project tree.
 
+**The shim's own start is a root helper's.** `ai-tools-run` opens with `#!/usr/bin/bash -p` and sets
+`PATH=/usr/sbin:/usr/bin:/sbin:/bin` before its first command ([ref-section-g7c8](cli.rule.md#ref-section-g7c8) holds
+the mechanism and its limits), so each command it runs by name, as the sandbox account before the unit exists
+and outside `ai_tools_t`, resolves in a root-owned system directory. The route the lines decide is an operator's direct
+`sudo -u SANDBOX_USER /opt/ai-tools/bin/ai-tools-run` on a host whose sudoers does not set `secure_path`,
+which otherwise hands the shim the operator's own `PATH`; the wrapper's route hands it root-owned directories already.
+That `PATH` is the shim's alone: the session's is assembled apart from it and handed to the unit.
+`tests/unit/startup-path.sh` reads the start, `tests/integration/ai-tools-run.sh` runs the installed shim under a `PATH`
+led by recorders, and `tests/boundary/access.sh` holds the directories out of the account's reach.
+
 Everything **agent-specific** — a config directory, a compile cache, an autoupdater switch — is pinned by that agent's
 own session-env fragment rather than here, so the shim stays agent-agnostic (see [providers](providers.rule.md),
 and [agent-claude-code](agent-claude-code.rule.md) for the pins Claude Code makes and why each is load-bearing).

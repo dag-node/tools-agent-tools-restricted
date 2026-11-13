@@ -180,6 +180,12 @@ directly. The timer fires daily; one instance maintains the toolchain the whole 
 enables the timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh` enables it for the dev
 flow.
 
+`nvm-update.sh` starts as a root helper does ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)),
+with `#!/usr/bin/bash -p` and the unit's own value, `PATH=/usr/local/bin:/usr/bin:/bin`, set before its first command,
+so a run as the account outside the unit, the manual route an explicit version argument serves, finds its commands
+in the directories the unit's run does; `nvm.sh` then prepends the toolchain's `bin`. `tests/unit/startup-path.sh` reads
+the start.
+
 ### A `--user unit` here does not carry a mount-namespace option
 
 Running in a per-user manager decides what these units may set. `systemd.exec(5)` states that a mount-namespace option
