@@ -22,8 +22,9 @@
 #
 # Parts 1 and 2 need neither root nor an install. Parts 3 and 4 exec fixture files, so they need a directory
 # where a 0755 file is executable: the testdir where it qualifies, and a fixture directory in the projects user's home
-# otherwise, each checked first to be a chain of directories another account cannot replace an entry in. The boundary
-# half is tests/boundary/access.sh: the sandbox account writes none of the directories the PATH names.
+# otherwise. Root executes what part 4 writes there, so the file writes under the fixture rule (tests.rule.md,
+# ref-section-j9n3) and, ahead of part 1, drives the harness's two predicates over fixtures each must decide.
+# The boundary half is tests/boundary/access.sh: the sandbox account writes none of the directories the PATH names.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -116,8 +117,8 @@ check_directory() {
 }
 
 # require_program <label> <dir> <file>: <dir>/<file> is a regular file and not a link, so check_directory read it.
-# The listing is the set a program added later joins; this holds the programs that have no runtime test of their
-# installed copy to the read, so a copy absent or replaced by a link does not leave the directory's pass standing.
+# check_directory passes over a link and passes on the files it counted, so a named program absent or replaced by a link
+# would leave the directory's pass standing.
 require_program() {
     local label="$1" dir="$2" file="$3"
     if [[ -f "${dir}/${file}" && ! -L "${dir}/${file}" ]]; then
@@ -128,11 +129,8 @@ require_program() {
 }
 
 mktestdir
-# Root writes fixtures into the testdir by name and part 4 executes some of them, so before the first entry is made
-# there the testdir and each ancestor are checked (find_unprotected_path_component), its default ACL is removed,
-# so an entry made inside does not inherit write from one /tmp hands down (clear_default_acl), and every entry from here
-# on is created under umask 077 and given its mode after. A testdir that fails the check ends the file before any write
-# in it.
+# The fixture rule (tests.rule.md, ref-section-j9n3) over the testdir, ahead of the first entry made in it: root writes
+# fixtures there by name and part 4 executes some of them. A testdir that fails it ends the file.
 umask 077
 testdir_unprotected="$(find_unprotected_path_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
 if [[ -z "${testdir_unprotected}" ]] && ! clear_default_acl "${TESTDIR}"; then
@@ -288,13 +286,9 @@ readonly HEAD_SOURCES="root helper|${CHECKOUT_DIRS[0]}/ai-tools-chown.sh|${INSTA
 shim|${CHECKOUT_DIRS[2]}/ai-tools-run.sh|${INSTALLED_DIRS[2]}/ai-tools-run|id
 updater|${CHECKOUT_DIRS[2]}/nvm-update.sh|${INSTALLED_DIRS[2]}/nvm-update.sh|mktemp"
 # The directory the fixtures are written and run from: the testdir where a 0755 file is executable there, and a fixture
-# directory in the projects user's home otherwise. Root writes recorders there by path and part 4 executes them as root,
-# so the directory and each ancestor are checked first for owners another account cannot replace an entry under, root
-# and the projects user (harness.sh, find_unprotected_path_component), and the fixture directory again once mktemp made
-# it. The chosen directory then loses any default ACL a parent handed it (clear_default_acl), everything under it is
-# created under umask 077 and given its mode after, and the recorder directories are made there and checked the same way
-# before any file is written in them, so no account but the creator can write an entry at any point. A directory
-# that fails the check, or whose default ACL cannot be removed, fails the mechanics with no fixture written there.
+# directory in the projects user's home otherwise, each under the fixture rule (tests.rule.md, ref-section-j9n3)
+# with root and the projects user the owners, the recorder directories made in it included. A directory that fails
+# the rule fails the mechanics with no fixture written there.
 work="" work_unprotected="" unprotected_reading=""
 unprotected_reading="$(find_unprotected_path_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
 if [[ -n "${unprotected_reading}" ]]; then

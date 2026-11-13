@@ -256,12 +256,10 @@ refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-launch
 # interpreter and the commands it runs first. Each recorder appends its name to a log the sandbox account writes inside
 # a root-owned directory, which root reads as data with a bound. The directory is a fixture inside /opt/ai-tools,
 # the account's home, which the account traverses and executes from on every host a session runs on, where /tmp
-# and an operator's home need not be. Root writes through that path by name, so the row first checks /opt/ai-tools
-# and each ancestor, then the fixture once it exists, to root-owned directories another account cannot replace an entry
-# in (harness.sh, find_unprotected_path_component): inside such a chain every later write in the fixture lands
-# where root made it. A chain that fails the check fails the row with no write. The control runs `id` under the same
-# PATH and must reach its recorder. Any log entry after the shim fails the row whatever the shim printed, since a shim
-# holding its interpreter line and lacking its PATH lines reaches a planted `stat` at its first gate.
+# and an operator's home need not be, written under the fixture rule (tests.rule.md, ref-section-j9n3) with root the one
+# owner. The control runs `id` under the same PATH and must reach its recorder. Any log entry after the shim fails
+# the row whatever the shim printed, since a shim holding its interpreter line and lacking its PATH lines reaches
+# a planted `stat` at its first gate.
 recorder_root=""
 recorder_unprotected="$(find_unprotected_path_component /opt/ai-tools 0)"
 if [[ -n "${recorder_unprotected}" ]]; then
@@ -271,9 +269,7 @@ elif ! mk_fixture_dir recorder_root /opt/ai-tools startpath 2>/dev/null || [[ -z
 elif [[ -n "$(find_unprotected_path_component "${recorder_root}" 0)" ]]; then
     fail "ai-tools-run under a planted PATH: the fixture ${recorder_root} is not the root-owned directory mktemp made"
 else
-    # The fixture loses any default ACL a parent handed it, and the recorders and their directory are created
-    # under umask 077 and given their modes after, then checked, so no account but root writes an entry in them at any
-    # point; the log alone is handed to the sandbox account. The caller's umask is restored after the row.
+    # The log alone is handed to the sandbox account. The caller's umask is restored after the row.
     chmod 0755 "${recorder_root}"
     recorder_umask="$(umask)"; umask 077
     recorder_dir="${recorder_root}/bin"; recorder_log="${recorder_root}/record.log"

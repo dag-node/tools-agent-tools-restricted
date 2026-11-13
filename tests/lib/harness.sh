@@ -274,12 +274,12 @@ mk_fixture_file() {
     _cleanup+=("${_out}")
 }
 
-# find_unprotected_path_component <dir> <uid>...: print the first of <dir> and its ancestors where another account could
-# replace an entry, as `<path> (<uid> <mode>)`, and no line where the whole chain is protected. A component is protected
-# while it is a directory and not a link, owned by one of <uid>, and either without group and other write or sticky,
-# since a sticky directory lets an account rename only the entries it owns. A root caller checks the chain before it
-# writes a fixture by path or executes one there, so a fixture another account can rename aside and replace with a link
-# does not redirect the write or the exec; a component stat cannot read prints `unreadable` and is not protected.
+# find_unprotected_path_component <dir> <uid>...: print the first of <dir> and its ancestors where an account outside
+# <uid> could replace an entry, as `<path> (<uid> <mode>)`, and no line where the whole chain is protected. An owner
+# the caller passes is not held out: it can rename an entry in a directory it owns. A component is protected while it is
+# a directory and not a link, owned by one of <uid>, and either without group and other write or sticky, since a sticky
+# directory lets an account rename only the entries it owns; a component stat cannot read prints `unreadable` and is not
+# protected. The first step of the fixture rule (tests.rule.md, ref-section-j9n3).
 find_unprotected_path_component() {
     local dir="$1" meta owner mode allowed protected
     shift
@@ -303,8 +303,8 @@ find_unprotected_path_component() {
 }
 
 # clear_default_acl <dir>: remove <dir>'s default ACL, and succeed only when getfacl then reads none, so an entry
-# created inside takes its mode from the creating process alone and not from an entry a parent's default handed down.
-# A read that cannot be made fails, as an ACL left in place does.
+# created inside takes its mode from the creating process alone. A read that cannot be made fails, as an ACL left
+# in place does. The second step of the fixture rule (tests.rule.md, ref-section-j9n3).
 clear_default_acl() {
     local acl
     setfacl -k -- "$1" 2>/dev/null || return 1
@@ -366,9 +366,8 @@ extract_function() { sed -n "/^$2() {/,/^}/p" -- "$1"; }
 # (the fixture's own mode is what the check exercises). Sets the global TESTDIR.
 mktestdir() {
     local unprotected
-    # Root creates the testdir under /tmp and changes it by path, so /tmp and each ancestor are checked first:
-    # in a directory another account can rename entries in, that account could swap the testdir for a link
-    # between mktemp and chmod. A /tmp that fails the check ends the file before the testdir exists.
+    # Root creates the testdir under /tmp and changes it by path, so /tmp and each ancestor are checked first
+    # (tests.rule.md, ref-section-j9n3). A /tmp that fails the check ends the file before the testdir exists.
     unprotected="$(find_unprotected_path_component /tmp 0)"
     if [[ -n "${unprotected}" ]]; then
         fail "the testdir: another account could replace an entry in ${unprotected}, so no testdir is made there"
