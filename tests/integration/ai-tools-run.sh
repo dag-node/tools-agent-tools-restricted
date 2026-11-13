@@ -648,7 +648,14 @@ crun_pin_default="$(grep -E '^: "\$\{AI_TOOLS_ENTRYPOINT_PIN_DIR:=' /usr/local/l
 if [[ "$(wc -l <<< "${crun_capture}")" != 2 || -z "${crun_capture_line}" || -z "${crun_capture_read_line}" \
         || -z "${crun_verify_source_line}" \
         || "$(wc -l <<< "${crun_audit}")" != 1 || -z "${crun_audit}" || -z "${crun_pin_default}" ]]; then
-    fail "the audit line's override field: its capture, the library's first source, the audit line or the library's default is no longer where this reads it"
+    crun_missing=()
+    [[ "$(wc -l <<< "${crun_capture}")" == 2 && -n "${crun_capture_line}" ]] \
+        || crun_missing+=("the two AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD capture lines in ${CRUN}")
+    [[ -n "${crun_capture_read_line}" ]] || crun_missing+=("the line in ${CRUN} that reads AI_TOOLS_ENTRYPOINT_PIN_DIR")
+    [[ -n "${crun_verify_source_line}" ]] || crun_missing+=("the source of entrypoint-verify.lib.sh in ${CRUN}")
+    [[ "$(wc -l <<< "${crun_audit}")" == 1 && -n "${crun_audit}" ]] || crun_missing+=("one entrypoint audit line in ${CRUN}")
+    [[ -n "${crun_pin_default}" ]] || crun_missing+=("the pin directory default in the installed entrypoint-verify.lib.sh")
+    fail "the audit line's override field is not read, missing: $(IFS=';'; printf '%s' "${crun_missing[*]}" | sed 's/;/; /g') -- an installed shim older than this checkout reads this way until a reinstall"
 else
     # The libraries the shim sources ahead of the read, named by its own source lines, must not load the verifier
     # themselves, or its default would be assigned before the line this row reads.
