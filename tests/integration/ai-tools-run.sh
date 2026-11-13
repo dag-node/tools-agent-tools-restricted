@@ -252,6 +252,56 @@ refused() {
 out="$(run_crun AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
 refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-launcher path" MSG-Z2J9 "${rc}" "${out}"
 
+# (1b) The shim's start (launch.rule.md): the same refusal under a caller's PATH led by recorders named for its
+# interpreter and the commands it runs first. Each recorder appends its name to a log the sandbox account writes inside
+# a root-owned directory, which root reads as data with a bound. The directory sits beside the operator's home,
+# which the account traverses and which is not mounted noexec, as /tmp is on a hardened host. The control runs `id`
+# under the same PATH and must reach its recorder. Any log entry after the shim fails the row whatever the shim printed,
+# since a shim holding its interpreter line and lacking its PATH lines reaches a planted `stat` at its first gate.
+plant_root=""
+mk_fixture_dir plant_root "${PROJECTS_HOME}" startpath 2>/dev/null || plant_root=""
+if [[ -z "${plant_root}" ]]; then
+    skip "ai-tools-run under a planted PATH" "no fixture directory could be made beside ${PROJECTS_HOME}"
+else
+    chmod 0755 "${plant_root}"
+    plants="${plant_root}/bin"; plant_log="${plant_root}/record.log"
+    mkdir -m 0755 "${plants}"
+    for name in bash env id stat date logger mktemp; do
+        printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${plant_log}" > "${plants}/${name}"
+        chmod 0755 "${plants}/${name}"
+    done
+    # reset_plant_log: an empty log the sandbox account appends to. read_plant_log: set plant_reached to the log's
+    # entries on one line, the first 4 KiB alone, and to `<unreadable>` where the log is not a regular file.
+    reset_plant_log() {
+        rm -f -- "${plant_log}"; : > "${plant_log}"
+        chown "${SANDBOX_USER}" "${plant_log}"; chmod 0644 "${plant_log}"
+    }
+    read_plant_log() {
+        plant_reached='<unreadable> '
+        [[ -f "${plant_log}" && ! -L "${plant_log}" ]] || return 0
+        plant_reached="$(head -c 4096 -- "${plant_log}" | tr '\n' ' ')" || plant_reached='<unreadable> '
+    }
+    reset_plant_log
+    timeout 10 runuser -u "${SANDBOX_USER}" -- env PATH="${plants}:/usr/bin:/bin" id > /dev/null 2>&1 < /dev/null || true
+    read_plant_log
+    if [[ "${plant_reached}" != 'id ' ]]; then
+        fail "control: a command run as ${SANDBOX_USER} under the planted PATH did not reach the planted id (reached: ${plant_reached:-no recorder}), so the shim's run under it is not driven"
+    else
+        pass "control: a command run as ${SANDBOX_USER} under the planted PATH runs the planted id"
+        reset_plant_log
+        out="$(run_crun PATH="${plants}:/usr/bin:/bin" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+        read_plant_log
+        if [[ -n "${plant_reached}" ]]; then
+            fail "ai-tools-run under a planted PATH ran the caller's ${plant_reached}(exit ${rc})"
+        elif (( rc != 0 )) && ! grep -qx 'MSG-Z2J9' <<<"${out}" && { grep -qxE 'MSG-(Z9C8|V3Q5|H4E2)' <<<"${out}" \
+                || grep -qE 'is not root-owned or is writable|must run as|ai-ops operators group|no agent is enabled|enabled agents could not be resolved' <<<"${out}"; }; then
+            skip "ai-tools-run under a planted PATH" "it ran no planted command and refused at a gate ahead of the executable check: $(head -n 3 <<<"${out}" | tr '\n' ' ')"
+        else
+            refused "ai-tools-run under a planted PATH runs no planted command and refuses at the executable check" MSG-Z2J9 "${rc}" "${out}"
+        fi
+    fi
+fi
+
 # (2) A correctly-shaped AI_TOOLS_AGENT_EXEC carrying '/../' is refused by the traversal guard.
 out="$(run_crun AI_TOOLS_AGENT_EXEC="/opt/ai-tools/.nvm/versions/node/v1.2.3/../bin/${launcher}")" && rc=0 || rc=$?
 # By code: the traversal refusal must be the executable's, not the project directory's.

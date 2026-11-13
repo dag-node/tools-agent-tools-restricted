@@ -113,7 +113,7 @@ else
     fail "can list ${sbindir} -- agent can enumerate root helper names"
 fi
 
-# The boundary half of the start every root helper shares (cli.rule.md, ref-section-g7c8; unit/root-helper-startup.sh is
+# The boundary half of the start every root helper shares (cli.rule.md, ref-section-g7c8; unit/startup-path.sh is
 # the runtime half). From the agent's side none of what a helper starts from may be writable: not a directory on its
 # PATH, not an interpreter, and no ancestor of either, where a rename would put another directory at the name. The PATH
 # is read from the installed stop helper, as root, so the row follows the line the helpers carry. The control is
@@ -179,6 +179,19 @@ else
     else
         pass "cannot write any of the ${_start_count} entries in ${_start_dirs[*]}, each link read as the file it resolves to"
     fi
+fi
+
+# The confinement shim starts as the helpers do (launch.rule.md), so the directories the root helpers' start row proves
+# out of the account's reach are the ones the shim finds its commands in while its PATH line carries the stop helper's
+# value. Read as root from the installed shim.
+_start_shim=/opt/ai-tools/bin/ai-tools-run
+_shim_path="$(sed -n 's/^PATH=//p' -- "${_start_shim}" 2>/dev/null)" || _shim_path=""
+if [[ ! "${_shim_path}" =~ ^/[^[:space:]]*$ ]]; then
+    fail "could not read one PATH line from ${_start_shim} -- the directories the shim finds its commands in are not checked"
+elif [[ "${_shim_path}" != "${_start_path}" ]]; then
+    fail "${_start_shim} sets PATH=${_shim_path}, not the root helpers' ${_start_path} -- the root helpers' start row does not cover its directories"
+else
+    pass "${_start_shim} sets the root helpers' PATH, so the root helpers' start row covers the directories it finds its commands in"
 fi
 
 # The boundary half of `ai-tools-unclaim --unlisted` (see unit/unclaim.sh for the runtime half). That mode acts outside

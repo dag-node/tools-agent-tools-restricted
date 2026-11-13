@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: AGPL-3.0-only
-# tests/unit/root-helper-startup.sh
-# The runtime half of the start every root helper shares (cli.rule.md, ref-section-g7c8).
+# tests/unit/startup-path.sh
+# The runtime half of the start every root helper shares (cli.rule.md, ref-section-g7c8), which the confinement shim
+# and the updater under /opt/ai-tools/bin take as well (launch.rule.md, updater.rule.md).
 #
 # Four parts, each reading more of a host than the one before:
 #
 #   1. The checker, over fixtures it must report and one it must pass, so a clean reading of the tree is evidence about
 #      the tree and not about a checker that accepts every file.
-#   2. Every file in the checkout's two helper directories. The directory listing is the set, so a helper added later
-#      is read without a list to maintain.
-#   3. The mechanics, on a synthetic helper built from a real helper's own head: line 1 through `export PATH`, then
-#      a call to `id`. Recorders named `bash` and `id` lead the caller's PATH, and the run must reach neither, beside
-#      three controls that each undo one part of the head and show what it kept out.
+#   2. Every file in the checkout's three program directories: the root helpers, the contributed commands,
+#      and /opt/ai-tools/bin. The directory listing is the set, so a program added later is read without a list
+#      to maintain. A program's PATH line is the root helpers' value unless PATH_LITERAL_BY_PROGRAM names it.
+#   3. The mechanics, on a synthetic program built from each of three real heads (a root helper's, the shim's
+#      and the updater's): line 1 through `export PATH`, then a call to the command the program runs first by name.
+#      Recorders named `bash`, `id` and `mktemp` lead the caller's PATH, and the run must reach none of them, beside
+#      three controls that each undo one part of the head and show what it kept out. The installed updater is not run:
+#      its argument is a version, and before its identity guard it installs the EXIT trap that rewrites the live stamp.
 #   4. As root, every installed file through the same checker, and two installed helpers run to a usage refusal under
 #      a PATH led by a root-owned recorder directory. The recorders are root's own files: a run that reached one would
 #      execute it as root, and the suite does not execute a file another account can write (tests.rule.md).
@@ -24,28 +28,41 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-readonly CHECKOUT_DIRS=("${ROOT}/src/usr/local/libexec/ai-tools" "${ROOT}/src/usr/local/lib/ai-tools/admin-commands.d")
-readonly INSTALLED_DIRS=(/usr/local/libexec/ai-tools /usr/local/lib/ai-tools/admin-commands.d)
+readonly CHECKOUT_DIRS=("${ROOT}/src/usr/local/libexec/ai-tools" "${ROOT}/src/usr/local/lib/ai-tools/admin-commands.d"
+    "${ROOT}/src/opt/ai-tools/bin")
+readonly INSTALLED_DIRS=(/usr/local/libexec/ai-tools /usr/local/lib/ai-tools/admin-commands.d /opt/ai-tools/bin)
 readonly SHELL_LINE='#!/usr/bin/bash -p'
 readonly PATH_LINE='PATH=/usr/sbin:/usr/bin:/sbin:/bin'
+# A program whose PATH line is another value, by program name: the updater carries its unit's PATH (updater.rule.md).
+declare -rA PATH_LITERAL_BY_PROGRAM=([nvm-update]='PATH=/usr/local/bin:/usr/bin:/bin')
 # The Python helpers whose line does not pass `-I`, by name; the rule states why (cli.rule.md, ref-section-g7c8).
 readonly PYTHON_WITHOUT_ISOLATION=(ai-tools-handback)
 
-# read_startup_finding <file>: print what <file>'s start lacks, or no line where it conforms. A shell helper opens
-# with SHELL_LINE and its first three statements are a `set` line ending in `pipefail`, PATH_LINE and `export PATH`,
-# comments and blank lines aside. A Python helper opens with /usr/bin/python3 and one option cluster holding `I`,
-# and with /usr/bin/python3 alone where PYTHON_WITHOUT_ISOLATION names it. Returns 2 for a file it cannot read, which is
-# a reading not made and never a conforming file.
+# get_program_name <file>: the program a file is, its basename without `.sh` or `.py`, so a checkout source and its
+# installed copy read as one program whichever name the package installs it under.
+get_program_name() {
+    local name="${1##*/}"
+    name="${name%.sh}"
+    printf '%s\n' "${name%.py}"
+}
+
+# read_startup_finding <file>: print what <file>'s start lacks, or no line where it conforms. A shell program opens
+# with SHELL_LINE and its first three statements are a `set` line ending in `pipefail`, its PATH line and `export PATH`,
+# comments and blank lines aside; the PATH line is PATH_LINE unless PATH_LITERAL_BY_PROGRAM names the program. A Python
+# helper opens with /usr/bin/python3 and one option cluster holding `I`, and with /usr/bin/python3 alone
+# where PYTHON_WITHOUT_ISOLATION names it. Returns 2 for a file it cannot read, which is a reading not made and never
+# a conforming file.
 read_startup_finding() {
-    local file="$1" first line name exempt
+    local file="$1" first line name exempt path_line
     local -a statements=()
     [[ -f "${file}" && -r "${file}" ]] || return 2
     IFS= read -r first < "${file}" || return 2
+    name="$(get_program_name "${file}")"
+    path_line="${PATH_LITERAL_BY_PROGRAM[${name}]:-${PATH_LINE}}"
     if [[ "${first}" =~ ^'#!/usr/bin/python3 -'[A-Za-z]*I[A-Za-z]*$ ]]; then
         return 0
     fi
     if [[ "${first}" == '#!/usr/bin/python3' ]]; then
-        name="${file##*/}"; name="${name%.py}"
         for exempt in "${PYTHON_WITHOUT_ISOLATION[@]}"; do
             [[ "${name}" != "${exempt}" ]] || return 0
         done
@@ -63,8 +80,8 @@ read_startup_finding() {
     done < <(tail -n +2 -- "${file}")
     if [[ ! "${statements[0]:-}" =~ ^set\ -[a-z]+\ pipefail$ ]]; then
         printf 'the first statement is not the set line: %s\n' "${statements[0]:-}"
-    elif [[ "${statements[1]:-}" != "${PATH_LINE}" ]]; then
-        printf 'the statement after the set line is not %s: %s\n' "${PATH_LINE}" "${statements[1]:-}"
+    elif [[ "${statements[1]:-}" != "${path_line}" ]]; then
+        printf 'the statement after the set line is not %s: %s\n' "${path_line}" "${statements[1]:-}"
     elif [[ "${statements[2]:-}" != 'export PATH' ]]; then
         printf 'the PATH line is not followed by export PATH: %s\n' "${statements[2]:-}"
     fi
@@ -95,7 +112,7 @@ check_directory() {
 mktestdir
 
 # ── 1. The checker ───────────────────────────────────────────────────────────────────────────
-section "root helper start: the checker reports each departure (unit)"
+section "program start: the checker reports each departure (unit)"
 fixtures="${TESTDIR}/fixtures"
 mkdir -p "${fixtures}"
 # write_fixture <name> <line>...: one fixture file from its lines.
@@ -115,8 +132,13 @@ write_fixture ai-tools-handback.py '#!/usr/bin/python3' 'import os'
 write_fixture python-bare          '#!/usr/bin/python3' 'import os'
 write_fixture python-other-flag    '#!/usr/bin/python3 -B' 'import os'
 write_fixture python-env           '#!/usr/bin/env python3' 'import os'
+# The updater's literal is read by program name, in both trees' names: under another name the same file is reported,
+# and the updater's name with the root helpers' literal is reported too.
+write_fixture nvm-update.sh   "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LITERAL_BY_PROGRAM[nvm-update]}" 'export PATH'
+write_fixture updater-literal "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LITERAL_BY_PROGRAM[nvm-update]}" 'export PATH'
+write_fixture nvm-update      "${SHELL_LINE}" 'set -euo pipefail' "${PATH_LINE}" 'export PATH'
 
-for name in conforming no-errexit python-isolated python-cluster ai-tools-handback.py; do
+for name in conforming no-errexit python-isolated python-cluster ai-tools-handback.py nvm-update.sh; do
     status=0; finding="$(read_startup_finding "${fixtures}/${name}")" || status=$?
     if (( status == 0 )) && [[ -z "${finding}" ]]; then
         pass "the checker passes the ${name} fixture"
@@ -142,6 +164,8 @@ late-pin|the statement after the set line is not
 other-path|the statement after the set line is not
 no-export|the PATH line is not followed by export PATH
 no-set|the first statement is not the set line
+updater-literal|the statement after the set line is not PATH=/usr/sbin:/usr/bin:/sbin:/bin
+nvm-update|the statement after the set line is not PATH=/usr/local/bin:/usr/bin:/bin
 EOF
 status=0; read_startup_finding "${fixtures}/absent" > /dev/null || status=$?
 if (( status == 2 )); then
@@ -151,17 +175,17 @@ else
 fi
 
 # ── 2. The checkout ──────────────────────────────────────────────────────────────────────────
-section "root helper start: every helper in the checkout (unit)"
+section "program start: every program in the checkout (unit)"
 for dir in "${CHECKOUT_DIRS[@]}"; do
     if [[ -d "${dir}" ]]; then
         check_directory "checkout" "${dir}"
     else
-        skip "checkout helpers" "${dir} is not in this tree"
+        skip "checkout programs" "${dir} is not in this tree"
     fi
 done
 
 # ── 3. The mechanics ─────────────────────────────────────────────────────────────────────────
-section "root helper start: a caller's PATH, BASH_ENV and exported function do not reach the helper (unit)"
+section "program start: a caller's PATH, BASH_ENV and exported function do not reach the program (unit)"
 # x_bit_visible <dir>: succeed when a 0755 file created there reads as executable (tests/unit/atr.sh's probe).
 x_bit_visible() {
     local probe="$1/.x-probe.$$" ok=1
@@ -171,8 +195,12 @@ x_bit_visible() {
     rm -f "${probe}"
     return "${ok}"
 }
-head_source="${CHECKOUT_DIRS[0]}/ai-tools-chown.sh"
-[[ -r "${head_source}" ]] || head_source="${INSTALLED_DIRS[0]}/ai-tools-chown"
+# The heads the mechanics are built from, one per line: <label>|<checkout source>|<installed copy>|<first command>.
+# The first command is the one the program runs by name before any other, so a head without its PATH lines reaches its
+# recorder.
+readonly HEAD_SOURCES="root helper|${CHECKOUT_DIRS[0]}/ai-tools-chown.sh|${INSTALLED_DIRS[0]}/ai-tools-chown|id
+shim|${CHECKOUT_DIRS[2]}/ai-tools-run.sh|${INSTALLED_DIRS[2]}/ai-tools-run|id
+updater|${CHECKOUT_DIRS[2]}/nvm-update.sh|${INSTALLED_DIRS[2]}/nvm-update.sh|mktemp"
 work="${TESTDIR}/mechanics"
 mkdir -p "${work}"
 if ! x_bit_visible "${work}"; then
@@ -181,29 +209,15 @@ if ! x_bit_visible "${work}"; then
 fi
 if [[ -z "${work}" ]] || ! x_bit_visible "${work}"; then
     skip_required "the mechanics" "no directory here reports a 0755 file as executable (a noexec mount)"
-elif [[ ! -r "${head_source}" ]]; then
-    skip "the mechanics" "no helper is readable to take the head from"
 else
     chmod 0755 "${work}"
     plant="${work}/plant"; log="${work}/log"
     mkdir -p "${plant}"
-    for name in bash id; do
+    for name in bash id mktemp; do
         printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${log}" > "${plant}/${name}"
         chmod 0755 "${plant}/${name}"
     done
     printf 'printf "bash-env\\n" >> "%s"\n' "${log}" > "${work}/bash-env"
-    # The head is the helper's own text through its `export PATH` line; the body calls one command and names an imported
-    # function where it finds one.
-    synthetic="${work}/helper"
-    {
-        sed -n '1,/^export PATH$/p' -- "${head_source}"
-        printf '%s\n' 'id > /dev/null 2>&1 || true' \
-            'if declare -F planted_function > /dev/null; then printf "function\n"; fi' 'printf "end\n"'
-    } > "${synthetic}"
-    sed '1s|.*|#!/usr/bin/env bash|' -- "${synthetic}" > "${work}/helper-env-line"
-    sed -e "/^${PATH_LINE//\//\\/}\$/d" -e '/^export PATH$/d' -- "${synthetic}" > "${work}/helper-no-pin"
-    sed '1s|.*|#!/usr/bin/bash|' -- "${synthetic}" > "${work}/helper-no-privilege"
-    chmod 0755 "${synthetic}" "${work}/helper-env-line" "${work}/helper-no-pin" "${work}/helper-no-privilege"
 
     # run_start <file>: run <file> through its own interpreter line under the hostile caller's environment; sets
     # start_out (its stdout) and start_log (the recorders' and the BASH_ENV file's lines, one per call).
@@ -215,34 +229,61 @@ else
         [[ ! -f "${log}" ]] || start_log="$(tr '\n' ' ' < "${log}")"
     }
 
-    if ! grep -qxF "${PATH_LINE}" "${synthetic}" || [[ "$(head -n 1 "${synthetic}")" != "${SHELL_LINE}" ]]; then
-        fail "the helper's head does not carry the interpreter line and the PATH line, so the mechanics are not driven"
-    else
+    # drive_head <label> <source> <command>: a synthetic program from <source>'s own text through its `export PATH`
+    # line, whose body calls <command> and names an imported function where it finds one, run with the three controls.
+    # The body exits before any line of the program past its head.
+    drive_head() {
+        local label="$1" source="$2" command="$3" path_line synthetic="${work}/${1// /-}"
+        path_line="${PATH_LITERAL_BY_PROGRAM[$(get_program_name "${source}")]:-${PATH_LINE}}"
+        {
+            sed -n '1,/^export PATH$/p' -- "${source}"
+            printf '%s\n' "${command} > /dev/null 2>&1 || true" \
+                'if declare -F planted_function > /dev/null; then printf "function\n"; fi' 'printf "end\n"' 'exit 0'
+        } > "${synthetic}"
+        sed '1s|.*|#!/usr/bin/env bash|' -- "${synthetic}" > "${synthetic}-env-line"
+        grep -vxF -e "${path_line}" -e 'export PATH' -- "${synthetic}" > "${synthetic}-no-pin" || true
+        sed '1s|.*|#!/usr/bin/bash|' -- "${synthetic}" > "${synthetic}-no-privilege"
+        chmod 0755 "${synthetic}" "${synthetic}-env-line" "${synthetic}-no-pin" "${synthetic}-no-privilege"
+
+        if ! grep -qxF "${path_line}" "${synthetic}" || [[ "$(head -n 1 "${synthetic}")" != "${SHELL_LINE}" ]]; then
+            fail "the ${label}'s head does not carry the interpreter line and its PATH line, so the mechanics are not driven"
+            return 0
+        fi
         run_start "${synthetic}"
         if [[ "${start_out}" == end && -z "${start_log}" ]]; then
-            pass "the head keeps the caller's bash, id, BASH_ENV file and exported function out of the run"
+            pass "the ${label}'s head keeps the caller's bash, ${command}, BASH_ENV file and exported function out of the run"
         else
-            fail "the run under the head printed '${start_out}' and reached: ${start_log:-nothing}"
+            fail "the run under the ${label}'s head printed '${start_out}' and reached: ${start_log:-nothing}"
         fi
-        run_start "${work}/helper-env-line"
+        run_start "${synthetic}-env-line"
         if [[ "${start_log}" == 'bash ' ]]; then
-            pass "control: with an env interpreter line the caller's bash runs in the helper's place"
+            pass "control: with an env interpreter line the caller's bash runs in the ${label}'s place"
         else
-            fail "control: an env interpreter line did not reach the planted bash (reached: ${start_log:-nothing})"
+            fail "control: the ${label}'s head with an env interpreter line did not reach the planted bash (reached: ${start_log:-nothing})"
         fi
-        run_start "${work}/helper-no-pin"
-        if [[ "${start_out}" == end && "${start_log}" == 'id ' ]]; then
-            pass "control: without the PATH lines the helper runs the caller's id"
+        run_start "${synthetic}-no-pin"
+        if [[ "${start_out}" == end && "${start_log}" == "${command} " ]]; then
+            pass "control: without the PATH lines the ${label} runs the caller's ${command}"
         else
-            fail "control: the head without its PATH lines printed '${start_out}' and reached: ${start_log:-nothing}"
+            fail "control: the ${label}'s head without its PATH lines printed '${start_out}' and reached: ${start_log:-nothing}"
         fi
-        run_start "${work}/helper-no-privilege"
+        run_start "${synthetic}-no-privilege"
         if [[ "${start_out}" == $'function\nend' && "${start_log}" == 'bash-env ' ]]; then
-            pass "control: without -p the helper takes the BASH_ENV file and the exported function"
+            pass "control: without -p the ${label} takes the BASH_ENV file and the exported function"
         else
-            fail "control: the head without -p printed '${start_out}' and reached: ${start_log:-nothing}"
+            fail "control: the ${label}'s head without -p printed '${start_out}' and reached: ${start_log:-nothing}"
         fi
-    fi
+    }
+
+    while IFS='|' read -r head_label head_checkout head_installed head_command; do
+        head_source="${head_checkout}"
+        [[ -r "${head_source}" ]] || head_source="${head_installed}"
+        if [[ -r "${head_source}" ]]; then
+            drive_head "${head_label}" "${head_source}" "${head_command}"
+        else
+            skip "the ${head_label}'s mechanics" "neither ${head_checkout} nor ${head_installed} is readable to take the head from"
+        fi
+    done <<< "${HEAD_SOURCES}"
 
     # The walker's own interpreter line over a script that imports a module the caller's PYTHONPATH names. The module
     # writes the log when it loads; the control is the same script on /usr/bin/python3 without an option.
@@ -281,18 +322,20 @@ else
     fi
 fi
 
-# ── 4. The installed helpers ─────────────────────────────────────────────────────────────────
-section "root helper start: the installed helpers (unit)"
+# ── 4. The installed programs ────────────────────────────────────────────────────────────────
+section "program start: the installed programs (unit)"
 if [[ "${EUID}" -ne 0 ]]; then
-    skip "the installed helpers" "the helper directory is root's alone, so this part runs as root"
+    skip "the installed programs" "the helper directory is root's alone, so this part runs as root"
 elif [[ ! -d "${INSTALLED_DIRS[0]}" ]]; then
-    skip "the installed helpers" "not installed at ${INSTALLED_DIRS[0]}"
+    skip "the installed programs" "not installed at ${INSTALLED_DIRS[0]}"
 else
     for dir in "${INSTALLED_DIRS[@]}"; do
         if [[ -d "${dir}" ]]; then
             check_directory "installed" "${dir}"
+        elif [[ "${dir}" == "${INSTALLED_DIRS[1]}" ]]; then
+            note "installed programs" "${dir} is absent: no package on this host contributes a command"
         else
-            note "installed helpers" "${dir} is absent: no package on this host contributes a command"
+            fail "installed programs: ${dir} is absent beside ${INSTALLED_DIRS[0]}"
         fi
     done
 
