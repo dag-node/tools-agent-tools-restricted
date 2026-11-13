@@ -49,8 +49,8 @@ cli_line="$(grep -E '^readonly AI_TOOLS_ATR__CLI=' -- "${WRAPPER}" || true)"
     || fail "the third line is not the marker: $(sed -n '3p' -- "${WRAPPER}")"
 
 # ── the fixture: a copy of the wrapper and its recorders ─────────────────────────────────────────
-# x_bit_visible <dir>: succeed when a 0755 file created there reads as executable.
-x_bit_visible() {
+# can_mark_file_executable <dir>: succeed when a 0755 file created there reads as executable.
+can_mark_file_executable() {
     local probe="$1/.x-probe.$$" ok=1
     printf '' > "${probe}" 2>/dev/null || return 1
     chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
@@ -60,10 +60,10 @@ x_bit_visible() {
 }
 mktestdir
 FIXTURE="${TESTDIR}"
-if ! x_bit_visible "${FIXTURE}"; then
+if ! can_mark_file_executable "${FIXTURE}"; then
     mk_fixture_dir FIXTURE "${PROJECTS_HOME}" atr 2>/dev/null || FIXTURE=""
 fi
-if [[ -z "${FIXTURE}" ]] || ! x_bit_visible "${FIXTURE}"; then
+if [[ -z "${FIXTURE}" ]] || ! can_mark_file_executable "${FIXTURE}"; then
     skip_required "atr dispatch" "no directory here reports a 0755 file as executable (a noexec mount)"
     finish; exit
 fi

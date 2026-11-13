@@ -173,7 +173,7 @@ else
 fi
 
 # ── Fixtures: a version directory shaped like npm leaves it ───────────────────────────────────
-x_bit_visible() {
+can_mark_file_executable() {
     local probe="$1/.x-probe.$$" ok=1
     printf '' > "${probe}" 2>/dev/null || return 1
     chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
@@ -200,14 +200,14 @@ build_tree() {
 mktestdir
 FIXTURE_ROOT="${TESTDIR}"
 build_tree "${FIXTURE_ROOT}"
-if ! x_bit_visible "${FIXTURE_ROOT}/outside"; then
+if ! can_mark_file_executable "${FIXTURE_ROOT}/outside"; then
     mk_fixture_dir FIXTURE_ROOT "${PROJECTS_HOME}" launchertarget 2>/dev/null || FIXTURE_ROOT=""
     if [[ -n "${FIXTURE_ROOT}" ]]; then
         chmod 0755 "${FIXTURE_ROOT}"
         build_tree "${FIXTURE_ROOT}"
     fi
 fi
-if [[ -z "${FIXTURE_ROOT}" ]] || ! x_bit_visible "${FIXTURE_ROOT}/outside"; then
+if [[ -z "${FIXTURE_ROOT}" ]] || ! can_mark_file_executable "${FIXTURE_ROOT}/outside"; then
     skip "launcher re-link" "no directory here reports a 0755 file as executable (a noexec mount)"
     finish; exit
 fi

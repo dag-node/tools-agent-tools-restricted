@@ -271,8 +271,9 @@ fi
 
 # ── 3. The mechanics ─────────────────────────────────────────────────────────────────────────
 section "program start: a caller's PATH, BASH_ENV and exported function do not reach the program (unit)"
-# x_bit_visible <dir>: succeed when a 0755 file created there reads as executable (tests/unit/atr.sh's probe).
-x_bit_visible() {
+# can_mark_file_executable <dir>: succeed when a 0755 file created there reads as executable (tests/unit/atr.sh's
+# probe).
+can_mark_file_executable() {
     local probe="$1/.x-probe.$$" ok=1
     printf '' > "${probe}" 2>/dev/null || return 1
     chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
@@ -299,13 +300,13 @@ unprotected_reading="$(find_unprotected_path_component "${TESTDIR}" 0 "${PROJECT
 if [[ -n "${unprotected_reading}" ]]; then
     work_unprotected="${unprotected_reading}"
 else
-    if create_checked_dir "${TESTDIR}/mechanics" && x_bit_visible "${TESTDIR}/mechanics"; then work="${TESTDIR}/mechanics"; fi
+    if create_checked_dir "${TESTDIR}/mechanics" && can_mark_file_executable "${TESTDIR}/mechanics"; then work="${TESTDIR}/mechanics"; fi
 fi
 if [[ -z "${work}" ]]; then
     unprotected_reading="$(find_unprotected_path_component "${PROJECTS_HOME}" 0 "${PROJECTS_UID}")"
     if [[ -z "${unprotected_reading}" ]] && mk_fixture_dir work "${PROJECTS_HOME}" startup 2>/dev/null && [[ -n "${work}" ]]; then
         unprotected_reading="$(find_unprotected_path_component "${work}" 0 "${PROJECTS_UID}")"
-        if [[ -n "${unprotected_reading}" ]] || ! x_bit_visible "${work}"; then work=""; fi
+        if [[ -n "${unprotected_reading}" ]] || ! can_mark_file_executable "${work}"; then work=""; fi
     else
         work=""
     fi
@@ -475,7 +476,7 @@ else
     fi
     if [[ -z "${root_plant}" && -n "${work_unprotected}" ]]; then
         fail "installed helpers under a planted PATH: another account could replace or write an entry in ${work_unprotected}, so no recorder is written or run there"
-    elif [[ -z "${root_plant}" ]] || ! x_bit_visible "${root_plant}"; then
+    elif [[ -z "${root_plant}" ]] || ! can_mark_file_executable "${root_plant}"; then
         skip_required "installed helpers under a planted PATH" "no directory here reports a 0755 file as executable (a noexec mount)"
     else
         env -i PATH="${root_plant}:/usr/bin:/bin" /bin/sh -c 'date' > /dev/null 2>&1 || true

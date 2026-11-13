@@ -636,10 +636,10 @@ fi
 # capture would take, and must read an unset variable as an override. The order in the shim is read as source,
 # for the line that clears the field and for the line that reads the variable, each ahead of the library's first source.
 # shellcheck disable=SC2016  # grep patterns over the shim's and the library's own text
-crun_capture="$(grep -E '^entrypoint_pin_dir_field=""$|^\[\[ -z "\$\{AI_TOOLS_ENTRYPOINT_PIN_DIR:-\}" \]\] \|\| entrypoint_pin_dir_field=' "${CRUN}" || true)"
-crun_capture_line="$(grep -m1 -n '^entrypoint_pin_dir_field=""$' "${CRUN}" | cut -d: -f1 || true)"
+crun_capture="$(grep -E '^AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=""$|^\[\[ -z "\$\{AI_TOOLS_ENTRYPOINT_PIN_DIR:-\}" \]\] \|\| AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=' "${CRUN}" || true)"
+crun_capture_line="$(grep -m1 -n '^AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=""$' "${CRUN}" | cut -d: -f1 || true)"
 # shellcheck disable=SC2016
-crun_capture_read_line="$(grep -m1 -n '^\[\[ -z "\${AI_TOOLS_ENTRYPOINT_PIN_DIR:-}" \]\] || entrypoint_pin_dir_field=' "${CRUN}" | cut -d: -f1 || true)"
+crun_capture_read_line="$(grep -m1 -n '^\[\[ -z "\${AI_TOOLS_ENTRYPOINT_PIN_DIR:-}" \]\] || AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=' "${CRUN}" | cut -d: -f1 || true)"
 # shellcheck disable=SC2016
 crun_verify_source_line="$(grep -m1 -nE '^[^#]*source "\$\{AI_TOOLS_RUN__LIB_DIR\}/entrypoint-verify\.lib\.sh"' "${CRUN}" | cut -d: -f1 || true)"
 crun_audit="$(grep -E '^audit info "entrypoint: ' "${CRUN}" || true)"

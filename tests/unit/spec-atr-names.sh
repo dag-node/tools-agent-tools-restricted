@@ -63,9 +63,9 @@ fi
 
 # The shadowing check asks `[ -x ]` of each command directory's atr, so the fixture root takes a directory where a 0755
 # file reads as executable: the testdir where it does, a directory beside the projects user's home otherwise,
-# the fallback tests/unit/agent-installs.sh takes. With none, the shadowing cases are skip_required. x_bit_visible
-# <dir>: succeed when a 0755 file created there reads as executable.
-x_bit_visible() {
+# the fallback tests/unit/agent-installs.sh takes. With none, the shadowing cases are skip_required.
+# can_mark_file_executable <dir>: succeed when a 0755 file created there reads as executable.
+can_mark_file_executable() {
     local probe="$1/.x-probe.$$" ok=1
     printf '' > "${probe}" 2>/dev/null || return 1
     chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
@@ -74,10 +74,10 @@ x_bit_visible() {
     return "${ok}"
 }
 BASE="${TESTDIR}" XBIT=1
-if ! x_bit_visible "${BASE}"; then
+if ! can_mark_file_executable "${BASE}"; then
     alt=""
     mk_fixture_dir alt "${PROJECTS_HOME}" spec-atr 2>/dev/null || alt=""
-    if [[ -n "${alt}" ]] && x_bit_visible "${alt}"; then BASE="${alt}"; else XBIT=0; fi
+    if [[ -n "${alt}" ]] && can_mark_file_executable "${alt}"; then BASE="${alt}"; else XBIT=0; fi
 fi
 FX="${BASE}/root"
 WRAPPER="${FX}/usr/local/bin/atr" LINK="${FX}/usr/sbin/atr"

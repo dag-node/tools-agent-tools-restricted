@@ -131,8 +131,9 @@ fi
 # that sets it moves the pins the clock gate and the pin check read. Whether one did is recorded here,
 # before entrypoint-verify.lib.sh assigns its default on its first source, so the `entrypoint:` audit line names
 # an override and not the default.
-entrypoint_pin_dir_field=""
-[[ -z "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-}" ]] || entrypoint_pin_dir_field=" pin_dir=override"
+AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=""
+[[ -z "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-}" ]] || AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=" pin_dir=override"
+readonly AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD
 
 # ── The clock ────────────────────────────────────────────────────────────────────────────────
 # Every record this launch leaves -- the audit line, the unit's journal, the handback stamps -- carries the system
@@ -756,7 +757,7 @@ fi
 require_entrypoint_verify=no
 declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
     && ai_tools_entrypoint_verify__is_required && require_entrypoint_verify=yes
-audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}${entrypoint_pin_dir_field}"
+audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}${AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD}"
 
 case "${entrypoint_pin_verdict}" in
     mismatch)
