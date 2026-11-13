@@ -444,6 +444,11 @@ do_probe() {
   #                               the FIFO unlinked at once where the kernel made it, after a plain file's create
   #                               and removal there as the control; a control or a context that failed is reported
   #                               without an errno name, as not exercised, and a FIFO made and not removed exits 4
+  #   link <file> <dir>           link(2) of <file> at a new name in <dir>, the name unlinked at once where the kernel
+  #                               made it, after a plain file's create and removal there as the control; a control
+  #                               that failed, and a <dir> on another filesystem than <file>, where link(2) returns
+  #                               EXDEV ahead of the policy's check, are reported without an errno name, as not
+  #                               exercised, and a name made and not removed exits 4
   # Exits 0 when the call succeeded, and on failure prints "<errno name>: <message>" to stderr and exits 1, so _attempt
   # reads EACCES/EPERM as a denial and every other errno as not exercised.
   _py() {
@@ -496,6 +501,28 @@ try:
             os.unlink(path)
         except OSError as e:
             print("created %s, and its removal failed (errno %d) -- remove it by hand" % (path, e.errno),
+                  file=sys.stderr)
+            sys.exit(4)
+    elif op == "link":
+        path = os.path.join(args[1], ".avc-denials-link-%d" % os.getpid())
+        control = path + ".control"
+        try:
+            os.close(os.open(control, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            os.unlink(control)
+        except OSError as e:
+            print("the directory refused a plain file's create or removal (errno %d), so the link was not reached"
+                  % e.errno, file=sys.stderr)
+            sys.exit(1)
+        if os.stat(args[0]).st_dev != os.stat(args[1]).st_dev:
+            print("the directory is on another filesystem than the file, so the policy's link check was not reached",
+                  file=sys.stderr)
+            sys.exit(1)
+        os.link(args[0], path)
+        # Linked: the removal's own failure exits 4 naming the path, apart from a denied link.
+        try:
+            os.unlink(path)
+        except OSError as e:
+            print("linked %s, and its removal failed (errno %d) -- remove it by hand" % (path, e.errno),
                   file=sys.stderr)
             sys.exit(4)
     elif op == "dirwrite":
@@ -1199,6 +1226,36 @@ the project's filesystem needs that filesystem's associate permission as well."
     _why="" _type=""
   else
     skip_check WLK-001 SELinux "create a named FIFO labelled ai_tools_t" "python3 not available to attempt it"
+  fi
+
+  _type="ai_tools_exec_t:file link (not granted)"
+  _why="A hard link gives an agent entrypoint's inode a name no file-context rule covers, and a relabel of the host that walks by path can then leave the inode on that name's type; the module grants link on its four own types, and the entry type is not among them (tests/integration/selinux.sh W3 holds the grants to that table)."
+  # The entrypoint is read through the stable launcher links, and the new name goes into the sandbox home's cache
+  # directory, which the session writes and which shares the toolchain's filesystem on a stock layout.
+  _entrypoint=""
+  for _launcher in /opt/ai-tools/bin/*; do
+    [[ -L "${_launcher}" ]] || continue
+    _resolved="$(realpath -e "${_launcher}" 2>/dev/null || true)"
+    if [[ -n "${_resolved}" && "$(stat -c '%C' -- "${_resolved}" 2>/dev/null || true)" == *:ai_tools_exec_t:* ]]; then
+      _entrypoint="${_resolved}"
+      break
+    fi
+  done
+  if [[ -z "${_entrypoint}" ]]; then
+    skip_check WLK-002 SELinux "link an agent entrypoint at a second name" \
+      "no launcher under /opt/ai-tools/bin resolves to a file of ai_tools_exec_t"
+  elif command -v python3 >/dev/null 2>&1; then
+    _header WLK-002 SELinux "link the entrypoint ${_entrypoint} at a second name in ${HOME}/.cache (unlinked if made)"
+    _attempt _py link "${_entrypoint}" "${HOME}/.cache"
+    case "${_rc}:${_reason}" in
+      0:*)      _result FAIL "the entrypoint was linked at a second name, which was removed -- investigate" ;;
+      4:*)      _result FAIL "the entrypoint was linked at a second name that was not removed -- ${_reason#exit 4: }" ;;
+      *:denied) _result PASS "denied as expected, after the directory's own create passed" ;;
+      *)        _result INCONCLUSIVE "not exercised: ${_reason}" ;;
+    esac
+    _why="" _type=""
+  else
+    skip_check WLK-002 SELinux "link an agent entrypoint at a second name" "python3 not available to attempt it"
   fi
 
   section "SECTION TTY: A LOGIN TERMINAL OPENED BY PATH  [goals 1, 4]" \

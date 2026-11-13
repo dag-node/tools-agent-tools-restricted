@@ -826,6 +826,14 @@ verify_agent_labels() {
                 # entry took the type, and the paths are listed for review.
                 partial) agent_config_dir="${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${subject}" config_dir 2>/dev/null || true)"
                       warn MSG-A5V5 "the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${agent_config_dir} -not -type d -links +1" ;;
+                # A name of a labelled entrypoint inode that the file-context database maps to another type, or names
+                # that could not be read. Not `bad`: the entrypoint carries its type. ai-tools-relabel-agent names
+                # the remedy per finding. The database maps the path the launcher resolves to to another type,
+                # so the launch preflight refuses.
+                mismapped) bad=1
+                      warn MSG-H4U3 "wrong mapping for ${subject}: the file-context database maps its entrypoint ${detail} to another type -- every launch will fail closed; a local rule that maps the path is listed by: sudo semanage fcontext -C -l" ;;
+                unmapped|unchecked|outside|unread)
+                      warn MSG-J5F3 "entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} -- the file-context database maps a name of its entrypoint to another type, or a name could not be read or checked; atr admin system entrypoints relabel names each" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
                 # so `failed` prints, naming the agent those lines omit.

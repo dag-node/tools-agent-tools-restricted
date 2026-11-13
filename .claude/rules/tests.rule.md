@@ -1314,8 +1314,15 @@ that a one-character change breaks the equality, and every reading that cannot b
 boundary half is a type rule, so it is `integration/selinux.sh`'s policy read and `selinux/avc/avc-denials.sh` section
 Y, made from inside a session. `relabel-agent.sh` drives how `ai-tools-relabel-agent` closes a run over the library's
 status lines: every path at its type exits 0, the control; a config directory left at another type is filed `failed`
-and exits 1; a walk that left hardlinked files is said with its count and filed by the agent's verdict; and a walk
-that could not start is filed `walker-unavailable`, apart from a refused declaration's `rule-not-registered`.
+and exits 1; a walk that left hardlinked files is said with its count and filed by the agent's verdict; a walk
+that could not start is filed `walker-unavailable`, apart from a refused declaration's `rule-not-registered`; and a name
+of an entrypoint the file-context database maps to another type exits 0 under its code and is filed `ok` with its
+reason. `relabel.sh` owns four properties of the entrypoint's names, over real hard links with the policy tools
+and the database's lookup stubbed: every name is counted as one record whatever bytes it carries, and the database's
+answer decides a printable one; every declared rule is registered ahead of the first `restorecon` and dropped ahead
+of the first revert; the discovery prints a path only where a status line prints it; and a read that could not be made,
+of a root, a walk or the launcher's own mapping, returns non-zero and is not read as no file found. The boundary half is
+a type rule, a session's link of an entrypoint, which `selinux/avc/avc-denials.sh` attempts as WLK-002.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read
@@ -1473,16 +1480,19 @@ to; `handback.sh` keeps the bridge and the entrypoint label. `selinux.sh` assert
 when the `ai_tools` module is loaded the system is `Enforcing` and neither `ai_tools_t` nor `ai_tools_handback_t` is
 marked permissive; it skips when the module is absent (the layer is optional). It also holds the entrypoint assertions
 that need a labelled host — that each agent's declared file-context rule still covers what its package installed,
-that no link in the exec chain carries a type the confined domain may manage, and that the loaded core module audits
-an in-session exec of the entrypoint, read with `sesearch` and skipped without it, beside the handback domain's grant
-to open the agent's temp type and its holding no `relabelfrom` on any type — and, where the `ai_tools_dotnet` layout
-module is loaded, the build-output labelling that only libselinux can answer: a path under one of the module's
-directories resolves to `ai_tools_project_build_t` and every other clone path to `ai_tools_project_t` (the rule
-precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory created in the sandbox area
-by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading the live type of **every**
-enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it denies the root helpers
-the read that resolves a path's owner, so that operator's projects stop being handed back while every DAC assertion
-stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
+that the relabel's names read does not report a finding for an installed entrypoint inode and the file-context database,
+read apart from the library, maps each of its names to `ai_tools_exec_t`, with a `setfiles -n` dry run over the package
+reporting neither a conflicting specification nor a change to one of those names, that the entry type sits on the names
+a manifest declares alone, that no link in the exec chain carries a type the confined domain may manage,
+and that the loaded core module audits an in-session exec of the entrypoint, read with `sesearch` and skipped without
+it, beside the handback domain's grant to open the agent's temp type and its holding no `relabelfrom` on any type —
+and, where the `ai_tools_dotnet` layout module is loaded, the build-output labelling that only libselinux can answer:
+a path under one of the module's directories resolves to `ai_tools_project_build_t` and every other clone path
+to `ai_tools_project_t` (the rule precedence the narrowing rests on, read with `matchpathcon`), and a `bin/` directory
+created in the sandbox area by `unconfined_t` is born on the build type with no `restorecon`. It closes by reading
+the live type of **every** enrolled operator's `~/.config/ai-tools`: the rule is per account, and a subtree without it
+denies the root helpers the read that resolves a path's owner, so that operator's projects stop being handed back while
+every DAC assertion stays green. The `ai_tools_t` transition and the `buildexec` execute grant need a session,
 and `selinux/avc/avc-testsuite.sh` probes them. `systemd.sh` is the single home for unit checks:
 `systemd-analyze verify` on each shipped unit, plus enablement in the correct instance — the `nvm-update` timer
 in the sandbox account's own `--user instance`, the relabel watcher and handback socket in the system instance.

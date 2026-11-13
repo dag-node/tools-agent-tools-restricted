@@ -471,20 +471,23 @@ audit_record_field() {
     printf '%s' "${value}"
 }
 
-# build_agent_entrypoint_map -- fill AGENT_NAMES/AGENT_PATTERNS from the installed manifests, one entry per agent
-# declaring an entrypoint_fcontext, enabled or not: a disabled agent whose package is still in the tree is exactly
-# the case this section exists for. Leaves the arrays empty when the resolver is unavailable, which reports every record
-# as an exe no manifest claims.
+# build_agent_entrypoint_map -- fill AGENT_NAMES/AGENT_PATTERNS from the installed manifests, one entry per pattern
+# an agent declares for its entrypoint (entrypoint_fcontext, and entrypoint_link_fcontext for a further name
+# of that file), enabled or not: a disabled agent whose package is still in the tree is exactly the case this section
+# exists for. Leaves the arrays empty when the resolver is unavailable, which reports every record as an exe no manifest
+# claims.
 build_agent_entrypoint_map() {
     AGENT_NAMES=(); AGENT_PATTERNS=()
     declare -F ai_tools_providers__list_installed_agents >/dev/null 2>&1 || return 0
     declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || return 0
-    local agent pattern
+    local agent key pattern
     while IFS=$'\t' read -r agent _ _; do
-        pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_fcontext 2>/dev/null || true)"
-        [[ -n "${pattern}" ]] || continue
-        AGENT_NAMES+=( "${agent}" )
-        AGENT_PATTERNS+=( "${pattern}" )
+        for key in entrypoint_fcontext entrypoint_link_fcontext; do
+            pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" "${key}" 2>/dev/null || true)"
+            [[ -n "${pattern}" ]] || continue
+            AGENT_NAMES+=( "${agent}" )
+            AGENT_PATTERNS+=( "${pattern}" )
+        done
     done < <(ai_tools_providers__list_installed_agents 2>/dev/null)
     return 0
 }

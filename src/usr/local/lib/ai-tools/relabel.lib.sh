@@ -11,9 +11,9 @@
 #     project rule. Sourced by the root helper ai-tools-relabel and by the policy installer
 #     install-selinux.sh's registry sweep.
 #   * AGENT PATHS -- map each enabled agent's own paths to the types this policy defines: its
-#     launcher binary to ai_tools_exec_t (the label that drives the -> ai_tools_t domain
-#     transition on exec) and its config directory to ai_tools_home_t (so the confined session can
-#     write its state). Sourced by the root helper ai-tools-relabel-agent and by the same
+#     launcher binary, under each name its manifest declares for that file, to ai_tools_exec_t (the label
+#     that drives the -> ai_tools_t domain transition on exec) and its config directory to ai_tools_home_t
+#     (so the confined session can write its state). Sourced by the root helper ai-tools-relabel-agent and by the same
 #     installer's verify pass. The declared pattern APPLIES the label (an fcontext rule is what
 #     makes a type survive a later restorecon); the launcher symlink, resolved the way the launch
 #     preflight resolves it, CHECKS the result -- so a manifest that has stopped describing where
@@ -405,15 +405,25 @@ ai_tools_relabel__unlabel_project() {
 #   entrypoint_fcontext -> ai_tools_exec_t   the launcher binary. Without this label its exec
 #                                            does not perform a domain transition and the session would run
 #                                            unconfined (ai-tools-run refuses to launch instead).
+#   entrypoint_link_fcontext -> ai_tools_exec_t
+#                                            a further name the package gives that binary's inode (a hard
+#                                            link). An inode holds one label, and a relabel that walks by
+#                                            path (setfiles, an autorelabel) applies the rule of whichever
+#                                            name it meets first, so each name maps to the one type.
 #   config_dir          -> ai_tools_home_t   the agent's control-plane directory. Without it the
 #                                            confined session cannot write its own state (the
 #                                            home root is usr_t, which ai_tools_t may not write).
 #
-# Each declaration is checked to be containable -- the entrypoint pattern under the sandbox toolchain
+# Each declaration is checked to be containable -- an entrypoint pattern, either key's, under the sandbox toolchain
 # (ai_tools_providers__is_entrypoint_fcontext_valid, providers.lib.sh, called
 # with AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT), the config directory to one component under the sandbox home
 # (ai_tools_control_plane__is_agent_config_dir_valid, control-plane.lib.sh). So a second agent brings its binary and its
 # state directory into this policy without the base policy naming either.
+
+# The characters a path in a status line is drawn from, as one bracket expression that bash's `=~` and find's
+# POSIX-extended `-regex` both read: the predicate under this line and the entrypoint discovery share it, so a path
+# the discovery prints is one the predicate accepts.
+readonly _AI_TOOLS_RELABEL__REPORTABLE_PATH_REGEX='[]A-Za-z0-9_./@+^[-]+'
 
 # _ai_tools_relabel__is_entrypoint_path_reportable <path>: succeed when <path> may be put in a status line.
 #   The paths this pass reconciles are AGENT-INFLUENCED -- the middle link of the launcher chain is an
@@ -425,7 +435,7 @@ ai_tools_relabel__unlabel_project() {
 _ai_tools_relabel__is_entrypoint_path_reportable() {
     local path="${1:-}"
     [[ "${path}" == /* && "${path}" != *..* ]] || return 1
-    [[ "${path}" =~ ^[]A-Za-z0-9_./@+^[-]+$ ]]
+    [[ "${path}" =~ ^${_AI_TOOLS_RELABEL__REPORTABLE_PATH_REGEX}$ ]]
 }
 
 # ai_tools_relabel__evaluate_entrypoint_reconcile <installed-path> <covered> <matched> [copy]: pure verdict, no I/O
@@ -439,12 +449,15 @@ _ai_tools_relabel__is_entrypoint_path_reportable() {
 #     incomplete  an entrypoint IS installed and the declared rule does not cover any file: the package
 #                 did not install the entrypoint it declares
 #     copied      the launcher resolves to a regular file outside the rule that is byte-identical to a file
-#                 the rule matched: a copy of the tree replaced a symlink in the chain with its target, so
-#                 the manifest and the package agree and the toolchain's links are what need restoring
+#                 the rule matched and is another inode: a copy of the tree replaced a symlink in the chain
+#                 with its target, so the manifest and the package agree and the toolchain's links are
+#                 what need restoring
 #   <installed-path> is the file the agent's launcher symlink resolves to, empty when it does not
-#   resolve; <covered> is whether that file was among the pattern's matches; <matched> is whether
-#   the pattern matched anything at all; <copy> is whether the installed file is byte-identical to one
-#   of those matches. The flags are `yes`/`no`, and anything other than the
+#   resolve; <covered> is whether that file was among the matches of a declared pattern, entrypoint_fcontext's
+#   or entrypoint_link_fcontext's, decided by path and not by inode: the launch preflight requires the rule
+#   of the resolved path itself to map the entry type; <matched> is whether entrypoint_fcontext matched anything
+#   at all; <copy> is whether the installed file is byte-identical to one of those matches. The flags are
+#   `yes`/`no`, and anything other than the
 #   exact literal `yes` reads as `no` -- an unknown input errs toward reporting a divergence, which
 #   is the direction that fails a relabel loudly rather than blessing one silently.
 #
@@ -532,13 +545,158 @@ _ai_tools_relabel__get_agent_config_pattern() {
     printf '%s/%s(/.*)?' "$(ai_tools_relabel__get_fcontext_literal "${CP_HOME}")" "$(ai_tools_relabel__get_fcontext_literal "$1")"
 }
 
-# _ai_tools_relabel__find_entrypoint_paths <pattern>: print each installed file the pattern matches. find's
-#   POSIX-extended `-regex` matches the whole path, the same anchoring SELinux gives a file-context
+# _ai_tools_relabel__is_walk_root_absent <root> : succeed when <root> is confirmed not there, which is stat reporting
+#   that the path or a component of it does not exist. Fails for every other reading: a root that is there and is not
+#   a directory, a symbolic link at the root, and a root whose state could not be read -- a directory on the way
+#   that cannot be searched, a refused or failed read -- so a caller does not take a root it could not read for an empty
+#   one. A link at the root is refused and not followed: find does not descend a link it is started at, so the walk
+#   would end with no match, and the sandbox account owns the directory the root sits in, so a walk that followed
+#   the link would hand root's restorecon paths under a target that account chose. stat reads the link itself, which is
+#   there.
+_ai_tools_relabel__is_walk_root_absent() {
+    local report
+    report="$(LC_ALL=C stat -- "$1" 2>&1 >/dev/null)" && return 1
+    [[ "${report}" == *": No such file or directory" ]]
+}
+
+# _ai_tools_relabel__find_entrypoint_paths <pattern> [root]: print each installed file the pattern matches, one path
+#   a line. find's POSIX-extended `-regex` matches the whole path, the same anchoring SELinux gives a file-context
 #   regex, so the set relabelled here is the set the rule governs -- no second pattern language.
 #   The walk is rooted at the toolchain (never `/`) and runs on a relabel, not on a launch.
+#
+#   A match is printed only while its whole path is drawn from the reportable character set and does not carry `..`
+#   (_ai_tools_relabel__is_entrypoint_path_reportable). The class in a declared pattern (`[^/]+`) matches a newline
+#   and a space, and the sandbox account names the directories under the root: a path carrying a newline would read
+#   as two lines here, the second an absolute path of that account's choosing handed to root's restorecon, and one
+#   carrying a space would split the status line it is printed in. Such a match is left as it is and counted
+#   by _ai_tools_relabel__count_unprintable_entrypoint_paths. [root] is the fixture root of tests/unit/relabel.sh;
+#   every caller in this library passes the pattern alone.
+#
+#   Returns find's status, so a caller that must know the walk completed captures the output and reads it; a root
+#   confirmed not there (_ai_tools_relabel__is_walk_root_absent), the state before the toolchain is provisioned,
+#   does not hold a match and returns 0, and one whose state could not be read returns 1.
 _ai_tools_relabel__find_entrypoint_paths() {
-    find "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" -xdev -regextype posix-extended \
-         -regex "$1" -type f 2>/dev/null
+    if [[ -L "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then
+        _ai_tools_relabel__is_walk_root_absent "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || return 1
+        return 0
+    fi
+    find "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" -xdev -regextype posix-extended \
+         -regex "$1" -regex "${_AI_TOOLS_RELABEL__REPORTABLE_PATH_REGEX}" ! -path '*..*' -type f 2>/dev/null
+}
+
+# _ai_tools_relabel__count_unprintable_entrypoint_paths <pattern> [root]: print how many installed files the pattern
+#   matches at a path _ai_tools_relabel__find_entrypoint_paths does not print. Each is counted by one byte of find's
+#   output, so no path is read. Returns find's status beside the count it could make, so a walk that failed is not
+#   read as a count of zero; a root confirmed not there counts 0 and returns 0, and one whose state could not
+#   be read prints 0 and returns 1.
+_ai_tools_relabel__count_unprintable_entrypoint_paths() {
+    local marks status=0
+    if [[ -L "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then
+        printf '0\n'
+        _ai_tools_relabel__is_walk_root_absent "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || return 1
+        return 0
+    fi
+    marks="$(find "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" -xdev -regextype posix-extended \
+                 -regex "$1" -type f \( ! -regex "${_AI_TOOLS_RELABEL__REPORTABLE_PATH_REGEX}" -o -path '*..*' \) \
+                 -printf 'x' 2>/dev/null)" || status=$?
+    printf '%s\n' "${#marks}"
+    return "${status}"
+}
+
+# _ai_tools_relabel__read_mapped_type <path> : print the TYPE field of the context the file-context database maps <path>
+#   to (`matchpathcon -n`), the answer a relabel of that path gives; `<<none>>` where no rule maps it. Prints an empty
+#   string and returns 1 where the lookup could not be made.
+_ai_tools_relabel__read_mapped_type() {
+    local context type
+    context="$(matchpathcon -n "$1" 2>/dev/null)" || return 1
+    [[ -n "${context}" ]] || return 1
+    if [[ "${context}" == "<<none>>" ]]; then printf '<<none>>\n'; return 0; fi
+    IFS=: read -r _ _ type _ <<< "${context}" || true
+    [[ -n "${type}" ]] || return 1
+    printf '%s\n' "${type}"
+}
+
+# _ai_tools_relabel__list_entrypoint_name_findings <root> <path> : ask the file-context database what it maps each name
+#   of <path>'s inode to, and print one line per finding. A file with one link has one name, <path> itself; for one
+#   with more, every name under <root> on <path>'s filesystem is read (`find -xdev -samefile`).
+#     unmapped <name>        the database maps that name to another type than the entrypoint's: for <path> itself
+#                            the launch preflight refuses, and for another name a relabel that walks by path can
+#                            leave the inode on that type
+#     unchecked <path> <n>   <n> names of the inode are outside the reportable character set, one carrying a newline
+#                            among them; such a name is not printed and its mapping is not looked up
+#     outside <path> <n>     the inode has <n> more links than names found: it has names outside <root>,
+#                            which no rule a manifest declares can cover, since each is contained to that root
+#     unread <path>          the link count or a name's mapping could not be read, or the walk failed and left names
+#                            unaccounted for
+#   The database's own answer decides, not a match against the manifest's patterns: a local rule registered later
+#   can map a name a declared pattern matches to another type. Each name is one record of the walk whatever bytes it
+#   holds, since find prints a fixed word for a path carrying a newline, so such a name cannot end one record and begin
+#   another. Returns 0 with no line where every name is found and mapped to the entry type, whatever the walk exited
+#   with; returns 1 with a finding. <root> is an argument, so tests/unit/relabel.sh drives the read over a fixture
+#   of real hard links. A read, as root over the 0750 toolchain; it runs on a relabel and in the root status report, not
+#   on a launch.
+_ai_tools_relabel__list_entrypoint_name_findings() {
+    local root="$1" path="$2" link_count records record name mapped_type
+    local found_count=0 unchecked_count=0 walk_status=0 mapping_unread=no status=0
+    link_count="$(stat -c '%h' -- "${path}" 2>/dev/null)" || link_count=""
+    if [[ ! "${link_count}" =~ ^[0-9]+$ ]]; then
+        printf 'unread %s\n' "${path}"
+        return 1
+    fi
+    if (( link_count > 1 )); then
+        records="$(find "${root}" -xdev -samefile "${path}" \
+                       \( -path $'*\n*' -printf 'newline\n' -o -printf 'name %p\n' \) 2>/dev/null)" || walk_status=$?
+    else
+        # One name, the path itself, so no walk: its mapping is read like any other name's.
+        records="name ${path}"
+    fi
+    while IFS= read -r record; do
+        [[ -n "${record}" ]] || continue
+        found_count=$(( found_count + 1 ))
+        name="${record#name }"
+        if [[ "${record}" == newline ]] || ! _ai_tools_relabel__is_entrypoint_path_reportable "${name}"; then
+            unchecked_count=$(( unchecked_count + 1 ))
+            continue
+        fi
+        mapped_type="$(_ai_tools_relabel__read_mapped_type "${name}" || true)"
+        if [[ -z "${mapped_type}" ]]; then
+            mapping_unread=yes
+        elif [[ "${mapped_type}" != "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ]]; then
+            printf 'unmapped %s\n' "${name}"
+            status=1
+        fi
+    done <<< "${records}"
+    if (( unchecked_count > 0 )); then
+        printf 'unchecked %s %s\n' "${path}" "${unchecked_count}"
+        status=1
+    fi
+    if (( found_count < link_count && walk_status == 0 )); then
+        printf 'outside %s %s\n' "${path}" "$(( link_count - found_count ))"
+        status=1
+    fi
+    if [[ "${mapping_unread}" == yes ]] || (( found_count < link_count && walk_status != 0 )); then
+        printf 'unread %s\n' "${path}"
+        status=1
+    fi
+    return "${status}"
+}
+
+# _ai_tools_relabel__read_entrypoint_patterns <agent> <array-name> : fill <array-name> with the entrypoint patterns
+#   <agent>'s manifest declares that pass the containment, entrypoint_fcontext first. A key the manifest does not carry
+#   and a value the containment refuses are left out, so a caller that must report a refused value reads that key
+#   itself. Returns 0.
+_ai_tools_relabel__read_entrypoint_patterns() {
+    local _relabel_agent="$1" _relabel_key _relabel_value
+    local -n _relabel_patterns="$2"
+    _relabel_patterns=()
+    for _relabel_key in entrypoint_fcontext entrypoint_link_fcontext; do
+        _relabel_value="$(ai_tools_providers__read_agent_manifest_field "${_relabel_agent}" "${_relabel_key}" || true)"
+        [[ -n "${_relabel_value}" ]] || continue
+        ai_tools_providers__is_entrypoint_fcontext_valid "${_relabel_value}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" \
+            || continue
+        _relabel_patterns+=("${_relabel_value}")
+    done
+    return 0
 }
 
 # ai_tools_relabel__resolve_agent_entrypoint_path <agent>: print the file <agent>'s stable launcher symlink resolves to
@@ -601,8 +759,21 @@ _ai_tools_relabel__report_current_label() {
 #   rule is what makes the type survive a later restorecon -- resolution alone would relabel an
 #   inode no rule keeps labelled. Resolution is what CHECKS the result, so this helper's exit
 #   status answers the question the operator actually asked: will the next launch be confined?
+#
+#   A manifest's entrypoint_link_fcontext is registered beside the entrypoint rule, each rule ahead of the first
+#   restorecon, and what it matches is labelled and verified the same way. A value the containment refuses is
+#   a refusal, as the entrypoint pattern's is. The names of each labelled inode are then read
+#   (_ai_tools_relabel__list_entrypoint_name_findings), once per inode, and a finding is printed and leaves
+#   the status alone: the inode carries its type, and the next launch is confined. The one finding that fails is
+#   the launcher's own resolved path mapped to another type (`mismapped`), which the launch preflight refuses on.
+#   A discovery or count walk that did not complete fails it too, ahead of the verdict, which is not decided
+#   from part of a tree.
+#   A match at a path a status line does not print is not labelled and is counted in a `skip` line. A lookup
+#   of the launcher's resolved path that cannot be made fails the same way, with a `skip` line.
 _ai_tools_relabel__label_agent_entrypoint() {
-    local agent="$1" pattern path status=0 matched=no installed covered=no
+    local agent="$1" pattern link_pattern declared_pattern path other seen finding detail unprintable_count
+    local discovered counted walk_complete=yes
+    local status=0 matched=no installed covered=no
     # Resolved BEFORE the rule is applied, so a later refusal still leaves the reconciliation inputs gathered
     # from the same state the launch preflight would see.
     installed="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
@@ -616,23 +787,95 @@ _ai_tools_relabel__label_agent_entrypoint() {
             "${agent}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"
         return 1
     fi
-    if ! _ai_tools_relabel__register_fcontext add f "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" "${pattern}"; then
-        printf 'skip %s could not register its entrypoint file-context rule -- %s\n' \
-            "${agent}" "${AI_TOOLS_RELABEL__FCONTEXT_ERROR}"
+    link_pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_link_fcontext || true)"
+    if [[ -n "${link_pattern}" ]] && ! ai_tools_providers__is_entrypoint_fcontext_valid \
+            "${link_pattern}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"; then
+        printf 'skip %s entrypoint_link_fcontext is not a plain path pattern under %s\n' \
+            "${agent}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"
         return 1
     fi
-    local -a matches=()
+    local -a patterns=("${pattern}") matches=() link_paths=() checked_paths=()
+    [[ -z "${link_pattern}" ]] || patterns+=("${link_pattern}")
+    # Every rule is registered ahead of the first restorecon, so no name of a hard-linked entrypoint is restored
+    # under the default rule of its path while its own rule is still to come.
+    for declared_pattern in "${patterns[@]}"; do
+        if ! _ai_tools_relabel__register_fcontext add f "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" "${declared_pattern}"; then
+            printf 'skip %s could not register its entrypoint file-context rule -- %s\n' \
+                "${agent}" "${AI_TOOLS_RELABEL__FCONTEXT_ERROR}"
+            return 1
+        fi
+    done
+    # Each discovery is captured, so its walk's status is read: a walk that failed has not listed every file the rule
+    # matches, and the verdict under these loops is not decided from part of a tree.
+    discovered="$(_ai_tools_relabel__find_entrypoint_paths "${pattern}")" || walk_complete=no
     while IFS= read -r path; do
+        [[ -n "${path}" ]] || continue
         matched=yes
         matches+=("${path}")
         [[ "${path}" == "${installed}" ]] && covered=yes
         _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" || status=1
-    done < <(_ai_tools_relabel__find_entrypoint_paths "${pattern}")
+    done <<< "${discovered}"
+    if [[ -n "${link_pattern}" ]]; then
+        discovered="$(_ai_tools_relabel__find_entrypoint_paths "${link_pattern}")" || walk_complete=no
+        while IFS= read -r path; do
+            [[ -n "${path}" ]] || continue
+            link_paths+=("${path}")
+            [[ "${path}" == "${installed}" ]] && covered=yes
+            _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" || status=1
+        done <<< "${discovered}"
+    fi
+    # The mapping the launch preflight reads is the database's answer for the path the launcher resolves to. A lookup
+    # that cannot be made is a launch the preflight refuses, so it fails here with the reason, whatever the names read
+    # under this line reports for the inode.
+    if [[ -n "${installed}" && -z "$(_ai_tools_relabel__read_mapped_type "${installed}" || true)" ]]; then
+        printf 'skip %s could not read what the file-context database maps its entrypoint %s to -- the launch preflight reads that mapping and refuses without it\n' \
+            "${agent}" "${installed}"
+        status=1
+    fi
+    # The names of each labelled inode, read once per inode: the names of a hard-linked entrypoint are each a match.
+    for path in "${matches[@]}" "${link_paths[@]}"; do
+        seen=no
+        for other in "${checked_paths[@]}"; do
+            if [[ "${path}" -ef "${other}" ]]; then seen=yes; break; fi
+        done
+        [[ "${seen}" == no ]] || continue
+        checked_paths+=("${path}")
+        while read -r finding detail; do
+            [[ -n "${finding}" ]] || continue
+            # The path the launcher resolves to, mapped to another type: the launch preflight reads that mapping
+            # and refuses, whatever type the file carries, so it is a failure and not a names finding.
+            if [[ "${finding}" == unmapped && -n "${installed}" && "${detail}" == "${installed}" ]]; then
+                printf 'mismapped %s %s\n' "${agent}" "${installed}"
+                status=1
+                continue
+            fi
+            printf '%s %s %s\n' "${finding}" "${agent}" "${detail}"
+        done < <(_ai_tools_relabel__list_entrypoint_name_findings "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" "${path}")
+    done
+    unprintable_count=0
+    for declared_pattern in "${patterns[@]}"; do
+        counted="$(_ai_tools_relabel__count_unprintable_entrypoint_paths "${declared_pattern}")" || walk_complete=no
+        [[ "${counted}" =~ ^[0-9]+$ ]] || { counted=0; walk_complete=no; }
+        unprintable_count=$(( unprintable_count + counted ))
+    done
+    if (( unprintable_count > 0 )); then
+        printf 'skip %s left %s file(s) an entrypoint rule matches unlabelled -- each path carries a character a status line does not print\n' \
+            "${agent}" "${unprintable_count}"
+    fi
+    # A walk that did not complete: the files it listed are labelled, and whether the launcher's file is
+    # among the matches is not known, so the run fails here with the reason and does not print a verdict.
+    if [[ "${walk_complete}" == no ]]; then
+        printf 'skip %s could not finish reading the files its entrypoint rules match under %s -- the walk did not complete, and a file may be left unlabelled\n' \
+            "${agent}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"
+        return 1
+    fi
     # Whether the launcher resolves to a copy of a declared entrypoint, the one divergence the toolchain's own links
     # explain. Read by content, a comparison and not an execution, and only once the path check has already failed.
+    # A second name of a matched inode is not a copy: it is a link the manifest does not declare, which reads `stale`.
     local copy=no
     if [[ -n "${installed}" && "${covered}" != yes && -f "${installed}" && ! -L "${installed}" ]]; then
         for path in "${matches[@]}"; do
+            [[ "${installed}" -ef "${path}" ]] && continue
             cmp -s -- "${installed}" "${path}" && { copy=yes; break; }
         done
     fi
@@ -704,6 +947,17 @@ _ai_tools_relabel__label_agent_config_dir() {
 #                                      an entrypoint IS installed and the declared rule covers no
 #                                      file at all -- the package did not install the entrypoint it
 #                                      declares, and the toolchain has to reinstall it
+#     unmapped <agent> <name>          a name of a labelled entrypoint inode that the file-context
+#                                      database maps to another type; the inode carries its type,
+#                                      and a relabel that walks by path can leave it on that one
+#     mismapped <agent> <path>         the file-context database maps the path the agent's launcher
+#                                      resolves to, <path>, to another type: the launch preflight reads
+#                                      that mapping and refuses, whatever type the file carries
+#     unchecked <agent> <path> <n>     <n> names of the inode of <path> carry a character a status line
+#                                      does not print, and their mapping was not looked up
+#     outside <agent> <path> <n>       the inode of <path> has <n> names outside the toolchain, which
+#                                      no declared rule can cover
+#     unread <agent> <path>            the names of that inode, or a name's mapping, could not be read
 #     skip  <agent> <reason...>        no rule to apply, a declaration was refused, or the walk
 #                                      over the config directory could not run
 #     partial <agent> <n>              the walk over the config directory completed and left <n>
@@ -719,7 +973,9 @@ _ai_tools_relabel__label_agent_config_dir() {
 #                                      toolchain they cannot read.
 #   Returns 0 when every path it managed is correctly labelled, 1 when one is not, a rule could
 #   not be registered, or an entrypoint is installed that the declared rule does not govern, and 2
-#   when the SELinux layer is inactive (no work to do).
+#   when the SELinux layer is inactive (no work to do). An `unmapped`, `unchecked`, `outside` or `unread` line leaves
+#   the status and the agent's closing line as they are: the caller records and counts it. A `mismapped` line is
+#   a failure.
 ai_tools_relabel__label_agent_paths() {
     _ai_tools_relabel__is_entrypoint_policy_active || return 2
     declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 2
@@ -749,23 +1005,35 @@ ai_tools_relabel__label_agent_paths() {
 #   while that package's files are still present (rpm %preun). Returns 2 when the SELinux layer is
 #   inactive, 1 when the agent does not declare a usable value, 5 when the rules were dropped and a path they covered
 #   keeps its type -- an entrypoint path still carrying ai_tools_exec_t after its per-path `restorecon -F`, or one whose
-#   type could not be read back, or an entry the walk over its config directory could not label -- 4 when the rules
+#   type could not be read back, a file a dropped entrypoint rule matched at a path a status line does not print,
+#   which is not reverted, a walk for those files that did not complete, or an entry the walk over its config directory
+#   could not label -- 4 when the rules
 #   were dropped and that walk completed leaving hardlinked paths at their type, 6 when the rules were dropped and
 #   the walker could not run, and 0 otherwise. AI_TOOLS_RELABEL__TREE_DIAGNOSTICS names each entrypoint path left,
 #   then carries the walk's own lines, and each status after the drop is its own, so a reader does not tell them apart
 #   by whether the walker printed. The entrypoint's outcome is a read-back of its type and not restorecon's status,
 #   which is swallowed: this is the removal direction, where a path left at the type is more access, and the one
-#   the tree walk after the policy's unload does not write, since the entrypoint is hardlinked.
+#   the tree walk after the policy's unload does not write, since the entrypoint is hardlinked. Every entrypoint rule
+#   the manifest declares is dropped ahead of the first restorecon: a link name restored while its rule still stands
+#   puts ai_tools_exec_t back on the inode the entrypoint's revert has just cleared.
 ai_tools_relabel__unlabel_agent_paths() {
-    local agent="$1" pattern config_dir path live_type dropped=1 walk_status=0 kept=""
+    local agent="$1" pattern config_dir path live_type matches unprintable_count
+    local dropped=1 walk_status=0 walk_complete=yes kept=""
+    local -a patterns=()
     AI_TOOLS_RELABEL__TREE_DIAGNOSTICS=""
     _ai_tools_relabel__is_entrypoint_policy_active || return 2
     declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || return 2
 
-    pattern="$(ai_tools_providers__read_agent_manifest_field "${agent}" entrypoint_fcontext || true)"
-    if ai_tools_providers__is_entrypoint_fcontext_valid "${pattern}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"; then
+    _ai_tools_relabel__read_entrypoint_patterns "${agent}" patterns
+    for pattern in "${patterns[@]}"; do
         _ai_tools_relabel__register_fcontext delete f "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" "${pattern}"
+        dropped=0
+    done
+    for pattern in "${patterns[@]}"; do
+        # Captured, so the walk's status is read: a walk that failed has not listed every file the rule matched.
+        matches="$(_ai_tools_relabel__find_entrypoint_paths "${pattern}")" || walk_complete=no
         while IFS= read -r path; do
+            [[ -n "${path}" ]] || continue
             restorecon -F "${path}" 2>/dev/null || true
             live_type="$(_ai_tools_relabel__read_live_type "${path}")"
             if [[ -z "${live_type}" ]]; then
@@ -773,8 +1041,14 @@ ai_tools_relabel__unlabel_agent_paths() {
             elif [[ "${live_type}" == "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ]]; then
                 kept+="${kept:+; }${path} keeps ${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE} after its revert"
             fi
-        done < <(_ai_tools_relabel__find_entrypoint_paths "${pattern}")
-        dropped=0
+        done <<< "${matches}"
+        unprintable_count="$(_ai_tools_relabel__count_unprintable_entrypoint_paths "${pattern}")" || walk_complete=no
+        if (( unprintable_count > 0 )); then
+            kept+="${kept:+; }${unprintable_count} file(s) a dropped entrypoint rule matched were not reverted, each at a path carrying a character a status line does not print"
+        fi
+    done
+    if [[ "${walk_complete}" == no ]]; then
+        kept+="${kept:+; }the walk over ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT} for the files a dropped entrypoint rule matched did not complete, so a file may keep ${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}"
     fi
 
     config_dir="$(ai_tools_providers__read_agent_manifest_field "${agent}" config_dir || true)"
@@ -809,9 +1083,18 @@ ai_tools_relabel__unlabel_agent_paths() {
 #                                                  unconfined
 #     none <agent> <what>                          declared, but not installed (the pre-bootstrap
 #                                                  state)
+#     unmapped <agent> entrypoint <name>           a name of the installed entrypoint's inode that the
+#                                                  file-context database maps to another type
+#     mismapped <agent> entrypoint <path>          the file-context database maps the entrypoint's own
+#                                                  path to another type, so the launch preflight refuses
+#     unchecked <agent> entrypoint <path> <n>      <n> of its names carry a character a status line does
+#                                                  not print, and their mapping was not looked up
+#     outside <agent> entrypoint <path> <n>        that inode has <n> names outside the toolchain
+#     unread <agent> entrypoint <path>             its names, or a name's mapping, could not be read
 #   <what> is one token, `entrypoint` or `config-directory`, so the field after it is always the
-#   path and a caller never has to count words.
-#   Returns 0 when every path it could inspect carries its type, 1 when one does not, 2 when
+#   path and a caller never has to count words. The names lines are
+#   _ai_tools_relabel__list_entrypoint_name_findings's, read for the inode a session execs.
+#   Returns 0 when every path it could inspect carries its type and no names line was printed, 1 otherwise, 2 when
 #   the SELinux layer is inactive, which yields an empty report and is not a fault, and 3 with an empty
 #   report when a function it calls is not defined (the enabled-agent resolver, the manifest-field
 #   reader, the entrypoint resolver): a reading it could not make, which must not read as an inactive
@@ -831,13 +1114,27 @@ ai_tools_relabel__list_agent_labels() {
     declare -F ai_tools_providers__list_enabled_agents >/dev/null 2>&1 || return 3
     declare -F ai_tools_providers__read_agent_manifest_field >/dev/null 2>&1 || return 3
     declare -F ai_tools_relabel__resolve_agent_entrypoint_path >/dev/null 2>&1 || return 3
-    local agent entrypoint config_dir path context status=0
+    local agent entrypoint config_dir path context finding detail status=0
+    local -a patterns=()
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         entrypoint="$(ai_tools_relabel__resolve_agent_entrypoint_path "${agent}" || true)"
         if [[ -z "${entrypoint}" ]]; then
             printf 'none %s entrypoint\n' "${agent}"
         else
+            # An agent declaring no usable pattern is the relabel's refusal to report, and every name of its entrypoint
+            # would read as unmapped here, so the names are read only against a declared pattern.
+            _ai_tools_relabel__read_entrypoint_patterns "${agent}" patterns
+            if (( ${#patterns[@]} > 0 )); then
+                while read -r finding detail; do
+                    [[ -n "${finding}" ]] || continue
+                    # The entrypoint's own path: the mapping the launch preflight reads.
+                    [[ "${finding}" == unmapped && "${detail}" == "${entrypoint}" ]] && finding=mismapped
+                    printf '%s %s entrypoint %s\n' "${finding}" "${agent}" "${detail}"
+                    status=1
+                done < <(_ai_tools_relabel__list_entrypoint_name_findings \
+                             "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}" "${entrypoint}")
+            fi
             context="$(_ai_tools_relabel__read_live_type "${entrypoint}")"
             if [[ "${context}" == "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" ]]; then
                 printf 'ok %s entrypoint %s %s\n' "${agent}" "${entrypoint}" "${context}"

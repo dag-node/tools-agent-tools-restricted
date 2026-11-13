@@ -213,6 +213,11 @@ _b3="$(printf '%s\n' "${LINES}" | grep -E 'dev="proc"' | grep -Ev 'tcontext=[^ ]
 _b4="$(printf '%s\n' "${LINES}" | grep -E 'name="\.avc-denials-ownfifo-[0-9]+"' \
   | grep -E 'denied  \{ create \} .*tcontext=[^ ]*:ai_tools_t:[^ ]* tclass=fifo_file|denied  \{ associate \} .*scontext=[^ ]*:ai_tools_t:[^ ]* .*tclass=filesystem' || true)"
 
+# Category 4b: avc-denials.sh WLK-002's link of an agent entrypoint, matched on the permission, the probe's command,
+# the entry type and the class together. Any other denial on the entry type keeps its own bucket.
+_b4_link="$(printf '%s\n' "${LINES}" \
+  | grep -E 'denied  \{ link \} .* comm="python3" .*tcontext=[^ ]*:ai_tools_exec_t:[^ ]* tclass=file' || true)"
+
 # Category 5: the terminal boundary (the terminal block of ai_tools.te), matched on the permission and the type: TIOCSTI
 # or TIOCLINUX on a character device, which the allowxperm rules exclude on every terminal type the domain uses
 # (avc-testsuite.sh and avc-denials.sh both attempt them); avc-denials.sh's open of its login-pty fixture,
@@ -228,7 +233,7 @@ if [[ -n "${LOGIN_PTY_NUMBER}" ]]; then
 fi
 _b5="$(printf '%s\n' "${LINES}" | grep -E "${_b5_re}" || true)"
 
-boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" "${_b5}" | sort -u | grep -v '^$' || true)"
+boundary="$(printf '%s\n' "${_b1}" "${_b2}" "${_b3}" "${_b4}" "${_b4_link}" "${_b5}" | sort -u | grep -v '^$' || true)"
 
 # Group-disabled set: lines hitting a GROUP_DISABLED_RE type, MINUS anything already claimed by boundary (boundary wins,
 # so each line lands in one bucket -- e.g. a /proc read of NetworkManager_t stays boundary, its D-Bus chat is group).

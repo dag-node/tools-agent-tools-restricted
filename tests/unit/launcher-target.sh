@@ -83,6 +83,34 @@ rejects() {
 accepts '/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@anthropic-ai/claude-code/bin/claude\.exe'
 accepts '/opt/ai-tools/.nvm/versions/node/[^/]+/bin/some-agent'
 
+# A second name of an entrypoint, as a shipped manifest declares it (entrypoint_link_fcontext): the pattern
+# claude-code's manifest carries in this checkout passes the containment, matches each platform package name its vendor
+# publishes for Linux, and matches neither another platform's name nor a name one directory further down.
+link_pattern="$(sed -n 's/^entrypoint_link_fcontext=//p' "${REPO_ROOT}/src/usr/local/lib/ai-tools/agents.d/claude-code.conf")"
+if [[ -z "${link_pattern}" ]]; then
+    fail "claude-code.conf in this checkout declares no entrypoint_link_fcontext, so its pattern was not read"
+else
+    accepts "${link_pattern}"
+    link_prefix="${TOOLCHAIN_ROOT}/v22.0.0/lib/node_modules/@anthropic-ai/claude-code/node_modules/@anthropic-ai"
+    for platform in linux-x64 linux-arm64 linux-x64-musl linux-arm64-musl; do
+        if [[ "${link_prefix}/claude-code-${platform}/claude" =~ ^${link_pattern}$ ]]; then
+            pass "the shipped link pattern matches the platform name claude-code-${platform}"
+        else
+            fail "the shipped link pattern does not match claude-code-${platform}/claude"
+        fi
+    done
+    for other in "claude-code-darwin-arm64/claude" "claude-code-linux-x64/bin/claude" "claude-code-linux-x64/claude.exe" \
+                 "claude-code/claude"; do
+        if [[ "${link_prefix}/${other}" =~ ^${link_pattern}$ ]]; then
+            fail "the shipped link pattern matches ${other}"
+        else
+            pass "the shipped link pattern does not match ${other}"
+        fi
+    done
+    unset link_prefix platform other
+fi
+unset link_pattern
+
 # Containment: every way a pattern could name something outside the root.
 rejects ''                                              "an empty pattern"
 rejects '/etc/shadow'                                   "a path outside the toolchain root"

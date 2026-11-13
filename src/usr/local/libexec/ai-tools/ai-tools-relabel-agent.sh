@@ -19,15 +19,18 @@
 # .claude/rules/updater.rule.md.
 #
 # Exits 1 for an entrypoint that does not match its pin, a path that did not take its type, a rule that could not be
-# applied, and a launcher the declared rule does not cover, each a session that breaks, and for every refusal ahead
-# of the work (a caller that is not root, a library that did not load, a usage error). Exits 0 where SELinux confinement
-# is inactive, an entrypoint could not be verified, a config directory's walk left hardlinked paths at their type,
+# applied, a launcher the declared rule does not cover, and a launcher's path the file-context database maps to another
+# type, each a session that breaks, and for every refusal ahead of the work (a caller that is not root, a library
+# that did not load, a usage error). Exits 0 where SELinux confinement is inactive, an entrypoint could not be verified,
+# a config directory's walk left hardlinked paths at their type, an entrypoint has a name the file-context database maps
+# to another type (warned about and filed in the label record, since the entrypoint carries its type),
 # and under `--remove` wherever the rules were dropped, a config directory's walk that did not complete included,
 # so a package erase completes.
 #
-# It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext and config_dir in its
-# manifest under /usr/local/lib/ai-tools/agents.d), and this helper registers them as local file-context rules.
-# The labelling body lives in relabel.lib.sh, shared with selinux/install-selinux.sh's verify pass so the two cannot
+# It is agent-agnostic: each ai-tools-agents-* package declares its own paths (entrypoint_fcontext,
+# entrypoint_link_fcontext and config_dir in its manifest under /usr/local/lib/ai-tools/agents.d), and this helper
+# registers them as local file-context rules. The labelling body lives in relabel.lib.sh, shared
+# with selinux/install-selinux.sh's verify pass so the two cannot
 # drift.
 #
 # Usage:
@@ -340,10 +343,11 @@ report=""; status=0
 report="$(ai_tools_relabel__label_agent_paths)" || status=$?
 
 # record_label_outcome <agent> <ok|failed|skipped> [reason-token] : file what this run could do about that agent's
-#   labels where `atr status` can read it. The operator cannot inspect the labels themselves -- the entrypoint sits
-#   in a toolchain they cannot traverse -- so this record is the only account of the labelling half they have,
-#   the counterpart to the pin the verification half writes. Best-effort: a record that cannot be written is reported
-#   and never changes the outcome of the relabel it describes.
+#   labels where `atr status` can read it. An `ok` takes a reason where a name of the agent's entrypoint has no rule,
+#   the one finding that report counts under a labelled entrypoint. The operator cannot inspect the labels themselves --
+#   the entrypoint sits in a toolchain they cannot traverse -- so this record is the only account of the labelling half
+#   they have, the counterpart to the pin the verification half writes. Best-effort: a record that cannot be written is
+#   reported and never changes the outcome of the relabel it describes.
 record_label_outcome() {
     ai_tools_entrypoint_verify__write_label "$1" "$2" "${3:-}" && return 0
     warn MSG-G5H9 "could not record ${1}'s labelling outcome for atr status"
@@ -364,20 +368,19 @@ fi
 
 # render_label_report <report> : render the lib's status lines. The lib reports per path and per agent; this decides
 #   what an operator reads, and sets the per-verdict counts and the per-agent arrays (agent_label_outcome,
-#   agent_label_reason) the outcome filing and the closing checks read. The wanted type travels with a "bad" line, since
-#   an agent declares two paths that carry different types.
+#   agent_label_reason, agent_label_names_reason) the outcome filing and the closing checks read. The wanted type
+#   travels with a "bad" line, since an agent declares two paths that carry different types.
 render_label_report() {
-    local verdict subject detail wanted
-    labelled=0 mislabelled=0 stale=0 incomplete=0 copied=0
-    declare -gA agent_label_outcome=() agent_label_reason=()
+    local verdict subject detail wanted inode_location
+    labelled=0 stale=0 incomplete=0 copied=0
+    declare -gA agent_label_outcome=() agent_label_reason=() agent_label_names_reason=()
     [[ -n "$1" ]] || return 0
     while read -r verdict subject detail wanted; do
         case "${verdict}" in
             ok)    labelled=$(( labelled + 1 ))
                    say "labelled: ${subject}"
                    ai_tools_log__info "relabelled ${subject}" ;;
-            bad)   mislabelled=$(( mislabelled + 1 ))
-                   warn MSG-G7C7 "wrong type on ${subject}: it is '${detail}', NOT ${wanted}"
+            bad)   warn MSG-G7C7 "wrong type on ${subject}: it is '${detail}', NOT ${wanted} -- 'sudo restorecon -nv ${subject}' shows the type a relabel sets, and 'sudo semanage fcontext -C -l' lists the local rules; then rerun: atr admin system entrypoints relabel"
                    ai_tools_log__warn "${subject} did not take ${wanted} (now '${detail}')" ;;
             stale) stale=$(( stale + 1 ))
                    agent_label_reason["${subject}"]="stale-declaration"
@@ -401,16 +404,47 @@ render_label_report() {
        ${detail}, and no installed file under the sandbox toolchain matches the entrypoint its manifest declares -- so
        the package is missing the executable a session is meant to exec"
                    ai_tools_log__warn "${subject}: the entrypoint declared by its manifest is not installed; the launcher resolves to ${detail}" ;;
+            # The path the launcher resolves to, mapped to another type by the file-context database. The launch
+            # preflight reads that mapping and refuses, whatever type the file carries, so the run fails on it.
+            mismapped) agent_label_reason["${subject}"]="entrypoint-mapping-overridden"
+                   warn MSG-R2W5 "wrong mapping for ${subject}: the file-context database maps its entrypoint ${detail} to another type than the entry type -- its next session refuses to start, whatever type the file carries now; list local rules with 'sudo semanage fcontext -C -l', correct the rule mapping the path, then rerun: atr admin system entrypoints relabel"
+                   ai_tools_log__warn "${subject}: the file-context database maps its entrypoint ${detail} to another type" ;;
+            # A name of a labelled entrypoint inode that the file-context database maps to another type. The entrypoint
+            # carries its type, so the run does not fail on it; the first finding an agent has is the reason its record
+            # carries. The command each line names is the operator's spelling: the CLI refuses root and calls sudo
+            # itself.
+            unmapped) : "${agent_label_names_reason["${subject}"]:=unmapped-entrypoint-name}"
+                   warn MSG-N4T2 "unmapped name for ${subject}: ${detail} is a name of its entrypoint that the file-context database maps to another type -- the entrypoint is labelled, and a relabel of the whole host can leave it on that type; after one, run: atr admin system entrypoints relabel; a newer agent package covers a name the agent's own package placed (dnf update 'ai-tools-agents-*'), and a local rule that maps the name is listed by: sudo semanage fcontext -C -l"
+                   ai_tools_log__warn "${subject}: ${detail} names its entrypoint and the file-context database maps it to another type" ;;
+            # Names of the inode that a status line does not print, a space or a newline in one among the causes: each
+            # is a name no manifest pattern can match, and its mapping was not looked up.
+            unchecked) : "${agent_label_names_reason["${subject}"]:=entrypoint-name-unchecked}"
+                   inode_location="$(stat -c '%m -xdev -inum %i' -- "${detail}" 2>/dev/null || true)"
+                   warn MSG-D9H5 "name not checked for ${subject}: ${wanted} name(s) of its entrypoint ${detail} carry a character outside the set a status line prints, and the type the file-context database maps each to was not read -- the entrypoint is labelled, and a relabel of the whole host can leave it on such a name's type; list every name: sudo find ${inode_location:-<mount> -xdev -inum <inode>}"
+                   ai_tools_log__warn "${subject}: ${wanted} name(s) of its entrypoint ${detail} were not printed and their mapping was not read" ;;
+            # The inode has names the walk under the toolchain did not find, counted from its link count.
+            outside) : "${agent_label_names_reason["${subject}"]:=entrypoint-name-outside-toolchain}"
+                   inode_location="$(stat -c '%m -xdev -inum %i' -- "${detail}" 2>/dev/null || true)"
+                   warn MSG-P5G9 "name outside the toolchain for ${subject}: its entrypoint ${detail} has ${wanted} name(s) outside the sandbox toolchain, which no rule a manifest declares can cover -- the entrypoint is labelled, and a relabel of the whole host can leave it on such a name's type; list every name: sudo find ${inode_location:-<mount> -xdev -inum <inode>}"
+                   ai_tools_log__warn "${subject}: entrypoint ${detail} has ${wanted} name(s) outside the sandbox toolchain" ;;
+            unread) : "${agent_label_names_reason["${subject}"]:=entrypoint-names-unread}"
+                   warn MSG-T7K7 "names not read for ${subject}: the names of its entrypoint ${detail}, or the type the file-context database maps one to, could not be read -- a name mapped to another type may exist; rerun: atr admin system entrypoints relabel"
+                   ai_tools_log__warn "${subject}: the names of its entrypoint ${detail}, or a name's mapping, could not be read" ;;
             # The config directory's walk completed and left hardlinked paths at their type; the library's line carries
             # their count, not their names.
             partial) say "${subject}: ${detail} hardlinked path(s) in its config directory kept their current type"
                    ai_tools_log__warn "${subject}: ${detail} hardlinked path(s) in its config directory not relabelled" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
-            # A walk over the config directory that could not start is filed apart from a rule that did not register,
-            # since its remedy is the walker's and not the policy's.
+            # A walk over the config directory that could not start, and a lookup of the entrypoint's mapping that could
+            # not be made, are each filed apart from a rule that did not register: the first's remedy is the walker's,
+            # and the second comes after the rules are registered.
             skip)  if [[ "${detail} ${wanted}" == "could not walk its config directory --"* ]]; then
                        agent_label_reason["${subject}"]="walker-unavailable"
+                   elif [[ "${detail} ${wanted}" == "could not read what the file-context database maps its entrypoint "* ]]; then
+                       agent_label_reason["${subject}"]="entrypoint-mapping-unread"
+                   elif [[ "${detail} ${wanted}" == "could not finish reading the files its entrypoint rules match "* ]]; then
+                       agent_label_reason["${subject}"]="entrypoint-walk-incomplete"
                    else
                        agent_label_reason["${subject}"]="rule-not-registered"
                    fi
@@ -429,7 +463,7 @@ record_label_outcomes() {
     local label_agent
     for label_agent in "${!agent_label_outcome[@]}"; do
         case "${agent_label_outcome[${label_agent}]}" in
-            ok)     record_label_outcome "${label_agent}" ok ;;
+            ok)     record_label_outcome "${label_agent}" ok "${agent_label_names_reason[${label_agent}]:-}" ;;
             # Nothing installed to label: the ordinary state before ai-tools-bootstrap provisions the toolchain, and not
             # a fault -- so it is filed the same way an inactive SELinux layer is.
             none)   record_label_outcome "${label_agent}" skipped not-provisioned ;;
@@ -455,13 +489,12 @@ record_label_outcomes
     || die MSG-D7H2 "an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: atr admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out"
 (( stale == 0 )) \
     || die MSG-M2M5 "a stale declaration stops this relabel: ${stale} agent(s) install their entrypoint where their manifest no longer says, so it cannot be labelled; update the agent package (dnf update 'ai-tools-agents-*'), then rerun"
-# A mislabelled path is a broken session: a mislabelled entrypoint runs unconfined (ai-tools-run refuses the launch)
-# and a mislabelled config directory leaves the agent unable to write its own state. Fail rather than report success --
-# this is the earlier, clearer signal.
-(( mislabelled == 0 )) \
-    || die MSG-A3B5 "the relabel did not take: ${mislabelled} path(s) did not take their type -- is the ai_tools module loaded? run: sudo selinux/install-selinux.sh install"
+# Every other failure the library returned: a path that did not take its type, a launcher path the database maps
+# to another type, a rule that could not be registered. Each is a session that breaks, a mislabelled entrypoint refused
+# at launch and a mislabelled config directory left unwritable to the agent, and each was warned about with its path,
+# its cause and its remedy, so one closing line fails the run over all of them.
 (( status == 0 )) \
-    || die MSG-N9B9 "an agent's file-context rule could not be applied (see above)"
+    || die MSG-N9B9 "agent labelling did not complete -- see the warnings above"
 
 if (( labelled > 0 )); then
     say "all ${labelled} path(s) labelled -- exit any running session and relaunch"
