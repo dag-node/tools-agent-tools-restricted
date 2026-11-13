@@ -438,10 +438,13 @@ render_label_report() {
                    ai_tools_log__warn "${subject}: ${detail} hardlinked path(s) in its config directory not relabelled" ;;
             none)  say "${subject}: ${detail} is not installed -- nothing to label"
                    ai_tools_log__info "${subject}: ${detail} absent, nothing to label" ;;
-            # A walk over the config directory that could not start is filed apart from a rule that did not register,
-            # since its remedy is the walker's and not the policy's.
+            # A walk over the config directory that could not start, and a lookup of the entrypoint's mapping that could
+            # not be made, are each filed apart from a rule that did not register: the first's remedy is the walker's,
+            # and the second comes after the rules are registered.
             skip)  if [[ "${detail} ${wanted}" == "could not walk its config directory --"* ]]; then
                        agent_label_reason["${subject}"]="walker-unavailable"
+                   elif [[ "${detail} ${wanted}" == "could not read what the file-context database maps its entrypoint "* ]]; then
+                       agent_label_reason["${subject}"]="entrypoint-mapping-unread"
                    else
                        agent_label_reason["${subject}"]="rule-not-registered"
                    fi

@@ -547,8 +547,12 @@ _ai_tools_relabel__get_agent_config_pattern() {
 
 # _ai_tools_relabel__is_walk_root_absent <root> : succeed when <root> is confirmed not there, which is stat reporting
 #   that the path or a component of it does not exist. Fails for every other reading: a root that is there and is not
-#   a directory, and one whose state could not be read -- a directory on the way that cannot be searched, a refused
-#   or failed read -- so a caller does not take a root it could not read for an empty one.
+#   a directory, a symbolic link at the root, and a root whose state could not be read -- a directory on the way
+#   that cannot be searched, a refused or failed read -- so a caller does not take a root it could not read for an empty
+#   one. A link at the root is refused and not followed: find does not descend a link it is started at, so the walk
+#   would end with no match, and the sandbox account owns the directory the root sits in, so a walk that followed
+#   the link would hand root's restorecon paths under a target that account chose. stat reads the link itself, which is
+#   there.
 _ai_tools_relabel__is_walk_root_absent() {
     local report
     report="$(LC_ALL=C stat -- "$1" 2>&1 >/dev/null)" && return 1
@@ -572,7 +576,7 @@ _ai_tools_relabel__is_walk_root_absent() {
 #   confirmed not there (_ai_tools_relabel__is_walk_root_absent), the state before the toolchain is provisioned,
 #   does not hold a match and returns 0, and one whose state could not be read returns 1.
 _ai_tools_relabel__find_entrypoint_paths() {
-    if [[ ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then
+    if [[ -L "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then
         _ai_tools_relabel__is_walk_root_absent "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || return 1
         return 0
     fi
@@ -587,7 +591,7 @@ _ai_tools_relabel__find_entrypoint_paths() {
 #   be read prints 0 and returns 1.
 _ai_tools_relabel__count_unprintable_entrypoint_paths() {
     local marks status=0
-    if [[ ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then
+    if [[ -L "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || ! -d "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" ]]; then
         printf '0\n'
         _ai_tools_relabel__is_walk_root_absent "${2:-${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}}" || return 1
         return 0

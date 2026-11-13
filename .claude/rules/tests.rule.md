@@ -1318,11 +1318,11 @@ and exits 1; a walk that left hardlinked files is said with its count and filed 
 that could not start is filed `walker-unavailable`, apart from a refused declaration's `rule-not-registered`; and a name
 of an entrypoint the file-context database maps to another type exits 0 under its code and is filed `ok` with its
 reason. `relabel.sh` owns four properties of the entrypoint's names, over real hard links with the policy tools
-and the database's lookup stubbed: every name is one finding whatever bytes it carries, and the database's answer
-decides it; every declared rule is registered ahead of the first `restorecon` and dropped ahead of the first revert;
-the discovery prints a path only where a status line prints it; and a read that could not be made, of a root, a walk
-or the launcher's own mapping, returns non-zero and is not read as no file found. The boundary half is a type rule,
-a session's link of an entrypoint, which `selinux/avc/avc-denials.sh` attempts as WLK-002.
+and the database's lookup stubbed: every name is counted as one record whatever bytes it carries, and the database's
+answer decides a printable one; every declared rule is registered ahead of the first `restorecon` and dropped ahead
+of the first revert; the discovery prints a path only where a status line prints it; and a read that could not be made,
+of a root, a walk or the launcher's own mapping, returns non-zero and is not read as no file found. The boundary half is
+a type rule, a session's link of an entrypoint, which `selinux/avc/avc-denials.sh` attempts as WLK-002.
 
 `entrypoint-verify.sh` pins the pure half of the entrypoint verifier (`entrypoint-verify.lib.sh`, see
 [updater](updater.rule.md)). Every assertion targets a way the gate could fail **open**: an absent pin must read

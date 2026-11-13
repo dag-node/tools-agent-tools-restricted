@@ -103,6 +103,8 @@ close_run $'skip acme could not walk its config directory -- libselinux.so.1 did
 has_line "the agent is filed failed as walker-unavailable" "record acme failed walker-unavailable"
 close_run $'skip acme no entrypoint_fcontext declared\nagent acme failed'
 has_line "control: a refused declaration is filed as rule-not-registered" "record acme failed rule-not-registered"
+close_run $'ok /fixture/bin/acme\nskip acme could not read what the file-context database maps its entrypoint /fixture/bin/acme to -- the launch preflight reads that mapping and refuses without it\nagent acme failed'
+has_line "a launcher mapping that could not be read is filed under a reason of its own" "record acme failed entrypoint-mapping-unread"
 
 # ── A name of an entrypoint no declared rule covers ──────────────────────────────────────────
 # The entrypoint carries its type, so the run exits 0; the finding is warned about under its code and the agent is filed

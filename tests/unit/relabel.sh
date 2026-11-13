@@ -608,6 +608,33 @@ else
         else
             fail "a root that is a file returned 0 from the discovery"
         fi
+        # A symbolic link at the root is refused, not followed: find does not descend a link it is started
+        # at, so the file under the link's target would read as no match, and the control shows the target does hold
+        # one.
+        ln -s "${names_root}" "${TESTDIR}/names/linked-root"
+        names_linked_pattern="$(ai_tools_relabel__get_fcontext_literal "${TESTDIR}/names/linked-root")/[^/]+/lib/node_modules/@acme/experimental/bin/acme"
+        if [[ -f "${TESTDIR}/names/linked-root/v1.2.3/lib/node_modules/@acme/experimental/bin/acme" ]]; then
+            pass "control: the entrypoint is reachable under the linked root"
+        else
+            fail "control: the entrypoint is not reachable under the linked root"
+        fi
+        names_status=0
+        names_got="$(_ai_tools_relabel__find_entrypoint_paths "${names_linked_pattern}" "${TESTDIR}/names/linked-root")" || names_status=$?
+        if [[ "${names_status}" -ne 0 && -z "${names_got}" ]]; then
+            pass "a symbolic link at the root returns non-zero from the discovery"
+        else
+            fail "a symbolic link at the root: status ${names_status}, '${names_got}'"
+        fi
+        names_status=0
+        _ai_tools_relabel__count_unprintable_entrypoint_paths "${names_linked_pattern}" "${TESTDIR}/names/linked-root" >/dev/null \
+            || names_status=$?
+        if [[ "${names_status}" -ne 0 ]]; then
+            pass "a symbolic link at the root returns non-zero from the count"
+        else
+            fail "a symbolic link at the root returned 0 from the count"
+        fi
+        rm -f -- "${TESTDIR}/names/linked-root"
+        unset names_linked_pattern
         find() { return 1; }
         names_status=0
         _ai_tools_relabel__count_unprintable_entrypoint_paths "${names_entry_pattern}" "${names_root}" >/dev/null || names_status=$?
