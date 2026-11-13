@@ -630,11 +630,13 @@ an `env` interpreter line, bash without `-p`, a missing, late or different `PATH
 line without `-I` under any name but the one the file exempts, `ai-tools-handback` — beside ones it must pass, and then
 reads every file in the checkout's helper directory, contributed-command directory and `/opt/ai-tools/bin`, the listing
 being the set, so a program added without the lines fails the file. A program's `PATH` line is the helpers' value unless
-the file's own table names the program, as it names the updater with its unit's value. The name is the file's without
-its extension, so the checkout copy and the installed one read alike, and a fixture carrying either value
-under the other's name is reported. The shim and the updater are held to the shell start by name, so a Python line
-under either name is reported, and each is required as a regular file in both trees, the installed updater where its
-unit is installed, since the directory's pass counts the files it read and passes over a link.
+the file's own table names the program, as it names the updater with its unit's value, an entry the file holds
+to the `PATH` the `[Service]` section of `nvm-update.service` sets, through a reader that compares one form
+of assignment and reports every other, driven over fixture units first. The name is the file's without its extension,
+so the checkout copy and the installed one read alike, and a fixture carrying either value under the other's name is
+reported. The shim and the updater are held to the shell start by name, so a Python line under either name is reported,
+and each is required as a regular file in both trees, the installed updater where its unit is installed, since
+the directory's pass counts the files it read and passes over a link.
 
 The mechanics run on a synthetic program built from each real head the file names, a root helper's, the shim's
 and the updater's, with a `BASH_ENV` file, an exported function, and recorders first on the caller's `PATH` named `bash`

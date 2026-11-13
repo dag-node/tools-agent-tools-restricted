@@ -10,7 +10,8 @@
 #      the tree and not about a checker that accepts every file.
 #   2. Every file in the checkout's three program directories: the root helpers, the contributed commands,
 #      and /opt/ai-tools/bin. The directory listing is the set, so a program added later is read without a list
-#      to maintain. A program's PATH line is the root helpers' value unless PATH_LITERAL_BY_PROGRAM names it.
+#      to maintain. A program's PATH line is the root helpers' value unless PATH_LITERAL_BY_PROGRAM names it,
+#      as it names the updater with the value its unit sets.
 #   3. The mechanics, on a synthetic program built from each of three real heads (a root helper's, the shim's
 #      and the updater's): line 1 through `export PATH`, then a call to the command the program runs first by name.
 #      Recorders named `bash`, `id` and `mktemp` lead the caller's PATH, and the run must reach none of them, beside
@@ -33,9 +34,11 @@ readonly CHECKOUT_DIRS=("${ROOT}/src/usr/local/libexec/ai-tools" "${ROOT}/src/us
     "${ROOT}/src/opt/ai-tools/bin")
 readonly INSTALLED_DIRS=(/usr/local/libexec/ai-tools /usr/local/lib/ai-tools/admin-commands.d /opt/ai-tools/bin)
 readonly NVM_UPDATE_UNIT=/usr/lib/systemd/user/nvm-update.service
+readonly CHECKOUT_NVM_UPDATE_UNIT="${ROOT}/src${NVM_UPDATE_UNIT}"
 readonly SHELL_LINE='#!/usr/bin/bash -p'
 readonly PATH_LINE='PATH=/usr/sbin:/usr/bin:/sbin:/bin'
-# A program whose PATH line is another value, by program name: the updater carries its unit's PATH (updater.rule.md).
+# A program whose PATH line is another value, by program name: the updater carries its unit's PATH (updater.rule.md),
+# which require_matching_unit_path holds this entry to.
 declare -rA PATH_LITERAL_BY_PROGRAM=([nvm-update]='PATH=/usr/local/bin:/usr/bin:/bin')
 # The programs that take the shell start whatever their first line, by program name: the shim and the updater,
 # which the launch and the update unit run as bash.
@@ -126,6 +129,63 @@ require_regular_program_file() {
         pass "${label}: ${dir}/${file} is a regular file and was read"
     else
         fail "${label}: ${dir}/${file} is absent or not a regular file, so its start was not read"
+    fi
+}
+
+# find_unit_path_violation <unit>: print how <unit>'s PATH departs from the updater's entry in PATH_LITERAL_BY_PROGRAM,
+# or no line where the entry's value is the PATH the unit's [Service] section sets. systemd reads more forms than this
+# compares -- several assignments on a line, a quoted one, an empty `Environment=` that resets the list, a continued
+# line, and the other directives that change the environment, `EnvironmentFile=` and `UnsetEnvironment=` among them --
+# and a later assignment replaces an earlier one, so the reader accepts one form alone and reports every other: each
+# `Environment=` line of [Service] is one unquoted NAME=value with a non-empty value, one of them names PATH, and no
+# other directive of the section carries `Environment` in its name or is `PAMName=`. Returns 2 for a unit it cannot
+# read, which is a reading not made.
+find_unit_path_violation() {
+    local unit="$1" line directive_name directive_value section="" path_assignment_count=0 unit_path=""
+    [[ -f "${unit}" && -r "${unit}" ]] || return 2
+    while IFS= read -r line || [[ -n "${line}" ]]; do
+        line="${line#"${line%%[![:space:]]*}"}"; line="${line%"${line##*[![:space:]]}"}"
+        case "${line}" in
+            '' | '#'* | ';'*) continue ;;
+            '['*']') section="${line}"; continue ;;
+        esac
+        [[ "${section}" == '[Service]' ]] || continue
+        if [[ "${line}" == *\\ ]]; then
+            printf 'it carries a continued line, which this does not read: %s\n' "${line}"; return 0
+        fi
+        directive_name="${line%%=*}"; directive_name="${directive_name%"${directive_name##*[![:space:]]}"}"
+        directive_value="${line#*=}"; directive_value="${directive_value#"${directive_value%%[![:space:]]*}"}"
+        case "${directive_name}" in
+            Environment)
+                if [[ ! "${directive_value}" =~ ^[A-Za-z_][A-Za-z0-9_]*=[^[:space:]\"\'\\]+$ ]]; then
+                    printf 'it carries an Environment= line that is not one unquoted NAME=value: %s\n' "${line}"; return 0
+                fi
+                if [[ "${directive_value}" == PATH=* ]]; then
+                    path_assignment_count=$(( path_assignment_count + 1 )); unit_path="${directive_value#PATH=}"
+                fi ;;
+            *Environment* | PAMName)
+                printf 'it carries another directive that changes the environment, which this does not read: %s\n' "${line}"
+                return 0 ;;
+        esac
+    done < "${unit}" || return 2
+    if (( path_assignment_count != 1 )); then
+        printf 'its [Service] section assigns PATH on %s lines, not one\n' "${path_assignment_count}"
+    elif [[ "PATH=${unit_path}" != "${PATH_LITERAL_BY_PROGRAM[nvm-update]}" ]]; then
+        printf 'it sets PATH=%s\n' "${unit_path}"
+    fi
+}
+
+# require_matching_unit_path <label> <unit>: the updater's entry in PATH_LITERAL_BY_PROGRAM is the PATH of <unit>,
+# the update unit of the tree <label> names. A unit that is absent or unreadable fails.
+require_matching_unit_path() {
+    local label="$1" unit="$2" violation status=0
+    violation="$(find_unit_path_violation "${unit}")" || status=$?
+    if (( status != 0 )); then
+        fail "${label}: ${unit} could not be read, so the updater's PATH is not held to it"
+    elif [[ -n "${violation}" ]]; then
+        fail "${label}: the updater is held to ${PATH_LITERAL_BY_PROGRAM[nvm-update]}, and in ${unit} ${violation}"
+    else
+        pass "${label}: the updater is held to the PATH ${unit} sets"
     fi
 }
 
@@ -254,6 +314,63 @@ else
     fail "a missing file read as status ${status}"
 fi
 
+# The reader that holds the updater's entry to its unit, over fixture units: the entry's value on one line of [Service]
+# passes, with a line systemd indents or spaces around `=` read as systemd reads it, and each way the unit's PATH can
+# differ from that line, or be set in a form the reader does not compare, is reported.
+unit_path_value="${PATH_LITERAL_BY_PROGRAM[nvm-update]#PATH=}"
+unit_path_line="Environment=PATH=${unit_path_value}"
+write_fixture unit-equal          '[Unit]' 'Description=fixture' '[Service]' "${unit_path_line}" 'Environment=HOME=%h'
+write_fixture unit-spaced         '[Service]' "  Environment = PATH=${unit_path_value}"
+write_fixture unit-other          '[Service]' 'Environment=PATH=/usr/bin:/bin'
+write_fixture unit-repeated       '[Service]' "${unit_path_line}" 'Environment=PATH=/usr/bin:/bin'
+write_fixture unit-indented       '[Service]' "${unit_path_line}" '  Environment=PATH=/usr/bin:/bin'
+write_fixture unit-repeated-empty '[Service]' "${unit_path_line}" 'Environment=PATH='
+write_fixture unit-two-on-a-line  '[Service]' "${unit_path_line}" 'Environment=OTHER=x PATH=/tmp'
+write_fixture unit-quoted         '[Service]' "${unit_path_line}" 'Environment="PATH=/tmp"'
+write_fixture unit-reset          '[Service]' "${unit_path_line}" 'Environment='
+write_fixture unit-unset          '[Service]' "${unit_path_line}" 'UnsetEnvironment=PATH'
+write_fixture unit-file           '[Service]' "${unit_path_line}" 'EnvironmentFile=-/etc/sysconfig/nvm-update'
+write_fixture unit-pass           '[Service]' "${unit_path_line}" 'PassEnvironment=PATH'
+write_fixture unit-continued      '[Service]' "${unit_path_line}" "ExecStart=/usr/bin/true \\" '  Environment=PATH=/tmp'
+write_fixture unit-other-section  '[Unit]' "${unit_path_line}" '[Service]' 'Environment=HOME=%h'
+write_fixture unit-no-path        '[Service]' 'Environment=HOME=%h'
+for name in unit-equal unit-spaced; do
+    status=0; violation="$(find_unit_path_violation "${fixtures}/${name}")" || status=$?
+    if (( status == 0 )) && [[ -z "${violation}" ]]; then
+        pass "the unit reader passes the ${name} fixture"
+    else
+        fail "the unit reader reported the ${name} fixture (status ${status}): ${violation}"
+    fi
+done
+while IFS='|' read -r name want; do
+    status=0; violation="$(find_unit_path_violation "${fixtures}/${name}")" || status=$?
+    if (( status == 0 )) && [[ "${violation}" == "${want}"* ]]; then
+        pass "the unit reader reports the ${name} fixture"
+    else
+        fail "the unit reader read the ${name} fixture as (status ${status}): ${violation:-matching the entry}"
+    fi
+done <<'EOF'
+unit-other|it sets PATH=/usr/bin:/bin
+unit-repeated|its [Service] section assigns PATH on 2 lines
+unit-indented|its [Service] section assigns PATH on 2 lines
+unit-repeated-empty|it carries an Environment= line that is not one unquoted NAME=value: Environment=PATH=
+unit-two-on-a-line|it carries an Environment= line that is not one unquoted NAME=value: Environment=OTHER=x PATH=/tmp
+unit-quoted|it carries an Environment= line that is not one unquoted NAME=value: Environment="PATH=/tmp"
+unit-reset|it carries an Environment= line that is not one unquoted NAME=value: Environment=
+unit-unset|it carries another directive that changes the environment, which this does not read: UnsetEnvironment=PATH
+unit-file|it carries another directive that changes the environment, which this does not read: EnvironmentFile=
+unit-pass|it carries another directive that changes the environment, which this does not read: PassEnvironment=
+unit-continued|it carries a continued line
+unit-other-section|its [Service] section assigns PATH on 0 lines
+unit-no-path|its [Service] section assigns PATH on 0 lines
+EOF
+status=0; find_unit_path_violation "${fixtures}/unit-absent" > /dev/null || status=$?
+if (( status == 2 )); then
+    pass "a unit the reader cannot read is a reading not made (status 2)"
+else
+    fail "a missing unit read as status ${status}"
+fi
+
 # ── 2. The checkout ──────────────────────────────────────────────────────────────────────────
 section "program start: every program in the checkout (unit)"
 for dir in "${CHECKOUT_DIRS[@]}"; do
@@ -266,6 +383,8 @@ done
 if [[ -d "${CHECKOUT_DIRS[2]}" ]]; then
     require_regular_program_file "checkout" "${CHECKOUT_DIRS[2]}" ai-tools-run.sh
     require_regular_program_file "checkout" "${CHECKOUT_DIRS[2]}" nvm-update.sh
+    # A tree that holds the updater holds its unit, so an absent unit fails here and is not skipped.
+    require_matching_unit_path "checkout" "${CHECKOUT_NVM_UPDATE_UNIT}"
 fi
 
 # ── 3. The mechanics ─────────────────────────────────────────────────────────────────────────
@@ -455,6 +574,7 @@ else
     require_regular_program_file "installed" "${INSTALLED_DIRS[2]}" ai-tools-run
     if [[ -e "${NVM_UPDATE_UNIT}" || -L "${NVM_UPDATE_UNIT}" ]]; then
         require_regular_program_file "installed" "${INSTALLED_DIRS[2]}" nvm-update.sh
+        require_matching_unit_path "installed" "${NVM_UPDATE_UNIT}"
     else
         note "installed programs" "${NVM_UPDATE_UNIT} is absent: ai-tools-integration-nodejs is not installed, so the updater is not required"
     fi
