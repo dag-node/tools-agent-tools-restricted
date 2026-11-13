@@ -21,9 +21,9 @@
 #      execute it as root, and the suite does not execute a file another account can write (tests.rule.md).
 #
 # Parts 1 and 2 need neither root nor an install. Parts 3 and 4 exec fixture files, so they need a directory
-# where a 0755 file is executable: the testdir where it qualifies, and a directory beside the operator's home otherwise,
-# the fallback tests/unit/agent-installs.sh takes. The boundary half is tests/boundary/access.sh: the sandbox account
-# writes none of the directories the PATH names.
+# where a 0755 file is executable: the testdir where it qualifies, and a fixture directory in the projects user's home
+# otherwise, each held first to a chain of directories another account cannot replace an entry in. The boundary half is
+# tests/boundary/access.sh: the sandbox account writes none of the directories the PATH names.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -229,13 +229,32 @@ x_bit_visible() {
 readonly HEAD_SOURCES="root helper|${CHECKOUT_DIRS[0]}/ai-tools-chown.sh|${INSTALLED_DIRS[0]}/ai-tools-chown|id
 shim|${CHECKOUT_DIRS[2]}/ai-tools-run.sh|${INSTALLED_DIRS[2]}/ai-tools-run|id
 updater|${CHECKOUT_DIRS[2]}/nvm-update.sh|${INSTALLED_DIRS[2]}/nvm-update.sh|mktemp"
-work="${TESTDIR}/mechanics"
-mkdir -p "${work}"
-if ! x_bit_visible "${work}"; then
-    work=""
-    mk_fixture_dir work "${PROJECTS_HOME}" startup 2>/dev/null || work=""
+# The directory the fixtures are written and run from: the testdir where a 0755 file is executable there, and a fixture
+# directory in the projects user's home otherwise. Root writes recorders there by path and part 4 executes them as root,
+# so the directory and each ancestor are held first to owners another account cannot replace an entry under, root
+# and the projects user (harness.sh, read_unheld_component), and the fixture directory again once mktemp made it.
+# A chain that does not hold fails the mechanics with no fixture written there.
+work="" work_unheld="" unheld_reading=""
+unheld_reading="$(read_unheld_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
+if [[ -n "${unheld_reading}" ]]; then
+    work_unheld="${unheld_reading}"
+else
+    mkdir -p "${TESTDIR}/mechanics"
+    if x_bit_visible "${TESTDIR}/mechanics"; then work="${TESTDIR}/mechanics"; fi
 fi
-if [[ -z "${work}" ]] || ! x_bit_visible "${work}"; then
+if [[ -z "${work}" ]]; then
+    unheld_reading="$(read_unheld_component "${PROJECTS_HOME}" 0 "${PROJECTS_UID}")"
+    if [[ -z "${unheld_reading}" ]] && mk_fixture_dir work "${PROJECTS_HOME}" startup 2>/dev/null && [[ -n "${work}" ]]; then
+        unheld_reading="$(read_unheld_component "${work}" 0 "${PROJECTS_UID}")"
+        if [[ -n "${unheld_reading}" ]] || ! x_bit_visible "${work}"; then work=""; fi
+    else
+        work=""
+    fi
+    [[ -z "${unheld_reading}" ]] || work_unheld+="${work_unheld:+; }${unheld_reading}"
+fi
+if [[ -z "${work}" && -n "${work_unheld}" ]]; then
+    fail "the mechanics: another account could replace an entry in ${work_unheld}, so no fixture is written or run there"
+elif [[ -z "${work}" ]]; then
     skip_required "the mechanics" "no directory here reports a 0755 file as executable (a noexec mount)"
 else
     chmod 0755 "${work}"

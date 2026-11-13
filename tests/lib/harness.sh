@@ -274,6 +274,34 @@ mk_fixture_file() {
     _cleanup+=("${_out}")
 }
 
+# read_unheld_component <dir> <uid>...: print the first of <dir> and its ancestors where another account could replace
+# an entry, as `<path> (<uid> <mode>)`, and no line where the whole chain holds. A component holds while it is
+# a directory and not a link, owned by one of <uid>, and either without group and other write or sticky, since a sticky
+# directory lets an account rename only the entries it owns. A root caller holds the chain before it writes a fixture
+# by path or executes one there, so a fixture another account can rename aside and replace with a link does not redirect
+# the write or the exec; a component stat cannot read prints `unreadable` and does not hold.
+read_unheld_component() {
+    local dir="$1" meta owner mode allowed held
+    shift
+    while :; do
+        meta="$(stat -c '%u %a' -- "${dir}" 2>/dev/null)" || meta=""
+        owner="${meta%% *}"; mode="${meta##* }"
+        held=0
+        if [[ -n "${meta}" && ! -L "${dir}" && -d "${dir}" && "${mode}" =~ ^[0-7]+$ ]]; then
+            for allowed in "$@"; do
+                [[ "${owner}" == "${allowed}" ]] && held=1
+            done
+            (( held && (0${mode} & 022) != 0 && (0${mode} & 01000) == 0 )) && held=0
+        fi
+        if (( ! held )); then
+            printf '%s (%s)\n' "${dir}" "${meta:-unreadable}"
+            return 0
+        fi
+        [[ "${dir}" != / ]] || return 0
+        dir="$(dirname -- "${dir}")"
+    done
+}
+
 # Teardown removes every artifact a test registered, on any exit. Nothing outside these paths is ever touched. It
 # returns success unconditionally: it runs in the EXIT trap, and under `set -e` a non-zero teardown status -- e.g.
 # the empty-_cleanup loop where the final `[[ -n "" ]]` is false, or an `rm` of an already-gone path -- would otherwise

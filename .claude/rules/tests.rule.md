@@ -625,22 +625,23 @@ led by recorders, each held to its usage status and an empty recorder log, behin
 caller's `PATH` runs a recorder. The recorders are root-owned, in a directory root made: a run that reached one would
 execute it as root, so a directory the sandbox account writes is not what leads that `PATH`. The mechanics
 and the planted runs exec their fixtures, from one directory where a `0755` file is executable: the testdir where it
-qualifies, and `agent-installs.sh`'s fallback beside the operator's home under a `noexec` `/tmp`. Its boundary half is
-`boundary/access.sh`, which holds every directory the installed stop helper's `PATH` names and every directory
-the installed updater's names, wherever the updater is installed, with or without its unit, every command in them
-and each interpreter out of the sandbox account's reach, and holds the installed shim's `PATH` line to the stop
-helper's. Root lists each of those directories, a directory it cannot list failing the row, and the account tests
-the entries root listed, so a directory the account searches without listing does not leave its commands untested.
-`integration/ai-tools-run.sh` runs the installed shim as the sandbox account under a `PATH` led by root-owned recorders
-in a fixture directory inside `/opt/ai-tools`, which the account traverses and executes from on every host a session
-runs on. Root writes the fixture by path, so the row first holds `/opt/ai-tools` and each ancestor, and then
-the fixture, to a root-owned directory without group or other write that is not a link, and fails with no write
-where one is not. The recorders are read from their log before the refusal it prints, beside a control that a command
-run under that `PATH` reaches one. The same file runs the shim's capture of `AI_TOOLS_ENTRYPOINT_PIN_DIR`, the library's
-default and the audit line, read out of the installed files, with the variable unset, empty and set, behind a control
-that the capture run after the default reads an unset variable as an override, and reads as source that the line
-clearing the field and the line reading the variable each precede the library's first load, in that order, and that no
-library the shim sources ahead of the read loads it.
+qualifies, and a fixture directory in the projects user's home under a `noexec` `/tmp`, each written only once it
+and every ancestor are directories another account cannot replace an entry in (`read_unheld_component`,
+`lib/harness.sh`), since part 4 executes what it writes there as root. Its boundary half is `boundary/access.sh`,
+which holds every directory the installed stop helper's `PATH` names and every directory the installed updater's names,
+wherever the updater is installed, with or without its unit, every command in them and each interpreter
+out of the sandbox account's reach, and holds the installed shim's `PATH` line to the stop helper's. Root lists each
+of those directories, a directory it cannot list failing the row, and the account tests the entries root listed,
+so a directory the account searches without listing does not leave its commands untested. `integration/ai-tools-run.sh`
+runs the installed shim as the sandbox account under a `PATH` led by root-owned recorders in a fixture directory inside
+`/opt/ai-tools`, which the account traverses and executes from on every host a session runs on. Root writes the fixture
+by path, so the row first holds `/opt/ai-tools` and each ancestor, and then the fixture, through the same predicate
+with root the one owner, and fails with no write where one does not hold. The recorders are read from their log
+before the refusal it prints, beside a control that a command run under that `PATH` reaches one. The same file runs
+the shim's capture of `AI_TOOLS_ENTRYPOINT_PIN_DIR`, the library's default and the audit line, read out of the installed
+files, with the variable unset, empty and set, behind a control that the capture run after the default reads an unset
+variable as an override, and reads as source that the line clearing the field and the line reading the variable each
+precede the library's first load, in that order, and that no library the shim sources ahead of the read loads it.
 
 `atr.sh` drives the short command over a copy of the wrapper whose two program paths are rewritten to recorders, its
 help library path to the checkout's and its domain and manifest directories to fixtures, with a recording `sudo` first

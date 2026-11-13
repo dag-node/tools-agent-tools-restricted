@@ -257,33 +257,18 @@ refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-launch
 # a root-owned directory, which root reads as data with a bound. The directory is a fixture inside /opt/ai-tools,
 # the account's home, which the account traverses and executes from on every host a session runs on, where /tmp
 # and an operator's home need not be. Root writes through that path by name, so the row first holds /opt/ai-tools
-# and each ancestor to a root-owned directory, not a link, without group or other write, and the fixture to a root-owned
-# directory, not a link, once it exists: inside such a chain the account cannot rename a component, so every later write
-# in the fixture lands where root made it. A chain that does not hold fails the row with no write. The control runs `id`
-# under the same PATH and must reach its recorder. Any log entry after the shim fails the row whatever the shim printed,
-# since a shim holding its interpreter line and lacking its PATH lines reaches a planted `stat` at its first gate.
-# read_unheld_component <dir>: print the first of <dir> and its ancestors that is not a root-owned directory free
-# of group and other write, or a link; no line where the whole chain holds.
-read_unheld_component() {
-    local dir="$1" meta
-    while :; do
-        meta="$(stat -c '%u %a' -- "${dir}" 2>/dev/null)" || meta=""
-        if [[ -L "${dir}" || ! -d "${dir}" || "${meta%% *}" != 0 || ! "${meta##* }" =~ ^[0-7]+$ ]] \
-                || (( (0${meta##* } & 022) != 0 )); then
-            printf '%s (%s)\n' "${dir}" "${meta:-unreadable}"
-            return 0
-        fi
-        [[ "${dir}" != / ]] || return 0
-        dir="$(dirname -- "${dir}")"
-    done
-}
+# and each ancestor, then the fixture once it exists, to root-owned directories another account cannot replace an entry
+# in (harness.sh, read_unheld_component): inside such a chain every later write in the fixture lands where root made it.
+# A chain that does not hold fails the row with no write. The control runs `id` under the same PATH and must reach its
+# recorder. Any log entry after the shim fails the row whatever the shim printed, since a shim holding its interpreter
+# line and lacking its PATH lines reaches a planted `stat` at its first gate.
 plant_root=""
-plant_unheld="$(read_unheld_component /opt/ai-tools)"
+plant_unheld="$(read_unheld_component /opt/ai-tools 0)"
 if [[ -n "${plant_unheld}" ]]; then
-    fail "ai-tools-run under a planted PATH: ${plant_unheld} is not a root-owned directory free of group and other write, so root does not write a fixture through it"
+    fail "ai-tools-run under a planted PATH: another account could replace an entry in ${plant_unheld}, so root does not write a fixture through it"
 elif ! mk_fixture_dir plant_root /opt/ai-tools startpath 2>/dev/null || [[ -z "${plant_root}" ]]; then
     fail "ai-tools-run under a planted PATH: no fixture directory could be made in /opt/ai-tools"
-elif [[ -n "$(read_unheld_component "${plant_root}")" ]]; then
+elif [[ -n "$(read_unheld_component "${plant_root}" 0)" ]]; then
     fail "ai-tools-run under a planted PATH: the fixture ${plant_root} is not the root-owned directory mktemp made"
 else
     chmod 0755 "${plant_root}"
