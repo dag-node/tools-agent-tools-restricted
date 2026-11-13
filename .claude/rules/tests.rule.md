@@ -312,7 +312,8 @@ every launch on the host until the next reconcile. `integration/ai-tools-run.sh`
 and drives the mismatch refusal through the deployed shim — the feature's actual guarantee, and the one gate that needs
 a VALID executable to reach, since every other refusal case exits before it. Its complement (an unpinned entrypoint must
 NOT be refused, or an air-gapped host stops launching) is deliberately left to the pure verdict: no other part
-of that run is invalid, so driving it would start a real session. Its sibling `AI_TOOLS_ENTRYPOINT_LABEL_DIR`,
+of that run is invalid, so driving it would start a real session. The shim marks a launch that carries a non-empty value
+under the name on its `entrypoint:` audit line ([launch](launch.rule.md)). Its sibling `AI_TOOLS_ENTRYPOINT_LABEL_DIR`,
 which moves the labelling record written beside the pin, carries none of that weight — the record is reported without
 gating a launch — so `unit/entrypoint-verify.sh` redirects it at its testdir and writes real records
 through the library.

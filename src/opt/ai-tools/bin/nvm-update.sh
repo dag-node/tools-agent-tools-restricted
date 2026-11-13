@@ -32,8 +32,8 @@
 # Why the split is coarse and why an offline run is not a failure: updater.rule.md (ref-section-z2h7).
 
 set -euo pipefail
-# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8),
-# with the PATH nvm-update.service sets, so a run by hand starts in the directories the unit's run does.
+# The interpreter line and the PATH lines are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+# The value is the one nvm-update.service sets, so a run by hand finds its commands where the unit's run does.
 PATH=/usr/local/bin:/usr/bin:/bin
 export PATH
 IFS=$'\n\t'

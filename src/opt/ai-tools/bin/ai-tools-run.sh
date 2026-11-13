@@ -4,14 +4,16 @@
 # Confinement shim: runs one sandboxed agent session as @SANDBOX_USER@, inside a transient `systemd --user service`
 # whose properties are the session's security boundary.
 #
-# Invoked only by an agent's launch wrapper, which resolves and validates the versioned executable and drops privilege:
+# Invoked by an agent's launch wrapper, which resolves and validates the versioned executable and drops privilege:
 #
 #   ```bash
 #   sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@ -- /opt/ai-tools/bin/ai-tools-run [args...]
 #   ```
 #
 # with AI_TOOLS_AGENT_EXEC (the versioned executable) and AI_TOOLS_PROJECT_DIR (the session's working directory) carried
-# through sudo's env_keep. Both are re-validated here, so neither side is a single point of trust.
+# through sudo's env_keep. Both are re-validated here, so neither side is a single point of trust. The sudoers rule
+# permits an operator the same call without the wrapper, so this file's own start does not rest on the wrapper's
+# environment (launch.rule.md).
 #
 # What is CHECKED is what is EXEC'd. AI_TOOLS_AGENT_EXEC names the versioned launcher symlink; this shim resolves it
 # once, contains the target to the same semver version directory, and uses that single path for the SELinux label
