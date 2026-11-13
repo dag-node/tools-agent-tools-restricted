@@ -233,7 +233,10 @@ updater|${CHECKOUT_DIRS[2]}/nvm-update.sh|${INSTALLED_DIRS[2]}/nvm-update.sh|mkt
 # directory in the projects user's home otherwise. Root writes recorders there by path and part 4 executes them as root,
 # so the directory and each ancestor are held first to owners another account cannot replace an entry under, root
 # and the projects user (harness.sh, read_unheld_component), and the fixture directory again once mktemp made it.
-# A chain that does not hold fails the mechanics with no fixture written there.
+# The chosen directory then loses any default ACL a parent handed it (clear_default_acl), everything under it is created
+# under umask 077 and given its mode after, and the recorder directories are made there and held the same way before any
+# file is written in them, so no account but the creator can write an entry at any point. A directory that does not
+# hold, or whose default ACL cannot be removed, fails the mechanics with no fixture written there.
 work="" work_unheld="" unheld_reading=""
 unheld_reading="$(read_unheld_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
 if [[ -n "${unheld_reading}" ]]; then
@@ -252,14 +255,26 @@ if [[ -z "${work}" ]]; then
     fi
     [[ -z "${unheld_reading}" ]] || work_unheld+="${work_unheld:+; }${unheld_reading}"
 fi
+if [[ -n "${work}" ]]; then
+    chmod 0755 "${work}"
+    umask 077
+    if ! clear_default_acl "${work}"; then
+        work_unheld+="${work_unheld:+; }${work} (its default ACL could not be removed or read)"; work=""
+    else
+        unheld_reading=""
+        for sub in plant root-plant pymod; do
+            mkdir -- "${work}/${sub}" && chmod 0755 "${work}/${sub}"
+            [[ -n "${unheld_reading}" ]] || unheld_reading="$(read_unheld_component "${work}/${sub}" 0 "${PROJECTS_UID}")"
+        done
+        if [[ -n "${unheld_reading}" ]]; then work_unheld+="${work_unheld:+; }${unheld_reading}"; work=""; fi
+    fi
+fi
 if [[ -z "${work}" && -n "${work_unheld}" ]]; then
-    fail "the mechanics: another account could replace an entry in ${work_unheld}, so no fixture is written or run there"
+    fail "the mechanics: another account could replace or write an entry in ${work_unheld}, so no fixture is written or run there"
 elif [[ -z "${work}" ]]; then
     skip_required "the mechanics" "no directory here reports a 0755 file as executable (a noexec mount)"
 else
-    chmod 0755 "${work}"
     plant="${work}/plant"; log="${work}/log"
-    mkdir -p "${plant}"
     for name in bash id mktemp; do
         printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${log}" > "${plant}/${name}"
         chmod 0755 "${plant}/${name}"
@@ -339,7 +354,6 @@ else
     if [[ ! -r "${walker_source}" ]]; then
         skip "the walker's isolated start" "the walker is not readable to take its interpreter line from"
     else
-        mkdir -p "${work}/pymod"
         printf 'open(%s, "a").write("python-module\\n")\n' "'${log}'" > "${work}/pymod/ai_tools_planted.py"
         {
             head -n 1 -- "${walker_source}"
@@ -399,13 +413,14 @@ else
     # its own PATH takes the recorder.
     root_plant="${work:+${work}/root-plant}"; root_log="${work:+${work}/root-plant.log}"
     if [[ -n "${root_plant}" ]]; then
-        mkdir -p "${root_plant}"
         for name in bash python3 env id date logger; do
             printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${root_log}" > "${root_plant}/${name}"
             chmod 0755 "${root_plant}/${name}"
         done
     fi
-    if [[ -z "${root_plant}" ]] || ! x_bit_visible "${root_plant}"; then
+    if [[ -z "${root_plant}" && -n "${work_unheld}" ]]; then
+        fail "installed helpers under a planted PATH: another account could replace or write an entry in ${work_unheld}, so no recorder is written or run there"
+    elif [[ -z "${root_plant}" ]] || ! x_bit_visible "${root_plant}"; then
         skip_required "installed helpers under a planted PATH" "no directory here reports a 0755 file as executable (a noexec mount)"
     else
         env -i PATH="${root_plant}:/usr/bin:/bin" /bin/sh -c 'date' > /dev/null 2>&1 || true

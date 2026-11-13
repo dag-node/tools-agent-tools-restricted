@@ -302,6 +302,16 @@ read_unheld_component() {
     done
 }
 
+# clear_default_acl <dir>: remove <dir>'s default ACL, and succeed only when getfacl then reads none, so an entry
+# created inside takes its mode from the creating process alone and not from an entry a parent's default handed down.
+# A read that cannot be made fails, as an ACL left in place does.
+clear_default_acl() {
+    local acl
+    setfacl -k -- "$1" 2>/dev/null || return 1
+    acl="$(getfacl -d --omit-header -- "$1" 2>/dev/null)" || return 1
+    [[ -z "${acl//[[:space:]]/}" ]]
+}
+
 # Teardown removes every artifact a test registered, on any exit. Nothing outside these paths is ever touched. It
 # returns success unconditionally: it runs in the EXIT trap, and under `set -e` a non-zero teardown status -- e.g.
 # the empty-_cleanup loop where the final `[[ -n "" ]]` is false, or an `rm` of an already-gone path -- would otherwise

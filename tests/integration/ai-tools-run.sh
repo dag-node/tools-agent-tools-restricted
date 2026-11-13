@@ -271,43 +271,57 @@ elif ! mk_fixture_dir plant_root /opt/ai-tools startpath 2>/dev/null || [[ -z "$
 elif [[ -n "$(read_unheld_component "${plant_root}" 0)" ]]; then
     fail "ai-tools-run under a planted PATH: the fixture ${plant_root} is not the root-owned directory mktemp made"
 else
+    # The fixture loses any default ACL a parent handed it, and the recorders and their directory are created
+    # under umask 077 and given their modes after, then held, so no account but root writes an entry in them at any
+    # point; the log alone is handed to the sandbox account. The caller's umask is restored after the row.
     chmod 0755 "${plant_root}"
+    plant_umask="$(umask)"; umask 077
     plants="${plant_root}/bin"; plant_log="${plant_root}/record.log"
-    mkdir -m 0755 "${plants}"
-    for name in bash env id stat date logger mktemp; do
-        printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${plant_log}" > "${plants}/${name}"
-        chmod 0755 "${plants}/${name}"
-    done
-    # reset_plant_log: an empty log the sandbox account appends to. read_plant_log: set plant_reached to the log's
-    # entries on one line, the first 4 KiB alone, and to `<unreadable>` where the log is not a regular file.
-    reset_plant_log() {
-        rm -f -- "${plant_log}"; : > "${plant_log}"
-        chown "${SANDBOX_USER}" "${plant_log}"; chmod 0644 "${plant_log}"
-    }
-    read_plant_log() {
-        plant_reached='<unreadable> '
-        [[ -f "${plant_log}" && ! -L "${plant_log}" ]] || return 0
-        plant_reached="$(head -c 4096 -- "${plant_log}" | tr '\n' ' ')" || plant_reached='<unreadable> '
-    }
-    reset_plant_log
-    timeout 10 runuser -u "${SANDBOX_USER}" -- env PATH="${plants}:/usr/bin:/bin" id > /dev/null 2>&1 < /dev/null || true
-    read_plant_log
-    if [[ "${plant_reached}" != 'id ' ]]; then
-        fail "control: a command run as ${SANDBOX_USER} under the planted PATH did not reach the planted id (reached: ${plant_reached:-no recorder}), so the shim's run under it is not driven"
+    plant_ready=0
+    if ! clear_default_acl "${plant_root}"; then
+        fail "ai-tools-run under a planted PATH: the default ACL of ${plant_root} could not be removed or read, so an entry made in it could be another account's to write"
+    elif ! mkdir -- "${plants}" || ! chmod 0755 "${plants}" || [[ -n "$(read_unheld_component "${plants}" 0)" ]]; then
+        fail "ai-tools-run under a planted PATH: ${plants} is not a root-owned directory another account cannot write an entry in"
     else
-        pass "control: a command run as ${SANDBOX_USER} under the planted PATH runs the planted id"
+        plant_ready=1
+    fi
+    if (( plant_ready )); then
+        for name in bash env id stat date logger mktemp; do
+            printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${plant_log}" > "${plants}/${name}"
+            chmod 0755 "${plants}/${name}"
+        done
+        # reset_plant_log: an empty log the sandbox account appends to. read_plant_log: set plant_reached to the log's
+        # entries on one line, the first 4 KiB alone, and to `<unreadable>` where the log is not a regular file.
+        reset_plant_log() {
+            rm -f -- "${plant_log}"; : > "${plant_log}"
+            chown "${SANDBOX_USER}" "${plant_log}"; chmod 0644 "${plant_log}"
+        }
+        read_plant_log() {
+            plant_reached='<unreadable> '
+            [[ -f "${plant_log}" && ! -L "${plant_log}" ]] || return 0
+            plant_reached="$(head -c 4096 -- "${plant_log}" | tr '\n' ' ')" || plant_reached='<unreadable> '
+        }
         reset_plant_log
-        out="$(run_crun PATH="${plants}:/usr/bin:/bin" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+        timeout 10 runuser -u "${SANDBOX_USER}" -- env PATH="${plants}:/usr/bin:/bin" id > /dev/null 2>&1 < /dev/null || true
         read_plant_log
-        if [[ -n "${plant_reached}" ]]; then
-            fail "ai-tools-run under a planted PATH ran the caller's ${plant_reached}(exit ${rc})"
-        elif (( rc != 0 )) && ! grep -qx 'MSG-Z2J9' <<<"${out}" && { grep -qxE 'MSG-(Z9C8|V3Q5|H4E2)' <<<"${out}" \
-                || grep -qE 'is not root-owned or is writable|must run as|ai-ops operators group|no agent is enabled|enabled agents could not be resolved' <<<"${out}"; }; then
-            skip "ai-tools-run under a planted PATH" "it ran no planted command and refused at a gate ahead of the executable check: $(head -n 3 <<<"${out}" | tr '\n' ' ')"
+        if [[ "${plant_reached}" != 'id ' ]]; then
+            fail "control: a command run as ${SANDBOX_USER} under the planted PATH did not reach the planted id (reached: ${plant_reached:-no recorder}), so the shim's run under it is not driven"
         else
-            refused "ai-tools-run under a planted PATH runs no planted command and refuses at the executable check" MSG-Z2J9 "${rc}" "${out}"
+            pass "control: a command run as ${SANDBOX_USER} under the planted PATH runs the planted id"
+            reset_plant_log
+            out="$(run_crun PATH="${plants}:/usr/bin:/bin" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+            read_plant_log
+            if [[ -n "${plant_reached}" ]]; then
+                fail "ai-tools-run under a planted PATH ran the caller's ${plant_reached}(exit ${rc})"
+            elif (( rc != 0 )) && ! grep -qx 'MSG-Z2J9' <<<"${out}" && { grep -qxE 'MSG-(Z9C8|V3Q5|H4E2)' <<<"${out}" \
+                    || grep -qE 'is not root-owned or is writable|must run as|ai-ops operators group|no agent is enabled|enabled agents could not be resolved' <<<"${out}"; }; then
+                skip "ai-tools-run under a planted PATH" "it ran no planted command and refused at a gate ahead of the executable check: $(head -n 3 <<<"${out}" | tr '\n' ' ')"
+            else
+                refused "ai-tools-run under a planted PATH runs no planted command and refuses at the executable check" MSG-Z2J9 "${rc}" "${out}"
+            fi
         fi
     fi
+    umask "${plant_umask}"
 fi
 
 # (2) A correctly-shaped AI_TOOLS_AGENT_EXEC carrying '/../' is refused by the traversal guard.
