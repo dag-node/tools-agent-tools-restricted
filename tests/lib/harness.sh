@@ -274,26 +274,26 @@ mk_fixture_file() {
     _cleanup+=("${_out}")
 }
 
-# read_unheld_component <dir> <uid>...: print the first of <dir> and its ancestors where another account could replace
-# an entry, as `<path> (<uid> <mode>)`, and no line where the whole chain holds. A component holds while it is
-# a directory and not a link, owned by one of <uid>, and either without group and other write or sticky, since a sticky
-# directory lets an account rename only the entries it owns. A root caller holds the chain before it writes a fixture
-# by path or executes one there, so a fixture another account can rename aside and replace with a link does not redirect
-# the write or the exec; a component stat cannot read prints `unreadable` and does not hold.
-read_unheld_component() {
-    local dir="$1" meta owner mode allowed held
+# find_unprotected_path_component <dir> <uid>...: print the first of <dir> and its ancestors where another account could
+# replace an entry, as `<path> (<uid> <mode>)`, and no line where the whole chain is protected. A component is protected
+# while it is a directory and not a link, owned by one of <uid>, and either without group and other write or sticky,
+# since a sticky directory lets an account rename only the entries it owns. A root caller checks the chain before it
+# writes a fixture by path or executes one there, so a fixture another account can rename aside and replace with a link
+# does not redirect the write or the exec; a component stat cannot read prints `unreadable` and is not protected.
+find_unprotected_path_component() {
+    local dir="$1" meta owner mode allowed protected
     shift
     while :; do
         meta="$(stat -c '%u %a' -- "${dir}" 2>/dev/null)" || meta=""
         owner="${meta%% *}"; mode="${meta##* }"
-        held=0
+        protected=0
         if [[ -n "${meta}" && ! -L "${dir}" && -d "${dir}" && "${mode}" =~ ^[0-7]+$ ]]; then
             for allowed in "$@"; do
-                [[ "${owner}" == "${allowed}" ]] && held=1
+                [[ "${owner}" == "${allowed}" ]] && protected=1
             done
-            (( held && (0${mode} & 022) != 0 && (0${mode} & 01000) == 0 )) && held=0
+            (( protected && (0${mode} & 022) != 0 && (0${mode} & 01000) == 0 )) && protected=0
         fi
-        if (( ! held )); then
+        if (( ! protected )); then
             printf '%s (%s)\n' "${dir}" "${meta:-unreadable}"
             return 0
         fi
@@ -365,6 +365,16 @@ extract_function() { sed -n "/^$2() {/,/^}/p" -- "$1"; }
 # thing) and register it for teardown. Mode 0755 so an `sudo -u ai-tools` boundary check can traverse in to a fixture
 # (the fixture's own mode is what the check exercises). Sets the global TESTDIR.
 mktestdir() {
+    local unprotected
+    # Root creates the testdir under /tmp and changes it by path, so /tmp and each ancestor are checked first:
+    # in a directory another account can rename entries in, that account could swap the testdir for a link
+    # between mktemp and chmod. A /tmp that fails the check ends the file before the testdir exists.
+    unprotected="$(find_unprotected_path_component /tmp 0)"
+    if [[ -n "${unprotected}" ]]; then
+        fail "the testdir: another account could replace an entry in ${unprotected}, so no testdir is made there"
+        finish || true
+        exit 1
+    fi
     mk_fixture_dir TESTDIR /tmp "${TEST_STEM}"
     chmod 0755 "${TESTDIR}"
 }

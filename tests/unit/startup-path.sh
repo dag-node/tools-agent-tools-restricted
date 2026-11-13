@@ -22,8 +22,8 @@
 #
 # Parts 1 and 2 need neither root nor an install. Parts 3 and 4 exec fixture files, so they need a directory
 # where a 0755 file is executable: the testdir where it qualifies, and a fixture directory in the projects user's home
-# otherwise, each held first to a chain of directories another account cannot replace an entry in. The boundary half is
-# tests/boundary/access.sh: the sandbox account writes none of the directories the PATH names.
+# otherwise, each checked first to be a chain of directories another account cannot replace an entry in. The boundary
+# half is tests/boundary/access.sh: the sandbox account writes none of the directories the PATH names.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 
@@ -129,35 +129,36 @@ require_program() {
 
 mktestdir
 # Root writes fixtures into the testdir by name and part 4 executes some of them, so before the first entry is made
-# there the testdir and each ancestor are held (read_unheld_component), its default ACL is removed, so an entry made
-# inside does not inherit write from one /tmp hands down (clear_default_acl), and every entry from here on is created
-# under umask 077 and given its mode after. A testdir that does not hold ends the file before any write in it.
+# there the testdir and each ancestor are checked (find_unprotected_path_component), its default ACL is removed,
+# so an entry made inside does not inherit write from one /tmp hands down (clear_default_acl), and every entry from here
+# on is created under umask 077 and given its mode after. A testdir that fails the check ends the file before any write
+# in it.
 umask 077
-testdir_unheld="$(read_unheld_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
-if [[ -z "${testdir_unheld}" ]] && ! clear_default_acl "${TESTDIR}"; then
-    testdir_unheld="${TESTDIR} (its default ACL could not be removed or read)"
+testdir_unprotected="$(find_unprotected_path_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
+if [[ -z "${testdir_unprotected}" ]] && ! clear_default_acl "${TESTDIR}"; then
+    testdir_unprotected="${TESTDIR} (its default ACL could not be removed or read)"
 fi
-if [[ -n "${testdir_unheld}" ]]; then
-    fail "the testdir: another account could replace or write an entry in ${testdir_unheld}, so no fixture is written there"
+if [[ -n "${testdir_unprotected}" ]]; then
+    fail "the testdir: another account could replace or write an entry in ${testdir_unprotected}, so no fixture is written there"
     finish
     exit 1
 fi
-# make_held_dir <dir>: create <dir> under the testdir's guard and hold it before anything is written in it; returns 1
-# with the failure recorded where it does not hold.
-make_held_dir() {
-    local unheld
+# create_checked_dir <dir>: create <dir> under the testdir's guard and check it before anything is written in it;
+# returns 1 with the failure recorded where the check fails.
+create_checked_dir() {
+    local unprotected
     mkdir -- "$1" 2>/dev/null || { fail "could not create ${1}"; return 1; }
-    unheld="$(read_unheld_component "$1" 0 "${PROJECTS_UID}")"
-    [[ -z "${unheld}" ]] || { fail "another account could replace or write an entry in ${unheld}"; return 1; }
+    unprotected="$(find_unprotected_path_component "$1" 0 "${PROJECTS_UID}")"
+    [[ -z "${unprotected}" ]] || { fail "another account could replace or write an entry in ${unprotected}"; return 1; }
 }
 
 # ── 0. The fixture guards ────────────────────────────────────────────────────────────────────
 # The two harness predicates every later write here rests on, over fixtures each must decide: a directory carrying
 # a default ACL that grants write loses it and a directory made under it afterwards carries base entries alone,
-# and the chain reader names a group-writable directory and a link while it holds a sticky one.
+# and the chain reader names a group-writable directory and a link and passes a sticky one.
 section "program start: the fixture guards (unit)"
 guards="${TESTDIR}/guards"
-if make_held_dir "${guards}"; then
+if create_checked_dir "${guards}"; then
     mkdir -- "${guards}/hostile" "${guards}/group-writable" "${guards}/sticky"
     chmod 0700 "${guards}/hostile"; chmod 0770 "${guards}/group-writable"; chmod 1777 "${guards}/sticky"
     ln -s "${guards}/sticky" "${guards}/link"
@@ -176,19 +177,19 @@ if make_held_dir "${guards}"; then
             fail "a directory made after clear_default_acl carries: ${guard_child_acl:-an ACL getfacl could not read}"
         fi
     fi
-    if [[ "$(read_unheld_component "${guards}/group-writable" 0 "${PROJECTS_UID}")" == "${guards}/group-writable "* \
-            && "$(read_unheld_component "${guards}/link" 0 "${PROJECTS_UID}")" == "${guards}/link "* \
-            && -z "$(read_unheld_component "${guards}/sticky" 0 "${PROJECTS_UID}")" ]]; then
-        pass "read_unheld_component names a group-writable directory and a link, and holds a sticky one"
+    if [[ "$(find_unprotected_path_component "${guards}/group-writable" 0 "${PROJECTS_UID}")" == "${guards}/group-writable "* \
+            && "$(find_unprotected_path_component "${guards}/link" 0 "${PROJECTS_UID}")" == "${guards}/link "* \
+            && -z "$(find_unprotected_path_component "${guards}/sticky" 0 "${PROJECTS_UID}")" ]]; then
+        pass "find_unprotected_path_component names a group-writable directory and a link, and passes a sticky one"
     else
-        fail "read_unheld_component misread the group-writable, link or sticky fixture under ${guards}"
+        fail "find_unprotected_path_component misread the group-writable, link or sticky fixture under ${guards}"
     fi
 fi
 
 # ── 1. The checker ───────────────────────────────────────────────────────────────────────────
 section "program start: the checker reports each departure (unit)"
 fixtures="${TESTDIR}/fixtures"
-make_held_dir "${fixtures}" || { finish; exit 1; }
+create_checked_dir "${fixtures}" || { finish; exit 1; }
 # write_fixture <name> <line>...: one fixture file from its lines.
 write_fixture() { local name="$1"; shift; printf '%s\n' "$@" > "${fixtures}/${name}"; }
 write_fixture conforming   "${SHELL_LINE}" '# SPDX' '' '# header' 'set -euo pipefail' '' '# why' "${PATH_LINE}" 'export PATH' 'id'
@@ -287,44 +288,44 @@ shim|${CHECKOUT_DIRS[2]}/ai-tools-run.sh|${INSTALLED_DIRS[2]}/ai-tools-run|id
 updater|${CHECKOUT_DIRS[2]}/nvm-update.sh|${INSTALLED_DIRS[2]}/nvm-update.sh|mktemp"
 # The directory the fixtures are written and run from: the testdir where a 0755 file is executable there, and a fixture
 # directory in the projects user's home otherwise. Root writes recorders there by path and part 4 executes them as root,
-# so the directory and each ancestor are held first to owners another account cannot replace an entry under, root
-# and the projects user (harness.sh, read_unheld_component), and the fixture directory again once mktemp made it.
-# The chosen directory then loses any default ACL a parent handed it (clear_default_acl), everything under it is created
-# under umask 077 and given its mode after, and the recorder directories are made there and held the same way before any
-# file is written in them, so no account but the creator can write an entry at any point. A directory that does not
-# hold, or whose default ACL cannot be removed, fails the mechanics with no fixture written there.
-work="" work_unheld="" unheld_reading=""
-unheld_reading="$(read_unheld_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
-if [[ -n "${unheld_reading}" ]]; then
-    work_unheld="${unheld_reading}"
+# so the directory and each ancestor are checked first for owners another account cannot replace an entry under, root
+# and the projects user (harness.sh, find_unprotected_path_component), and the fixture directory again once mktemp made
+# it. The chosen directory then loses any default ACL a parent handed it (clear_default_acl), everything under it is
+# created under umask 077 and given its mode after, and the recorder directories are made there and checked the same way
+# before any file is written in them, so no account but the creator can write an entry at any point. A directory
+# that fails the check, or whose default ACL cannot be removed, fails the mechanics with no fixture written there.
+work="" work_unprotected="" unprotected_reading=""
+unprotected_reading="$(find_unprotected_path_component "${TESTDIR}" 0 "${PROJECTS_UID}")"
+if [[ -n "${unprotected_reading}" ]]; then
+    work_unprotected="${unprotected_reading}"
 else
-    if make_held_dir "${TESTDIR}/mechanics" && x_bit_visible "${TESTDIR}/mechanics"; then work="${TESTDIR}/mechanics"; fi
+    if create_checked_dir "${TESTDIR}/mechanics" && x_bit_visible "${TESTDIR}/mechanics"; then work="${TESTDIR}/mechanics"; fi
 fi
 if [[ -z "${work}" ]]; then
-    unheld_reading="$(read_unheld_component "${PROJECTS_HOME}" 0 "${PROJECTS_UID}")"
-    if [[ -z "${unheld_reading}" ]] && mk_fixture_dir work "${PROJECTS_HOME}" startup 2>/dev/null && [[ -n "${work}" ]]; then
-        unheld_reading="$(read_unheld_component "${work}" 0 "${PROJECTS_UID}")"
-        if [[ -n "${unheld_reading}" ]] || ! x_bit_visible "${work}"; then work=""; fi
+    unprotected_reading="$(find_unprotected_path_component "${PROJECTS_HOME}" 0 "${PROJECTS_UID}")"
+    if [[ -z "${unprotected_reading}" ]] && mk_fixture_dir work "${PROJECTS_HOME}" startup 2>/dev/null && [[ -n "${work}" ]]; then
+        unprotected_reading="$(find_unprotected_path_component "${work}" 0 "${PROJECTS_UID}")"
+        if [[ -n "${unprotected_reading}" ]] || ! x_bit_visible "${work}"; then work=""; fi
     else
         work=""
     fi
-    [[ -z "${unheld_reading}" ]] || work_unheld+="${work_unheld:+; }${unheld_reading}"
+    [[ -z "${unprotected_reading}" ]] || work_unprotected+="${work_unprotected:+; }${unprotected_reading}"
 fi
 if [[ -n "${work}" ]]; then
     chmod 0755 "${work}"
     if ! clear_default_acl "${work}"; then
-        work_unheld+="${work_unheld:+; }${work} (its default ACL could not be removed or read)"; work=""
+        work_unprotected+="${work_unprotected:+; }${work} (its default ACL could not be removed or read)"; work=""
     else
-        unheld_reading=""
+        unprotected_reading=""
         for sub in plant root-plant pymod; do
             mkdir -- "${work}/${sub}" && chmod 0755 "${work}/${sub}"
-            [[ -n "${unheld_reading}" ]] || unheld_reading="$(read_unheld_component "${work}/${sub}" 0 "${PROJECTS_UID}")"
+            [[ -n "${unprotected_reading}" ]] || unprotected_reading="$(find_unprotected_path_component "${work}/${sub}" 0 "${PROJECTS_UID}")"
         done
-        if [[ -n "${unheld_reading}" ]]; then work_unheld+="${work_unheld:+; }${unheld_reading}"; work=""; fi
+        if [[ -n "${unprotected_reading}" ]]; then work_unprotected+="${work_unprotected:+; }${unprotected_reading}"; work=""; fi
     fi
 fi
-if [[ -z "${work}" && -n "${work_unheld}" ]]; then
-    fail "the mechanics: another account could replace or write an entry in ${work_unheld}, so no fixture is written or run there"
+if [[ -z "${work}" && -n "${work_unprotected}" ]]; then
+    fail "the mechanics: another account could replace or write an entry in ${work_unprotected}, so no fixture is written or run there"
 elif [[ -z "${work}" ]]; then
     skip_required "the mechanics" "no directory here reports a 0755 file as executable (a noexec mount)"
 else
@@ -472,8 +473,8 @@ else
             chmod 0755 "${root_plant}/${name}"
         done
     fi
-    if [[ -z "${root_plant}" && -n "${work_unheld}" ]]; then
-        fail "installed helpers under a planted PATH: another account could replace or write an entry in ${work_unheld}, so no recorder is written or run there"
+    if [[ -z "${root_plant}" && -n "${work_unprotected}" ]]; then
+        fail "installed helpers under a planted PATH: another account could replace or write an entry in ${work_unprotected}, so no recorder is written or run there"
     elif [[ -z "${root_plant}" ]] || ! x_bit_visible "${root_plant}"; then
         skip_required "installed helpers under a planted PATH" "no directory here reports a 0755 file as executable (a noexec mount)"
     else

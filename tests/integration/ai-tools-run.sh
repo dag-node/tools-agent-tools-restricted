@@ -256,63 +256,64 @@ refused "ai-tools-run refuses a AI_TOOLS_AGENT_EXEC outside the versioned-launch
 # interpreter and the commands it runs first. Each recorder appends its name to a log the sandbox account writes inside
 # a root-owned directory, which root reads as data with a bound. The directory is a fixture inside /opt/ai-tools,
 # the account's home, which the account traverses and executes from on every host a session runs on, where /tmp
-# and an operator's home need not be. Root writes through that path by name, so the row first holds /opt/ai-tools
+# and an operator's home need not be. Root writes through that path by name, so the row first checks /opt/ai-tools
 # and each ancestor, then the fixture once it exists, to root-owned directories another account cannot replace an entry
-# in (harness.sh, read_unheld_component): inside such a chain every later write in the fixture lands where root made it.
-# A chain that does not hold fails the row with no write. The control runs `id` under the same PATH and must reach its
-# recorder. Any log entry after the shim fails the row whatever the shim printed, since a shim holding its interpreter
-# line and lacking its PATH lines reaches a planted `stat` at its first gate.
-plant_root=""
-plant_unheld="$(read_unheld_component /opt/ai-tools 0)"
-if [[ -n "${plant_unheld}" ]]; then
-    fail "ai-tools-run under a planted PATH: another account could replace an entry in ${plant_unheld}, so root does not write a fixture through it"
-elif ! mk_fixture_dir plant_root /opt/ai-tools startpath 2>/dev/null || [[ -z "${plant_root}" ]]; then
+# in (harness.sh, find_unprotected_path_component): inside such a chain every later write in the fixture lands
+# where root made it. A chain that fails the check fails the row with no write. The control runs `id` under the same
+# PATH and must reach its recorder. Any log entry after the shim fails the row whatever the shim printed, since a shim
+# holding its interpreter line and lacking its PATH lines reaches a planted `stat` at its first gate.
+recorder_root=""
+recorder_unprotected="$(find_unprotected_path_component /opt/ai-tools 0)"
+if [[ -n "${recorder_unprotected}" ]]; then
+    fail "ai-tools-run under a planted PATH: another account could replace an entry in ${recorder_unprotected}, so root does not write a fixture through it"
+elif ! mk_fixture_dir recorder_root /opt/ai-tools startpath 2>/dev/null || [[ -z "${recorder_root}" ]]; then
     fail "ai-tools-run under a planted PATH: no fixture directory could be made in /opt/ai-tools"
-elif [[ -n "$(read_unheld_component "${plant_root}" 0)" ]]; then
-    fail "ai-tools-run under a planted PATH: the fixture ${plant_root} is not the root-owned directory mktemp made"
+elif [[ -n "$(find_unprotected_path_component "${recorder_root}" 0)" ]]; then
+    fail "ai-tools-run under a planted PATH: the fixture ${recorder_root} is not the root-owned directory mktemp made"
 else
     # The fixture loses any default ACL a parent handed it, and the recorders and their directory are created
-    # under umask 077 and given their modes after, then held, so no account but root writes an entry in them at any
+    # under umask 077 and given their modes after, then checked, so no account but root writes an entry in them at any
     # point; the log alone is handed to the sandbox account. The caller's umask is restored after the row.
-    chmod 0755 "${plant_root}"
-    plant_umask="$(umask)"; umask 077
-    plants="${plant_root}/bin"; plant_log="${plant_root}/record.log"
-    plant_ready=0
-    if ! clear_default_acl "${plant_root}"; then
-        fail "ai-tools-run under a planted PATH: the default ACL of ${plant_root} could not be removed or read, so an entry made in it could be another account's to write"
-    elif ! mkdir -- "${plants}" || ! chmod 0755 "${plants}" || [[ -n "$(read_unheld_component "${plants}" 0)" ]]; then
-        fail "ai-tools-run under a planted PATH: ${plants} is not a root-owned directory another account cannot write an entry in"
+    chmod 0755 "${recorder_root}"
+    recorder_umask="$(umask)"; umask 077
+    recorder_dir="${recorder_root}/bin"; recorder_log="${recorder_root}/record.log"
+    recorder_ready=0
+    if ! clear_default_acl "${recorder_root}"; then
+        fail "ai-tools-run under a planted PATH: the default ACL of ${recorder_root} could not be removed or read, so an entry made in it could be another account's to write"
+    elif ! mkdir -- "${recorder_dir}" || ! chmod 0755 "${recorder_dir}" || [[ -n "$(find_unprotected_path_component "${recorder_dir}" 0)" ]]; then
+        fail "ai-tools-run under a planted PATH: ${recorder_dir} is not a root-owned directory another account cannot write an entry in"
     else
-        plant_ready=1
+        recorder_ready=1
     fi
-    if (( plant_ready )); then
+    if (( recorder_ready )); then
         for name in bash env id stat date logger mktemp; do
-            printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${plant_log}" > "${plants}/${name}"
-            chmod 0755 "${plants}/${name}"
+            printf '#!/bin/sh\nprintf "%%s\\n" %s >> "%s"\nexit 97\n' "${name}" "${recorder_log}" > "${recorder_dir}/${name}"
+            chmod 0755 "${recorder_dir}/${name}"
         done
-        # reset_plant_log: an empty log the sandbox account appends to. read_plant_log: set plant_reached to the log's
-        # entries on one line, the first 4 KiB alone, and to `<unreadable>` where the log is not a regular file.
-        reset_plant_log() {
-            rm -f -- "${plant_log}"; : > "${plant_log}"
-            chown "${SANDBOX_USER}" "${plant_log}"; chmod 0644 "${plant_log}"
+        # reset_recorder_log: an empty log the sandbox account appends to. read_recorder_log: set recorder_reached
+        # to the log's entries on one line, the first 4 KiB alone, and to `<unreadable>` where the log is not a regular
+        # file.
+        reset_recorder_log() {
+            rm -f -- "${recorder_log}"; : > "${recorder_log}"
+            chown "${SANDBOX_USER}" "${recorder_log}"; chmod 0644 "${recorder_log}"
         }
-        read_plant_log() {
-            plant_reached='<unreadable> '
-            [[ -f "${plant_log}" && ! -L "${plant_log}" ]] || return 0
-            plant_reached="$(head -c 4096 -- "${plant_log}" | tr '\n' ' ')" || plant_reached='<unreadable> '
+        read_recorder_log() {
+            recorder_reached='<unreadable> '
+            [[ -f "${recorder_log}" && ! -L "${recorder_log}" ]] || return 0
+            recorder_reached="$(head -c 4096 -- "${recorder_log}" | tr '\n' ' ')" || recorder_reached='<unreadable> '
         }
-        reset_plant_log
-        timeout 10 runuser -u "${SANDBOX_USER}" -- env PATH="${plants}:/usr/bin:/bin" id > /dev/null 2>&1 < /dev/null || true
-        read_plant_log
-        if [[ "${plant_reached}" != 'id ' ]]; then
-            fail "control: a command run as ${SANDBOX_USER} under the planted PATH did not reach the planted id (reached: ${plant_reached:-no recorder}), so the shim's run under it is not driven"
+        reset_recorder_log
+        timeout 10 runuser -u "${SANDBOX_USER}" -- env PATH="${recorder_dir}:/usr/bin:/bin" id > /dev/null 2>&1 < /dev/null || true
+        read_recorder_log
+        if [[ "${recorder_reached}" != 'id ' ]]; then
+            fail "control: a command run as ${SANDBOX_USER} under the planted PATH did not reach the planted id (reached: ${recorder_reached:-no recorder}), so the shim's run under it is not driven"
         else
             pass "control: a command run as ${SANDBOX_USER} under the planted PATH runs the planted id"
-            reset_plant_log
-            out="$(run_crun PATH="${plants}:/usr/bin:/bin" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
-            read_plant_log
-            if [[ -n "${plant_reached}" ]]; then
-                fail "ai-tools-run under a planted PATH ran the caller's ${plant_reached}(exit ${rc})"
+            reset_recorder_log
+            out="$(run_crun PATH="${recorder_dir}:/usr/bin:/bin" AI_TOOLS_AGENT_EXEC=/bin/sh)" && rc=0 || rc=$?
+            read_recorder_log
+            if [[ -n "${recorder_reached}" ]]; then
+                fail "ai-tools-run under a planted PATH ran the caller's ${recorder_reached}(exit ${rc})"
             elif (( rc != 0 )) && ! grep -qx 'MSG-Z2J9' <<<"${out}" && { grep -qxE 'MSG-(Z9C8|V3Q5|H4E2)' <<<"${out}" \
                     || grep -qE 'is not root-owned or is writable|must run as|ai-ops operators group|no agent is enabled|enabled agents could not be resolved' <<<"${out}"; }; then
                 skip "ai-tools-run under a planted PATH" "it ran no planted command and refused at a gate ahead of the executable check: $(head -n 3 <<<"${out}" | tr '\n' ' ')"
@@ -321,7 +322,7 @@ else
             fi
         fi
     fi
-    umask "${plant_umask}"
+    umask "${recorder_umask}"
 fi
 
 # (2) A correctly-shaped AI_TOOLS_AGENT_EXEC carrying '/../' is refused by the traversal guard.

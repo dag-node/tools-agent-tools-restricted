@@ -182,10 +182,12 @@ the exit status, the call log, the state digest — is unaffected, and a baselin
 
 ## Hermeticity contract
 
-Every test works **only inside its own dedicated `/tmp` testdir** (`mktestdir` sets `TESTDIR`), builds its fixtures
-there with **known content defined in the test**, never reads or writes the operator's real files (notably the real
-`~/.config/ai-tools/project-registry`), and removes everything it created on exit (the harness `EXIT` trap). A test
-never relies on arbitrary pre-existing state, and never touches a path outside its testdir boundary.
+Every test works **only inside its own dedicated `/tmp` testdir** (`mktestdir` sets `TESTDIR`, and ends the file
+before it creates one where `/tmp` or an ancestor is a directory another account can rename an entry
+in, `find_unprotected_path_component`), builds its fixtures there with **known content defined in the test**, never
+reads or writes the operator's real files (notably the real `~/.config/ai-tools/project-registry`), and removes
+everything it created on exit (the harness `EXIT` trap). A test never relies on arbitrary pre-existing state, and never
+touches a path outside its testdir boundary.
 
 **The invoker's process state is not a fixture either.** `run.sh` and the harness do not pin a umask, so a file runs
 under whatever `sudo` hands it — `077` on a host whose `login.defs` sets `UMASK 077` — and `runuser` passes that umask
@@ -601,39 +603,39 @@ through its launcher symlinks.
 
 `startup-path.sh` is the runtime half of the start every root helper shares
 ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)), which the confinement shim and the updater take as well
-([launch](launch.rule.md), [updater](updater.rule.md)). Before its first write it holds its testdir and each ancestor
-(`read_unheld_component`, `lib/harness.sh`), removes the testdir's default ACL (`clear_default_acl`) and creates every
-entry under `umask 077`, ending the file where one of these does not hold, and drives those two predicates
+([launch](launch.rule.md), [updater](updater.rule.md)). Before its first write it checks its testdir and each ancestor
+(`find_unprotected_path_component`, `lib/harness.sh`), removes the testdir's default ACL (`clear_default_acl`)
+and creates every entry under `umask 077`, ending the file where one of these fails, and drives those two predicates
 over fixtures: a default ACL that grants write removed and a directory made after carrying base entries alone,
-a group-writable directory and a link named, a sticky one held. Its checker is driven next over fixtures it must report
-— an `env` interpreter line, bash without `-p`, a missing, late or different `PATH` line, a missing `export`, a Python
-line without `-I` under any name but the one the file exempts, `ai-tools-handback` — beside ones it must pass, and then
-reads every file in the checkout's helper directory, contributed-command directory and `/opt/ai-tools/bin`, the listing
-being the set, so a program added without the lines fails the file. A program's `PATH` line is the helpers' value unless
-the file's own table names the program, and the updater is named there with its unit's value: the name is the file's
-without `.sh`, so the checkout copy and the installed one read alike, and a fixture carrying the updater's value
-under another name, and one carrying the helpers' value under the updater's, are each reported. The shim and the updater
-are held to the shell start by name, ahead of the Python rule, so an isolated Python line under either name is reported.
-Both are required by name as regular files in both trees, the installed updater where its unit is installed, so a copy
-absent or replaced by a link does not leave the directory's pass standing. The mechanics run on a synthetic program
-built from each of three real heads — a root helper's, the shim's and the updater's — with recorders named `bash`, `id`
-and `mktemp` first on the caller's `PATH`, a `BASH_ENV` file and an exported function: the run reaches none of them,
-and three controls each undo one part of the head and show what it kept out, the `env` line running the planted `bash`,
-the head without its `PATH` lines running the recorder for the command the program runs first by name, and the head
-without `-p` taking the file and the function. The installed updater is not run, since its argument is a version and it
-installs the `EXIT` trap that rewrites the live stamp before its identity guard; the static read of its start covers it.
-The walker's own interpreter line is driven the same way over a script importing a module the caller's `PYTHONPATH`
-names, beside `python3` without `-I` as the control that imports it. As root it reads every installed program
-through the same checker and runs `ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals under a `PATH`
-led by recorders, each held to its usage status and an empty recorder log, behind a control that a shell keeping its
-caller's `PATH` runs a recorder. The recorders are root-owned, in a directory root made: a run that reached one would
-execute it as root, so a directory the sandbox account writes is not what leads that `PATH`. The mechanics
+a group-writable directory and a link named, a sticky one passed. Its checker is driven next over fixtures it must
+report — an `env` interpreter line, bash without `-p`, a missing, late or different `PATH` line, a missing `export`,
+a Python line without `-I` under any name but the one the file exempts, `ai-tools-handback` — beside ones it must pass,
+and then reads every file in the checkout's helper directory, contributed-command directory and `/opt/ai-tools/bin`,
+the listing being the set, so a program added without the lines fails the file. A program's `PATH` line is the helpers'
+value unless the file's own table names the program, and the updater is named there with its unit's value: the name is
+the file's without `.sh`, so the checkout copy and the installed one read alike, and a fixture carrying the updater's
+value under another name, and one carrying the helpers' value under the updater's, are each reported. The shim
+and the updater are held to the shell start by name, ahead of the Python rule, so an isolated Python line under either
+name is reported. Both are required by name as regular files in both trees, the installed updater where its unit is
+installed, so a copy absent or replaced by a link does not leave the directory's pass standing. The mechanics run
+on a synthetic program built from each of three real heads — a root helper's, the shim's and the updater's —
+with recorders named `bash`, `id` and `mktemp` first on the caller's `PATH`, a `BASH_ENV` file and an exported function:
+the run reaches none of them, and three controls each undo one part of the head and show what it kept out, the `env`
+line running the planted `bash`, the head without its `PATH` lines running the recorder for the command the program runs
+first by name, and the head without `-p` taking the file and the function. The installed updater is not run, since its
+argument is a version and it installs the `EXIT` trap that rewrites the live stamp before its identity guard; the static
+read of its start covers it. The walker's own interpreter line is driven the same way over a script importing a module
+the caller's `PYTHONPATH` names, beside `python3` without `-I` as the control that imports it. As root it reads every
+installed program through the same checker and runs `ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals
+under a `PATH` led by recorders, each held to its usage status and an empty recorder log, behind a control that a shell
+keeping its caller's `PATH` runs a recorder. The recorders are root-owned, in a directory root made: a run that reached
+one would execute it as root, so a directory the sandbox account writes is not what leads that `PATH`. The mechanics
 and the planted runs exec their fixtures, from one directory where a `0755` file is executable: the testdir where it
 qualifies, and a fixture directory in the projects user's home under a `noexec` `/tmp`, each written only once it
-and every ancestor are directories another account cannot replace an entry in (`read_unheld_component`,
+and every ancestor are directories another account cannot replace an entry in (`find_unprotected_path_component`,
 `lib/harness.sh`), since part 4 executes what it writes there as root. The chosen directory then loses any default ACL
 a parent handed it (`clear_default_acl`), every entry under it is created under `umask 077` and given its mode
-after, and the recorder directories are held the same way before a file is written in them, so no account
+after, and the recorder directories are checked the same way before a file is written in them, so no account
 but the creator writes an entry there at any point. Its boundary half is `boundary/access.sh`, which holds every
 directory the installed stop helper's `PATH` names and every directory the installed updater's names, wherever
 the updater is installed, with or without its unit, every command in them and each interpreter out of the sandbox
@@ -642,10 +644,10 @@ a directory it cannot list failing the row, and the account tests the entries ro
 searches without listing does not leave its commands untested. `integration/ai-tools-run.sh` runs the installed shim
 as the sandbox account under a `PATH` led by root-owned recorders in a fixture directory inside `/opt/ai-tools`,
 which the account traverses and executes from on every host a session runs on. Root writes the fixture by path,
-so the row first holds `/opt/ai-tools` and each ancestor, and then the fixture, through the same predicate with root
-the one owner, clears the fixture's default ACL and creates and holds the recorders' directory as `startup-path.sh`
-does, and fails with no write where one of these does not hold. The recorders are read from their log before the refusal
-it prints, beside a control that a command run under that `PATH` reaches one. The same file runs the shim's capture
+so the row first checks `/opt/ai-tools` and each ancestor, and then the fixture, through the same predicate with root
+the one owner, clears the fixture's default ACL and creates and checks the recorders' directory as `startup-path.sh`
+does, and fails with no write where one of these fails. The recorders are read from their log before the refusal it
+prints, beside a control that a command run under that `PATH` reaches one. The same file runs the shim's capture
 of `AI_TOOLS_ENTRYPOINT_PIN_DIR`, the library's default and the audit line, read out of the installed files,
 with the variable unset, empty and set, behind a control that the capture run after the default reads an unset variable
 as an override, and reads as source that the line clearing the field and the line reading the variable each precede
