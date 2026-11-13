@@ -766,10 +766,13 @@ _ai_tools_relabel__report_current_label() {
 #   (_ai_tools_relabel__list_entrypoint_name_findings), once per inode, and a finding is printed and leaves
 #   the status alone: the inode carries its type, and the next launch is confined. The one finding that fails is
 #   the launcher's own resolved path mapped to another type (`mismapped`), which the launch preflight refuses on.
+#   A discovery or count walk that did not complete fails it too, ahead of the verdict, which is not decided
+#   from part of a tree.
 #   A match at a path a status line does not print is not labelled and is counted in a `skip` line. A lookup
 #   of the launcher's resolved path that cannot be made fails the same way, with a `skip` line.
 _ai_tools_relabel__label_agent_entrypoint() {
     local agent="$1" pattern link_pattern declared_pattern path other seen finding detail unprintable_count
+    local discovered counted walk_complete=yes
     local status=0 matched=no installed covered=no
     # Resolved BEFORE the rule is applied, so a later refusal still leaves the reconciliation inputs gathered
     # from the same state the launch preflight would see.
@@ -802,18 +805,24 @@ _ai_tools_relabel__label_agent_entrypoint() {
             return 1
         fi
     done
+    # Each discovery is captured, so its walk's status is read: a walk that failed has not listed every file the rule
+    # matches, and the verdict under these loops is not decided from part of a tree.
+    discovered="$(_ai_tools_relabel__find_entrypoint_paths "${pattern}")" || walk_complete=no
     while IFS= read -r path; do
+        [[ -n "${path}" ]] || continue
         matched=yes
         matches+=("${path}")
         [[ "${path}" == "${installed}" ]] && covered=yes
         _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" || status=1
-    done < <(_ai_tools_relabel__find_entrypoint_paths "${pattern}")
+    done <<< "${discovered}"
     if [[ -n "${link_pattern}" ]]; then
+        discovered="$(_ai_tools_relabel__find_entrypoint_paths "${link_pattern}")" || walk_complete=no
         while IFS= read -r path; do
+            [[ -n "${path}" ]] || continue
             link_paths+=("${path}")
             [[ "${path}" == "${installed}" ]] && covered=yes
             _ai_tools_relabel__verify_label "${path}" "${AI_TOOLS_RELABEL__ENTRYPOINT_TYPE}" || status=1
-        done < <(_ai_tools_relabel__find_entrypoint_paths "${link_pattern}")
+        done <<< "${discovered}"
     fi
     # The mapping the launch preflight reads is the database's answer for the path the launcher resolves to. A lookup
     # that cannot be made is a launch the preflight refuses, so it fails here with the reason, whatever the names read
@@ -845,12 +854,20 @@ _ai_tools_relabel__label_agent_entrypoint() {
     done
     unprintable_count=0
     for declared_pattern in "${patterns[@]}"; do
-        unprintable_count=$(( unprintable_count
-                              + $(_ai_tools_relabel__count_unprintable_entrypoint_paths "${declared_pattern}" || true) ))
+        counted="$(_ai_tools_relabel__count_unprintable_entrypoint_paths "${declared_pattern}")" || walk_complete=no
+        [[ "${counted}" =~ ^[0-9]+$ ]] || { counted=0; walk_complete=no; }
+        unprintable_count=$(( unprintable_count + counted ))
     done
     if (( unprintable_count > 0 )); then
         printf 'skip %s left %s file(s) an entrypoint rule matches unlabelled -- each path carries a character a status line does not print\n' \
             "${agent}" "${unprintable_count}"
+    fi
+    # A walk that did not complete: the files it listed are labelled, and whether the launcher's file is
+    # among the matches is not known, so the run fails here with the reason and does not print a verdict.
+    if [[ "${walk_complete}" == no ]]; then
+        printf 'skip %s could not finish reading the files its entrypoint rules match under %s -- the walk did not complete, and a file may be left unlabelled\n' \
+            "${agent}" "${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT}"
+        return 1
     fi
     # Whether the launcher resolves to a copy of a declared entrypoint, the one divergence the toolchain's own links
     # explain. Read by content, a comparison and not an execution, and only once the path check has already failed.

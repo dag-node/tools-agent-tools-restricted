@@ -443,6 +443,8 @@ render_label_report() {
                        agent_label_reason["${subject}"]="walker-unavailable"
                    elif [[ "${detail} ${wanted}" == "could not read what the file-context database maps its entrypoint "* ]]; then
                        agent_label_reason["${subject}"]="entrypoint-mapping-unread"
+                   elif [[ "${detail} ${wanted}" == "could not finish reading the files its entrypoint rules match "* ]]; then
+                       agent_label_reason["${subject}"]="entrypoint-walk-incomplete"
                    else
                        agent_label_reason["${subject}"]="rule-not-registered"
                    fi

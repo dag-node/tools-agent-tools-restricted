@@ -762,9 +762,11 @@ else
         _ai_tools_relabel__read_live_type _ai_tools_relabel__is_entrypoint_policy_active \
         _ai_tools_relabel__count_unprintable_entrypoint_paths \
         ai_tools_providers__list_enabled_agents ai_tools_control_plane__is_agent_config_dir_valid 2>/dev/null || true)"
-    names_unprintable=0
+    # names_walk_fails names the walk a row fails: the entrypoint pattern's discovery, the link pattern's, or the count.
+    names_unprintable=0; names_walk_fails=""
     _ai_tools_relabel__count_unprintable_entrypoint_paths() {
         if [[ "$1" == "${names_entry_pattern}" ]]; then printf '%s\n' "${names_unprintable}"; else printf '0\n'; fi
+        [[ "${names_walk_fails}" != count ]]
     }
     names_declared_link="${names_link_pattern}"; names_refused=""; names_installed="${names_entry}"
     ai_tools_providers__read_agent_manifest_field() {
@@ -777,7 +779,13 @@ else
     ai_tools_providers__is_entrypoint_fcontext_valid() { [[ -n "$1" && "$1" != "${names_refused}" ]]; }
     _ai_tools_relabel__register_fcontext() { CALLS+="$1 $4"$'\n'; return 0; }
     _ai_tools_relabel__find_entrypoint_paths() {
-        if [[ "$1" == "${names_entry_pattern}" ]]; then printf '%s\n' "${names_entry}"; else printf '%s\n' "${names_link}"; fi
+        if [[ "$1" == "${names_entry_pattern}" ]]; then
+            printf '%s\n' "${names_entry}"
+            [[ "${names_walk_fails}" != entry ]]
+        else
+            printf '%s\n' "${names_link}"
+            [[ "${names_walk_fails}" != link ]]
+        fi
     }
     _ai_tools_relabel__verify_label() { CALLS+="verify $1"$'\n'; printf 'ok %s\n' "$1"; }
     ai_tools_relabel__resolve_agent_entrypoint_path() { printf '%s\n' "${names_installed}"; }
@@ -818,6 +826,20 @@ else
     label_is 0 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"skip acme left 2 file(s) an entrypoint rule matches unlabelled -- each path carries a character a status line does not print" \
         "matches at an unprintable path are counted in a skip line and leave the status at 0"
     names_unprintable=0
+    # A walk that did not complete has not listed every file a rule matches: what it listed is labelled, and the run
+    # fails with the reason in place of a verdict, for each discovery and for the count.
+    for names_walk_fails in entry link count; do
+        label_is 1 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"skip acme could not finish reading the files its entrypoint rules match under ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT} -- the walk did not complete, and a file may be left unlabelled" \
+            "a label whose ${names_walk_fails} walk did not complete labels what it listed and fails with the reason"
+    done
+    # The same failed walk over a launcher the listed files do not include: the reason, and no verdict from part
+    # of a tree.
+    names_walk_fails=entry; names_installed="${names_pkg}/bin/elsewhere"
+    label_is 1 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"skip acme could not finish reading the files its entrypoint rules match under ${AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT} -- the walk did not complete, and a file may be left unlabelled" \
+        "a failed walk over a launcher it did not list prints the reason and no stale verdict"
+    names_walk_fails=""
+    label_is 1 "ok ${names_entry}"$'\n'"ok ${names_link}"$'\n'"stale acme ${names_pkg}/bin/elsewhere" \
+        "control: a completed walk over that launcher prints the stale verdict"
     names_installed="${names_link}"
     label_is 0 "ok ${names_entry}"$'\n'"ok ${names_link}" "a launcher that resolves to the declared link name is covered"
     names_declared_link=""
@@ -921,7 +943,7 @@ else
         matchpathcon names_are label_is
     eval "${names_saved}"
     unset names_saved names_root names_pkg names_entry names_link names_literal names_entry_pattern names_link_pattern \
-        names_declared_link names_refused names_installed names_finding names_status names_got names_unprintable \
+        names_declared_link names_refused names_installed names_finding names_status names_got names_unprintable names_walk_fails \
         names_entry_type names_link_type names_lookup CALLS NAMES_READS
 fi
 

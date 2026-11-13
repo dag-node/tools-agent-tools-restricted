@@ -110,6 +110,8 @@ close_run $'skip acme no entrypoint_fcontext declared\nagent acme failed'
 has_line "control: a refused declaration is filed as rule-not-registered" "record acme failed rule-not-registered"
 close_run $'ok /fixture/bin/acme\nskip acme could not read what the file-context database maps its entrypoint /fixture/bin/acme to -- the launch preflight reads that mapping and refuses without it\nagent acme failed'
 has_line "a launcher mapping that could not be read is filed under a reason of its own" "record acme failed entrypoint-mapping-unread"
+close_run $'ok /fixture/bin/acme\nskip acme could not finish reading the files its entrypoint rules match under /fixture -- the walk did not complete, and a file may be left unlabelled\nagent acme failed'
+has_line "a discovery walk that did not complete is filed under a reason of its own" "record acme failed entrypoint-walk-incomplete"
 
 # ── A name of an entrypoint no declared rule covers ──────────────────────────────────────────
 # The entrypoint carries its type, so the run exits 0; the finding is warned about under its code and the agent is filed

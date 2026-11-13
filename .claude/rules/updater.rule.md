@@ -765,12 +765,13 @@ of the files a pattern matches (`_ai_tools_relabel__find_entrypoint_paths`) prin
 from the reportable character set: the class in a declared pattern matches a newline and a space, the sandbox account
 names the directories under the versions root, and a path carrying a newline would read as two lines, the second
 an absolute path of that account's choosing handed to root's `restorecon`. A match at such a path is neither labelled
-nor reverted: a label run counts it in a `skip` line, and a revert returns the status of a path left at its type.
-A revert whose walk for those files did not complete has not listed every file a dropped rule matched, so it says
-that and returns the same status. A versions root confirmed not there does not hold a match; one whose state could not
-be read, and a symbolic link in its place, which is not followed, are each a walk that did not complete. A lookup
-of the launcher's resolved path that cannot be made fails the agent's entrypoint with the reason, since the launch
-preflight reads that mapping and refuses without it.
+nor reverted: a label run counts it in a `skip` line, and a revert returns the status of a path left at its type. A walk
+for those files that did not complete has not listed every file a rule matches: a label run labels what it listed
+and fails with that reason in place of a verdict, which is not decided from part of a tree, and a revert says the same
+and returns the status of a path left at its type. A versions root confirmed not there does not hold a match; one
+whose state could not be read, and a symbolic link in its place, which is not followed, are each a walk that did not
+complete. A lookup of the launcher's resolved path that cannot be made fails the agent's entrypoint with the reason,
+since the launch preflight reads that mapping and refuses without it.
 
 **The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
 overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file
