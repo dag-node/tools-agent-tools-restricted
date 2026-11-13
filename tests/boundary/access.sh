@@ -114,20 +114,30 @@ else
 fi
 
 # The boundary half of the start every root helper shares (cli.rule.md, ref-section-g7c8; unit/startup-path.sh is
-# the runtime half). From the agent's side none of what a helper starts from may be writable: not a directory on its
-# PATH, not an interpreter, and no ancestor of either, where a rename would put another directory at the name. The PATH
-# is read from the installed stop helper, as root, so the row follows the line the helpers carry. The control is
-# a directory the account does write: a probe that could not answer yes there would pass every path under it.
+# the runtime half), which the shim and the updater take as well. From the agent's side none of what a program starts
+# from may be writable: not a directory on its PATH, not an interpreter, and no ancestor of either, where a rename would
+# put another directory at the name. The PATHs are read as root from the installed stop helper, whose line the helpers
+# and the shim carry, and from the installed updater, whose line is its unit's, where ai-tools-integration-nodejs
+# installed that unit. The control is a directory the account does write: a probe that could not answer yes there would
+# pass every path under it.
 _start_helper="${sbindir}/ai-tools-stop"
 _start_path="$(sed -n 's/^PATH=//p' -- "${_start_helper}" 2>/dev/null)" || _start_path=""
+_start_updater=/opt/ai-tools/bin/nvm-update.sh
+_updater_path=""
+if [[ -e /usr/lib/systemd/user/nvm-update.service || -L /usr/lib/systemd/user/nvm-update.service ]]; then
+    _updater_path="$(sed -n 's/^PATH=//p' -- "${_start_updater}" 2>/dev/null)" || _updater_path=""
+    [[ -n "${_updater_path}" ]] || _updater_path="<unread>"
+fi
 if [[ ! "${_start_path}" =~ ^/[^[:space:]]*$ ]]; then
     fail "could not read one PATH line from ${_start_helper} -- the directories a root helper finds its commands in are not checked"
+elif [[ -n "${_updater_path}" && ! "${_updater_path}" =~ ^/[^[:space:]]*$ ]]; then
+    fail "could not read one PATH line from ${_start_updater} -- the directories the updater finds its commands in are not checked"
 elif ! runuser -u "${SANDBOX_USER}" -- test -w /tmp 2>/dev/null; then
     fail "control: the write probe does not report /tmp writable for ${SANDBOX_USER} -- the helpers' command directories are not checked"
 else
     declare -A _start_seen=()
     _start_writable=() _start_unresolved=()
-    IFS=: read -r -a _start_entries <<< "${_start_path}"
+    IFS=: read -r -a _start_entries <<< "${_start_path}${_updater_path:+:${_updater_path}}"
     for _entry in "${_start_entries[@]}" /usr/bin/bash /usr/bin/python3; do
         if ! _real="$(realpath -e -- "${_entry}" 2>/dev/null)"; then
             _start_unresolved+=("${_entry}"); continue
@@ -141,11 +151,11 @@ else
         done
     done
     if (( ${#_start_unresolved[@]} > 0 )); then
-        fail "a path a root helper starts from does not resolve on this host: ${_start_unresolved[*]}"
+        fail "a path a root helper, the shim or the updater starts from does not resolve on this host: ${_start_unresolved[*]}"
     elif (( ${#_start_writable[@]} > 0 )); then
-        fail "can write ${_start_writable[*]} -- agent could place the interpreter or a command a root helper runs"
+        fail "can write ${_start_writable[*]} -- agent could place the interpreter or a command a root helper, the shim or the updater runs"
     else
-        pass "cannot write any of the ${#_start_seen[@]} paths a root helper starts from (${_start_path}, the interpreters, their ancestors)"
+        pass "cannot write any of the ${#_start_seen[@]} paths a root helper, the shim or the updater starts from (${_start_path}${_updater_path:+ and ${_updater_path}}, the interpreters, their ancestors)"
     fi
 
     # The commands in those directories. A file can be writable where its directory is not, through its own mode
@@ -175,7 +185,7 @@ else
     if ! grep -qx control <<< "${_start_report}" || [[ ! "${_start_count}" =~ ^[1-9][0-9]*$ ]]; then
         fail "the agent-side test of the commands in ${_start_dirs[*]} did not run to its end (control or count missing) -- not checked"
     elif [[ -n "${_start_commands}" ]]; then
-        fail "can write a command a root helper may run: $(tr '\n' ' ' <<< "${_start_commands}")"
+        fail "can write a command a root helper, the shim or the updater may run: $(tr '\n' ' ' <<< "${_start_commands}")"
     else
         pass "cannot write any of the ${_start_count} entries in ${_start_dirs[*]}, each link read as the file it resolves to"
     fi

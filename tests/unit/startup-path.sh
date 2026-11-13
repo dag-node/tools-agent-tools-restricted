@@ -31,6 +31,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 readonly CHECKOUT_DIRS=("${ROOT}/src/usr/local/libexec/ai-tools" "${ROOT}/src/usr/local/lib/ai-tools/admin-commands.d"
     "${ROOT}/src/opt/ai-tools/bin")
 readonly INSTALLED_DIRS=(/usr/local/libexec/ai-tools /usr/local/lib/ai-tools/admin-commands.d /opt/ai-tools/bin)
+readonly NVM_UPDATE_UNIT=/usr/lib/systemd/user/nvm-update.service
 readonly SHELL_LINE='#!/usr/bin/bash -p'
 readonly PATH_LINE='PATH=/usr/sbin:/usr/bin:/sbin:/bin'
 # A program whose PATH line is another value, by program name: the updater carries its unit's PATH (updater.rule.md).
@@ -109,6 +110,18 @@ check_directory() {
     fi
 }
 
+# require_program <label> <dir> <file>: <dir>/<file> is a regular file and not a link, so check_directory read it.
+# The listing is the set a program added later joins; this holds the programs that have no runtime test of their
+# installed copy to the read, so a copy absent or replaced by a link does not leave the directory's pass standing.
+require_program() {
+    local label="$1" dir="$2" file="$3"
+    if [[ -f "${dir}/${file}" && ! -L "${dir}/${file}" ]]; then
+        pass "${label}: ${dir}/${file} is a regular file and was read"
+    else
+        fail "${label}: ${dir}/${file} is absent or not a regular file, so its start was not read"
+    fi
+}
+
 mktestdir
 
 # ── 1. The checker ───────────────────────────────────────────────────────────────────────────
@@ -183,6 +196,10 @@ for dir in "${CHECKOUT_DIRS[@]}"; do
         skip "checkout programs" "${dir} is not in this tree"
     fi
 done
+if [[ -d "${CHECKOUT_DIRS[2]}" ]]; then
+    require_program "checkout" "${CHECKOUT_DIRS[2]}" ai-tools-run.sh
+    require_program "checkout" "${CHECKOUT_DIRS[2]}" nvm-update.sh
+fi
 
 # ── 3. The mechanics ─────────────────────────────────────────────────────────────────────────
 section "program start: a caller's PATH, BASH_ENV and exported function do not reach the program (unit)"
@@ -338,6 +355,14 @@ else
             fail "installed programs: ${dir} is absent beside ${INSTALLED_DIRS[0]}"
         fi
     done
+    # ai-tools-base installs the shim beside the helpers. The updater ships with its unit
+    # in ai-tools-integration-nodejs, so it is required where that unit is installed.
+    require_program "installed" "${INSTALLED_DIRS[2]}" ai-tools-run
+    if [[ -e "${NVM_UPDATE_UNIT}" || -L "${NVM_UPDATE_UNIT}" ]]; then
+        require_program "installed" "${INSTALLED_DIRS[2]}" nvm-update.sh
+    else
+        note "installed programs" "${NVM_UPDATE_UNIT} is absent: ai-tools-integration-nodejs is not installed, so the updater is not required"
+    fi
 
     # A root-owned recorder for each command the two runs resolve, first on PATH, in the directory the mechanics found
     # executable: root made it, and the sandbox account does not write it. The control shows a shell that does not set

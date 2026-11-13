@@ -184,7 +184,7 @@ flow.
 with `#!/usr/bin/bash -p` and the unit's own value, `PATH=/usr/local/bin:/usr/bin:/bin`, set before its first command,
 so a run as the account outside the unit, the manual route an explicit version argument serves, finds its commands
 in the directories the unit's run does; `nvm.sh` then prepends the toolchain's `bin`. `tests/unit/startup-path.sh` reads
-the start.
+the start, and `tests/boundary/access.sh` holds the directories it names out of the account's reach.
 
 ### A `--user unit` here does not carry a mount-namespace option
 

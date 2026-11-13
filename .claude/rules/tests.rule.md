@@ -608,25 +608,33 @@ reads every file in the checkout's helper directory, contributed-command directo
 being the set, so a program added without the lines fails the file. A program's `PATH` line is the helpers' value unless
 the file's own table names the program, and the updater is named there with its unit's value: the name is the file's
 without `.sh`, so the checkout copy and the installed one read alike, and a fixture carrying the updater's value
-under another name, and one carrying the helpers' value under the updater's, are each reported. The mechanics run
-on a synthetic program built from each of three real heads — a root helper's, the shim's and the updater's —
-with recorders named `bash`, `id` and `mktemp` first on the caller's `PATH`, a `BASH_ENV` file and an exported function:
-the run reaches none of them, and three controls each undo one part of the head and show what it kept out, the `env`
-line running the planted `bash`, the head without its `PATH` lines running the recorder for the command the program runs
-first by name, and the head without `-p` taking the file and the function. The installed updater is not run, since its
-argument is a version and it installs the `EXIT` trap that rewrites the live stamp before its identity guard; the static
-read of its start covers it. The walker's own interpreter line is driven the same way over a script importing a module
-the caller's `PYTHONPATH` names, beside `python3` without `-I` as the control that imports it. As root it reads every
-installed program through the same checker and runs `ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals
-under a `PATH` led by recorders, each held to its usage status and an empty recorder log, behind a control that a shell
-keeping its caller's `PATH` runs a recorder. The recorders are root-owned, in a directory root made: a run that reached
-one would execute it as root, so a directory the sandbox account writes is not what leads that `PATH`. The mechanics
+under another name, and one carrying the helpers' value under the updater's, are each reported. The shim and the updater
+are required by name as regular files in both trees, the installed updater where its unit is installed, so a copy absent
+or replaced by a link does not leave the directory's pass standing. The mechanics run on a synthetic program built
+from each of three real heads — a root helper's, the shim's and the updater's — with recorders named `bash`, `id`
+and `mktemp` first on the caller's `PATH`, a `BASH_ENV` file and an exported function: the run reaches none of them,
+and three controls each undo one part of the head and show what it kept out, the `env` line running the planted `bash`,
+the head without its `PATH` lines running the recorder for the command the program runs first by name, and the head
+without `-p` taking the file and the function. The installed updater is not run, since its argument is a version and it
+installs the `EXIT` trap that rewrites the live stamp before its identity guard; the static read of its start covers it.
+The walker's own interpreter line is driven the same way over a script importing a module the caller's `PYTHONPATH`
+names, beside `python3` without `-I` as the control that imports it. As root it reads every installed program
+through the same checker and runs `ai-tools-audit` and `ai-tools-relabel-tree` to their usage refusals under a `PATH`
+led by recorders, each held to its usage status and an empty recorder log, behind a control that a shell keeping its
+caller's `PATH` runs a recorder. The recorders are root-owned, in a directory root made: a run that reached one would
+execute it as root, so a directory the sandbox account writes is not what leads that `PATH`. The mechanics
 and the planted runs exec their fixtures, from one directory where a `0755` file is executable: the testdir where it
 qualifies, and `agent-installs.sh`'s fallback beside the operator's home under a `noexec` `/tmp`. Its boundary half is
-`boundary/access.sh`, which holds every directory the `PATH` names, every command in them and each interpreter
+`boundary/access.sh`, which holds every directory the installed stop helper's `PATH` names and every directory
+the installed updater's names, where its unit is installed, every command in them and each interpreter
 out of the sandbox account's reach, and holds the installed shim's `PATH` line to the stop helper's.
-`integration/ai-tools-run.sh` runs the installed shim as the sandbox account under a `PATH` led by root-owned recorders,
-read from its log before the refusal it prints, beside a control that a command run under that `PATH` reaches one.
+`integration/ai-tools-run.sh` runs the installed shim as the sandbox account under a `PATH` led by root-owned recorders
+in a fixture directory inside `/opt/ai-tools`, which the account traverses and executes from on every host a session
+runs on, read from its log before the refusal it prints, beside a control that a command run under that `PATH` reaches
+one. The same file runs the shim's capture of `AI_TOOLS_ENTRYPOINT_PIN_DIR`, the library's default and the audit line,
+read out of the installed files, with the variable unset, empty and set, behind a control that the capture run
+after the default reads an unset variable as an override, and reads as source that the capture precedes the library's
+first load.
 
 `atr.sh` drives the short command over a copy of the wrapper whose two program paths are rewritten to recorders, its
 help library path to the checkout's and its domain and manifest directories to fixtures, with a recording `sudo` first
