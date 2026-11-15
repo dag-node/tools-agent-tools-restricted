@@ -440,12 +440,7 @@ ROWS
 fi
 
 # ── An unverified release: what the reconcile does about the mark beside the pin it leaves ──
-# A reconcile that cannot verify a release leaves the pin as it was. What the next launch reads is decided by the bytes
-# against that pin, so the decision compares checksums first, as the launch does: matching bytes launch, and resolve
-# a mark about bytes against the pin, while a signature failure stands until a run verifies the release. Differing
-# bytes under the pinned version are the change no update explains. Differing bytes under another release take
-# the unverified-release mark, except over the mark of a changed binary, since the installed version is the sandbox
-# account's to write.
+# The rows are the decision's own table (its header in entrypoint-verify.lib.sh), driven without root.
 if ! declare -F ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark >/dev/null 2>&1; then
     skip "unverified release decision" "the installed ${LIB} carries no unverified-release decision -- reinstall to cover it"
 else

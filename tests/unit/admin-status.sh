@@ -248,9 +248,8 @@ for reader in ai_tools_entrypoint_verify__get_stale_path ai_tools_entrypoint_ver
         fail "Entrypoints without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
 done
-# The live reading decides what a pin's fields may claim. An entrypoint this report could not hash is a reading it
-# promises and did not make, so the pin never renders as VERIFIED over it; and a stale mark beside a binary that matches
-# its pin now is a finding that stands, not a refusal of the sessions. The control is the same pin read as matching
+# The live reading decides what a pin's fields may claim: an entrypoint not hashed or not resolved never renders
+# VERIFIED, and a mark beside a matching binary is a standing finding. The control is the same pin read as matching
 # with no mark, which renders VERIFIED. The live verdict is stubbed: the fixture's entrypoint is a dangling link.
 printf 'AGENT=alpha\nVERSION=1.2.3\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' 0 > "${TESTDIR}/pins/alpha"
 chmod 0644 "${TESTDIR}/pins/alpha"

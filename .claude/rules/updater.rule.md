@@ -693,26 +693,17 @@ ownership and defensive reader as the pin and the label record beside it, carryi
 installed when the refusal happened, which the pin by construction does not hold), `REASON`
 (`changed-under-same-version` or `signature-mismatch`) and `DETECTED`.
 
-**A release the reconcile could not verify leaves the pin as it was too**, and the run then compares the installed bytes
-with it, the comparison the launch makes, so what it reports is what the next launch reads
-(`ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark`), and names the outcome in one line after
-`MSG-B6H9`. Bytes that match the pin launch, and clear a mark about bytes against the pin (`release-unverified`,
-`changed-under-same-version`); a signature failure is a finding about the vendor's manifest that matching bytes do not
-resolve, so it stands, named under `MSG-E9Y2`, until a run verifies the release. Bytes that differ under another release
-take the mark, `REASON=release-unverified` with `SHA256` set to the bytes the run read, under a warning (`MSG-E9R7`)
-that the agent's sessions refuse until a run verifies that release; a mark of either refusal reason is left as it is and
-named with the remedy (`MSG-Y9F4`), since the installed version is the sandbox account's to write and an
-unverified-update wording must not replace the mark of a changed binary. Bytes that differ under the pinned version, or
-under a pin whose version does not read, are the change no update explains, reported as the observed tier reports it
-(`MSG-U6H8`, the mark, the remedy). No pin is named, clears a `release-unverified` mark, which no longer describes the
-launch, and leaves a mark of either refusal reason standing under `MSG-E9Y2`; an entrypoint that cannot be hashed is
-named and leaves the mark as it is. **Every outcome of this branch exits 0**, a changed binary included: the release
-could not be verified, an rpm `%post` runs the helper offline, and a failed pin step stops the run before it labels any
-agent; the launch refuses on the pin whatever the run returns, and both status reports count the mark. The launch reads
-the mark to word its refusal and not to decide it: `ai-tools-run` refuses a `mismatch` whatever the mark says, under
-`MSG-P9G4` naming both releases and the reach to the vendor's manifest where the mark reads `release-unverified` and the
-launched binary hashes to its `SHA256`, and under `MSG-H7S2` otherwise, a binary changed after that reconcile included
-([launch](launch.rule.md)).
+**A release the reconcile could not verify leaves the pin as it was too.** The run then compares the installed bytes
+with the pin, as the launch does, so what it records is what the next launch reads, and it names the outcome in one line
+after `MSG-B6H9`; `ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark` holds the outcomes and what each
+one files, keeps or clears. The table follows from what each mark is about. A `release-unverified` mark carries the
+checksum of the bytes the run read, so the wording it gives the launch applies to those bytes alone. A mark of a changed
+binary is kept over an unverified release, since the installed version is the sandbox account's to write and an
+unverified-update wording must not replace it. A signature failure is a finding about the vendor's manifest rather than
+about the bytes, so matching bytes do not clear it; only a run that verifies the release does. **Every outcome of this
+branch exits 0**: the release could not be verified, an rpm `%post` runs the helper offline, and a failed pin step stops
+the run before it labels any agent; the launch refuses on the pin whatever the run returns, and both status reports
+count the mark. How the launch words its refusal from the mark is [launch](launch.rule.md)'s.
 
 The mark is **cleared** by any run that records a pin for that agent — a fresh pin, a re-pin, an observed-tier
 `keep` — so a host that has been repaired stops reporting; a pin with a mark beside it is not reused, so a reused

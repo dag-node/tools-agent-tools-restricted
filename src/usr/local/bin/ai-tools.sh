@@ -6446,19 +6446,10 @@ status_selinux_attestation() {
 }
 
 # status_entrypoint_stale <agent> [strict]  -- report, and return 0, when a reconciliation left a stale mark for this
-# agent: it REFUSED to re-record the pin (an entrypoint that changed in a way no update explains, or a signature that
-# did not verify), or it could not verify a new release (`release-unverified`). Returns non-zero when there is no such
-# mark, which is the ordinary state.
-#
-# The mark is a finding of the run that wrote it, and this account cannot hash the entrypoint to tell whether that
-# binary is still the installed one, so each line states what the mark recorded. A mark about bytes against the pin
-# makes the refusal conditional on that binary, which the pin refuses while it is installed; a signature that did not
-# verify says nothing about the bytes, so its line names the finding and `atr admin status`. Where no pin stands
-# beside it, a launch reads the entrypoint as unpinned, so the line says the finding stands and the sessions start
-# unless the host requires verification. The pin left behind is a valid record of a verification that once
-# succeeded, so without this line the report renders it green. The remedy is the reconcile command, which re-reads
-# the installed binary -- and the commands that replace it are the relabel helper's to print, since only root can name
-# the package directory. status_entrypoint_pins checks the stale-path and pin-path readers before the first agent.
+# agent; returns non-zero when there is none, the ordinary state. What each line states, and why it does not infer
+# the launch's verdict, is cli.rule.md's. The commands that replace a binary are the relabel helper's to print, since
+# only root can name the package directory. status_entrypoint_pins checks the stale-path and pin-path readers before
+# the first agent.
 status_entrypoint_stale() {
     local agent="$1" strict="${2:-no}" record state version reason detected age pin
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
@@ -6481,17 +6472,11 @@ status_entrypoint_stale() {
         say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(with the host reaching the vendor's release manifest)${C_RST}"
         return 0
     fi
-    # An unverified release has a remedy of its own: the binary is the update the reconcile could not check, and
-    # the reconcile run with the vendor reachable pins it, so the line does not send the operator to replace it.
     if [[ "${reason}" == release-unverified ]]; then
         say "      the last reconcile could not verify release${version:+ ${version}} and left the pin of another release, so this agent's sessions refuse to start while that binary is installed"
         say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(with the host reaching the vendor's release manifest)${C_RST}"
         return 0
     fi
-    # A change under the pinned version is a finding about the bytes against the pin, so the refusal follows from it
-    # while that binary is installed. A signature that did not verify is a finding about the vendor's manifest, and
-    # the bytes may still match the pin, in which case the launch starts them: the line states the finding and names
-    # the report that hashes the binary, without inferring the launch's verdict.
     if [[ "${reason}" == changed-under-same-version ]]; then
         say "      a reconciliation found the installed binary${version:+ (${version})} changed under the pinned version, so this agent's sessions refuse to start while that binary is installed"
     else

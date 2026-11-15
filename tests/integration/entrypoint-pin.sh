@@ -246,11 +246,9 @@ else
 fi
 
 # ── (4) The verified tier, a release that cannot be verified ─────────────────────────────────
-# The fixture agent declares a release manifest at an address that refuses the connection, so the reconcile reaches
-# its unable-to-verify branch and leaves the pin as it was. What it then reports is decided by the installed bytes
-# against that pin, as the launch decides: another release with other bytes files the release-unverified mark bound
-# to those bytes, at exit 0 (an rpm %post runs it offline); the pinned bytes launch, and clear that mark; the pinned
-# release with other bytes is the change no update explains, refused as the observed tier refuses it.
+# The fixture agent declares a release manifest at an address that refuses the connection, so every run here reaches
+# the unable-to-verify branch. Each case sets the pin and the mark, and asserts the outcome the decision's table gives
+# (entrypoint-verify.lib.sh) on disk and in the run's output.
 if ! declare -F ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark >/dev/null 2>&1; then
     skip "unverified release" "the installed ${VERIFY_LIB} carries no unverified-release decision -- reinstall to cover it"
 else
@@ -297,8 +295,7 @@ EOF
         fail "no release-unverified mark bound to the installed bytes was filed: $(cat "${stale_dir}/pinprobe" 2>/dev/null)"
     fi
 
-    # (4b) A mark of a changed binary stays: the installed version is the sandbox account's to write, so an unverified
-    # release must not reword the refusal that mark carries.
+    # (4b) Another release, other bytes, under the mark of a changed binary: the mark stays.
     printf 'AGENT=pinprobe\nSTATE=stale\nVERSION=1.2.4\nREASON=signature-mismatch\nDETECTED=1970-01-01T00:00:00Z\n' \
         > "${stale_dir}/pinprobe"
     tamper_mark="$(cat "${stale_dir}/pinprobe")"
@@ -335,8 +332,7 @@ EOF
     else
         fail "restored pinned bytes left a changed-under-same-version mark (exit ${rc}): $(cat "${stale_dir}/pinprobe" 2>/dev/null) ${out}"
     fi
-    # A signature failure is a finding about the vendor's manifest, which matching bytes do not resolve: an offline run
-    # leaves it and names it, beside the line saying the binary matches its pin.
+    # The pinned bytes under a signature-mismatch mark: the mark stays, and is named.
     printf 'AGENT=pinprobe\nSTATE=stale\nVERSION=1.2.4\nREASON=signature-mismatch\nDETECTED=1970-01-01T00:00:00Z\n' \
         > "${stale_dir}/pinprobe"
     signature_mark="$(cat "${stale_dir}/pinprobe")"
@@ -359,8 +355,8 @@ EOF
         fail "the pinned release with the pinned bytes took a mark (exit ${rc}): $(cat "${stale_dir}/pinprobe" 2>/dev/null) ${out}"
     fi
 
-    # (4e) The pinned release with other bytes: the launch refuses, so the run says why and prints the remedy. It
-    # still exits 0 and goes on to the labelling: the release could not be verified, and an rpm %post runs this offline.
+    # (4e) The pinned release with other bytes: the change is reported with its remedy, and the run exits 0 and reaches
+    # the labelling.
     pin_fixture 1.2.4 "${other_sha256}"
     changed_pin="$(cat "${pin_dir}/pinprobe")"
     out="$(run_reconcile)" && rc=0 || rc=$?
@@ -398,9 +394,8 @@ EOF
     fi
     assert_msg MSG-E9Y2 "${out}" "the run names the finding that stands with no pin"
 
-    # (4g) Pin reuse, the unattended callers' path: a pin that answers the question is reused without a manifest fetch,
-    # and a mark beside it is a finding no reuse settles, so the run takes the full verification instead and the mark
-    # stays. The control is the same reusable pin with no mark, which must take the reuse path, so a run that never
+    # (4g) Pin reuse, the unattended callers' path: a reusable pin with a mark beside it takes the full verification,
+    # and the mark stays. The control is the same pin with no mark, which must take the reuse path, so a run that never
     # reached it cannot pass as the refusal to reuse.
     reuse_inputs="$(ai_tools_entrypoint_verify__calculate_inputs_digest 'https://127.0.0.1:9/{version}/manifest.json' \
                         "${TESTDIR}/release-key.asc" 0123456789ABCDEF0123456789ABCDEF01234567 2>/dev/null || true)"

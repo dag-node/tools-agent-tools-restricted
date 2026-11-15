@@ -228,9 +228,7 @@ _ai_tools_relabel_agent__report_changed_under_same_version() {
 }
 
 # _ai_tools_relabel_agent__report_standing_stale_mark <agent> <version> <stale-reason> : name the mark of an earlier
-#   run that the current reading does not resolve -- the launch starts this binary, and the finding stands until a run
-#   verifies the release -- so the reconcile does not erase a finding it could not check, and the operator is told
-#   that it remains.
+#   run that this run's reading does not resolve and leaves standing.
 _ai_tools_relabel_agent__report_standing_stale_mark() {
     local agent="$1" version="$2" stale_reason="$3"
     warn MSG-E9Y2 "the mark of an earlier run for ${agent} (${stale_reason}) stands until a run verifies release ${version} -- check that this host reaches the vendor's release manifest, then run: atr admin system entrypoints relabel"
@@ -351,17 +349,10 @@ pin_agent_entrypoint() {
 }
 
 # _ai_tools_relabel_agent__record_unverified_release_stale_mark <agent> <version> <entrypoint> : after a reconcile
-#   that could not verify <version>, compare the installed bytes with the pin it left, as the launch does, and print
-#   one line saying what the next launch reads, so each outcome is named after MSG-B6H9: a mismatch under another
-#   release files the `release-unverified` mark bound to those bytes, so the launch names the unverified update;
-#   a mismatch under the pinned version is reported as a changed binary, with its mark and remedy; a mark of a changed
-#   binary left from an earlier run is named with the remedy; matching bytes, and an absent pin, clear a mark they
-#   resolve and name one they do not, a signature failure among them, which stands until a run verifies the release.
-#   Which state takes which is ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark's table.
-#
-#   Returns 0 for every outcome, a changed binary included: the release could not be verified, an rpm %post runs this
-#   helper offline, and a failure here would stop the run before it labels any agent. The launch refuses on the pin
-#   whatever this run returns, and both status reports count the mark.
+#   that could not verify <version>, read the pin, the installed bytes and the stale mark, act on the outcome
+#   ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark returns -- file, keep or clear the mark -- and
+#   print the line that says what the next launch reads. Returns 0 for every outcome, a changed binary included;
+#   updater.rule.md (ref-section-b3k5) states why.
 _ai_tools_relabel_agent__record_unverified_release_stale_mark() {
     local agent="$1" version="$2" entrypoint="$3" pinned_sha256 pinned_version installed_sha256 stale_reason
     declare -F ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark >/dev/null 2>&1 || return 0

@@ -188,11 +188,8 @@ ai_tools_entrypoint_verify__evaluate_observed_pin() {
 #                       it is
 #     mark              the bytes differ under another release: file `release-unverified` with <installed-sha256>
 #
-#   The mark selects the wording of a refusal the launch makes either way, and does not decide it. The version
-#   on the installed side comes from a package.json the sandbox account can write, so a mark of a changed binary is
-#   kept: a version set to a release no vendor manifest exists for would otherwise turn it into the unverified-update
-#   wording. The checksum the mark records is what binds that wording to these bytes at the launch. A signature
-#   failure is a finding about the vendor's manifest rather than about these bytes, so only a verification clears it.
+#   Why a mark of a changed binary is kept, why a signature failure stands, and why the mark records a checksum:
+#   updater.rule.md (ref-section-b3k5).
 ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark() {
     local pinned_sha256="${1:-}" pinned_version="${2:-}" installed_version="${3:-}" installed_sha256="${4:-}"
     local stale_reason="${5:-}"

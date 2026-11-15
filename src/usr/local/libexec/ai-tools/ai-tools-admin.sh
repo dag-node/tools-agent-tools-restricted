@@ -2889,14 +2889,10 @@ entrypoint_live_verdict() {
 }
 
 # entrypoint_stale_mark <agent> <live-verdict> <strict>: report, and return 0, when a reconciliation left a stale mark
-# for this agent -- it refused to re-record the pin, or could not verify a new release. The pin is left standing, which
-# is what makes a launch of that binary refuse, so without this the pin's own fields render as a verification that
-# succeeded. The mark is a finding of the run that wrote it, and <live-verdict> is this report's own reading of the
-# installed entrypoint against the pin (entrypoint_live_verdict), so the line states both: where the binary matches its
-# pin or no pin is recorded, its sessions start and the finding stands until a run resolves it; where no entrypoint
-# resolved, the line says it was not compared. A mismatch is reported by status_entrypoints ahead of this. Returns
-# non-zero when there is no mark, which is the ordinary state. status_entrypoints checks the stale-path reader before
-# the first agent.
+# for this agent; returns non-zero when there is none, the ordinary state. The line states the mark beside
+# <live-verdict>, this report's own reading of the installed entrypoint (entrypoint_live_verdict), so a finding that
+# stands is not reported as a refusal the launch does not make (cli.rule.md). status_entrypoints reports a mismatch
+# ahead of this, and checks the stale-path reader before the first agent.
 entrypoint_stale_mark() {
     local agent="$1" live="${2:-}" strict="${3:-no}" record reason version age found now
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"

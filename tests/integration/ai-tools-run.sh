@@ -497,13 +497,11 @@ else
                 fail "the refusal over an observed pin still claims a vendor signed the checksum (${pin_agent}): ${out}"
             fi
 
-            # A reconcile that could not verify a new release leaves the previous release's pin and a mark saying so,
-            # carrying the checksum of the binary it read. The launch still refuses, and names the unverified release
-            # instead of a tampered binary while the entrypoint hashes to that checksum. Two controls keep the tamper
-            # wording, so a refusal that never read the mark, or read it without the bytes, cannot pass as this one:
-            # a mark of another reason, and the same mark naming other bytes -- a binary that changed after
-            # the reconcile. The fixture directory moves through the library's own default, which the shim inherits
-            # from this environment as it does the pin directory.
+            # A release-unverified mark whose checksum is this entrypoint's: the launch refuses under the wording for
+            # an unverified release. Two controls keep the tamper wording, so a refusal that never read the mark, or
+            # read it without the bytes, cannot pass as this one: the same mark naming other bytes, and a mark
+            # of another reason. The fixture directory moves through the library's own default, which the shim
+            # inherits from this environment as it does the pin directory.
             stale_dir="$(mktemp -d)"
             _cleanup+=("${stale_dir}")
             chmod 0755 "${stale_dir}"
