@@ -41,7 +41,7 @@ install `ai-tools-selinux`. Every option is in `man 5 ai-tools-operator.conf`.
 ### A container runs DAC-only
 
 ```bash
-sudo sed -i '/^[[:space:]]*#\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX=/d' /etc/ai-tools/operator.conf
+sudo sed -i '/^[[:space:]]*#\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX[[:space:]]*=/d' /etc/ai-tools/operator.conf
 printf '\nAI_TOOLS_REQUIRE_SELINUX=no\n' | sudo tee -a /etc/ai-tools/operator.conf
 atr status                                  # the SELinux status section names the declaration
 ```

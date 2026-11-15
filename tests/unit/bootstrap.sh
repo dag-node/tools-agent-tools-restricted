@@ -859,6 +859,21 @@ else
         else
             fail "policy not installed notice: $(tr '\n' '|' <<<"${out}")"
         fi
+        # A Permissive host without the policy needs both steps, so the notice names the enforce step as well.
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { printf "module-absent\n"; }
+            getenforce() { printf "Permissive\n"; }')"
+        if grep -qF 'sudo dnf install ai-tools-selinux' <<<"${out}" && grep -qF 'sudo setenforce 1' <<<"${out}"; then
+            pass "the policy not installed on a Permissive host: the notice names the install and the enforce step"
+        else
+            fail "Permissive host without the policy: $(tr '\n' '|' <<<"${out}")"
+        fi
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { printf "module-absent\n"; }
+            getenforce() { printf "Enforcing\n"; }')"
+        if grep -qF 'sudo dnf install ai-tools-selinux' <<<"${out}" && ! grep -qF 'sudo setenforce 1' <<<"${out}"; then
+            pass "the policy not installed on an Enforcing host: the notice names the install alone"
+        else
+            fail "Enforcing host without the policy: $(tr '\n' '|' <<<"${out}")"
+        fi
         out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { return 1; }')"
         if [[ "${out}" == "rc=0" ]]; then
             pass "a reader that names no state prints nothing, at rc 0"

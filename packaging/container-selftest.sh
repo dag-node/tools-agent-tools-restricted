@@ -204,7 +204,7 @@ else
     note "getenforce does not read Disabled here: the DAC-only refusal phase does not apply"
 fi
 phase "declare the container DAC-only (AI_TOOLS_REQUIRE_SELINUX=no)" \
-    bash -c "sed -i '/^[[:space:]]*#\\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX=/d' /etc/ai-tools/operator.conf \
+    bash -c "sed -i '/^[[:space:]]*#\\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX[[:space:]]*=/d' /etc/ai-tools/operator.conf \
              && printf '\\nAI_TOOLS_REQUIRE_SELINUX=no\\n' >> /etc/ai-tools/operator.conf \
              && grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' /etc/ai-tools/operator.conf"
 

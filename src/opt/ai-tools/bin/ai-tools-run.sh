@@ -424,6 +424,8 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
                 dac_only_reason="the ai_tools SELinux policy is not installed on this host"
                 dac_only_remedies=( "Install the confinement policy package (its scriptlet loads the module):  sudo dnf install ai-tools-selinux"
                                     "On a source checkout instead:  sudo selinux/install-selinux.sh install" )
+                [[ "${selinux_mode}" == Enforcing ]] \
+                    || dac_only_remedies+=( "Then enforce it:  sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config" )
             fi
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but ${dac_only_reason}"
             refuse MSG-W2G6 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so the session would run with file permissions alone." \

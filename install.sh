@@ -1281,7 +1281,9 @@ report_required_dac_only_state() {
         remedies=( "enable SELinux:          set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux" )
     else
         notice_line="AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and the ai_tools SELinux policy is not installed,"
-        remedies=( "install the policy:     sudo ${SCRIPT_DIR}/selinux/install-selinux.sh install" )
+        remedies=( "install the policy:      sudo ${SCRIPT_DIR}/selinux/install-selinux.sh install" )
+        [[ "$(getenforce 2>/dev/null || true)" == Enforcing ]] \
+            || remedies+=( "then enforce it:         sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config" )
     fi
     section "SELinux requirement"
     warn MSG-F2X6 "${notice_line}"

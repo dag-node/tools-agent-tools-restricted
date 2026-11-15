@@ -6358,6 +6358,8 @@ status_selinux_attestation() {
                 say "      enable SELinux:            set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux"
             else
                 say "      install the policy:        sudo dnf install ai-tools-selinux"
+                [[ "${selinux_mode}" == Enforcing ]] \
+                    || say "      then enforce it:           sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config"
             fi
             say "      in a container, instead:   set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
             return 1
