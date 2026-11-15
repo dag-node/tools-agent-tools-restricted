@@ -13,7 +13,7 @@
 # that cannot be honoured makes the resolver return non-zero and the launch hook refuse the launch -- launching
 # with the default instead would be a wrong result, not a safe degradation. A per-invocation
 # --{,append-}system-prompt{,-file} flag steps the standing default aside with no refusal. What a configured prompt must
-# satisfy, and why the base is /etc/ai-tools/prompts/ (the one etc_t place the confined domain reads), are
+# satisfy, and why the base is /etc/ai-tools/prompts/ (an etc_t directory, which the confined domain reads), are
 # in agent-claude-code.rule.md. The file is resolved here as the operator and read by the confined binary as the sandbox
 # account, so each path component and operator.conf itself pass ai_tools_conf__is_trusted: the sandbox account cannot
 # swap the prompt between resolution and read.

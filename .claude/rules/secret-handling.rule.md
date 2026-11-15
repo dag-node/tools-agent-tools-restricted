@@ -18,7 +18,7 @@ proactively (over a whole project).
 ## Reactive: `ai-tools-chown`
 
 A secret-named file the agent wrote is breached. `ai-tools-chown` classifies the basename against the shared pattern set
-(`.env`, `*.key`, `*.pem`, `id_*`, `kubeconfig`, `*.jks`, `.pgpass`, the name-anchored .NET config patterns, …)
+(`.env`, `*.key`, `*.pem`, `id_rsa`, `id_ed25519`, `kubeconfig`, `*.jks`, `.pgpass`, the name-anchored .NET config patterns, …)
 and chowns a match (when `SANDBOX_USER`-owned, per the agent-written-paths rule) to `<you>:<you> 600`, so `SANDBOX_USER`
 — neither owner nor group member — cannot read the contents. `<you>` is the operator that owns the path:
 `ai-tools-chown` resolves it per path via `operator.lib.sh` (`ai_tools_operator__resolve_owner`) and loads

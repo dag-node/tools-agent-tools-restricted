@@ -14,8 +14,9 @@ This repo installs and maintains a way to run an autonomous coding agent as a de
 (`SANDBOX_USER`, the account created as `ai-tools`) instead of as your own login account, so the agent works on your
 projects without inheriting your user's privileges. **Claude Code is the first supported agent**; the confinement,
 ownership-handback, and toolchain machinery are agent-agnostic. It runs under a separate UID with no login shell,
-launches only inside explicitly approved project directories, escalates only through two narrow `sudo` rules, and does
-not reach your secrets, SSH keys, or unrelated projects.
+launches only inside explicitly approved project directories, and escalates only through two narrow `sudo` rules. It
+does not hold your account's access: file permissions and the `ai_tools_t` SELinux type decide what it can read of your
+secrets, SSH keys and unclaimed projects, as they decide for any other account on the host.
 
 ## Terminology
 
