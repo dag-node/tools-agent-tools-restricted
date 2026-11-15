@@ -421,7 +421,12 @@ being the authoritative one.
   of joining it: the pin a refusal left standing is a valid record of a verification that once succeeded, so printing it
   too would pair a green verification with the red line saying it no longer describes the installed binary. It counts
   toward the exit status, being the state in which every launch of that agent is already refused, and it names
-  the reconcile command, which re-reads the entrypoint and prints how to replace it.
+  the reconcile command, which re-reads the entrypoint and prints how to replace it. A mark a release the reconcile
+  could not verify leaves is reported the same way and counted, and its line names the release and the reconcile
+  with the vendor's release manifest reachable, since the binary is the update and not one to replace. This account
+  cannot hash the entrypoint, so the line states the refusal as holding while the binary the run read is installed,
+  and a mark with no pin beside it states that no pin is recorded and the finding stands, the sessions starting unless
+  the host requires verification.
 
   The **labelling** is reported beneath it, from a second record the same helper writes
   ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)): `labelled` with its age, `NOT LABELLED` with the class
@@ -592,7 +597,9 @@ The pin comparison is the reading that answers *now* rather than *then*: `status
 recorded, so a binary changed since — by an out-of-band `npm install`, or by anything else writing that tree — is named
 here without running the reconcile, and it is named even where no reconciliation has run over that agent at all.
 The verdict is `ai_tools_entrypoint_verify__check`'s, so this report and the launch cannot disagree
-about what a mismatch is.
+about what a mismatch is. An entrypoint it could not hash is `UNREADABLE`, a reading the report promises and did not
+make, and the pin's own fields do not render as verified over it; a stale mark beside a binary that matches its pin,
+or beside no pin, is reported as a finding that stands, with what the launch reads now.
 
 The label reading is the one no other command gives. `status` reports what the last reconciliation *achieved*, an event
 that may be hours old; `ai_tools_relabel__list_agent_labels` reports the type each path carries **now**, so a label

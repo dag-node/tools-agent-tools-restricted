@@ -6275,7 +6275,7 @@ status_entrypoint_pins() {
             say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(records the entrypoint as installed)${C_RST}"
         elif [[ -n "${unpinned}" ]]; then
             printf '  %-28s %sno pin recorded%s\n' "${agent}" "${C_DIM}" "${C_RST}"
-        elif status_entrypoint_stale "${agent}"; then
+        elif status_entrypoint_stale "${agent}" "${strict}"; then
             stale=$(( stale + 1 ))
         elif [[ -n "${version}" ]]; then
             verified="$(ai_tools_services__read_stamp_age "${pin}" VERIFIED)"
@@ -6445,17 +6445,22 @@ status_selinux_attestation() {
     return "${section_status}"
 }
 
-# status_entrypoint_stale <agent>  -- report, and return 0, when the last reconciliation REFUSED to re-record this
-# agent's pin: the entrypoint changed in a way no update explains, so the pin was deliberately left standing
-# and the next launch refuses. Returns non-zero when there is no such mark, which is the ordinary state.
+# status_entrypoint_stale <agent> [strict]  -- report, and return 0, when a reconciliation left a stale mark for this
+# agent: it REFUSED to re-record the pin (an entrypoint that changed in a way no update explains, or a signature that
+# did not verify), or it could not verify a new release (`release-unverified`). Returns non-zero when there is no such
+# mark, which is the ordinary state.
 #
-# This is the one line in the section that reports a REFUSAL: the pin a refusal leaves behind is a valid record
-# of a verification that once succeeded, so without the mark each status report renders it green while every status
-# reports render it green while every launch of that agent is already refused. The remedy is the reconcile command,
-# which re-reads the installed binary -- and the commands that replace it are the relabel helper's to print, since only
-# root can name the package directory. status_entrypoint_pins checks the stale-path reader before the first agent.
+# The mark is a finding of the run that wrote it, and this account cannot hash the entrypoint to tell whether that
+# binary is still the installed one, so each line states what the mark recorded. A mark about bytes against the pin
+# makes the refusal conditional on that binary, which the pin refuses while it is installed; a signature that did not
+# verify says nothing about the bytes, so its line names the finding and `atr admin status`. Where no pin stands
+# beside it, a launch reads the entrypoint as unpinned, so the line says the finding stands and the sessions start
+# unless the host requires verification. The pin left behind is a valid record of a verification that once
+# succeeded, so without this line the report renders it green. The remedy is the reconcile command, which re-reads
+# the installed binary -- and the commands that replace it are the relabel helper's to print, since only root can name
+# the package directory. status_entrypoint_pins checks the stale-path and pin-path readers before the first agent.
 status_entrypoint_stale() {
-    local agent="$1" record state version reason detected age
+    local agent="$1" strict="${2:-no}" record state version reason detected age pin
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -r "${record}" ]] || return 1
     state="$(ai_tools_services__read_stamp_field "${record}" STATE)"
@@ -6464,9 +6469,34 @@ status_entrypoint_stale() {
     reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
     detected="$(ai_tools_services__read_stamp_age "${record}" DETECTED)"
     age="$(status_fmt_age "${detected}")"
+    pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
     printf '  %-28s %sPIN STALE%s %s(%s%s)%s\n' "${agent}" "${C_RED}" "${C_RST}" \
         "${C_DIM}" "${reason:-refused}" "${age:+, ${age}}" "${C_RST}"
-    say "      the pinned binary${version:+ (${version})} is not the one installed, so this agent's sessions refuse to start"
+    if [[ -z "${pin}" || ! -e "${pin}" ]]; then
+        if [[ "${strict}" == yes ]]; then
+            say "      a reconciliation recorded ${reason:-a refusal}${version:+ for release ${version}}, and no pin is recorded now -- this host requires verification, so its sessions will not launch"
+        else
+            say "      a reconciliation recorded ${reason:-a refusal}${version:+ for release ${version}}, and no pin is recorded now -- its sessions start unpinned, and the finding stands"
+        fi
+        say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(with the host reaching the vendor's release manifest)${C_RST}"
+        return 0
+    fi
+    # An unverified release has a remedy of its own: the binary is the update the reconcile could not check, and
+    # the reconcile run with the vendor reachable pins it, so the line does not send the operator to replace it.
+    if [[ "${reason}" == release-unverified ]]; then
+        say "      the last reconcile could not verify release${version:+ ${version}} and left the pin of another release, so this agent's sessions refuse to start while that binary is installed"
+        say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(with the host reaching the vendor's release manifest)${C_RST}"
+        return 0
+    fi
+    # A change under the pinned version is a finding about the bytes against the pin, so the refusal follows from it
+    # while that binary is installed. A signature that did not verify is a finding about the vendor's manifest, and
+    # the bytes may still match the pin, in which case the launch starts them: the line states the finding and names
+    # the report that hashes the binary, without inferring the launch's verdict.
+    if [[ "${reason}" == changed-under-same-version ]]; then
+        say "      a reconciliation found the installed binary${version:+ (${version})} changed under the pinned version, so this agent's sessions refuse to start while that binary is installed"
+    else
+        say "      a reconciliation refused to re-record this pin${version:+ for release ${version}} (${reason:-refused}); the finding stands until a run verifies the release -- ${C_BOLD}atr admin status${C_RST} says whether the installed binary still matches the pin"
+    fi
     say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(re-reads the entrypoint and prints how to replace it)${C_RST}"
     return 0
 }

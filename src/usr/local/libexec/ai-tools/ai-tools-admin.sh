@@ -2806,8 +2806,21 @@ status_entrypoints() {
             st MISMATCH "${agent}  the installed entrypoint does not match its pin${version:+ (${version})} -- its sessions refuse to start"
             detail "atr admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-        elif entrypoint_stale_mark "${agent}"; then
+        elif [[ "${live}" == unreadable ]]; then
+            # A reading this report promises and could not make: the pin's own fields must not render as VERIFIED over
+            # a binary no hash was taken of.
+            st UNREADABLE "${agent}  the installed entrypoint could not be hashed, so this report cannot say whether it matches its pin"
+            detail "atr admin system entrypoints relabel   (re-reads the entrypoint)"
+            STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+            if entrypoint_stale_mark "${agent}" "${live}" "${strict}"; then
+                STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            fi
+        elif entrypoint_stale_mark "${agent}" "${live}" "${strict}"; then
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        elif [[ -z "${live}" && -n "${version}" ]]; then
+            # No entrypoint resolved to hash, so the pin's fields do not render as a verification of what is installed;
+            # the missing entrypoint is the labels' and the provisioning lines' to report.
+            st "?" "${agent}  ${version} pinned -- the installed entrypoint did not resolve, so it was not compared with the pin"
         elif [[ -n "${version}" && "$(ai_tools_entrypoint_verify__read_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
             # Recorded as installed: a change to the binary refuses at every setting, and no vendor signature stands
             # behind the value. UNCHANGED is what the comparison proves; it does not say the binary was sound when root
@@ -2875,19 +2888,40 @@ entrypoint_live_verdict() {
     ai_tools_entrypoint_verify__check "${agent}" "${entrypoint}" 2>/dev/null || true
 }
 
-# entrypoint_stale_mark <agent>: report, and return 0, when the last reconciliation REFUSED to re-record this agent's
-# pin. The refusal leaves the pin standing -- that staleness is what makes the next launch refuse -- so without this
-# the pin's own fields render as a verification that succeeded. Returns non-zero when there is no mark, which is
-# the ordinary state. status_entrypoints checks the stale-path reader before the first agent.
+# entrypoint_stale_mark <agent> <live-verdict> <strict>: report, and return 0, when a reconciliation left a stale mark
+# for this agent -- it refused to re-record the pin, or could not verify a new release. The pin is left standing, which
+# is what makes a launch of that binary refuse, so without this the pin's own fields render as a verification that
+# succeeded. The mark is a finding of the run that wrote it, and <live-verdict> is this report's own reading of the
+# installed entrypoint against the pin (entrypoint_live_verdict), so the line states both: where the binary matches its
+# pin or no pin is recorded, its sessions start and the finding stands until a run resolves it; where no entrypoint
+# resolved, the line says it was not compared. A mismatch is reported by status_entrypoints ahead of this. Returns
+# non-zero when there is no mark, which is the ordinary state. status_entrypoints checks the stale-path reader before
+# the first agent.
 entrypoint_stale_mark() {
-    local agent="$1" record reason version age
+    local agent="$1" live="${2:-}" strict="${3:-no}" record reason version age found now
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -e "${record}" ]] || return 1
     [[ "$(ai_tools_services__read_stamp_field "${record}" STATE)" == stale ]] || return 1
     reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
     version="$(ai_tools_services__read_stamp_field "${record}" VERSION)"
     age="$(ai_tools_services__format_age "$(ai_tools_services__read_stamp_age "${record}" DETECTED)")"
-    st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${reason:-refused}${version:+, ${version}})${age:+, ${age}} -- its sessions refuse to start"
+    found="${reason:-refused}${version:+, ${version}}"
+    case "${live}" in
+        ok)       now="the installed entrypoint matches its pin now, so its sessions start; the finding stands until a run verifies the release" ;;
+        unpinned) if [[ "${strict}" == yes ]]; then
+                      now="no pin is recorded now, and this host requires verification, so its sessions will not launch"
+                  else
+                      now="no pin is recorded now, so its sessions start unpinned; the finding stands until a run verifies the release"
+                  fi ;;
+        unreadable) now="the installed entrypoint could not be read here, so whether its sessions start is not known" ;;
+        *)        now="the installed entrypoint did not resolve, so it was not compared with the pin" ;;
+    esac
+    if [[ "${reason}" == release-unverified ]]; then
+        st "PIN STALE" "${agent}  a reconciliation could not verify release ${version:-?} and left the pin of another release${age:+, ${age}} -- ${now}"
+        detail "atr admin system entrypoints relabel   (with the host reaching the vendor's release manifest)"
+        return 0
+    fi
+    st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${found})${age:+, ${age}} -- ${now}"
     detail "atr admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
     return 0
 }

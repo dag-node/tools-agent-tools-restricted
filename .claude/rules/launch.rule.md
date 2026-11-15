@@ -148,12 +148,14 @@ atime and mtime, never ctime).
 
 **The entrypoint pin is compared in the same breath**, because that is the one place where hashing the file and starting
 it are adjacent. The pin is what root recorded after verifying this entrypoint against the checksum its vendor signed,
-in a directory this account cannot write (see [updater](updater.rule.md)); a **mismatch** means the binary changed
-after it was verified, and refuses the launch unconditionally. An **unpinned** entrypoint is a different fact
-and launches normally — it is equally the state of an air-gapped host, one whose vendor published no manifest
-for the installed release, and one that has not reconciled yet — unless `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` declares
-otherwise, the same operator-asserts-intent shape as `AI_TOOLS_REQUIRE_SELINUX`. The verdict rides the per-launch audit
-line. That line also carries `pin_dir=override`, and not the path, for a launch whose caller set
+in a directory this account cannot write (see [updater](updater.rule.md)); a **mismatch** means the binary changed after
+it was verified, and refuses the launch unconditionally. The refusal is worded from root's stale mark beside the pin: a
+mark reading `release-unverified` whose checksum is the launched binary's names the release the reconcile could not
+verify (`MSG-P9G4`), and every other mismatch names a changed binary (`MSG-H7S2`). An **unpinned** entrypoint is a
+different fact and launches normally — it is equally the state of an air-gapped host, one whose vendor published no
+manifest for the installed release, and one that has not reconciled yet — unless `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`
+declares otherwise, the same operator-asserts-intent shape as `AI_TOOLS_REQUIRE_SELINUX`. The verdict rides the
+per-launch audit line. That line also carries `pin_dir=override`, and not the path, for a launch whose caller set
 `AI_TOOLS_ENTRYPOINT_PIN_DIR` to a non-empty value, the root-only test hook that moves the directory the pin is read
 from ([ref-section-b4y9](tests.rule.md#ref-section-b4y9)); sudoers does not keep the name, so a launch through `sudo`
 does not carry the field.

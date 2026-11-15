@@ -8,7 +8,8 @@
 #              including the DAC-only one where step 2 has no label to apply. A refusal to
 #              re-record leaves the pin standing -- that staleness is what refuses the next
 #              launch -- so it also files the mark both status reports read, and prints the two
-#              commands that replace the binary.
+#              commands that replace the binary. A new release it could not verify leaves the pin
+#              standing too, and files the mark with the reason the launch's refusal words.
 #   2. LABEL -- apply the SELinux file-context rules each agent declares and restore the labels on
 #              what they match: its launcher binary -> ai_tools_exec_t, so its exec fires the ->
 #              ai_tools_t domain transition, and its config directory -> ai_tools_home_t, so the
@@ -185,21 +186,55 @@ reinstall_remedy() {
         "${package_dir}"
 }
 
-# report_entrypoint_refusal <agent> <version> <reason-token> <entrypoint> : file the stale mark and print the remedy,
-#   for either tier's refusal to re-record a pin. The mark is what the two status reports read: the pin is left standing
-#   on purpose -- that is what makes the next launch refuse -- so without a record beside it both reports render
-#   the stale pin green and the refusal reaches only whoever ran this helper. Best-effort, and it never changes
-#   the outcome of the reconciliation it describes.
-report_entrypoint_refusal() {
-    local agent="$1" version="$2" reason="$3" entrypoint="$4" remedy
-    ai_tools_entrypoint_verify__write_stale "${agent}" "${version}" "${reason}" \
+# _ai_tools_relabel_agent__record_stale_mark <agent> <version> <reason-token> [sha256] : file the stale mark the two
+#   status reports and the launch's refusal read. The pin is left standing on purpose -- that is what makes the next
+#   launch refuse -- so without a record beside it both reports render the stale pin green and the cause reaches only
+#   whoever ran this helper. Best-effort, and it never changes the outcome of the reconciliation it describes.
+_ai_tools_relabel_agent__record_stale_mark() {
+    local agent="$1" version="$2" reason="$3" sha256="${4:-}"
+    ai_tools_entrypoint_verify__write_stale "${agent}" "${version}" "${reason}" "${sha256}" \
         || warn MSG-K4D7 "could not record ${agent}'s stale pin for atr status -- the reports will render its pin as current"
-    remedy="$(reinstall_remedy "${agent}" "${entrypoint}")"
+    return 0
+}
+
+# report_entrypoint_refusal <agent> <version> <reason-token> <entrypoint> : file the stale mark and print the remedy,
+#   for either tier's refusal to re-record a pin.
+report_entrypoint_refusal() {
+    local agent="$1" version="$2" reason="$3" entrypoint="$4"
+    _ai_tools_relabel_agent__record_stale_mark "${agent}" "${version}" "${reason}"
+    _ai_tools_relabel_agent__print_reinstall_remedy "${agent}" "${entrypoint}"
+}
+
+# _ai_tools_relabel_agent__print_reinstall_remedy <agent> <entrypoint> : print the commands that replace a changed
+#   binary, where the package directory can be derived.
+_ai_tools_relabel_agent__print_reinstall_remedy() {
+    local remedy
+    remedy="$(reinstall_remedy "$1" "$2")"
     if [[ -n "${remedy}" ]]; then
         say "replace the binary and reprovision -- reprovisioning alone reinstalls nothing at an unchanged version:"
         say "${remedy}"
     fi
     return 0
+}
+
+# _ai_tools_relabel_agent__report_changed_under_same_version <agent> <version> <entrypoint> : report an entrypoint
+#   whose bytes differ from its pin under the pinned version, the change no update explains, for either tier: the pin
+#   is left as it is, the mark is filed and the remedy printed.
+_ai_tools_relabel_agent__report_changed_under_same_version() {
+    local agent="$1" version="$2" entrypoint="$3"
+    warn MSG-U6H8 "the ${agent} entrypoint changed under an unchanged version ${version} -- leaving the pin as it is, so the next session refuses to start"
+    ai_tools_log__error "${agent}: entrypoint changed under an unchanged version ${version} -- pin left stale"
+    report_entrypoint_refusal "${agent}" "${version}" "changed-under-same-version" "${entrypoint}"
+}
+
+# _ai_tools_relabel_agent__report_standing_stale_mark <agent> <version> <stale-reason> : name the mark of an earlier
+#   run that the current reading does not resolve -- the launch starts this binary, and the finding stands until a run
+#   verifies the release -- so the reconcile does not erase a finding it could not check, and the operator is told
+#   that it remains.
+_ai_tools_relabel_agent__report_standing_stale_mark() {
+    local agent="$1" version="$2" stale_reason="$3"
+    warn MSG-E9Y2 "the mark of an earlier run for ${agent} (${stale_reason}) stands until a run verifies release ${version} -- check that this host reaches the vendor's release manifest, then run: atr admin system entrypoints relabel"
+    ai_tools_log__warn "${agent}: the stale mark (${stale_reason}) stands; release ${version} unverified"
 }
 
 # observe_agent_entrypoint <agent> : record the checksum of the installed entrypoint for an agent that declares no
@@ -237,9 +272,7 @@ observe_agent_entrypoint() {
                     warn MSG-M6C3 "could not write the observed pin for ${agent} at ${version}"
                     ai_tools_log__warn "${agent}: observed pin write failed at ${version}"
                 fi ;;
-        tamper) warn MSG-U6H8 "the ${agent} entrypoint changed under an unchanged version ${version} -- leaving the pin as it is, so the next session refuses to start"
-                ai_tools_log__error "${agent}: entrypoint changed under an unchanged version ${version} -- pin left stale"
-                report_entrypoint_refusal "${agent}" "${version}" "changed-under-same-version" "${entrypoint}"
+        tamper) _ai_tools_relabel_agent__report_changed_under_same_version "${agent}" "${version}" "${entrypoint}"
                 return 1 ;;
         *)      say "${agent}: entrypoint could not be hashed -- pin unchanged" ;;
     esac
@@ -247,7 +280,7 @@ observe_agent_entrypoint() {
 }
 
 # pin_agent_entrypoint <agent> : verify one agent's installed entrypoint against its vendor's signed release manifest
-#   and record the result. Returns 1 only on a mismatch.
+#   and record the result. Returns 1 only on a mismatch with the signed release.
 #
 #   AI_TOOLS_ENTRYPOINT_PIN_REUSE=1 lets a run answer from the existing pin when no input that
 #   decides the verdict has changed, skipping two network fetches and a gpgv per agent. It is
@@ -283,14 +316,15 @@ pin_agent_entrypoint() {
 
     inputs="$(ai_tools_entrypoint_verify__calculate_inputs_digest "${url_template}" "${key_file}" "${fingerprints}" \
                 2>/dev/null || true)"
+    # A stale mark beside the pin is a finding no reuse can settle -- a signature that did not verify leaves the bytes
+    # matching the pin -- so a run with one standing takes the full verification, and only that clears it.
     if [[ "${AI_TOOLS_ENTRYPOINT_PIN_REUSE:-0}" == "1" ]] \
-            && declare -F ai_tools_entrypoint_verify__is_pin_reusable >/dev/null 2>&1; then
+            && declare -F ai_tools_entrypoint_verify__is_pin_reusable >/dev/null 2>&1 \
+            && [[ -z "$(ai_tools_entrypoint_verify__read_stale_field "${agent}" REASON 2>/dev/null || true)" ]]; then
         observed="$(ai_tools_entrypoint_verify__calculate_sha256 "${entrypoint}" 2>/dev/null || true)"
         if ai_tools_entrypoint_verify__is_pin_reusable "${agent}" "${version}" "${inputs}" "${observed}"; then
             say "${agent}: entrypoint unchanged since its pin for ${version} -- signature not re-checked"
             ai_tools_log__info "${agent}: pin reused at ${version} -- no manifest fetch"
-            # The pin describes this file and this version, so a refusal an earlier run recorded no longer stands.
-            ai_tools_entrypoint_verify__clear_stale "${agent}" || true
             return 0
         fi
     fi
@@ -310,7 +344,52 @@ pin_agent_entrypoint() {
             report_entrypoint_refusal "${agent}" "${version}" "signature-mismatch" "${entrypoint}"
             return 1 ;;
         *)  warn MSG-B6H9 "could not verify the entrypoint for ${agent} against release ${version} (see above) -- pin unchanged"
-            ai_tools_log__warn "${agent}: entrypoint unverified at ${version}; pin left as-is" ;;
+            ai_tools_log__warn "${agent}: entrypoint unverified at ${version}; pin left as-is"
+            _ai_tools_relabel_agent__record_unverified_release_stale_mark "${agent}" "${version}" "${entrypoint}" ;;
+    esac
+    return 0
+}
+
+# _ai_tools_relabel_agent__record_unverified_release_stale_mark <agent> <version> <entrypoint> : after a reconcile
+#   that could not verify <version>, compare the installed bytes with the pin it left, as the launch does, and print
+#   one line saying what the next launch reads, so each outcome is named after MSG-B6H9: a mismatch under another
+#   release files the `release-unverified` mark bound to those bytes, so the launch names the unverified update;
+#   a mismatch under the pinned version is reported as a changed binary, with its mark and remedy; a mark of a changed
+#   binary left from an earlier run is named with the remedy; matching bytes, and an absent pin, clear a mark they
+#   resolve and name one they do not, a signature failure among them, which stands until a run verifies the release.
+#   Which state takes which is ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark's table.
+#
+#   Returns 0 for every outcome, a changed binary included: the release could not be verified, an rpm %post runs this
+#   helper offline, and a failure here would stop the run before it labels any agent. The launch refuses on the pin
+#   whatever this run returns, and both status reports count the mark.
+_ai_tools_relabel_agent__record_unverified_release_stale_mark() {
+    local agent="$1" version="$2" entrypoint="$3" pinned_sha256 pinned_version installed_sha256 stale_reason
+    declare -F ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark >/dev/null 2>&1 || return 0
+    pinned_sha256="$(ai_tools_entrypoint_verify__read_pin "${agent}" 2>/dev/null || true)"
+    pinned_version="$(ai_tools_entrypoint_verify__read_pin_version "${agent}" 2>/dev/null || true)"
+    installed_sha256="$(ai_tools_entrypoint_verify__calculate_sha256 "${entrypoint}" 2>/dev/null || true)"
+    stale_reason="$(ai_tools_entrypoint_verify__read_stale_field "${agent}" REASON 2>/dev/null || true)"
+    case "$(ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark \
+                "${pinned_sha256}" "${pinned_version}" "${version}" "${installed_sha256}" "${stale_reason}")" in
+        mark)   warn MSG-E9R7 "the pin for ${agent} holds release ${pinned_version}, so its sessions refuse to start until a run verifies ${version} -- check that this host reaches the vendor's release manifest, then run: atr admin system entrypoints relabel"
+                ai_tools_log__warn "${agent}: release ${version} unverified over a pin for ${pinned_version}; launches refuse"
+                _ai_tools_relabel_agent__record_stale_mark "${agent}" "${version}" release-unverified "${installed_sha256}" ;;
+        tamper) _ai_tools_relabel_agent__report_changed_under_same_version "${agent}" "${version}" "${entrypoint}" ;;
+        keep)   warn MSG-Y9F4 "the ${agent} entrypoint still differs from its pin, and the mark of an earlier run (${stale_reason}) stands -- its sessions refuse to start until the binary is replaced"
+                ai_tools_log__warn "${agent}: release ${version} unverified; the stale mark (${stale_reason}) is left as it is"
+                _ai_tools_relabel_agent__print_reinstall_remedy "${agent}" "${entrypoint}" ;;
+        match)  say "${agent}: the installed entrypoint matches its pin, so its sessions start -- release ${version} was not re-verified"
+                ai_tools_entrypoint_verify__clear_stale "${agent}" || true ;;
+        match-standing)
+                say "${agent}: the installed entrypoint matches its pin, so its sessions start -- release ${version} was not re-verified"
+                _ai_tools_relabel_agent__report_standing_stale_mark "${agent}" "${version}" "${stale_reason}" ;;
+        unpinned)
+                say "${agent}: no pin is recorded -- its sessions start unpinned unless AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
+                ai_tools_entrypoint_verify__clear_stale "${agent}" || true ;;
+        unpinned-standing)
+                say "${agent}: no pin is recorded -- its sessions start unpinned unless AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY is set"
+                _ai_tools_relabel_agent__report_standing_stale_mark "${agent}" "${version}" "${stale_reason}" ;;
+        unreadable) say "${agent}: entrypoint could not be hashed -- pin and stale mark unchanged" ;;
     esac
     return 0
 }

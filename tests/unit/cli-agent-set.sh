@@ -232,6 +232,60 @@ fi
     || fail "status_entrypoint_pins exited 0 over a stale pin"
 says "the stale line names the installed version the refusal was about" '1\.2\.4' "${out}"
 says "the stale line names the reconcile command" 'entrypoints relabel' "${out}"
+says "a changed binary's line says the reconcile prints how to replace it" 'how to replace it' "${out}"
+
+# A change under the pinned version is a finding about the bytes, so the refusal holds while that binary is installed.
+# A signature that did not verify may leave bytes the pin still matches, which a launch starts, so its line names
+# the finding and the report that hashes the binary, and does not say the sessions refuse.
+stale_record alpha 1.2.4 changed-under-same-version
+rc=0; out="$(call status_entrypoint_pins)" || rc=$?
+says "a changed-under-same-version line states the refusal while that binary is installed" \
+    'refuse to start while that binary is installed' "${out}"
+stale_record alpha 1.2.4 signature-mismatch
+rc=0; out="$(call status_entrypoint_pins)" || rc=$?
+[[ "${rc}" -ne 0 ]] \
+    && pass "a signature-mismatch mark counts toward the report's exit status" \
+    || fail "status_entrypoint_pins exited 0 over a signature-mismatch mark"
+says "a signature-mismatch line names the report that hashes the binary" 'atr admin status' "${out}"
+if grep -q 'refuse to start' <<<"${out}"; then
+    fail "a signature-mismatch line infers that the sessions refuse: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+else
+    pass "a signature-mismatch line does not infer the launch's verdict"
+fi
+
+# An unverified release has its own remedy: the reconcile with the vendor reachable pins the update, so the line
+# names the release and the reach, and does not send the operator to replace a binary.
+stale_record alpha 1.2.4 release-unverified
+rc=0; out="$(call status_entrypoint_pins)" || rc=$?
+[[ "${rc}" -ne 0 ]] \
+    && pass "an unverified-release mark counts toward the report's exit status" \
+    || fail "status_entrypoint_pins exited 0 over an unverified-release mark"
+says "the unverified-release line names the release" 'could not verify release 1\.2\.4' "${out}"
+says "the unverified-release line names the vendor's release manifest" "vendor's release manifest" "${out}"
+if grep -q 'how to replace it' <<<"${out}"; then
+    fail "the unverified-release line sends the operator to replace the binary: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+else
+    pass "the unverified-release line does not name the replace-the-binary remedy"
+fi
+
+# A mark with no pin beside it: a launch reads the entrypoint as unpinned, so the line keeps the finding and says
+# the sessions start, rather than that they refuse. The agent declares a release manifest, so it is reported with
+# no pin at all.
+printf 'release_manifest_url=https://example.invalid/manifest.json\n' >> "${AGENTS_DIR}/alpha.conf"
+rm -f "${PINS}/alpha"
+stale_record alpha 1.2.4 signature-mismatch
+rc=0; out="$(call status_entrypoint_pins)" || rc=$?
+[[ "${rc}" -ne 0 ]] \
+    && pass "a mark with no pin beside it still counts toward the report's exit status, the finding unresolved" \
+    || fail "status_entrypoint_pins exited 0 over a mark with no pin"
+says "the line says no pin is recorded now" 'no pin is recorded now' "${out}"
+says "the line says the sessions start and the finding stands" 'sessions start unpinned, and the finding stands' "${out}"
+if grep -q 'refuse to start' <<<"${out}"; then
+    fail "a mark with no pin beside it still says the sessions refuse to start: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+else
+    pass "a mark with no pin beside it does not claim the sessions refuse"
+fi
+manifest alpha la yes; pin_record alpha 1.2.3 observed
 
 # A mark whose STATE is anything else is not a refusal, and must not turn the tier line red: the reader is a record
 # grammar, so an unrecognised value reads as "no mark" rather than as one.
