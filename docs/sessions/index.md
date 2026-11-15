@@ -9,9 +9,9 @@ A session starts by running the agent's own command inside a project you
 claimed — `claude` for Claude Code. What you type is the agent's name;
 what runs is a chain of checks, each of which refuses the launch and says
 so: you are in the operators group, the directory you are in is one of your
-claimed projects, the executable is the one the vendor signed ([Entrypoint
-verification](../system/entrypoint-verification.md)), and the confinement
-the host expects is in place.
+claimed projects, the executable matches the checksum root pinned for it
+([Entrypoint verification](../system/entrypoint-verification.md)),
+and the confinement the host expects is in place.
 
 **A session launches only in a project you approved.** The wrapper refuses
 to start the agent unless the working directory is listed
