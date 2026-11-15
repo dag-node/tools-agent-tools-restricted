@@ -410,8 +410,8 @@ ai_tools_confinement__classify_boolean_row() {
 #                           file-contexts are live in the running policy, "" or another type otherwise
 #   actual-label            the entrypoint's live label ("" when unreadable)
 #   manager-domain          the systemd --user manager's domain ("" when unreadable)
-#   require-selinux         "yes" when operator.conf's AI_TOOLS_REQUIRE_SELINUX is set. Default "no" leaves
-#                           intentional DAC-only hosts untouched, and the inputs after it are read only under "yes".
+#   require-selinux         "yes" when AI_TOOLS_REQUIRE_SELINUX is in force (ai_tools_confinement__is_selinux_required);
+#                           the inputs after it are read only under "yes".
 #   domain-permissive       the per-domain mode, as ai_tools_confinement__evaluate_attestation takes it
 #   current-boolean-values  the Booleans' current values, as ai_tools_confinement__evaluate_attestation takes them
 #   required-boolean-values the `<name>=<on|off>` set a launch requires, as ai_tools_confinement__evaluate_attestation
@@ -425,8 +425,8 @@ ai_tools_confinement__classify_boolean_row() {
 #   Enf      |   -    |  exec_t  | exec_t  | init/unconf/"" | no  |  -  |      -      | ok                    | LAUNCH
 #   Enf      | no/""  | !exec_t  |    -    |       -        | no  |  -  |      -      | ok                    | LAUNCH
 #   Enf      |   -    |  exec_t  | exec_t  | init/unconf    | yes |  -  | ok          | ok                    | LAUNCH
-#   Dis      |   -    |    -     |    -    |       -        | yes |  -  |      -      | ok-dac-only           | LAUNCH*
-#   Enf/Perm |   no   | !exec_t  |    -    |       -        | yes | no  |      -      | ok-dac-only           | LAUNCH*
+#   Enf/Perm |   no   | !exec_t  |    -    |       -        | yes | no  |      -      | require-policy-absent | refuse
+#   Dis      |   -    |    -     |    -    |       -        | yes |  -  |      -      | require-not-enforcing | refuse
 #   ""       |   -    |    -     |    -    |       -        | yes |  -  |      -      | require-unattested    | refuse
 #   !Enf""   |   -    |    -     |    -    |       -        | yes |  -  |      -      | require-not-enforcing | refuse
 #   Enf      |   -    |  exec_t  | !exec_t |       -        |  -  |  -  |      -      | mislabel              | refuse
@@ -442,17 +442,16 @@ ai_tools_confinement__classify_boolean_row() {
 #   (Enf is "Enforcing", Perm "Permissive", Dis "Disabled"; !Enf any other value, "" included; !Enf"" any other
 #   non-empty value. A "-" cell is don't-care; "" is empty/unreadable; req "no" is any value other than "yes";
 #   pp is policy-shipped; attestation is ai_tools_confinement__evaluate_attestation's token over the required
-#   Boolean values; LAUNCH* launches and the shim warns, MSG-K6W6)
+#   Boolean values)
 #
 # The LAUNCH rows are the only states that launch, each checked whole before any refusal is classified, so a state
 # the table does not list refuses as unclassified rather than launching. Fail-closed once confinement is EXPECTED
-# (enforcing with the module installed). The two `ok-dac-only` rows are the states
+# (enforcing with the module installed). The `require-policy-absent` row and the `Dis` row are the states
 # ai_tools_confinement__evaluate_dac_only_state names, where the host runs without SELinux confinement by its own
-# configuration: a launch there proceeds, and ai-tools-run prints MSG-K6W6 naming the key to set, since the requirement
-# is shipped on and a refusal would stop every launch on a host that never had a transition to verify. What each refusal
-# means, and the remedy each one prints, are in confinement.rule.md and in ai-tools-run's refusal text. Two properties
-# of the table are easy to miss reading it: manager-domain is ADVISORY without require, so an unreadable ("") domain
-# does not block there; and every require-* token replaces a launch the same inputs take without require.
+# configuration: under the requirement both refuse, and `no` is the one way a host declares it runs DAC-only. What each
+# refusal means, and the remedy each one prints, are in confinement.rule.md and in ai-tools-run's refusal text. Two
+# properties of the table are easy to miss reading it: manager-domain is ADVISORY without require, so an unreadable ("")
+# domain does not block there; and every require-* token replaces a launch the same inputs take without require.
 #
 # ai_tools_confinement__evaluate_module_present <matchpathcon-type> Classify the `module-present` verdict input
 # from a probe of a CORE-module-owned path (e.g. `matchpathcon /opt/ai-tools/.config` -> ai_tools_home_t): print "yes"
@@ -502,9 +501,8 @@ ai_tools_confinement__read_policy_shipped() {
 # runs without SELinux confinement by its own configuration, with no fault to repair: `disabled` when SELinux is
 # Disabled, `module-absent` when SELinux is Enforcing or Permissive and neither the core module's file contexts nor its
 # compiled module are on the host. Prints nothing and returns 1 for every other state -- a permissive mode
-# with the module present, a module whose file is on disk and not loaded, and an unread input among them.
-# Under AI_TOOLS_REQUIRE_SELINUX a launch in this state proceeds and warns (MSG-K6W6) where every other unmet
-# requirement refuses, so the status reports read it through this one predicate and describe the same launch.
+# with the module present, a module whose file is on disk and not loaded, and an unread input among them. Every reader
+# of the state takes it from this one predicate, so each describes the launch the verdict decides.
 ai_tools_confinement__evaluate_dac_only_state() {
     local selinux_mode="$1" module_present="$2" policy_shipped="$3"
     if [[ "${selinux_mode}" == Disabled ]]; then printf 'disabled\n'; return 0; fi
@@ -513,6 +511,22 @@ ai_tools_confinement__evaluate_dac_only_state() {
         printf 'module-absent\n'; return 0
     fi
     return 1
+}
+
+# ai_tools_confinement__read_dac_only_requirement <operator-conf> [probe-path] [module-file] -- print the DAC-only state
+# and return 0 when the requirement is in force on a host where every launch therefore refuses; return 1 without output
+# otherwise, an unread input included, since the launch and the status reports name that one. Provisioning calls it
+# to say so before the first launch does. It reads the host as ai-tools-run does, so the two cannot disagree.
+ai_tools_confinement__read_dac_only_requirement() {
+    local operator_conf="$1" probe_path="${2:-${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}}"
+    local module_file="${3:-${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}}" selinux_mode="" module_present=""
+    ai_tools_confinement__is_selinux_required "${operator_conf}" || return 1
+    command -v getenforce >/dev/null 2>&1 || return 1
+    selinux_mode="$(getenforce 2>/dev/null || true)"
+    [[ -n "${selinux_mode}" ]] || return 1
+    module_present="$(ai_tools_confinement__read_module_present "${probe_path}")" || module_present=""
+    ai_tools_confinement__evaluate_dac_only_state "${selinux_mode}" "${module_present}" \
+        "$(ai_tools_confinement__read_policy_shipped "${module_file}")"
 }
 
 ai_tools_confinement__evaluate() {
@@ -551,14 +565,13 @@ ai_tools_confinement__evaluate() {
             && "${manager_domain_covered}" == yes && "${attestation_verdict}" == ok ]]; then
         # Confined and attested.
         printf 'ok'; return 0
-    elif [[ "${dac_only_state}" == disabled ]] \
-            || [[ "${dac_only_state}" == module-absent && "${expected_label}" != "ai_tools_exec_t" ]]; then
-        # The host runs without SELinux confinement by its own configuration -- SELinux disabled, or the policy never
-        # installed -- which no repair of a fault changes, so the launch proceeds DAC-only and the shim warns.
-        printf 'ok-dac-only'; return 0
     fi
 
     # ── Refuse: name the reason, in the order the inputs are checked ──
+    if [[ "${dac_only_state}" == module-absent && "${expected_label}" != "ai_tools_exec_t" ]]; then
+        # Ahead of the mode check, so a Permissive host without the policy is told to install it.
+        printf 'require-policy-absent'; return 1
+    fi
     if [[ "${selinux_mode}" != "Enforcing" ]]; then
         if [[ -z "${selinux_mode}" ]]; then printf 'require-unattested'; else printf 'require-not-enforcing'; fi
         return 1

@@ -104,6 +104,9 @@ pv_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="
     "${wrapper}" --version < /dev/null 2>&1 || true )"
 if gate_refused "${pv_out}"; then
     fail "sole --version was gated on the CWD -- the pass-through regressed (output: ${pv_out})"
+elif dac_only_launch_refused >/dev/null; then
+    # A host without SELinux confinement under AI_TOOLS_REQUIRE_SELINUX: past the gates, the shim refuses every launch.
+    assert_msg MSG-W2G6 "${pv_out}" "sole --version passes the CWD gates and meets the shim's DAC-only refusal"
 elif grep -qE '[0-9]+\.[0-9]+\.[0-9]+' <<<"${pv_out}"; then
     pass "sole --version passes through from an unapproved cwd and prints the version"
 else
@@ -348,7 +351,9 @@ else
             # toolchain file to the root helper, one socket round trip each, for it to leave alone.
             codex_version_out="$( cd "${unapproved}" && setsid sudo -u "${PROJECTS_USER}" -- env HOME="${home}" \
                 "${codex_wrapper}" --version < /dev/null 2>&1 || true )"
-            if grep -qE '[0-9]+\.[0-9]+\.[0-9]+' <<<"${codex_version_out}"; then
+            if dac_only_launch_refused >/dev/null; then
+                assert_msg MSG-W2G6 "${codex_version_out}" "codex: sole --version meets the shim's DAC-only refusal"
+            elif grep -qE '[0-9]+\.[0-9]+\.[0-9]+' <<<"${codex_version_out}"; then
                 pass "codex: sole --version passes through from an unapproved cwd and prints the version"
             else
                 fail "codex: sole --version did not yield a version string (output: ${codex_version_out})"

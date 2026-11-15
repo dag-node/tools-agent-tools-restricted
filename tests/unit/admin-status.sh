@@ -423,10 +423,10 @@ else
         fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
     fi
     # A host without SELinux confinement by its own configuration -- SELinux disabled, or the policy neither live nor
-    # on disk -- has no domain to attest, and under the requirement every launch runs DAC-only with a warning, which
-    # counts and names the line that declares the host so; without it the posture is reported and not counted.
+    # on disk -- has no domain to attest, and under the requirement every launch refuses, which counts, names the code
+    # the refusal carries and the line that declares the host so; without it the posture is reported and not counted.
     out="$(call_attestation_section Disabled "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}")" || true
-    if grep -qx 'problems=1' <<<"${out}" && grep -qF '[n/a]' <<<"${out}" && grep -qF 'runs DAC-only and warns' <<<"${out}" \
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF '[n/a]' <<<"${out}" && grep -qF 'every launch on this host refuses (MSG-W2G6)' <<<"${out}" \
             && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}"; then
         pass "SELinux disabled under the requirement reads n/a, counts, and names AI_TOOLS_REQUIRE_SELINUX=no"
     else
@@ -439,7 +439,7 @@ else
         fail "SELinux disabled without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
     out="$(call_attestation_section Enforcing '' "${REQUIRED_CONF}" no no)" || true
-    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'not installed' <<<"${out}" && grep -qF 'runs DAC-only and warns' <<<"${out}"; then
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'not installed' <<<"${out}" && grep -qF 'every launch on this host refuses (MSG-W2G6)' <<<"${out}"; then
         pass "a policy never installed under the requirement reads as such and counts, with no unread rows"
     else
         fail "policy never installed under the requirement: $(tr '\n' '|' <<<"${out}")"

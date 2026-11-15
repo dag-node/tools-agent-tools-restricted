@@ -256,8 +256,12 @@ which the shipped file also writes.
 .B Set to yes
 (or absent): each of these refuses the launch, so a host that expects
 confinement cannot start an unconfined session unnoticed:
-SELinux permissive
+SELinux permissive or disabled
 .RB ( require-not-enforcing );
+the
+.B ai_tools
+policy not installed on the host
+.RB ( require-policy-absent );
 the policy installed on the host but its module not loaded
 .RB ( require-inactive );
 .B ai_tools_t
@@ -277,13 +281,12 @@ on, and any Boolean
 declares at another value;
 and any of these, or the user manager's domain, not readable
 .RB ( require-unattested ).
-Two states are not faults and launch with a warning instead: SELinux
-disabled, and the
-.B ai_tools
-policy not installed on the host. Such a host runs with file permissions
-alone, and the warning names this key.
+A host with SELinux disabled, or without the policy, has no SELinux
+confinement to show; its refusal names this key, and
+.B atr admin system bootstrap
+names the state before the first launch.
 .B Set to no:
-every launch the states listed under yes would refuse or warn on proceeds
+every launch the states listed under yes would refuse proceeds
 without the SELinux layer instead, which is the declaration of an
 intentional DAC-only host; the launch log records
 .BR require=no .

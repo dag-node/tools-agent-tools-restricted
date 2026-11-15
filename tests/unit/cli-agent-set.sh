@@ -747,11 +747,12 @@ else
         fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
     fi
     # A host without SELinux confinement by its own configuration has no domain to attest; under the requirement every
-    # launch runs DAC-only with a warning, which is a fault naming the line that declares the host so.
+    # launch refuses, which is a fault naming the refusal's code and the line that declares the host so.
     out="$(call_attestation_section '' "${REQUIRED_CONF}" Disabled)" || true
     if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'SELinux is disabled' <<<"${out}" \
+            && grep -qF 'every launch on this host refuses (MSG-W2G6)' <<<"${out}" \
             && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}"; then
-        pass "SELinux disabled under the requirement is a fault naming AI_TOOLS_REQUIRE_SELINUX=no"
+        pass "SELinux disabled under the requirement is a fault naming its refusal and AI_TOOLS_REQUIRE_SELINUX=no"
     else
         fail "SELinux disabled under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi

@@ -815,4 +815,72 @@ else
     fi
 fi
 
+# ── report_dac_only_requirement: the notice ahead of a launch that would refuse ─────────────────────────────────────
+# The step names a host where AI_TOOLS_REQUIRE_SELINUX makes every launch refuse, so it is driven in both directions
+# over a stubbed reader (unit/confinement.sh drives the reader): each state prints the notice under its code with that
+# state's remedy and the line that declares the host DAC-only, a reader returning 1 prints nothing, and neither changes
+# the step's status, since the host is provisioned either way.
+section "ai-tools-admin system bootstrap: the DAC-only requirement notice (unit)"
+CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
+if [[ ! -r "${CONFINEMENT_LIB}" ]]; then
+    skip "DAC-only requirement notice" "the step reads ${CONFINEMENT_LIB}, which this host has not deployed"
+else
+    run_dac_only_notice() {  # run_dac_only_notice <reader-stub>
+        AI_TOOLS_OPERATOR_CONF=/etc/ai-tools/operator.conf bash -c '
+            set -euo pipefail
+            # shellcheck source=/dev/null
+            source "$1"
+            eval "$3"
+            # shellcheck source=/dev/null
+            source "$2"
+            declare -F report_dac_only_requirement >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+            rc=0; report_dac_only_requirement || rc=$?
+            printf "rc=%s\n" "${rc}"
+        ' _ "${CONFINEMENT_LIB}" "${HELPER}" "$1" 2>&1 || true
+    }
+    out="$(run_dac_only_notice 'ai_tools_confinement__read_dac_only_requirement() { printf "disabled\n"; }')"
+    if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+        fail "the helper does not define report_dac_only_requirement when sourced"
+    else
+        assert_msg MSG-F2X6 "${out}" "SELinux disabled under the requirement"
+        if grep -qF 'SELinux is disabled' <<<"${out}" && grep -qF 'refuses (MSG-W2G6)' <<<"${out}" \
+                && grep -qF 'SELINUX=enforcing in /etc/selinux/config' <<<"${out}" \
+                && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}" && grep -qx 'rc=0' <<<"${out}"; then
+            pass "SELinux disabled: the notice names the refusal, the enable step and the DAC-only line, at rc 0"
+        else
+            fail "SELinux disabled notice: $(tr '\n' '|' <<<"${out}")"
+        fi
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_dac_only_requirement() { printf "module-absent\n"; }')"
+        assert_msg MSG-F2X6 "${out}" "the policy not installed under the requirement"
+        if grep -qF 'policy is not installed' <<<"${out}" && grep -qF 'sudo dnf install ai-tools-selinux' <<<"${out}" \
+                && grep -qF 'selinux/install-selinux.sh install' <<<"${out}" \
+                && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}" && grep -qx 'rc=0' <<<"${out}"; then
+            pass "the policy not installed: the notice names both installs and the DAC-only line, at rc 0"
+        else
+            fail "policy not installed notice: $(tr '\n' '|' <<<"${out}")"
+        fi
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_dac_only_requirement() { return 1; }')"
+        if [[ "${out}" == "rc=0" ]]; then
+            pass "a reader that names no state prints nothing, at rc 0"
+        else
+            fail "a reader naming no state still printed: $(tr '\n' '|' <<<"${out}")"
+        fi
+    fi
+fi
+# The notice follows the launch-requirements offer, which can write the other switch, and precedes the closing report.
+if [[ ! -r "${SCRIPT}" ]]; then
+    skip "the DAC-only notice's place" "not a checkout, so the helper cannot be read from the repository"
+else
+    offer_line="$(grep -n -m1 -x 'offer_launch_requirements' "${SCRIPT}" | cut -d: -f1)" || true
+    notice_line="$(grep -n -m1 -x 'report_dac_only_requirement' "${SCRIPT}" | cut -d: -f1)" || true
+    shadow_line="$(grep -n -m1 -x 'report_shadowed_operators' "${SCRIPT}" | cut -d: -f1)" || true
+    if [[ -z "${offer_line}" || -z "${notice_line}" || -z "${shadow_line}" ]]; then
+        fail "a closing step is no longer where this reads it (offer ${offer_line:-none}, notice ${notice_line:-none}, report ${shadow_line:-none})"
+    elif (( offer_line < notice_line && notice_line < shadow_line )); then
+        pass "the DAC-only notice runs after the launch-requirements offer and before the shadowed-operator report"
+    else
+        fail "the DAC-only notice (${notice_line}) is out of order (offer ${offer_line}, report ${shadow_line})"
+    fi
+fi
+
 finish

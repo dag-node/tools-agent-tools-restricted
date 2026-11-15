@@ -31,10 +31,11 @@ in `AI_TOOLS_SELINUX_BOOLEANS` at the values the list names. A host that has
 the policy and has drifted from any of that — permissive mode, a module
 installed and not loaded, a Boolean switched on — refuses the launch and names
 the fix. A host that has no confinement by its own configuration, SELinux
-disabled or the policy never installed, launches with file permissions alone
-and warns at every launch until `AI_TOOLS_REQUIRE_SELINUX=no` declares
-that on purpose. The requirement is in force while the key is absent, so only
-an explicit `no` turns it off. Every option is
+disabled or the policy never installed, refuses every launch too,
+and `atr admin system bootstrap` names that state before the first one;
+`AI_TOOLS_REQUIRE_SELINUX=no` declares such a host DAC-only, and its sessions
+then run with file permissions alone. The requirement is in force while the key
+is absent, so only an explicit `no` turns it off. Every option is
 in `man 5 ai-tools-operator.conf`.
 
 The supported host runs the **targeted** policy on Enterprise Linux 9 or 10

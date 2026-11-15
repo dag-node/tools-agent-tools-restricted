@@ -467,8 +467,8 @@ being the authoritative one.
   (`not enforced`), a row whose rules are shut names what it would allow once opened, and every value keeps normal
   contrast whichever it reads: `off` is a reading, not a disabled control. A host without SELinux confinement by its own
   configuration — SELinux disabled, or the policy neither live nor on disk, read through the shim's own predicate — has
-  no domain to attest, and is a finding under that key alone, since there every launch runs DAC-only and warns; the line
-  names the setting that declares the host so and the package that installs confinement.
+  no domain to attest, and is a finding under that key alone, since there every launch refuses; the line names
+  the refusal's code, the setting that declares the host DAC-only and the package that installs confinement.
 
   **The unit that does the labelling is reported too, and answers a different question.** `ai-tools-relabel.service` is
   in the registry beside the `.path` that triggers it, because a healthy watcher says only that a run *started* —
@@ -1371,8 +1371,8 @@ A clone that fails step 5, 6 or 7 stays registered and opened, is reported not r
 and exits 1. A registry line the writer cannot write back refuses the clone ahead of the branch push (`MSG-A5Y2`), since
 the registry write follows the push and the clone. A declined or failed gate, and a label the clone root does not take,
 **fail closed**: the clone stays on disk, private and unregistered, and the resume command is printed. A host
-where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
-through (`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
+where SELinux runs with no `ai_tools` policy, a DAC-only state
+(`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
 not exist there; a module shipped and not loaded, and a reading that cannot be made, keep the stop. A declined or failed
 gate also leaves a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) telling the agent to wait until the lockdown
 runs, with a real `CLAUDE.md` preserved by `git mv` to `CLAUDE.md.bak`. Re-running `projects clone` on the clone path

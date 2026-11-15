@@ -209,6 +209,9 @@ phase "the host runs ${FROM_VERSION}" rpm -q "ai-tools-base-${FROM_VERSION}"
 phase "base's copies stand in the view before the upgrade" withdrawn_in_view
 # An enabled agent, so its kind directories are planned; 0.23 spells the list the way 0.24 reads it.
 printf 'AI_TOOLS_AGENTS=[agent-claude-code]\n' >> "${CONF}"
+# A container runs SELinux Disabled, which every launch refuses under the shipped requirement, so the old release's file
+# takes the hand fix the docs name; %config(noreplace) keeps it through the upgrade.
+sed -i 's/^#\?AI_TOOLS_REQUIRE_SELINUX=.*/AI_TOOLS_REQUIRE_SELINUX=no/' "${CONF}"
 
 if [[ "${UPGRADE_SCENARIO}" == key-first ]]; then
     phase "dnf install ai-tools-assets-core beside ${FROM_VERSION}" dnf -y install ai-tools-assets-core
@@ -221,6 +224,8 @@ RELABEL_CURSOR="$(journalctl -q -n0 --show-cursor 2>/dev/null | sed -n 's/^-- cu
 phase "dnf upgrade to this tree's build" \
     bash -c 'dnf -y --repo=ai-tools-local upgrade "ai-tools*" 2>&1 | tee /tmp/upgrade.log; exit "${PIPESTATUS[0]}"'
 phase "the base package is this tree's build" bash -c "! rpm -q 'ai-tools-base-${FROM_VERSION}' >/dev/null"
+phase "operator.conf keeps the DAC-only declaration through the upgrade" \
+    grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' "${CONF}"
 phase "ai-tools-relabel.service ran exactly once, after every package was placed, and succeeded" relabel_ran_once_after
 phase "each withdrawn copy is moved under retired/" withdrawn_retired
 phase "no agent keeps a link to a withdrawn name" no_agent_link_to_withdrawn

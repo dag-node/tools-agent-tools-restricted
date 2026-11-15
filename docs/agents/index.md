@@ -41,7 +41,7 @@ turned into a refusal that names its fix
 SELinux confinement is required without a line: a session starts only
 where SELinux is enforcing and the confinement policy is loaded, so a host
 whose policy drifted refuses the launch instead of running the session
-unconfined, and a host without SELinux at all launches with a warning until
+unconfined, and a host without SELinux at all refuses every launch until
 `AI_TOOLS_REQUIRE_SELINUX=no` declares it DAC-only ([SELinux
 confinement](../system/selinux.md)).
 

@@ -215,6 +215,16 @@ skip_entrypoint_unready() {
     skip "$1" "no enabled agent's launcher resolves to the labelled entrypoint its manifest declares -- sudo ai-tools-admin system entrypoints relabel names the cause"
 }
 
+# dac_only_launch_refused: succeed, printing the state, where AI_TOOLS_REQUIRE_SELINUX makes every launch on this host
+# refuse (MSG-W2G6), read through the installed ai_tools_confinement__read_dac_only_requirement. A row whose subject
+# sits past the launch verdict asserts that refusal there, since the host is in a state the shim refuses on.
+dac_only_launch_refused() {
+    bash -c 'source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || exit 1
+        source /usr/local/lib/ai-tools/confinement.lib.sh 2>/dev/null || exit 1
+        declare -F ai_tools_confinement__read_dac_only_requirement >/dev/null 2>&1 || exit 1
+        ai_tools_confinement__read_dac_only_requirement "$1"' _ "${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+}
+
 # The unprivileged project user (and the sandbox account) the helpers collaborate with, derived from the invocation --
 # never hard-coded. Three cases, because not every suite needs root: under sudo it is the operator who invoked it; run
 # DIRECTLY as an unprivileged user (which the pure library suites support -- they stub what they drive and build

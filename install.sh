@@ -1257,6 +1257,31 @@ print_banner() {
         "installer · $(ai_tools_msg__format_version "${AI_TOOLS_VERSION}")"
 }
 
+# report_dac_only_requirement -- the notice `system bootstrap` defines, for a host where AI_TOOLS_REQUIRE_SELINUX makes
+# every launch refuse, so the install names it before the first launch does. It does not change the install's outcome.
+report_dac_only_requirement() {
+    local lib="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/confinement.lib.sh" conf=/etc/ai-tools/operator.conf
+    local state notice_line remedy
+    local -a remedies=()
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/confinement.lib.sh
+    source "${lib}" 2>/dev/null || return 0
+    declare -F ai_tools_confinement__read_dac_only_requirement >/dev/null 2>&1 || return 0
+    state="$(ai_tools_confinement__read_dac_only_requirement "${conf}")" || return 0
+    if [[ "${state}" == disabled ]]; then
+        notice_line="AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and SELinux is disabled on this host,"
+        remedies=( "enable it:              set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux" )
+    else
+        notice_line="AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and the ai_tools SELinux policy is not installed,"
+        remedies=( "install the policy:     sudo ${SCRIPT_DIR}/selinux/install-selinux.sh install" )
+    fi
+    section "SELinux requirement"
+    warn MSG-F2X6 "${notice_line}"
+    warn "so every agent launch on this host refuses (MSG-W2G6)"
+    for remedy in "${remedies[@]}" "or declare it DAC-only: set AI_TOOLS_REQUIRE_SELINUX=no in ${conf}"; do
+        warn "    ${remedy}"
+    done
+}
+
 # probe_shadowing_agents -- name the agents this host carries outside the sandbox, and the enrolled operators
 # whose shell reaches one. Two situations at two severities: an install found on the host warns, and an operator it wins
 # for is an error carrying the code `system bootstrap` defines. Neither fails the install -- a host keeping both agents
@@ -3196,6 +3221,7 @@ do_install() {
     # Last, so a finding is the final thing on screen whether or not the suite ran: this host may carry an agent
     # the install did not put there and does not remove, and the operator decides what to do about it. It draws its own
     # section only when it has something to report.
+    report_dac_only_requirement
     probe_shadowing_agents
 
     # The relabel once more through its unit, queued, after the SELinux step relabelled directly: the unit keeps
