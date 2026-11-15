@@ -287,8 +287,9 @@ confinement to show; its refusal names this key, and
 names the state before the first launch.
 .B Set to no:
 every launch the states listed under yes would refuse proceeds
-without the SELinux layer instead, which is the declaration of an
-intentional DAC-only host; the launch log records
+without the SELinux layer instead, which is the declaration of a DAC-only
+host: a container, where SELinux reads disabled. A host runs SELinux
+enforcing with the policy installed. The launch log records
 .BR require=no .
 Other Booleans that reach the session, such as
 .BR kerberos_enabled ,

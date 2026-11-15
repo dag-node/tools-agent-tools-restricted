@@ -3136,11 +3136,15 @@ status_selinux_attestation() {
         esac
         if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
             detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch on this host refuses (MSG-W2G6)"
-            detail "declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
-            detail "or install the policy:       sudo dnf install ai-tools-selinux"
+            if [[ "${dac_only_state}" == disabled ]]; then
+                detail "enable SELinux:            set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux"
+            else
+                detail "install the policy:        sudo dnf install ai-tools-selinux"
+            fi
+            detail "in a container, instead:   set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         else
-            detail "AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning"
+            detail "AI_TOOLS_REQUIRE_SELINUX=no declares this host DAC-only, so a launch runs with file permissions alone"
         fi
         return 0
     fi

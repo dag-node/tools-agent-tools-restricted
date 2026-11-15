@@ -764,7 +764,7 @@ else
         fail "policy never installed under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
     out="$(call_attestation_section '' "${NOT_REQUIRED_CONF}" Enforcing no no)" || true
-    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'without a warning' <<<"${out}"; then
+    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'declares this host DAC-only' <<<"${out}"; then
         pass "the same host without the requirement is reported and not a fault"
     else
         fail "policy never installed without the requirement: $(tr '\n' '|' <<<"${out}")"

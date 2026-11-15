@@ -23,11 +23,28 @@ once its cache refreshes on schedule.
 An upgrade does not add a package you do not already have, because DNF leaves
 a new weak dependency off an existing install. So a host first installed
 before 0.10.0 — when the SELinux policy split into its own `ai-tools-selinux`
-package — keeps upgrading *without* confinement until you add it once:
+package — keeps upgrading without the policy, and every launch on it refuses
+until you add it once:
 
 ```bash
 rpm -q ai-tools-selinux || sudo dnf install ai-tools-selinux
 ```
+
+## A host without SELinux confinement after 0.30
+
+```bash
+atr status                                  # the SELinux status section names the refusal
+```
+
+From 0.30, a launch under `AI_TOOLS_REQUIRE_SELINUX=yes` refuses on a host
+with SELinux disabled or without the `ai_tools` policy, where an earlier
+release started the session with file permissions alone and a warning.
+The shipped `/etc/ai-tools/operator.conf` sets `yes`, a file without the key
+reads the same, and an upgrade keeps the file you have. On such a host, enable
+SELinux in enforcing mode and install `ai-tools-selinux`. A container, where
+SELinux reads `Disabled`, declares itself DAC-only instead, with the commands
+in [SELinux confinement](../system/selinux.md); run them before the upgrade,
+and its launches go on without a refusal.
 
 An `ai-tools` command spelled as an option in an earlier release
 (`--project-claim`) still runs and prints a notice naming the preferred

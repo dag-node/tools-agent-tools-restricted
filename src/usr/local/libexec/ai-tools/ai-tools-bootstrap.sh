@@ -573,27 +573,27 @@ offer_launch_requirements() {
     log "set ${key}=${answer} in ${conf}"
 }
 
-# report_dac_only_requirement -- name a host where AI_TOOLS_REQUIRE_SELINUX makes every launch refuse,
+# report_required_dac_only_state -- name a host where AI_TOOLS_REQUIRE_SELINUX makes every launch refuse,
 # with the remedies, so the operator meets it here rather than at the first launch. The host is provisioned either way
 # and the remedy is the operator's choice, so it leaves the exit status alone.
-report_dac_only_requirement() {
+report_required_dac_only_state() {
     local lib=/usr/local/lib/ai-tools/confinement.lib.sh conf="${AI_TOOLS_OPERATOR_CONF}" state reason
     local -a remedies=()
     # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
     source "${lib}" 2>/dev/null || return 0
-    declare -F ai_tools_confinement__read_dac_only_requirement >/dev/null 2>&1 || return 0
-    state="$(ai_tools_confinement__read_dac_only_requirement "${conf}")" || return 0
+    declare -F ai_tools_confinement__read_required_dac_only_state >/dev/null 2>&1 || return 0
+    state="$(ai_tools_confinement__read_required_dac_only_state "${conf}")" || return 0
     if [[ "${state}" == disabled ]]; then
         reason="SELinux is disabled on this host"
-        remedies=( "enable it:            set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux" )
+        remedies=( "enable SELinux:          set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux" )
     else
         reason="the ai_tools SELinux policy is not installed on this host"
-        remedies=( "install the policy:   sudo dnf install ai-tools-selinux"
-                   "from a checkout:      sudo selinux/install-selinux.sh install" )
+        remedies=( "install the policy:      sudo dnf install ai-tools-selinux"
+                   "from a checkout:         sudo selinux/install-selinux.sh install" )
     fi
     warn MSG-F2X6 "AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and ${reason}, so every agent launch here refuses (MSG-W2G6)"
     local remedy
-    for remedy in "${remedies[@]}" "or declare it DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${conf}"; do
+    for remedy in "${remedies[@]}" "in a container, instead: set AI_TOOLS_REQUIRE_SELINUX=no in ${conf}"; do
         warn "    ${remedy}"
     done
 }
@@ -1132,7 +1132,7 @@ seed_managed_assets_step
 # Launch requirements (operator.conf). Offered after the relabel in step 3b, which writes the pins the entrypoint
 # requirement reads.
 offer_launch_requirements
-report_dac_only_requirement
+report_required_dac_only_state
 
 # Sandbox git commit identity (control-plane gitconfig). Offered here as the shared interactive step; skipped cleanly
 # when the control plane is not yet in place.

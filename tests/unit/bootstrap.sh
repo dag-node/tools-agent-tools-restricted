@@ -815,7 +815,7 @@ else
     fi
 fi
 
-# ── report_dac_only_requirement: the notice ahead of a launch that would refuse ─────────────────────────────────────
+# ── report_required_dac_only_state: the notice ahead of a launch that would refuse ────────────────────────────────────
 # The step names a host where AI_TOOLS_REQUIRE_SELINUX makes every launch refuse, so it is driven in both directions
 # over a stubbed reader (unit/confinement.sh drives the reader): each state prints the notice under its code with that
 # state's remedy and the line that declares the host DAC-only, a reader returning 1 prints nothing, and neither changes
@@ -833,14 +833,14 @@ else
             eval "$3"
             # shellcheck source=/dev/null
             source "$2"
-            declare -F report_dac_only_requirement >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
-            rc=0; report_dac_only_requirement || rc=$?
+            declare -F report_required_dac_only_state >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+            rc=0; report_required_dac_only_state || rc=$?
             printf "rc=%s\n" "${rc}"
         ' _ "${CONFINEMENT_LIB}" "${HELPER}" "$1" 2>&1 || true
     }
-    out="$(run_dac_only_notice 'ai_tools_confinement__read_dac_only_requirement() { printf "disabled\n"; }')"
+    out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { printf "disabled\n"; }')"
     if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
-        fail "the helper does not define report_dac_only_requirement when sourced"
+        fail "the helper does not define report_required_dac_only_state when sourced"
     else
         assert_msg MSG-F2X6 "${out}" "SELinux disabled under the requirement"
         if grep -qF 'SELinux is disabled' <<<"${out}" && grep -qF 'refuses (MSG-W2G6)' <<<"${out}" \
@@ -850,7 +850,7 @@ else
         else
             fail "SELinux disabled notice: $(tr '\n' '|' <<<"${out}")"
         fi
-        out="$(run_dac_only_notice 'ai_tools_confinement__read_dac_only_requirement() { printf "module-absent\n"; }')"
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { printf "module-absent\n"; }')"
         assert_msg MSG-F2X6 "${out}" "the policy not installed under the requirement"
         if grep -qF 'policy is not installed' <<<"${out}" && grep -qF 'sudo dnf install ai-tools-selinux' <<<"${out}" \
                 && grep -qF 'selinux/install-selinux.sh install' <<<"${out}" \
@@ -859,7 +859,7 @@ else
         else
             fail "policy not installed notice: $(tr '\n' '|' <<<"${out}")"
         fi
-        out="$(run_dac_only_notice 'ai_tools_confinement__read_dac_only_requirement() { return 1; }')"
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { return 1; }')"
         if [[ "${out}" == "rc=0" ]]; then
             pass "a reader that names no state prints nothing, at rc 0"
         else
@@ -872,7 +872,7 @@ if [[ ! -r "${SCRIPT}" ]]; then
     skip "the DAC-only notice's place" "not a checkout, so the helper cannot be read from the repository"
 else
     offer_line="$(grep -n -m1 -x 'offer_launch_requirements' "${SCRIPT}" | cut -d: -f1)" || true
-    notice_line="$(grep -n -m1 -x 'report_dac_only_requirement' "${SCRIPT}" | cut -d: -f1)" || true
+    notice_line="$(grep -n -m1 -x 'report_required_dac_only_state' "${SCRIPT}" | cut -d: -f1)" || true
     shadow_line="$(grep -n -m1 -x 'report_shadowed_operators' "${SCRIPT}" | cut -d: -f1)" || true
     if [[ -z "${offer_line}" || -z "${notice_line}" || -z "${shadow_line}" ]]; then
         fail "a closing step is no longer where this reads it (offer ${offer_line:-none}, notice ${notice_line:-none}, report ${shadow_line:-none})"

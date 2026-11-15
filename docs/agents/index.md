@@ -42,7 +42,8 @@ SELinux confinement is required without a line: a session starts only
 where SELinux is enforcing and the confinement policy is loaded, so a host
 whose policy drifted refuses the launch instead of running the session
 unconfined, and a host without SELinux at all refuses every launch until
-`AI_TOOLS_REQUIRE_SELINUX=no` declares it DAC-only ([SELinux
+SELinux enforces with the policy installed; a container declares itself
+DAC-only with `AI_TOOLS_REQUIRE_SELINUX=no` ([SELinux
 confinement](../system/selinux.md)).
 
 Enabling installs and maintains an agent; it does not run one. A session starts

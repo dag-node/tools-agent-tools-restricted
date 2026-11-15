@@ -85,7 +85,7 @@ present, either way, is the operator's declaration and is not asked about, and a
 asked about nor written. The entrypoint switch is offered only while every enabled agent carries a pin,
 which the relabel ahead of the step writes: offered without one, it would refuse that agent's next launch.
 
-**It names a host where the SELinux requirement refuses every launch** (`report_dac_only_requirement`): under
+**It names a host where the SELinux requirement refuses every launch** (`report_required_dac_only_state`): under
 `AI_TOOLS_REQUIRE_SELINUX`, SELinux disabled or the policy neither live nor on disk, read as the launch reads it
 ([confinement](confinement.rule.md)). The warning carries the refusal's code and its remedies, and leaves the exit
 status alone, since the host is provisioned and the remedy is the operator's choice.

@@ -463,7 +463,7 @@ else
             IFS=$'\t' read -r pin_agent pin_launcher <<<"${entry}"
             pin_exec="$(readlink -- "/opt/ai-tools/bin/${pin_launcher}" 2>/dev/null || true)"
             # On a host without SELinux confinement under AI_TOOLS_REQUIRE_SELINUX the verdict refuses ahead of the pin.
-            if dac_only_launch_refused >/dev/null; then
+            if is_required_dac_only_host; then
                 out="$(run_crun_print AI_TOOLS_AGENT_EXEC="${pin_exec}")" && rc=0 || rc=$?
                 refused "ai-tools-run refuses every launch on a host the requirement finds without confinement (${pin_agent})" \
                     MSG-W2G6 "${rc}" "${out}"

@@ -288,13 +288,13 @@ else
 fi
 
 section "confinement: the DAC-only requirement provisioning names (unit)"
-# ai_tools_confinement__read_dac_only_requirement names a host where every launch refuses on the requirement, so it is
-# driven in both directions: each DAC-only state under the requirement, and every reading where a launch does not
+# ai_tools_confinement__read_required_dac_only_state names a host where every launch refuses on the requirement, so it
+# is driven in both directions: each DAC-only state under the requirement, and every reading where a launch does not
 # refuse on it or where an input was not read, which must stay silent. getenforce and matchpathcon are shell functions,
 # and the module file is a fixture path.
 expect_requirement() {  # <description> <expected|none> <operator-conf> <module-file>
     local state status=0
-    state="$(ai_tools_confinement__read_dac_only_requirement "$3" "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" "$4" \
+    state="$(ai_tools_confinement__read_required_dac_only_state "$3" "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" "$4" \
                  2>/dev/null)" || status=$?
     if [[ "$2" == none && -z "${state}" && "${status}" -eq 1 ]] \
             || [[ "$2" != none && "${state}" == "$2" && "${status}" -eq 0 ]]; then
@@ -321,7 +321,7 @@ expect_requirement "a confined host" none "${TESTDIR}/missing.conf" "${TESTDIR}/
 stub_mode=""
 expect_requirement "getenforce prints nothing" none "${TESTDIR}/missing.conf" "${TESTDIR}/missing.pp"
 unset -f getenforce
-if answer="$(PATH=/nonexistent ai_tools_confinement__read_dac_only_requirement "${TESTDIR}/missing.conf" \
+if answer="$(PATH=/nonexistent ai_tools_confinement__read_required_dac_only_state "${TESTDIR}/missing.conf" \
                  "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" "${TESTDIR}/missing.pp" 2>/dev/null)"; then
     fail "requirement: no getenforce read as a state: ${answer:-∅}"
 elif [[ -z "${answer}" ]]; then

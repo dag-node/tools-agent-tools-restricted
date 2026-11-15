@@ -275,11 +275,11 @@ a different set, and module presence through `ai_tools_confinement__read_module_
 **A host without SELinux confinement by its own configuration refuses under the requirement** (`MSG-W2G6`): SELinux
 `Disabled`, and a host whose core module is neither live nor on disk (`ai_tools_confinement__evaluate_dac_only_state`,
 the one predicate the verdict, both status reports and the provisioning notice read it by). The refusal names the step
-that confines the host and the line that declares it DAC-only, `AI_TOOLS_REQUIRE_SELINUX=no`, which a host meant to run
-on file permissions alone sets; a container is one, since `getenforce` reads `Disabled` there.
+that confines the host, and then the line that declares it DAC-only, `AI_TOOLS_REQUIRE_SELINUX=no`, which a container
+sets, since `getenforce` reads `Disabled` there; a host runs SELinux enforcing with the policy.
 `atr admin system bootstrap` and `install.sh install` name the state with the same remedies before a launch meets it
-(`MSG-F2X6`), through `ai_tools_confinement__read_dac_only_requirement`, and leave their exit status alone. No package
-scriptlet prints it, since rpm output goes unread on most hosts and both status reports count the state
+(`MSG-F2X6`), through `ai_tools_confinement__read_required_dac_only_state`, and leave their exit status alone. No
+package scriptlet prints it, since rpm output goes unread on most hosts and both status reports count the state
 ([cli](cli.rule.md)).
 
 The requirement is in force unless `operator.conf` sets the key to a no value (`ai_tools_conf__is_no`): an absent key,

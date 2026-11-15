@@ -209,9 +209,6 @@ phase "the host runs ${FROM_VERSION}" rpm -q "ai-tools-base-${FROM_VERSION}"
 phase "base's copies stand in the view before the upgrade" withdrawn_in_view
 # An enabled agent, so its kind directories are planned; 0.23 spells the list the way 0.24 reads it.
 printf 'AI_TOOLS_AGENTS=[agent-claude-code]\n' >> "${CONF}"
-# A container runs SELinux Disabled, which every launch refuses under the shipped requirement, so the old release's file
-# takes the hand fix the docs name; %config(noreplace) keeps it through the upgrade.
-sed -i 's/^#\?AI_TOOLS_REQUIRE_SELINUX=.*/AI_TOOLS_REQUIRE_SELINUX=no/' "${CONF}"
 
 if [[ "${UPGRADE_SCENARIO}" == key-first ]]; then
     phase "dnf install ai-tools-assets-core beside ${FROM_VERSION}" dnf -y install ai-tools-assets-core
@@ -224,8 +221,26 @@ RELABEL_CURSOR="$(journalctl -q -n0 --show-cursor 2>/dev/null | sed -n 's/^-- cu
 phase "dnf upgrade to this tree's build" \
     bash -c 'dnf -y --repo=ai-tools-local upgrade "ai-tools*" 2>&1 | tee /tmp/upgrade.log; exit "${PIPESTATUS[0]}"'
 phase "the base package is this tree's build" bash -c "! rpm -q 'ai-tools-base-${FROM_VERSION}' >/dev/null"
-phase "operator.conf keeps the DAC-only declaration through the upgrade" \
-    grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' "${CONF}"
+# The old release's operator.conf goes through the upgrade as it was. A container runs SELinux Disabled, so under
+# the requirement that file holds every launch now refuses, which the status report names; the hand fix the docs give
+# then declares the container DAC-only, and the report reads the declaration.
+status_report_names() {  # <text>
+    local status_report
+    status_report="$("${ADMIN}" status 2>/dev/null)" || true
+    grep -qF "$1" <<< "${status_report}" || { echo "the status report does not say: $1" >&2; return 1; }
+}
+if [[ "$(getenforce 2>/dev/null || true)" == Disabled ]]; then
+    phase "the kept operator.conf does not declare the host DAC-only" \
+        bash -c "! grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' '${CONF}'"
+    phase "atr admin status names the refusal on this Disabled host" \
+        status_report_names 'every launch on this host refuses (MSG-W2G6)'
+    phase "the documented hand fix declares the container DAC-only" \
+        bash -c "sed -i '/^#\\?AI_TOOLS_REQUIRE_SELINUX=/d' '${CONF}' && echo 'AI_TOOLS_REQUIRE_SELINUX=no' >> '${CONF}' \
+                 && grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' '${CONF}'"
+    phase "atr admin status reads the declaration" status_report_names 'declares this host DAC-only'
+else
+    echo "getenforce does not read Disabled here: the DAC-only phases do not apply"
+fi
 phase "ai-tools-relabel.service ran exactly once, after every package was placed, and succeeded" relabel_ran_once_after
 phase "each withdrawn copy is moved under retired/" withdrawn_retired
 phase "no agent keeps a link to a withdrawn name" no_agent_link_to_withdrawn

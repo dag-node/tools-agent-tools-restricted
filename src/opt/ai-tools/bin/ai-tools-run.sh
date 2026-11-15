@@ -430,7 +430,7 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but ${dac_only_reason}"
             refuse MSG-W2G6 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so the session would run with file permissions alone." \
                    "${dac_only_remedies[@]}" \
-                   "Or declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
+                   "In a container, declare it DAC-only instead:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
         require-inactive)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but the ai_tools module is installed and not loaded"
             refuse "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, and the ai_tools SELinux policy is installed on this enforcing host but its module is not loaded, so the session would run without the ai_tools_t confinement the operator requires." \

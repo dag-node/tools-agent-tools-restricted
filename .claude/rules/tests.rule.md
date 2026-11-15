@@ -63,7 +63,7 @@ where confinement is expected, the state the launch preflight, the launcher-syml
 verb each require. A case that needs one of them to accept the entrypoint skips through `skip_entrypoint_unready`,
 so an entrypoint outside its declared rule fails once, in `integration/selinux.sh`'s declared-rule section, rather than
 in every file that reaches those gates.
-`dac_only_launch_refused` is the third: `AI_TOOLS_REQUIRE_SELINUX` is in force on a host without SELinux confinement
+`is_required_dac_only_host` is the third: `AI_TOOLS_REQUIRE_SELINUX` is in force on a host without SELinux confinement
 by its own configuration, the state every launch refuses on. A row whose subject sits past the launch verdict asserts
 that refusal there in place of its own outcome, so a host in that state reports the refusal it is in.
 

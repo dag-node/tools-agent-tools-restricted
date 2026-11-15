@@ -513,11 +513,11 @@ ai_tools_confinement__evaluate_dac_only_state() {
     return 1
 }
 
-# ai_tools_confinement__read_dac_only_requirement <operator-conf> [probe-path] [module-file] -- print the DAC-only state
-# and return 0 when the requirement is in force on a host where every launch therefore refuses; return 1 without output
-# otherwise, an unread input included, since the launch and the status reports name that one. Provisioning calls it
-# to say so before the first launch does. It reads the host as ai-tools-run does, so the two cannot disagree.
-ai_tools_confinement__read_dac_only_requirement() {
+# ai_tools_confinement__read_required_dac_only_state <operator-conf> [probe-path] [module-file] -- print the DAC-only
+# state and return 0 when the requirement is in force on a host where every launch therefore refuses; return 1 without
+# output otherwise, an unread input included, since the launch and the status reports name that one. Provisioning calls
+# it to say so before the first launch does. It reads the host as ai-tools-run does, so the two cannot disagree.
+ai_tools_confinement__read_required_dac_only_state() {
     local operator_conf="$1" probe_path="${2:-${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}}"
     local module_file="${3:-${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}}" selinux_mode="" module_present=""
     ai_tools_confinement__is_selinux_required "${operator_conf}" || return 1
