@@ -4,9 +4,9 @@
 docs](../index.md)
 
 The manual path — four root steps a checkout installs with, no RPM. The package
-install (see the README) automates all of it; `atr admin system bootstrap`
-automates steps 2–3 once `install.sh` has deployed it, and `install.sh`
-automates everything from step 4 on.
+install (see the README) automates all of it; `install.sh` automates everything
+from step 4 on, and `atr admin system bootstrap`, which it deploys, provisions
+the toolchain in step 3.
 
 Use one route per host. On a host that has the `ai-tools-*` packages,
 `install.sh` warns before it writes: each package file it replaces then reads
@@ -155,56 +155,30 @@ does not create the account itself, so this step runs ahead of the install.
 from taking effect. `/opt/ai-tools` has no `nosuid` restriction, so the switch
 to `${SANDBOX_USER}` actually takes effect.
 
-## 3. Install nvm + Node + claude as `SANDBOX_USER` (root, once)
-
-`atr admin system bootstrap` does steps 2 and 3 in one idempotent command once
-`install.sh` (step 4) or the package has deployed it — it creates the account,
-installs the toolchain, seeds the symlink, and enables the `nvm-update.timer`.
-The manual equivalent:
+## 3. Provision the toolchain with bootstrap (after step 4)
 
 ```bash
-# cd first: the block runs as ${SANDBOX_USER}, which cannot occupy your home as cwd
-sudo -u "${SANDBOX_USER}" bash -c '
-  cd /opt/ai-tools
-  export NVM_DIR=/opt/ai-tools/.nvm
-  export HOME=/opt/ai-tools
-  curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-  source /opt/ai-tools/.nvm/nvm.sh
-  nvm install 22
-  nvm alias default 22
-  npm install -g @anthropic-ai/claude-code
-'
+atr admin system bootstrap
 ```
 
-```bash
-# Create bin dir and initial claude symlink (nvm-update.sh maintains it going forward)
-sudo -u "${SANDBOX_USER}" bash -c '
-  cd /opt/ai-tools
-  source /opt/ai-tools/.nvm/nvm.sh
-  mkdir -p /opt/ai-tools/bin
-  ln -sf "/opt/ai-tools/.nvm/versions/node/$(nvm version default)/bin/claude" \
-         /opt/ai-tools/bin/claude
-'
-```
-
-Once `install.sh` (step 4) has run, `/opt/ai-tools/bin` is locked
-`0551 root:ai-tools` and only root maintains the symlink: instead of that `ln`,
-run `atr admin system bootstrap` (idempotent -- it provisions whatever is
-missing and seeds the symlink through the root helper), or re-run
-`sudo ./install.sh install`.
+`atr admin system bootstrap` installs nvm, Node and each enabled agent
+as `${SANDBOX_USER}`, under the install-script allowlist and the npm signature
+check the daily update applies, seeds the launcher symlinks through the root
+helper, and enables the `nvm-update.timer`. `install.sh` deploys the command,
+so run it once step 4 has finished. It is idempotent, so a re-run provisions
+whatever is missing.
 
 ## 4. Run the install script (root, once)
 
-Everything from here on is fully automated by `install.sh`. **Complete steps 2
-and 3 first** — the account must exist (else the script stops
+Everything from here on is fully automated by `install.sh`. **Complete step 2
+first** — the account must exist (else the script stops
 with `ai-tools user not found`). The script creates `/opt/ai-tools/bin`
 where it is absent, so a host whose packages were removed does not need a step
-for it. On a fresh host, steps 2 and 3 are done by hand:
-`atr admin system bootstrap`, which does both in one idempotent command, is
-deployed by this step. The host also needs the `acl` package, which the RPM
-requires: the script stops before it writes anything where `setfacl`
-or `getfacl` is missing (`sudo dnf install acl`). Then run
-`sudo ./install.sh install`.
+for it. On a fresh host, step 2 is done by hand, and until step 3 runs
+the script reports the toolchain as not found and skips the launcher symlinks.
+The host also needs the `acl` package, which the RPM requires: the script stops
+before it writes anything where `setfacl` or `getfacl` is missing
+(`sudo dnf install acl`). Then run `sudo ./install.sh install`.
 
 The script asks which account to enrol as the operator, offering the invoking
 `SUDO_USER` as the default — answer No to name another. A non-interactive run
