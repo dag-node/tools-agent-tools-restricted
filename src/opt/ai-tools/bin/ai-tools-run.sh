@@ -408,15 +408,13 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
             refuse "refusing to launch -- the ai_tools SELinux module is installed but no file-context maps ${entrypoint_path} to ai_tools_exec_t, so the transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
                    "The agent's entrypoint rule comes from its own manifest; register it:  atr admin system entrypoints relabel" \
                    "Or reload the confinement policy package:  sudo dnf reinstall ai-tools-selinux" \
-                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" \
-                   "Or make this a DAC-only host:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf, then  sudo semodule -r ai_tools" ;;
+                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" ;;
         require-policy-absent|require-not-enforcing)
             # A host with no SELinux confinement by its configuration takes one code, whichever state it is in.
             if [[ "${confinement_verdict}" == require-not-enforcing && "${selinux_mode}" != Disabled ]]; then
                 audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but SELinux is ${selinux_mode}, not Enforcing"
                 refuse "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but SELinux is \"${selinux_mode}\", not Enforcing, so the session would run without the ai_tools_t confinement the operator requires." \
-                       "Enforce it:  sudo setenforce 1   (and check /etc/selinux/config so it survives a reboot)" \
-                       "Or drop the requirement:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf"
+                       "Enforce it:  sudo setenforce 1   (and check /etc/selinux/config so it survives a reboot)"
             fi
             if [[ "${selinux_mode}" == Disabled ]]; then
                 dac_only_reason="SELinux is disabled on this host"
@@ -435,8 +433,7 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but the ai_tools module is installed and not loaded"
             refuse "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, and the ai_tools SELinux policy is installed on this enforcing host but its module is not loaded, so the session would run without the ai_tools_t confinement the operator requires." \
                    "Load it:  sudo semodule -i /usr/share/selinux/packages/ai-tools/ai_tools.pp   (or reinstall the package, whose scriptlet loads it:  sudo dnf reinstall ai-tools-selinux)" \
-                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" \
-                   "Or drop the requirement:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
+                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" ;;
         require-unattested)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but the confinement state could not be read: ${unread_confinement_inputs:-an input}"
             # One remedy line per kind of unread input, so a misspelled Boolean is not answered with a package install.
@@ -453,14 +450,13 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
                 && unattested_remedies+=( "Fix the line in /etc/ai-tools/operator.conf: each entry is <boolean>=on or <boolean>=off, as  AI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=off, deny_ptrace=on]" )
             refuse MSG-A7E7 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but this launch could not read ${unread_confinement_inputs:-an input of the confinement check}, so it cannot show the session would run confined." \
                    "${unattested_remedies[@]+"${unattested_remedies[@]}"}" \
-                   "Or drop the requirement:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
+                   "In a container, declare it DAC-only instead:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
         require-permissive)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but ai_tools_t is a permissive domain"
             refuse MSG-Z5M5 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ai_tools_t is a permissive domain on this host, so SELinux would log the session's denials and enforce none of them." \
                    "Enforce the domain:  sudo semanage permissive -d ai_tools_t" \
                    "If that reports no such permissive type, the loaded module declares it; reload the shipped one:  sudo dnf reinstall ai-tools-selinux" \
-                   "On a source checkout instead, remove 'permissive ai_tools_t;' from selinux/policy/ai_tools.te, then:  sudo selinux/install-selinux.sh rebuild" \
-                   "Or drop the requirement:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
+                   "On a source checkout instead, remove 'permissive ai_tools_t;' from selinux/policy/ai_tools.te, then:  sudo selinux/install-selinux.sh rebuild" ;;
         require-boolean)
             differing_boolean_names="" required_assignments="" current_assignments=""
             for required_entry in ${required_boolean_values}; do

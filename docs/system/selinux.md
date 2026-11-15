@@ -41,17 +41,17 @@ install `ai-tools-selinux`. Every option is in `man 5 ai-tools-operator.conf`.
 ### A container runs DAC-only
 
 ```bash
-sudo sed -i '/^#\?AI_TOOLS_REQUIRE_SELINUX=/d' /etc/ai-tools/operator.conf
-echo 'AI_TOOLS_REQUIRE_SELINUX=no' | sudo tee -a /etc/ai-tools/operator.conf
+sudo sed -i '/^[[:space:]]*#\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX=/d' /etc/ai-tools/operator.conf
+printf '\nAI_TOOLS_REQUIRE_SELINUX=no\n' | sudo tee -a /etc/ai-tools/operator.conf
 atr status                                  # the SELinux status section names the declaration
 ```
 
-A container reads SELinux as `Disabled`, so the policy cannot confine
-a session there. The two commands remove any `AI_TOOLS_REQUIRE_SELINUX` line,
-set or commented, and append `AI_TOOLS_REQUIRE_SELINUX=no`, which declares
-the host DAC-only whether the key was in the file or not. Its sessions then run
-with file permissions alone. A host that can run SELinux runs it enforcing
-with the policy instead, since the policy is the second boundary.
+A container reads SELinux as `Disabled`, so the policy cannot confine a session
+there. The two commands remove any `AI_TOOLS_REQUIRE_SELINUX` line, set
+or commented, and append `AI_TOOLS_REQUIRE_SELINUX=no` on a line of its own,
+which declares the host DAC-only whether the key was in the file or not. Its
+sessions then run with file permissions alone. A host that can run SELinux runs
+it enforcing with the policy instead, since the policy is the second boundary.
 
 The supported host runs the **targeted** policy on Enterprise Linux 9 or 10
 with operators logging in unconfined, the EL default. The policy grants

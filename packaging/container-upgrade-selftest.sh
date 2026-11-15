@@ -235,7 +235,7 @@ if [[ "$(getenforce 2>/dev/null || true)" == Disabled ]]; then
     phase "atr admin status names the refusal on this Disabled host" \
         status_report_names 'every launch on this host refuses (MSG-W2G6)'
     phase "the documented hand fix declares the container DAC-only" \
-        bash -c "sed -i '/^#\\?AI_TOOLS_REQUIRE_SELINUX=/d' '${CONF}' && echo 'AI_TOOLS_REQUIRE_SELINUX=no' >> '${CONF}' \
+        bash -c "sed -i '/^[[:space:]]*#\\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX=/d' '${CONF}' && printf '\\nAI_TOOLS_REQUIRE_SELINUX=no\\n' >> '${CONF}' \
                  && grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' '${CONF}'"
     phase "atr admin status reads the declaration" status_report_names 'declares this host DAC-only'
 else

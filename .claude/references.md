@@ -120,7 +120,7 @@ cannot fix -- a message code's name is a runtime string, and rewording one is a 
 | p2n3 | [MSG-P2N3](../install.sh) | restorecon not found -- skipping SELinux context restoration | install.sh |  | warn |
 | w6y7 | [MSG-W6Y7](../install.sh) | SELinux step refused: a source install compiles its policy modules, and the | install.sh |  | warn |
 | k9p5 | [MSG-K9P5](../install.sh) | the SELinux policy modules did not compile (see above); fix the cause and re-run | install.sh |  | die |
-| q5r3 | [MSG-Q5R3](../install.sh) | SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only | install.sh |  | warn |
+| q5r3 | [MSG-Q5R3](../install.sh) | SELinux is inactive, ${declaration} | install.sh |  | warn |
 | y4g6 | [MSG-Y4G6](../install.sh) | SELinux install did not complete -- bring it up later with: | install.sh |  | warn |
 | e7d7 | [MSG-E7D7](../install.sh) | relabel did not complete -- run: atr admin system entrypoints relabel | install.sh |  | warn |
 | f6d2 | [MSG-F6D2](../install.sh) | an agent outside the sandbox is installed at ${install_path} | install.sh |  | warn |

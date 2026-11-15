@@ -958,13 +958,21 @@ offer_selinux() {
     local mode
     mode="$(getenforce 2>/dev/null || true)"
 
-    # SELinux off (Disabled, or no userspace): the confinement layer cannot load, so skip the section. DAC-only
-    # confinement is the model for running inside a container, where the container runtime is the isolation boundary;
-    # on a non-containerized host the SELinux layer is recommended, so say so.
+    # SELinux off (Disabled, or no userspace): the confinement layer cannot load, so skip the section, and say what
+    # the host's AI_TOOLS_REQUIRE_SELINUX declaration makes of a launch. DAC-only is the model for a container, where
+    # the container runtime is the isolation boundary; a host runs the SELinux layer.
     if [[ -z "${mode}" || "${mode}" == "Disabled" ]]; then
-        warn MSG-Q5R3 "SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only"
-        warn "  suits running inside a container; on a non-containerized host the SELinux layer"
-        warn "  is recommended -- enable SELinux, then: sudo ${selinux_script} install"
+        local declaration="so under AI_TOOLS_REQUIRE_SELINUX every agent launch refuses here --" detail_line
+        local -a detail_lines=( "  on a host, enable SELinux, then: sudo ${selinux_script} install; in a container,"
+                                "  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" )
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/confinement.lib.sh
+        if source "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/confinement.lib.sh" 2>/dev/null \
+                && ! ai_tools_confinement__is_selinux_required /etc/ai-tools/operator.conf; then
+            declaration="and AI_TOOLS_REQUIRE_SELINUX=no declares this host DAC-only:"
+            detail_lines=( "  the agent runs with file permissions alone (no ai_tools_t domain), the setting for a container" )
+        fi
+        warn MSG-Q5R3 "SELinux is inactive, ${declaration}"
+        for detail_line in "${detail_lines[@]}"; do warn "${detail_line}"; done
         return 0
     fi
 
