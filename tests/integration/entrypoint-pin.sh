@@ -246,9 +246,10 @@ else
 fi
 
 # ── (4) The verified tier, a release that cannot be verified ─────────────────────────────────
-# The fixture agent declares a release manifest at an address that refuses the connection, so every run here reaches
-# the unable-to-verify branch. Each case sets the pin and the mark, and asserts the outcome the decision's table gives
-# (entrypoint-verify.lib.sh) on disk and in the run's output.
+# The fixture agent declares a release manifest at an address that refuses the connection, so every run here that does
+# not reuse its pin reaches the unable-to-verify branch. Each case sets the pin and the mark, and asserts the outcome
+# the decision's table gives (entrypoint-verify.lib.sh) on disk and in the run's output; the reuse control in (4g) is
+# the one run that answers from the pin instead.
 if ! declare -F ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark >/dev/null 2>&1; then
     skip "unverified release" "the installed ${VERIFY_LIB} carries no unverified-release decision -- reinstall to cover it"
 else

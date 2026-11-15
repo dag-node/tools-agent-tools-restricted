@@ -697,13 +697,16 @@ installed when the refusal happened, which the pin by construction does not hold
 with the pin, as the launch does, so what it records is what the next launch reads, and it names the outcome in one line
 after `MSG-B6H9`; `ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark` holds the outcomes and what each
 one files, keeps or clears. The table follows from what each mark is about. A `release-unverified` mark carries the
-checksum of the bytes the run read, so the wording it gives the launch applies to those bytes alone. A mark of a changed
-binary is kept over an unverified release, since the installed version is the sandbox account's to write and an
-unverified-update wording must not replace it. A signature failure is a finding about the vendor's manifest rather than
-about the bytes, so matching bytes do not clear it; only a run that verifies the release does. **Every outcome of this
-branch exits 0**: the release could not be verified, an rpm `%post` runs the helper offline, and a failed pin step stops
-the run before it labels any agent; the launch refuses on the pin whatever the run returns, and both status reports
-count the mark. How the launch words its refusal from the mark is [launch](launch.rule.md)'s.
+checksum of the bytes the run read, so the wording it gives the launch applies to those bytes alone. Where the bytes
+differ under another release, a mark of a changed binary is kept, since the installed version is the sandbox account's
+to write and an unverified-update wording must not replace it. A signature failure is a finding about the vendor's
+manifest rather than about the bytes, so matching bytes and a reused pin do not clear it; a run that records a pin does.
+One sequence drops it without such a run, and is accepted: a change under the pinned version replaces it with
+`changed-under-same-version`, and once the pinned bytes are restored a later run clears that mark. **Every outcome of
+this branch exits 0**: the release could not be verified, an rpm `%post` runs the helper offline, and a failed pin step
+stops the run before it labels any agent. Where the bytes differ from the pin, the launch refuses on it whatever the run
+returns, and where a mark stands, both status reports count it. How the launch words its refusal from the mark is
+[launch](launch.rule.md)'s.
 
 The mark is **cleared** by any run that records a pin for that agent — a fresh pin, a re-pin, an observed-tier
 `keep` — so a host that has been repaired stops reporting; a pin with a mark beside it is not reused, so a reused
