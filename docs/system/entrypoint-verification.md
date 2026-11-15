@@ -96,9 +96,9 @@ where neither works.
 |---|---|---|
 | no output | the normal case | no action |
 | `entrypoint verified … and pinned` after an update | working as intended | no action |
-| `could not verify … pin unchanged` | the host could not reach the vendor, or no manifest exists for that release | no action; it re-verifies on the next update. If it persists, check egress to `downloads.claude.ai` |
+| `could not verify … pin unchanged` | the host could not reach the vendor, or no manifest exists for that release; the pin still holds the previous release's checksum, so a launch of the new release refuses as `does not match its recorded checksum` | check egress to `downloads.claude.ai`, then `atr admin system entrypoints relabel` |
 | `signed by a key the pinned keyring does not hold` | the vendor rotated its signing key | `sudo dnf update 'ai-tools-agents-*'` |
-| a launch refused: `does not match its recorded checksum` | **the binary changed after it was recorded** | treat the toolchain as tampered and replace the binary — see [Replacing a changed binary](#replacing-a-changed-binary) |
+| a launch refused: `does not match its recorded checksum` | **the binary changed after it was recorded**, unless the last update printed `could not verify … pin unchanged` | treat the toolchain as tampered and replace the binary — see [Replacing a changed binary](#replacing-a-changed-binary); after that update line, the `could not verify` row |
 | a launch refused: `carries no pin` | you set `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY=yes` and no reconcile has pinned this entrypoint | `atr admin system entrypoints relabel` (needs the host online for an agent whose vendor publishes a manifest) |
 | `PIN STALE` in `atr status` | a reconciliation refused to re-record that pin, so it describes a binary that is no longer installed | the same: [Replacing a changed binary](#replacing-a-changed-binary) |
 | `UNCHANGED` in place of `VERIFIED` | that agent is pinned as installed | no action; [An agent whose vendor does not publish a signed manifest](#an-agent-whose-vendor-does-not-publish-a-signed-manifest) says what it claims |

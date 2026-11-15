@@ -34,9 +34,9 @@ Two properties hold across every install:
   signed repository, every package it depends on comes from the distribution's,
   and the install does not add a `pip` or a host-level `npm` step.
 - **The agent toolchain is installed into the sandbox account, not
-  onto the host.** Node and the agent live under `/opt/ai-tools`, which your
-  own account cannot traverse, so your `PATH` is unchanged and a second Node
-  does not appear for any other user.
+  onto the host.** Node and the agent live under `/opt/ai-tools/.nvm`,
+  which your own account cannot traverse, so your `PATH` is unchanged
+  and a second Node does not appear for any other user.
 
 Each optional piece is a weak dependency, so a host installs the base and drops
 what it does not want: the agent packages, the integrations, and the SELinux

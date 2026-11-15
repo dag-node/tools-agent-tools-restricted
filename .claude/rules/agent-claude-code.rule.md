@@ -151,11 +151,12 @@ Resolved from `operator.conf` and prepended to `"$@"` just before the final `exe
 as `--append-system-prompt-file <path>` (mode `append`, the default — keeps Claude Code's own tool-use and safety
 guidance) or `--system-prompt-file <path>` (mode `replace`).
 
-- **`CLAUDE_SYSTEM_PROMPT_FILE` must resolve under `/etc/ai-tools/prompts/`** — the one location the confined
-  `ai_tools_t` domain is granted read on (`etc_t`, via `files_read_etc_files`). A root-owned file elsewhere passes
-  the DAC trust check yet is unreadable to the session, so a mis-set path would become a failed launch rather than
-  a refused one. The file, its directory, the prompts base, and `operator.conf` each pass `ai_tools_conf__is_trusted`,
-  and the file must be a regular file holding plain text. The launch hook's checks are all `stat`s: it runs
+- **`CLAUDE_SYSTEM_PROMPT_FILE` must resolve under `/etc/ai-tools/prompts/`** — the one base the launch hook accepts,
+  a root-owned `etc_t` directory the confined `ai_tools_t` domain reads (via `files_read_etc_files`, which covers every
+  `etc_t` file). A root-owned file under a type the domain is not granted passes the DAC trust check yet is unreadable
+  to the session, so a mis-set path would become a failed launch rather than a refused one. The file, its directory,
+  the prompts base, and `operator.conf` each pass `ai_tools_conf__is_trusted`, and the file must be a regular file
+  holding plain text. The launch hook's checks are all `stat`s: it runs
   as the operator, who by design is not in `SANDBOX_GROUP` and cannot read the `0640` file (an operator holds `sudo`
   for editing it). The text check (`ai_tools_conf__is_text_file`, a shared predicate) therefore runs in the claude-code
   session-env fragment as the sandbox account, before the unit exists, and a file that is not plain text refuses

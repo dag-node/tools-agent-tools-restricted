@@ -51,7 +51,8 @@
 #                  refuses, is the kill switch, no filtering at all
 #                  -- ai_tools_filters__is_enabled is that verdict, and an adapter gates its noise
 #                  strip on it too, so the switch really does turn off every transform
-# An untrusted operator.conf or filters.d is ignored, which likewise leaves the command unfiltered. Rule sets are not
+# An untrusted filters.d is ignored, which leaves the command unfiltered; an untrusted or unreadable operator.conf reads
+# as the key absent, so every installed set applies, and those are root-owned rules alone. Rule sets are not
 # gated on provider enablement: a rule is inert unless the agent runs the command it matches, so the gate would have no
 # effect and this runs on every Bash call.
 

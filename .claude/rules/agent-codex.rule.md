@@ -66,8 +66,9 @@ is the vendor's; the containment is the host's.
 Not declared, and why: `skills_dir` and `subagents_dir`, because codex reads skills from its admin scope
 (`/etc/codex/skills`, not a directory inside `CODEX_HOME`) and its sub-agent roles are a different shape from the shared
 subagent definitions; and the three release-verification fields, because the npm channel does not publish a signed
-per-release checksum manifest. The launch is therefore `unpinned`, and a host that sets
-`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` does not launch codex ([updater](updater.rule.md)). `tests/unit/codex-package.sh`
+per-release checksum manifest. Root therefore pins the binary as installed, the `observed` tier, which satisfies
+`AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` and refuses a later change to the binary without claiming vendor provenance
+([updater](updater.rule.md)). `tests/unit/codex-package.sh`
 asserts each of these.
 
 ## The resolution chain ends on the vendor binary, by the re-link
