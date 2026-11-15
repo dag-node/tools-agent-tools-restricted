@@ -48,11 +48,11 @@ so a binary file piped in by mistake does not reach the service.
 Claude Code asks you before every call, whatever permission mode the session
 runs in. Codex runs it without a prompt: this project pins it to ask only
 about a command one of its rules marks `prompt`, and the shipped rules mark
-none ([Misleading agent setting names](../agents/setting-names.md)). Enabling
-the integration is therefore where you consent: whether a given project's lines
-may leave the host is your decision, which is why the integration is off until
-you name it in `/etc/ai-tools/operator.conf` and set the key. The usage log
-records each call afterwards, as counts without content.
+none ([Misleading agent setting names](../agents/setting-names.md)). Setting
+the key is therefore where you consent: whether a given project's lines may
+leave the host is your decision, and the command does not send a request while
+the key is commented, as the file ships. The usage log records each call
+afterwards, as counts without content.
 
 ## The credential
 
@@ -99,10 +99,16 @@ calling after the first refusal and tells you.
 
 ## Turning it off
 
-Remove `integration-typesafe` from `AI_TOOLS_INTEGRATIONS`, or comment the key:
-either way the next session's calls fall back to the full listing. Removing
+Remove the key from the file, since a commented line is still readable to every
+session: the command then reports the file as not configured, and every
+session's calls fall back to the full listing. Removing `integration-typesafe`
+from `AI_TOOLS_INTEGRATIONS` stops handing sessions the file's path,
+which the skill passes, but a session can still name the file itself,
+as the check under [Rotating the key](#rotating-the-key) does. Removing
 the package withdraws the skill from every agent and leaves the credential file
-and the usage log in place.
+and the usage log in place, so remove the key from it too. [The
+credential](#the-credential) names the one way to keep a key
+out of the sessions' reach.
 
 ## The usage log
 
