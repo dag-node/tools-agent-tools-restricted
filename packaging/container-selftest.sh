@@ -134,9 +134,23 @@ phase "ai-tools-selinux ships exactly the derived policy module set" \
 # Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's linger
 # and the nvm-update.timer in its own `--user instance`. Idempotent (reuses an existing nvm/Node), so a re-run is cheap.
 # No agent ships enabled and this run has no terminal to choose one on, so the agent the later phases launch is named
-# here through the unattended form, which writes AI_TOOLS_AGENTS before the toolchain is installed.
-phase "system bootstrap (nvm + Node + claude; linger + timer)" \
-    ai-tools-admin system bootstrap --agents agent-claude-code
+# here through the unattended form, which writes AI_TOOLS_AGENTS before the toolchain is installed. The container runs
+# SELinux Disabled under the shipped AI_TOOLS_REQUIRE_SELINUX=yes, so the bootstrap names the launch refusal ahead
+# of the first launch: its notice code is asserted here, on a real host in that state.
+bootstrap_names_required_dac_only_state() {
+    local log=/tmp/ai-tools-selftest-bootstrap.log mode bootstrap_status
+    ai-tools-admin system bootstrap --agents agent-claude-code 2>&1 | tee "${log}"
+    bootstrap_status="${PIPESTATUS[0]}"
+    (( bootstrap_status == 0 )) || return "${bootstrap_status}"
+    mode="$(getenforce 2>/dev/null || true)"
+    if [[ "${mode}" != Disabled ]]; then
+        note "getenforce read '${mode:-nothing}', not Disabled: the DAC-only notice is not expected here"
+        return 0
+    fi
+    grep -qx MSG-F2X6 "${log}" || { note "SELinux is Disabled and the bootstrap did not print MSG-F2X6"; return 1; }
+}
+phase "system bootstrap (nvm + Node + claude; linger + timer; names the DAC-only refusal)" \
+    bootstrap_names_required_dac_only_state
 
 # shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "claude launcher symlink resolves to the nvm-installed binary" \
@@ -173,6 +187,26 @@ phase "operator claims the project (allowlist + ACL + safedir + label)" \
 
 phase "project is in the operator's allowlist" \
     bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/project-registry"
+
+# ── the shipped requirement on a host without SELinux confinement ────────────
+# Under the shipped AI_TOOLS_REQUIRE_SELINUX=yes a launch on this Disabled host refuses with MSG-W2G6; the container
+# then declares itself DAC-only, the documented hand fix, and every later phase launches under it.
+launch_refuses_dac_only() {
+    local out launch_status=0
+    out="$(as_operator "cd '${PROJECT}' && script -qec 'timeout 90 claude --version' /dev/null" 2>&1)" || launch_status=$?
+    printf '%s\n' "${out}"
+    (( launch_status != 0 )) || { note "the launch exited 0 under the requirement on a Disabled host"; return 1; }
+    grep -q 'MSG-W2G6' <<<"${out}" || { note "the launch exited ${launch_status} without MSG-W2G6"; return 1; }
+}
+if [[ "$(getenforce 2>/dev/null || true)" == Disabled ]]; then
+    phase "a launch under the shipped requirement refuses on this Disabled host (MSG-W2G6)" launch_refuses_dac_only
+else
+    note "getenforce does not read Disabled here: the DAC-only refusal phase does not apply"
+fi
+phase "declare the container DAC-only (AI_TOOLS_REQUIRE_SELINUX=no)" \
+    bash -c "sed -i '/^[[:space:]]*#\\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX[[:space:]]*=/d' /etc/ai-tools/operator.conf \
+             && printf '\\nAI_TOOLS_REQUIRE_SELINUX=no\\n' >> /etc/ai-tools/operator.conf \
+             && grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' /etc/ai-tools/operator.conf"
 
 # OCI image layers do not carry POSIX ACLs, and they preserve directory setgid inconsistently across the build-time
 # scriptlet writes (per distro): so both the base %post ai-ops ACL and the sandbox-tree setgid bit can be lost

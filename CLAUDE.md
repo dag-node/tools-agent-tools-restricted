@@ -158,8 +158,8 @@ of these inputs therefore narrows what the session gets, so the sandbox cannot i
 
 `AI_TOOLS_REQUIRE_SELINUX` is an operator's *declaration*, not one of the predicates. It is in force unless
 `operator.conf` turns it off, so a failed read of it — the file untrusted or absent, the key absent — leaves
-the requirement standing, the same direction the predicates take. Which exits it governs, and the two host states it
-lets launch with a warning rather than refuse, are in [confinement](.claude/rules/confinement.rule.md).
+the requirement standing, the same direction the predicates take. Which exits it governs is
+in [confinement](.claude/rules/confinement.rule.md).
 
 `atr projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach, so its
 safe direction is inaction. Its authorization is correspondingly different — an exact entry in the operator's project

@@ -3105,9 +3105,9 @@ status_update_timer_stamp() {
 # the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified by the launch shim's own
 # functions, so this report, atr status and the launch cannot disagree. A finding counts only where the report's verdict
 # row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without SELinux
-# confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) only where that key makes every
-# launch warn; a file-context lookup that could not be read is a `?` row, counted where that key is set; elsewhere it is
-# reported as the posture it is. <operator-conf> is a parameter so a unit test drives the counting rule over a fixture.
+# confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) under the same key;
+# a file-context lookup that could not be read is a `?` row, counted where that key is set; elsewhere it is reported
+# as the posture it is. <operator-conf> is a parameter so a unit test drives the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
     heading "SELinux status"
@@ -3135,12 +3135,18 @@ status_selinux_attestation() {
             *)        st "n/a" "the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
         esac
         if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
-            detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
-            detail "declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
-            detail "or install the policy:       sudo dnf install ai-tools-selinux"
+            detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch on this host refuses (MSG-W2G6)"
+            if [[ "${dac_only_state}" == disabled ]]; then
+                detail "enable SELinux:            set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux"
+            else
+                detail "install the policy:        sudo dnf install ai-tools-selinux"
+                [[ "${selinux_mode}" == Enforcing ]] \
+                    || detail "then enforce it:           sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config"
+            fi
+            detail "in a container, instead:   set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         else
-            detail "AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning"
+            detail "AI_TOOLS_REQUIRE_SELINUX=no declares this host DAC-only, so a launch runs with file permissions alone"
         fi
         return 0
     fi

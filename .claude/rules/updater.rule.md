@@ -85,6 +85,11 @@ present, either way, is the operator's declaration and is not asked about, and a
 asked about nor written. The entrypoint switch is offered only while every enabled agent carries a pin,
 which the relabel ahead of the step writes: offered without one, it would refuse that agent's next launch.
 
+**It names a host where the SELinux requirement refuses every launch** (`report_required_dac_only_state`): under
+`AI_TOOLS_REQUIRE_SELINUX`, SELinux disabled or the policy neither live nor on disk, read as the launch reads it
+([confinement](confinement.rule.md)). The warning carries the refusal's code and its remedies, and leaves the exit
+status alone, since the host is provisioned and the remedy is the operator's choice.
+
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate
 catch-up run**. The timer's daily `OnCalendar` has usually already passed when the toolchain is provisioned, and with no

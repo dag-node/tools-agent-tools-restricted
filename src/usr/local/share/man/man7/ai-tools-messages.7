@@ -1309,6 +1309,10 @@ control plane present but the managed\-asset libs are missing \-\- reinstall ai\
 ERROR.
 cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it \-\- reinstall ai\-tools\-base, then re\-run: atr admin system bootstrap
 .TP
+.B MSG-F2X6
+WARNING.
+AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and ${reason}, so every agent launch here refuses (MSG\-W2G6)
+.TP
 .B MSG-F3H4
 WARNING.
 managed assets: not seeded, and the asset view not reconciled \-\- the assets lock could not be taken; run atr admin system bootstrap again once the other assets command has ended
@@ -1805,10 +1809,6 @@ AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}
 ERROR.
 the agent entrypoint does not match its recorded checksum \-\- refusing to start the session
 .TP
-.B MSG-K6W6
-WARNING.
-ai\-tools\-run: AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so this session runs with file permissions alone (DAC\-only) and the requirement is not met.
-.TP
 .B MSG-N4P3
 ERROR.
 AI_TOOLS_AGENT_EXEC contains parent\-directory references
@@ -1816,6 +1816,10 @@ AI_TOOLS_AGENT_EXEC contains parent\-directory references
 .B MSG-P3P8
 ERROR.
 refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${differing_boolean_names} is not at the value a launch requires (now ${current_assignments}), so ai_tools_t would run under rules this host has not declared.
+.TP
+.B MSG-W2G6
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so the session would run with file permissions alone.
 .TP
 .B MSG-Z2J9
 ERROR.
@@ -2455,7 +2459,7 @@ nvm not found at ${ai_nvm_dir}/nvm.sh \-\- launcher symlinks skipped
 .TP
 .B MSG-Q5R3
 WARNING.
-SELinux is inactive \-\- the agent runs DAC\-only (no ai_tools_t domain). DAC\-only
+SELinux is inactive, ${declaration}
 .TP
 .B MSG-Q7E7
 ERROR.

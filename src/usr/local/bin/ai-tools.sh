@@ -2105,7 +2105,8 @@ clone_access_ready() {
 #
 # Where SELinux runs and no ai_tools policy is on the host, ai_tools_project_t does not exist to read the clone
 # with, so it returns 0 and says the clone is unlabelled: that reading is
-# ai_tools_confinement__evaluate_dac_only_state's `module-absent`, the state ai-tools-run launches through. Every other
+# ai_tools_confinement__evaluate_dac_only_state's `module-absent`, where a launch runs DAC-only under
+# AI_TOOLS_REQUIRE_SELINUX=no and refuses under the requirement. Every other
 # reading keeps the restorecon and the stop -- a module shipped and not loaded, a matchpathcon that could not be read,
 # a confinement library that did not load. The line names the policy install, which labels the clone area, since
 # a resume does not label a clone already opened.
@@ -6325,9 +6326,8 @@ status_entrypoint_pins() {
 # status_selinux_attestation [operator-conf] -- render the rows ai_tools_confinement__list_attestation_report prints
 # (confinement.lib.sh): the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified
 # by the launch shim's own functions, so this report, atr admin status and the launch cannot disagree. Returns 1
-# for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row) or makes
-# every launch warn -- a host without SELinux confinement by its own configuration
-# (ai_tools_confinement__evaluate_dac_only_state), where the shim launches DAC-only and names the key to set --
+# for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch -- the report's verdict row, or a host
+# without SELinux confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) --
 # STATUS_UNREADABLE when the library did not load, and 0 otherwise. A module reading that could not be made is a `?`
 # row, a finding where AI_TOOLS_REQUIRE_SELINUX is set. The section is omitted where getenforce cannot say.
 status_selinux_attestation() {
@@ -6353,12 +6353,18 @@ status_selinux_attestation() {
             *)        say "  the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
         esac
         if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
-            say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
-            say "      declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
-            say "      or install the policy:       sudo dnf install ai-tools-selinux"
+            say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch on this host refuses (MSG-W2G6)"
+            if [[ "${dac_only_state}" == disabled ]]; then
+                say "      enable SELinux:            set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux"
+            else
+                say "      install the policy:        sudo dnf install ai-tools-selinux"
+                [[ "${selinux_mode}" == Enforcing ]] \
+                    || say "      then enforce it:           sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config"
+            fi
+            say "      in a container, instead:   set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
             return 1
         fi
-        say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning${C_RST}"
+        say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX=no declares this host DAC-only, so a launch runs with file permissions alone${C_RST}"
         return 0
     fi
     local -a row

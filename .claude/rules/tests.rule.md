@@ -63,6 +63,9 @@ where confinement is expected, the state the launch preflight, the launcher-syml
 verb each require. A case that needs one of them to accept the entrypoint skips through `skip_entrypoint_unready`,
 so an entrypoint outside its declared rule fails once, in `integration/selinux.sh`'s declared-rule section, rather than
 in every file that reaches those gates.
+`is_required_dac_only_host` is the third: `AI_TOOLS_REQUIRE_SELINUX` is in force on a host without SELinux confinement
+by its own configuration, the state every launch refuses on. A row whose subject sits past the launch verdict asserts
+that refusal there in place of its own outcome, so a host in that state reports the refusal it is in.
 
 **A case driving an agent-agnostic mechanism takes its agent from the enabled set.** The shim, the launcher-symlink
 helper and the handback verbs read agent identity from the manifests ([providers](providers.rule.md)), so a case
@@ -1242,7 +1245,9 @@ every entry the host put in it. Pure and unprivileged: the function never re-own
 reach the wrapper for. It is the last thing said before a host is treated as ready, so both directions are driven —
 a shadowed account named with its launcher and the binary that wins, every other state named by no line —
 along with what the message tells the operator to do, that finding a fault does not become the command's exit status,
-and that no init file is written. The helper is **sourced**, stopping at the guard before its provisioning, so one
+and that no init file is written. The DAC-only notice before it is driven the same way over a stubbed reader: each
+state prints the notice under its code with that state's remedies, a reader naming no state prints nothing, and neither
+changes the step's status. The helper is **sourced**, stopping at the guard before its provisioning, so one
 function is driven with no toolchain to install; the libraries are sourced before the stubs, where the include guard
 makes the helper's own `source` a no-op and the stubs stand. The reading beneath it is `path-order.sh`'s to pin,
 and the paths a case drives are the ones a host presents: an operator's own `npm i -g` under their nvm, and the agent's

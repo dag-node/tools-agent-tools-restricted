@@ -958,13 +958,21 @@ offer_selinux() {
     local mode
     mode="$(getenforce 2>/dev/null || true)"
 
-    # SELinux off (Disabled, or no userspace): the confinement layer cannot load, so skip the section. DAC-only
-    # confinement is the model for running inside a container, where the container runtime is the isolation boundary;
-    # on a non-containerized host the SELinux layer is recommended, so say so.
+    # SELinux off (Disabled, or no userspace): the confinement layer cannot load, so skip the section, and say what
+    # the host's AI_TOOLS_REQUIRE_SELINUX declaration makes of a launch. DAC-only is the model for a container, where
+    # the container runtime is the isolation boundary; a host runs the SELinux layer.
     if [[ -z "${mode}" || "${mode}" == "Disabled" ]]; then
-        warn MSG-Q5R3 "SELinux is inactive -- the agent runs DAC-only (no ai_tools_t domain). DAC-only"
-        warn "  suits running inside a container; on a non-containerized host the SELinux layer"
-        warn "  is recommended -- enable SELinux, then: sudo ${selinux_script} install"
+        local declaration="so under AI_TOOLS_REQUIRE_SELINUX every agent launch refuses here --" detail_line
+        local -a detail_lines=( "  on a host, enable SELinux, then: sudo ${selinux_script} install; in a container,"
+                                "  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" )
+        # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/confinement.lib.sh
+        if source "${SCRIPT_DIR}/src/usr/local/lib/ai-tools/confinement.lib.sh" 2>/dev/null \
+                && ! ai_tools_confinement__is_selinux_required /etc/ai-tools/operator.conf; then
+            declaration="and AI_TOOLS_REQUIRE_SELINUX=no declares this host DAC-only:"
+            detail_lines=( "  the agent runs with file permissions alone (no ai_tools_t domain), the setting for a container" )
+        fi
+        warn MSG-Q5R3 "SELinux is inactive, ${declaration}"
+        for detail_line in "${detail_lines[@]}"; do warn "${detail_line}"; done
         return 0
     fi
 
@@ -1255,6 +1263,34 @@ print_banner() {
     ai_tools_msg__banner \
         'Agent Tools Restricted — run coding agents with limited system access' \
         "installer · $(ai_tools_msg__format_version "${AI_TOOLS_VERSION}")"
+}
+
+# report_required_dac_only_state -- the notice `system bootstrap` defines, for a host where AI_TOOLS_REQUIRE_SELINUX
+# makes every launch refuse, so the install names it before the first launch does. It does not change the install's
+# outcome.
+report_required_dac_only_state() {
+    local lib="${SCRIPT_DIR}/src/usr/local/lib/ai-tools/confinement.lib.sh" conf=/etc/ai-tools/operator.conf
+    local state notice_line remedy
+    local -a remedies=()
+    # shellcheck source=SCRIPTDIR/src/usr/local/lib/ai-tools/confinement.lib.sh
+    source "${lib}" 2>/dev/null || return 0
+    declare -F ai_tools_confinement__read_required_dac_only_state >/dev/null 2>&1 || return 0
+    state="$(ai_tools_confinement__read_required_dac_only_state "${conf}")" || return 0
+    if [[ "${state}" == disabled ]]; then
+        notice_line="AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and SELinux is disabled on this host,"
+        remedies=( "enable SELinux:          set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux" )
+    else
+        notice_line="AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and the ai_tools SELinux policy is not installed,"
+        remedies=( "install the policy:      sudo ${SCRIPT_DIR}/selinux/install-selinux.sh install" )
+        [[ "$(getenforce 2>/dev/null || true)" == Enforcing ]] \
+            || remedies+=( "then enforce it:         sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config" )
+    fi
+    section "SELinux requirement"
+    warn MSG-F2X6 "${notice_line}"
+    warn "so every agent launch on this host refuses (MSG-W2G6)"
+    for remedy in "${remedies[@]}" "in a container, instead: set AI_TOOLS_REQUIRE_SELINUX=no in ${conf}"; do
+        warn "    ${remedy}"
+    done
 }
 
 # probe_shadowing_agents -- name the agents this host carries outside the sandbox, and the enrolled operators
@@ -3196,6 +3232,7 @@ do_install() {
     # Last, so a finding is the final thing on screen whether or not the suite ran: this host may carry an agent
     # the install did not put there and does not remove, and the operator decides what to do about it. It draws its own
     # section only when it has something to report.
+    report_required_dac_only_state
     probe_shadowing_agents
 
     # The relabel once more through its unit, queued, after the SELinux step relabelled directly: the unit keeps

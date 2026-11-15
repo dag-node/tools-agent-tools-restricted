@@ -426,8 +426,7 @@ else
         # for a Boolean rather than a package install. The conf is the host's own with the two keys replaced, root-owned
         # and readable by the sandbox account, reached through AI_TOOLS_OPERATOR_CONF; a mismatching pin stays in place
         # so a run that somehow passed the attestation still refuses before systemd-run. The attestation sits behind
-        # the mode check, so a host not Enforcing answers the requirement on the mode first -- a refusal, or the warned
-        # DAC-only launch -- and skips here.
+        # the mode check, so a host not Enforcing answers the requirement on the mode first, and skips here.
         IFS=$'\t' read -r att_agent att_launcher <<<"${ready[0]}"
         att_exec="$(readlink -- "/opt/ai-tools/bin/${att_launcher}" 2>/dev/null || true)"
         if [[ "$(getenforce 2>/dev/null || true)" != Enforcing ]]; then
@@ -463,6 +462,14 @@ else
         for entry in "${ready[@]}"; do
             IFS=$'\t' read -r pin_agent pin_launcher <<<"${entry}"
             pin_exec="$(readlink -- "/opt/ai-tools/bin/${pin_launcher}" 2>/dev/null || true)"
+            # On a host without SELinux confinement under AI_TOOLS_REQUIRE_SELINUX the verdict refuses ahead of the pin.
+            if is_required_dac_only_host; then
+                out="$(run_crun_print AI_TOOLS_AGENT_EXEC="${pin_exec}")" && rc=0 || rc=$?
+                refused "ai-tools-run refuses every launch on a host the requirement finds without confinement (${pin_agent})" \
+                    MSG-W2G6 "${rc}" "${out}"
+                skip "ai-tools-run pin mismatch (${pin_agent})" "the DAC-only refusal precedes the pin on this host -- see MSG-W2G6"
+                continue
+            fi
             # A well-formed pin for a checksum this entrypoint cannot have: the shape is valid, so the refusal comes
             # from the COMPARISON rather than from the reader rejecting a malformed record.
             printf 'AGENT=%s\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' "${pin_agent}" 0 \
