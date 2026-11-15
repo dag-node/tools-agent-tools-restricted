@@ -783,6 +783,32 @@ case "${entrypoint_pin_verdict}" in
         [[ -n "${entrypoint_package_dir}" ]] \
             && entrypoint_remedy=( 'End every running session first -- let each finish, or stop them all:' \
                    '  atr stop' "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
+        # A `release-unverified` mark words this refusal and does not decide it. The wording applies while the binary
+        # hashes to the checksum the mark records, so one changed since that reconcile reads as a changed binary
+        # (updater.rule.md, ref-section-b3k5).
+        entrypoint_stale_reason="" entrypoint_stale_sha256="" entrypoint_launched_sha256=""
+        if declare -F ai_tools_entrypoint_verify__read_stale_field >/dev/null 2>&1; then
+            entrypoint_stale_reason="$(ai_tools_entrypoint_verify__read_stale_field "${agent_name}" REASON \
+                2>/dev/null || true)"
+            entrypoint_stale_sha256="$(ai_tools_entrypoint_verify__read_stale_field "${agent_name}" SHA256 \
+                2>/dev/null || true)"
+        fi
+        [[ "${entrypoint_stale_reason}" == release-unverified && "${entrypoint_stale_sha256}" =~ ^[0-9a-f]{64}$ ]] \
+            && entrypoint_launched_sha256="$(ai_tools_entrypoint_verify__calculate_sha256 "${session_exec_path}" \
+                   2>/dev/null || true)"
+        if [[ -n "${entrypoint_launched_sha256}" && "${entrypoint_launched_sha256}" == "${entrypoint_stale_sha256}" ]]; then
+            entrypoint_pinned_version="$(ai_tools_entrypoint_verify__read_pin_version "${agent_name}" 2>/dev/null || true)"
+            entrypoint_unverified_version="$(ai_tools_entrypoint_verify__read_stale_field "${agent_name}" VERSION \
+                2>/dev/null || true)"
+            refuse MSG-P9G4 'the agent entrypoint is a release no reconcile has verified -- refusing to start the session' \
+                   "entrypoint:  ${session_exec_path}" \
+                   "The pin holds release ${entrypoint_pinned_version:-?}, and the reconcile could not verify release ${entrypoint_unverified_version:-?} against the checksum its vendor signed." \
+                   'Check that this host reaches the vendor'"'"'s release manifest, then reconcile:' \
+                   '  atr admin system entrypoints relabel' \
+                   'If no update ran, or the reconcile still cannot verify the release with the host online,' \
+                   'treat this toolchain as tampered and replace the binary:' \
+                   "${entrypoint_remedy[@]}"
+        fi
         refuse MSG-H7S2 'the agent entrypoint does not match its recorded checksum -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                "The pin holds ${entrypoint_pin_claim}, and the binary has changed since it was recorded." \

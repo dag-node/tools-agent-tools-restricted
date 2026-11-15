@@ -693,8 +693,24 @@ ownership and defensive reader as the pin and the label record beside it, carryi
 installed when the refusal happened, which the pin by construction does not hold), `REASON`
 (`changed-under-same-version` or `signature-mismatch`) and `DETECTED`.
 
-The mark is **cleared** by any run that records a pin for that agent — a fresh pin, a re-pin, a `keep`, or a reused
-verdict — so a host that has been repaired stops reporting. Writing and clearing are best-effort and never change
+**A release the reconcile could not verify leaves the pin as it was too.** The run then compares the installed bytes
+with the pin, as the launch does, so what it records is what the next launch reads, and it names the outcome in one line
+after `MSG-B6H9`; `ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark` holds the outcomes and what each
+one files, keeps or clears. The table follows from what each mark is about. A `release-unverified` mark carries the
+checksum of the bytes the run read, so the wording it gives the launch applies to those bytes alone. Where the bytes
+differ under another release, a mark of a changed binary is kept, since the installed version is the sandbox account's
+to write and an unverified-update wording must not replace it. A signature failure is a finding about the vendor's
+manifest rather than about the bytes, so matching bytes and a reused pin do not clear it; a run that records a pin does.
+One sequence drops it without such a run, and is accepted: a change under the pinned version replaces it with
+`changed-under-same-version`, and once the pinned bytes are restored a later run clears that mark. **Every outcome of
+this branch exits 0**: the release could not be verified, an rpm `%post` runs the helper offline, and a failed pin step
+stops the run before it labels any agent. Where the bytes differ from the pin, the launch refuses on it whatever the run
+returns, and where a mark stands, both status reports count it. How the launch words its refusal from the mark is
+[launch](launch.rule.md)'s.
+
+The mark is **cleared** by any run that records a pin for that agent — a fresh pin, a re-pin, an observed-tier
+`keep` — so a host that has been repaired stops reporting; a pin with a mark beside it is not reused, so a reused
+verdict does not clear one. Writing and clearing are best-effort and never change
 the outcome of the reconciliation they describe; a write that fails is reported under its own code, since the report
 then reads as current.
 
@@ -1029,11 +1045,12 @@ as a claim of vendor provenance for an agent whose vendor publishes none.
 
 ### Answering from the pin, and the one caller that never does
 
-An unattended run may answer from the existing pin instead of refetching. It does so only when every input
-to the verdict is unchanged: the installed version, the entrypoint's own bytes, and an `INPUTS` digest over the manifest
-URL template, the signing key's path **and content**, and the declared fingerprints. A pin recording no `INPUTS` is
-never reused, so an unrecordable digest costs a re-verification. `ai_tools_entrypoint_verify__is_pin_reusable` is
-the predicate, unit-tested over that truth table.
+An unattended run may answer from the existing pin instead of refetching. It does so only when every input to the
+verdict is unchanged: the installed version, the entrypoint's own bytes, and an `INPUTS` digest over the manifest URL
+template, the signing key's path **and content**, and the declared fingerprints. A pin recording no `INPUTS` is never
+reused, so an unrecordable digest costs a re-verification, and neither is a pin with a stale mark beside it: a signature
+that did not verify leaves the bytes matching the pin, so only a full verification settles the mark.
+`ai_tools_entrypoint_verify__is_pin_reusable` is the predicate, unit-tested over that truth table.
 
 This is worth doing because the repeat runs are frequent and the cost is not: one upgrade can fire the `.path` watcher
 several times, the agent package's `%post` runs on every package update, and on an air-gapped host each of those spends
@@ -1066,9 +1083,10 @@ in the file, so a signature added to the file does not turn a mismatch into a `2
   refuses. No configuration turns it off.
 - **Unable to verify** — offline, no manifest published for that release (they are per-release and not guaranteed), no
   `gpgv`, an agent declaring no provenance, or a **vendor key rotation**, a key the shipped keyring holds as expired
-  or revoked included — warns and proceeds, leaving any previous pin standing. A rotation reporting as tamper would fail
-  every host closed on an untouched binary, so the agent package ships old and new keys in one keyring and declares both
-  fingerprints for the overlap.
+  or revoked included — warns and proceeds, leaving any previous pin standing, and reports the installed bytes against
+  it as [A refusal leaves a mark too](#a-refusal-leaves-a-mark-too) states. A rotation reporting as tamper would
+  fail every host closed on an untouched binary, so the agent package ships old and new keys in one keyring
+  and declares both fingerprints for the overlap.
 
 `openpgp.lib.sh` holds the reader both signature verifiers use, `ai_tools_openpgp__evaluate_gpgv_status`, whose doc
 comment holds the order its rows decide in, beside the armor-to-keyring conversion and the fingerprint predicate,

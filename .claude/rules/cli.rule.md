@@ -417,11 +417,17 @@ being the authoritative one.
   rule the unqueryable units follow.
 
   **A pin a reconciliation refused to re-record is reported in place of that line**, from the mark the refusal writes
-  beside the pin ([ref-section-b3k5](updater.rule.md#ref-section-b3k5)). It replaces that agent's tier line instead
-  of joining it: the pin a refusal left standing is a valid record of a verification that once succeeded, so printing it
+  beside the pin ([ref-section-b3k5](updater.rule.md#ref-section-b3k5)). It replaces that agent's tier line instead of
+  joining it: the pin a refusal left standing is a valid record of a verification that once succeeded, so printing it
   too would pair a green verification with the red line saying it no longer describes the installed binary. It counts
-  toward the exit status, being the state in which every launch of that agent is already refused, and it names
-  the reconcile command, which re-reads the entrypoint and prints how to replace it.
+  toward the exit status, being a finding that holds until a run resolves it, and it names the reconcile command, which
+  re-reads the entrypoint and prints how to replace it. A mark of a release the reconcile could not verify is reported
+  and counted the same way; its line names the release and the reconcile with the vendor's release manifest reachable,
+  since the mark records a release the reconcile could not check rather than a binary it found changed. This account
+  cannot hash the entrypoint, so a line states a refusal only for a mark about the bytes against the pin, and then as
+  holding while the binary the run read is installed. A signature failure, which can leave bytes the pin still matches,
+  is stated as a finding with `atr admin status` as the report that hashes the binary, and a mark with no pin beside it
+  as a finding that stands, the sessions starting unless the host requires verification.
 
   The **labelling** is reported beneath it, from a second record the same helper writes
   ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)): `labelled` with its age, `NOT LABELLED` with the class
@@ -592,7 +598,9 @@ The pin comparison is the reading that answers *now* rather than *then*: `status
 recorded, so a binary changed since — by an out-of-band `npm install`, or by anything else writing that tree — is named
 here without running the reconcile, and it is named even where no reconciliation has run over that agent at all.
 The verdict is `ai_tools_entrypoint_verify__check`'s, so this report and the launch cannot disagree
-about what a mismatch is.
+about what a mismatch is. An entrypoint it could not hash is `UNREADABLE`, a reading the report promises and did not
+make, and the pin's own fields do not render as verified over it; a stale mark beside a binary that matches its pin,
+or beside no pin, is reported as a finding that stands, with what the launch reads now.
 
 The label reading is the one no other command gives. `status` reports what the last reconciliation *achieved*, an event
 that may be hours old; `ai_tools_relabel__list_agent_labels` reports the type each path carries **now**, so a label

@@ -496,7 +496,48 @@ else
             else
                 fail "the refusal over an observed pin still claims a vendor signed the checksum (${pin_agent}): ${out}"
             fi
-            rm -f -- "${pin_dir:?}/${pin_agent}"
+
+            # A release-unverified mark whose checksum is this entrypoint's: the launch refuses under the wording for
+            # an unverified release. Two controls keep the tamper wording, so a refusal that never read the mark, or
+            # read it without the bytes, cannot pass as this one: the same mark naming other bytes, and a mark
+            # of another reason. The fixture directory moves through the library's own default, which the shim
+            # inherits from this environment as it does the pin directory.
+            stale_dir="$(mktemp -d)"
+            _cleanup+=("${stale_dir}")
+            chmod 0755 "${stale_dir}"
+            pin_exec_sha256="$(sha256sum -- "$(readlink -f -- "${pin_exec}")" 2>/dev/null || true)"
+            pin_exec_sha256="${pin_exec_sha256%% *}"
+            printf 'AGENT=%s\nVERSION=0.0.0\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' "${pin_agent}" 0 \
+                > "${pin_dir}/${pin_agent}"
+            # stale_fixture <reason> <sha256> : the mark a reconcile files, at installed release 0.0.1.
+            stale_fixture() {
+                printf 'AGENT=%s\nSTATE=stale\nVERSION=0.0.1\nREASON=%s\nDETECTED=1970-01-01T00:00:00Z\nSHA256=%s\n' \
+                    "${pin_agent}" "$1" "$2" > "${stale_dir}/${pin_agent}"
+                chmod 0644 "${stale_dir}/${pin_agent}"
+            }
+            if [[ ! "${pin_exec_sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+                fail "could not hash the entrypoint ${pin_exec} for the unverified-release case (${pin_agent})"
+            else
+                stale_fixture release-unverified "${pin_exec_sha256}"
+                out="$(run_crun_print AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}" \
+                                      AI_TOOLS_ENTRYPOINT_STALE_DIR="${stale_dir}")" && rc=0 || rc=$?
+                refused "ai-tools-run refuses an unverified release over the previous release's pin (${pin_agent})" \
+                    MSG-P9G4 "${rc}" "${out}"
+                if grep -qF 'release 0.0.0' <<<"${out}" && grep -qF 'release 0.0.1' <<<"${out}"; then
+                    pass "the unverified-release refusal names the pinned and the installed release (${pin_agent})"
+                else
+                    fail "the unverified-release refusal does not name both releases (${pin_agent}): ${out}"
+                fi
+                stale_fixture release-unverified "$(printf '%064d' 1)"
+                out="$(run_crun_print AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}" \
+                                      AI_TOOLS_ENTRYPOINT_STALE_DIR="${stale_dir}")" && rc=0 || rc=$?
+                refused "control: a mark naming other bytes keeps the tamper refusal (${pin_agent})" MSG-H7S2 "${rc}" "${out}"
+                stale_fixture signature-mismatch "${pin_exec_sha256}"
+                out="$(run_crun_print AI_TOOLS_AGENT_EXEC="${pin_exec}" AI_TOOLS_ENTRYPOINT_PIN_DIR="${pin_dir}" \
+                                      AI_TOOLS_ENTRYPOINT_STALE_DIR="${stale_dir}")" && rc=0 || rc=$?
+                refused "control: a mark of another reason keeps the tamper refusal (${pin_agent})" MSG-H7S2 "${rc}" "${out}"
+            fi
+            rm -f -- "${pin_dir:?}/${pin_agent}" "${stale_dir:?}/${pin_agent}"
         done
     fi
 

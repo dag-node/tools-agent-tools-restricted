@@ -50,9 +50,10 @@ source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
 # whose functions are root-only. One record the report can read is worth more than a record filed next to the code
 # that writes it.
 : "${AI_TOOLS_ENTRYPOINT_LABEL_DIR:=/var/opt/ai-tools/state/entrypoint-label.d}"
-# The third record, and the only one written by a REFUSAL: a reconciliation that would not re-record an entrypoint
-# leaves the pin as it was, which is exactly what makes the next launch refuse -- and a pin left standing still reads
-# green in both status reports. The mark is what turns that silent state into a reported one.
+# The third record, written where a reconciliation left a pin that no longer describes the installed binary: one that
+# refused to re-record an entrypoint, and one that could not verify a new release. Either leaves the pin as it was,
+# which is exactly what makes the next launch refuse -- and a pin left standing still reads green in both status
+# reports. The mark is what turns that silent state into a reported one, and its REASON words the launch's refusal.
 : "${AI_TOOLS_ENTRYPOINT_STALE_DIR:=/var/opt/ai-tools/state/entrypoint-stale.d}"
 
 # _ai_tools_entrypoint_verify__warn <message...> : report to stderr and, when log.lib.sh is loaded by the caller,
@@ -162,6 +163,53 @@ ai_tools_entrypoint_verify__evaluate_observed_pin() {
     fi
     [[ "${pinned_sha}" == "${installed_sha}" ]] && { printf 'keep';      return 0; }
     printf 'tamper'; return 1
+}
+
+# ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark <pinned-sha256> <pinned-version>
+#   <installed-version> <installed-sha256> <stale-reason> : what a reconcile that could not verify <installed-version>
+#   does about the stale mark beside the pin it leaves as it was. <stale-reason> is the REASON of the mark standing
+#   for the agent, or empty. The checksums decide first, as the launch's own verdict
+#   (ai_tools_entrypoint_verify__evaluate_pin) does, so the token states what the next launch reads. Echoes,
+#   at status 0:
+#     unreadable        the installed entrypoint could not be hashed: the launch reads it as unpinned, and the mark is
+#                       left as it is
+#     unpinned          no pin: the launch starts the session unless verification is required; no mark stands, or
+#                       a `release-unverified` one, which no longer describes the launch and is cleared
+#     unpinned-standing no pin, and the mark of a changed binary or a signature failure stands: it is left as it is,
+#                       since no run has resolved it
+#     match             the bytes match the pin: the launch starts the session; no mark stands, or one about bytes
+#                       against the pin (`release-unverified`, `changed-under-same-version`), which the match resolves
+#                       and the caller clears
+#     match-standing    the bytes match the pin, and a mark the match does not resolve stands (`signature-mismatch`,
+#                       or a reason this library does not write): it stands until a run verifies the release
+#     tamper            the bytes differ under the pinned version, or under a pin whose version does not read:
+#                       the change no update explains, which the observed tier refuses as `changed-under-same-version`
+#     keep              the bytes differ under another release, and a mark of a changed binary stands: it is left as
+#                       it is
+#     mark              the bytes differ under another release: file `release-unverified` with <installed-sha256>
+#
+#   Why a mark of a changed binary is kept, why a signature failure stands, and why the mark records a checksum:
+#   updater.rule.md (ref-section-b3k5).
+ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark() {
+    local pinned_sha256="${1:-}" pinned_version="${2:-}" installed_version="${3:-}" installed_sha256="${4:-}"
+    local stale_reason="${5:-}"
+    [[ "${installed_sha256}" =~ ^[0-9a-f]{64}$ ]] || { printf 'unreadable'; return 0; }
+    if [[ ! "${pinned_sha256}" =~ ^[0-9a-f]{64}$ ]]; then
+        [[ -z "${stale_reason}" || "${stale_reason}" == release-unverified ]] || { printf 'unpinned-standing'; return 0; }
+        printf 'unpinned'; return 0
+    fi
+    if [[ "${pinned_sha256}" == "${installed_sha256}" ]]; then
+        case "${stale_reason}" in
+            ''|release-unverified|changed-under-same-version) printf 'match' ;;
+            *)                                                printf 'match-standing' ;;
+        esac
+        return 0
+    fi
+    if [[ -z "${pinned_version}" || "${pinned_version}" == "${installed_version}" ]]; then
+        printf 'tamper'; return 0
+    fi
+    [[ -z "${stale_reason}" || "${stale_reason}" == release-unverified ]] || { printf 'keep'; return 0; }
+    printf 'mark'
 }
 
 # ── Impure: hashing, the pin, and the signed-manifest probe ──────────────────────────────────
@@ -274,25 +322,31 @@ ai_tools_entrypoint_verify__write_label() {
     } | _ai_tools_entrypoint_verify__write_record "${record}" "${AI_TOOLS_ENTRYPOINT_LABEL_DIR}"
 }
 
-# ai_tools_entrypoint_verify__write_stale <agent> <version> <reason-token> : record that this run refused to re-record
-#   <agent>'s pin, so the pin left standing no longer describes the installed binary and the next launch will refuse.
-#   ROOT ONLY, same record and same atomic write as the other two.
+# ai_tools_entrypoint_verify__write_stale <agent> <version> <reason-token> : record that this run left <agent>'s pin
+#   as it was over a binary it does not describe -- it refused to re-record it, or could not verify a new release --
+#   so the next launch will refuse. ROOT ONLY, same record and same atomic write as the other two.
 #
-#   It exists because a refusal is otherwise the one outcome that does not leave a trace a report can read:
+#   It exists because that outcome does not otherwise leave a trace a report can read:
 #   the pin is deliberately left as it was -- that staleness IS the gate -- and both status reports
-#   then renders it green from its own VERSION and VERIFIED. The mark carries `STATE=stale`
+#   then render it green from its own VERSION and VERIFIED. The mark carries `STATE=stale`
 #   and `DETECTED` in the label record's grammar, so the reports read it through the same stamp
 #   accessors, and `VERSION` names the installed version the refusal was about (which the pin, by
 #   construction, does not hold).
+#
+#   [sha256] is the checksum of the binary the run read, recorded as SHA256 for a reason the launch words its refusal
+#   from, so the launch applies that wording only to those bytes; a value outside the 64-hex shape is not recorded.
 ai_tools_entrypoint_verify__write_stale() {
-    local agent="${1:-}" version="${2:-}" reason="${3:-}" record
+    local agent="${1:-}" version="${2:-}" reason="${3:-}" sha256="${4:-}" record
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}")" || return 1
     _ai_tools_entrypoint_verify__is_field_valid "${version}" || version=unknown
     [[ "${reason}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || reason=unknown
+    [[ "${sha256}" =~ ^[0-9a-f]{64}$ ]] || sha256=""
     {
         printf '# ai-tools entrypoint stale-pin mark -- written as root, read by ai-tools status.\n'
         printf 'AGENT=%s\nSTATE=stale\nVERSION=%s\nREASON=%s\nDETECTED=%s\n' \
             "${agent}" "${version}" "${reason}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        # See the pin write: the group's status is its last command's, and most marks carry no checksum.
+        if [[ -n "${sha256}" ]]; then printf 'SHA256=%s\n' "${sha256}"; fi
     } | _ai_tools_entrypoint_verify__write_record "${record}" "${AI_TOOLS_ENTRYPOINT_STALE_DIR}"
 }
 
@@ -306,6 +360,16 @@ ai_tools_entrypoint_verify__clear_stale() {
     [[ -e "${record}" ]] || return 0
     [[ "${EUID:-$(id -u)}" -eq 0 ]] || { _ai_tools_entrypoint_verify__warn "refusing to clear ${record} as non-root"; return 1; }
     rm -f -- "${record}" 2>/dev/null
+}
+
+# ai_tools_entrypoint_verify__read_stale_field <agent> <VERSION|REASON|SHA256> : print one field of the agent's stale
+#   mark, or an empty string and status 1 where no mark reads `STATE=stale`. The launch shim reads it as the sandbox
+#   account to word its refusal, through the pin's defensive field reader.
+ai_tools_entrypoint_verify__read_stale_field() {
+    local record
+    record="$(ai_tools_entrypoint_verify__get_stale_path "${1:-}")" || return 1
+    [[ "$(_ai_tools_entrypoint_verify__read_pin_field "${record}" STATE 2>/dev/null || true)" == stale ]] || return 1
+    _ai_tools_entrypoint_verify__read_pin_field "${record}" "${2:-}"
 }
 
 # _ai_tools_entrypoint_verify__read_pin_field <pin-file> <key> : read one field defensively. A symlink is refused (the

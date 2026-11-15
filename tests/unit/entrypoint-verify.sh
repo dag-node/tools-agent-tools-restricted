@@ -439,6 +439,52 @@ ROWS
     fi
 fi
 
+# ── An unverified release: what the reconcile does about the mark beside the pin it leaves ──
+# The rows are the decision's own table (its header in entrypoint-verify.lib.sh), driven without root.
+if ! declare -F ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark >/dev/null 2>&1; then
+    skip "unverified release decision" "the installed ${LIB} carries no unverified-release decision -- reinstall to cover it"
+else
+    # <pinned-sha256> <pinned-version> <installed-version> <installed-sha256> <stale-reason> | expected | what the row
+    # is; `-` is an empty field.
+    while IFS='|' read -r pinned_sha256 pinned_version installed_version installed_sha256 stale_reason expect what; do
+        [[ -n "${pinned_sha256}" ]] || continue
+        [[ "${pinned_sha256}" != - ]] || pinned_sha256=""
+        [[ "${pinned_version}" != - ]] || pinned_version=""
+        [[ "${installed_version}" != - ]] || installed_version=""
+        [[ "${installed_sha256}" != - ]] || installed_sha256=""
+        [[ "${stale_reason}" != - ]] || stale_reason=""
+        got="$(ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark "${pinned_sha256}" \
+                   "${pinned_version}" "${installed_version}" "${installed_sha256}" "${stale_reason}")" && rc=0 || rc=$?
+        if [[ "${got}" == "${expect}" && "${rc}" -eq 0 ]]; then
+            pass "unverified release: ${what} -> ${expect}"
+        else
+            fail "unverified release: ${what} read '${got}' (status ${rc}), expected '${expect}' at status 0"
+        fi
+    done <<ROWS
+${SHA_A}|1.2.3|1.2.4|${SHA_B}|-|mark|another release, different bytes, no mark
+${SHA_A}|1.2.3|1.2.4|${SHA_B}|release-unverified|mark|an earlier unverified-release mark is refiled for these bytes
+${SHA_A}|1.2.3|1.2.4|${SHA_B}|signature-mismatch|keep|a signature-mismatch mark is not replaced
+${SHA_A}|1.2.3|1.2.4|${SHA_B}|changed-under-same-version|keep|a changed-under-same-version mark is not replaced
+${SHA_A}|1.2.3|1.2.4|${SHA_B}|unknown|keep|a mark whose reason is not this one's is not replaced
+${SHA_A}|1.2.3|1.2.4|${SHA_A}|-|match|another release with the pinned bytes: the launch starts it
+${SHA_A}|1.2.3|1.2.4|${SHA_A}|release-unverified|match|the pinned bytes under an unverified-release mark: the mark goes
+${SHA_A}|1.2.3|1.2.4|${SHA_A}|signature-mismatch|match-standing|matching bytes do not resolve a signature failure
+${SHA_A}|1.2.3|1.2.4|${SHA_A}|unknown|match-standing|matching bytes do not resolve a reason this library does not write
+${SHA_A}|1.2.3|1.2.3|${SHA_A}|changed-under-same-version|match|restored pinned bytes resolve a change under the version
+${SHA_A}|1.2.3|1.2.3|${SHA_A}|-|match|the pinned release with the pinned bytes
+${SHA_A}|1.2.3|1.2.3|${SHA_B}|-|tamper|the pinned release with different bytes: the change no update explains
+${SHA_A}|1.2.3|1.2.3|${SHA_B}|release-unverified|tamper|a changed binary under the pinned release replaces an unverified-release mark
+${SHA_A}|-|1.2.4|${SHA_B}|-|tamper|a pin whose version does not read is decided by its bytes
+-|-|1.2.4|${SHA_B}|-|unpinned|no pin: the entrypoint is unpinned, not mismatched
+-|-|1.2.4|${SHA_B}|release-unverified|unpinned|no pin: an unverified-release mark no longer describes the launch
+-|-|1.2.4|${SHA_B}|signature-mismatch|unpinned-standing|no pin: a signature failure stands
+-|-|1.2.4|${SHA_B}|changed-under-same-version|unpinned-standing|no pin: a change under the version stands
+not-a-sha|1.2.3|1.2.4|${SHA_B}|-|unpinned|a malformed pin checksum reads as no pin
+${SHA_A}|1.2.3|1.2.4|-|-|unreadable|the installed entrypoint could not be hashed
+${SHA_A}|1.2.3|1.2.4|not-a-sha|release-unverified|unreadable|a malformed observation leaves the mark as it is
+ROWS
+fi
+
 # A reader must be able to say which tier a host holds, and a pin written before the tier existed must not read
 # as the weaker one -- every pin written then came from the signed-manifest path.
 if ! declare -F ai_tools_entrypoint_verify__read_pin_kind >/dev/null 2>&1; then
@@ -750,6 +796,52 @@ else
             pass "a stale mark reads back as STATE=stale with its reason, version and age"
         else
             fail "the stale mark did not read back through the shared stamp accessors"
+        fi
+
+        # The launch's own reader, which words its refusal from the mark: a field is returned only under STATE=stale,
+        # and a link in the mark's place is not followed.
+        if declare -F ai_tools_entrypoint_verify__read_stale_field >/dev/null 2>&1; then
+            if [[ "$(ai_tools_entrypoint_verify__read_stale_field claude-code REASON || true)" == changed-under-same-version \
+                  && "$(ai_tools_entrypoint_verify__read_stale_field claude-code VERSION || true)" == 1.2.3 ]]; then
+                pass "the launch's stale reader returns the mark's reason and version"
+            else
+                fail "the launch's stale reader did not return the fields the mark holds"
+            fi
+            printf 'AGENT=claude-code\nSTATE=cleared\nVERSION=1.2.3\nREASON=release-unverified\n' > "${TESTDIR}/stale-cleared"
+            mv -f -- "${TESTDIR}/stale-cleared" "${stale_record}"
+            if ai_tools_entrypoint_verify__read_stale_field claude-code REASON >/dev/null 2>&1; then
+                fail "the launch's stale reader returned a field from a mark that does not say STATE=stale"
+            else
+                pass "a mark that does not say STATE=stale reads as no mark"
+            fi
+            printf 'AGENT=claude-code\nSTATE=stale\nVERSION=1.2.4\nREASON=release-unverified\n' > "${TESTDIR}/stale-target"
+            rm -f -- "${stale_record}"
+            ln -s "${TESTDIR}/stale-target" "${stale_record}"
+            if ai_tools_entrypoint_verify__read_stale_field claude-code REASON >/dev/null 2>&1; then
+                fail "the launch's stale reader followed a symlink in the mark's place"
+            else
+                pass "a symlink in the mark's place reads as no mark"
+            fi
+            # The checksum that binds the unverified-release wording to the bytes the reconcile read: recorded in its
+            # shape, and not recorded outside it.
+            rm -f -- "${stale_record}"
+            if ai_tools_entrypoint_verify__write_stale claude-code 1.2.4 release-unverified "${SHA_A}" \
+               && [[ "$(ai_tools_entrypoint_verify__read_stale_field claude-code SHA256 || true)" == "${SHA_A}" ]]; then
+                pass "a stale mark records the checksum the reconcile read"
+            else
+                fail "the stale mark did not record the checksum it was given"
+            fi
+            if ai_tools_entrypoint_verify__write_stale claude-code 1.2.4 release-unverified not-a-sha \
+               && ! grep -q '^SHA256=' "${stale_record}"; then
+                pass "a checksum outside the 64-hex shape is not recorded"
+            else
+                fail "a malformed checksum was written into the stale mark: $(cat "${stale_record}" 2>/dev/null)"
+            fi
+            # The clear cases below start from a mark the writer made.
+            rm -f -- "${stale_record}"
+            ai_tools_entrypoint_verify__write_stale claude-code 1.2.3 changed-under-same-version || true
+        else
+            skip "the launch's stale reader" "the installed ${LIB} carries no stale-field reader -- reinstall to cover it"
         fi
 
         # Clearing is what keeps the reports honest in the other direction: a mark left behind after a legitimate re-pin

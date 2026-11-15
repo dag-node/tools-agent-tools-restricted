@@ -1672,6 +1672,14 @@ name not checked for ${subject}: ${wanted} name(s) of its entrypoint ${detail} c
 WARNING.
 relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
 .TP
+.B MSG-E9R7
+WARNING.
+the pin for ${agent} holds release ${pinned_version}, so its sessions refuse to start until a run verifies ${version} \-\- check that this host reaches the vendor's release manifest, then run: atr admin system entrypoints relabel
+.TP
+.B MSG-E9Y2
+WARNING.
+the mark of an earlier run for ${agent} (${stale_reason}) stands until a run verifies release ${version} \-\- check that this host reaches the vendor's release manifest, then run: atr admin system entrypoints relabel
+.TP
 .B MSG-G5H9
 WARNING.
 could not record ${1}'s labelling outcome for atr status
@@ -1772,6 +1780,10 @@ could not write the pin for ${agent} after verifying ${version}
 WARNING.
 labelling skipped for ${subject} \-\- ${detail} ${wanted}
 .TP
+.B MSG-Y9F4
+WARNING.
+the ${agent} entrypoint still differs from its pin, and the mark of an earlier run (${stale_reason}) stands \-\- its sessions refuse to start until the binary is replaced
+.TP
 .B MSG-Z5B4
 WARNING.
 stale declaration for ${subject}: its launcher resolves to
@@ -1816,6 +1828,10 @@ AI_TOOLS_AGENT_EXEC contains parent\-directory references
 .B MSG-P3P8
 ERROR.
 refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${differing_boolean_names} is not at the value a launch requires (now ${current_assignments}), so ai_tools_t would run under rules this host has not declared.
+.TP
+.B MSG-P9G4
+ERROR.
+the agent entrypoint is a release no reconcile has verified \-\- refusing to start the session
 .TP
 .B MSG-W2G6
 ERROR.

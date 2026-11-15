@@ -319,7 +319,9 @@ of that run is invalid, so driving it would start a real session. The shim marks
 under the name on its `entrypoint:` audit line ([launch](launch.rule.md)). Its sibling `AI_TOOLS_ENTRYPOINT_LABEL_DIR`,
 which moves the labelling record written beside the pin, carries none of that weight — the record is reported without
 gating a launch — so `unit/entrypoint-verify.sh` redirects it at its testdir and writes real records
-through the library.
+through the library. `AI_TOOLS_ENTRYPOINT_STALE_DIR`, which moves the stale mark, carries the same weight as the label
+record's: the shim reads the mark to word a mismatch refusal it makes whatever the mark says, so
+`integration/ai-tools-run.sh` redirects it beside the pin directory, and the audit line does not mark it.
 
 `AI_TOOLS_LAUNCHER_DIR` is read by each consumer of the one directory the stable launcher symlinks live in.
 In `ai-tools.sh` it is where the bootstrap gate and `status` read the enabled agents' links, operator-settable there

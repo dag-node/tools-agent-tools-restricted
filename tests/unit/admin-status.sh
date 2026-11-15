@@ -248,6 +248,43 @@ for reader in ai_tools_entrypoint_verify__get_stale_path ai_tools_entrypoint_ver
         fail "Entrypoints without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
 done
+# The live reading decides what a pin's fields may claim: an entrypoint not hashed or not resolved never renders
+# VERIFIED, and a mark beside a matching binary is a standing finding. The control is the same pin read as matching
+# with no mark, which renders VERIFIED. The live verdict is stubbed: the fixture's entrypoint is a dangling link.
+printf 'AGENT=alpha\nVERSION=1.2.3\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' 0 > "${TESTDIR}/pins/alpha"
+chmod 0644 "${TESTDIR}/pins/alpha"
+mkdir -m 0755 "${TESTDIR}/stale"
+stale_dir_pre="AI_TOOLS_ENTRYPOINT_STALE_DIR='${TESTDIR}/stale'"
+rc=0; out="$(call_section "${stale_dir_pre}; entrypoint_live_verdict() { printf ok; }" status_entrypoints)" || rc=$?
+if grep -qF '[VERIFIED]' <<<"${out}" && grep -qx 'unreadable=0' <<<"${out}"; then
+    pass "control: a pin the live reading matches, with no mark, renders VERIFIED"
+else
+    fail "control: a matching pin with no mark (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_section "${stale_dir_pre}; entrypoint_live_verdict() { :; }" status_entrypoints)" || rc=$?
+if grep -qF 'did not resolve, so it was not compared with the pin' <<<"${out}" && ! grep -qF '[VERIFIED]' <<<"${out}"; then
+    pass "an entrypoint that did not resolve is not compared, and the pin does not render as VERIFIED"
+else
+    fail "an unresolved entrypoint (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_section "${stale_dir_pre}; entrypoint_live_verdict() { printf unreadable; }" status_entrypoints)" || rc=$?
+if grep -qF '[UNREADABLE]' <<<"${out}" && grep -qx 'unreadable=1' <<<"${out}" && ! grep -qF '[VERIFIED]' <<<"${out}"; then
+    pass "an entrypoint the live reading could not hash is UNREADABLE and counted, never VERIFIED"
+else
+    fail "an unhashable entrypoint (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+printf 'AGENT=alpha\nSTATE=stale\nVERSION=1.2.4\nREASON=signature-mismatch\nDETECTED=1970-01-01T00:00:00Z\n' \
+    > "${TESTDIR}/stale/alpha"
+chmod 0644 "${TESTDIR}/stale/alpha"
+rc=0; out="$(call_section "${stale_dir_pre}; entrypoint_live_verdict() { printf ok; }" status_entrypoints)" || rc=$?
+if grep -qF '[PIN STALE]' <<<"${out}" && grep -qF 'matches its pin now, so its sessions start' <<<"${out}" \
+        && ! grep -qF 'refuse to start' <<<"${out}" && ! grep -qF '[VERIFIED]' <<<"${out}"; then
+    pass "a mark beside a binary that matches its pin now is a standing finding, and does not claim a refusal"
+else
+    fail "a mark beside a matching binary (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+rm -f -- "${TESTDIR}/pins/alpha" "${TESTDIR}/stale/alpha"
+
 # The live labels have a reader of their own, so a pin reader missing does not take them with it: a mislabelled
 # entrypoint is still named beside the UNREADABLE line. The same label report with every reader loaded is the control.
 bad_label='ai_tools_relabel__list_agent_labels() { printf "bad alpha entrypoint /fixture/la bin_t ai_tools_exec_t\n"; }'

@@ -646,7 +646,8 @@ done
 # ── Entrypoint verification: the agent must not be able to bless its own binary ───────────────
 # The pin is only worth comparing against while the account it constrains cannot write it -- nor the key that decided
 # what went into it. Probed rather than inferred from modes, so an ACL that contradicts a correct-looking mode still
-# fails.
+# fails. The stale mark is the boundary half of the launch's unverified-release wording (integration/ai-tools-run.sh):
+# an agent that could write one could reword a refusal for a binary it changed.
 for _ev_path in /var/opt/ai-tools/state/entrypoint-pin.d \
                 /var/opt/ai-tools/state/entrypoint-label.d \
                 /var/opt/ai-tools/state/entrypoint-stale.d \
