@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-lockdown
 # Revokes ai-tools' read access to credential files under a project ahead of a session. Walks the project directory --
@@ -33,6 +33,10 @@
 # Installed 750 root:root. Its domain rule is secret-handling.rule.md.
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly SECRET_PATTERNS_LIB="/usr/local/lib/ai-tools/secret-patterns.lib.sh"
 

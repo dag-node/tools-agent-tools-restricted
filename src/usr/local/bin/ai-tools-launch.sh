@@ -8,12 +8,11 @@
 # through sudo, which is where privilege changes. Shipped 0755 root:root by ai-tools-base. The launch sequence is
 # in launch.rule.md.
 #
-# The script runs in the operator's own environment, so it takes none of that environment's code. The interpreter is
-# named by absolute path rather than found through PATH, and `-p` (privileged mode) stops bash from sourcing
-# $BASH_ENV/$ENV and importing exported functions at startup, which would otherwise replace a command the gates run.
-# PATH is pinned to the root-owned system directories, so sudo, id, readlink and logger resolve there whatever
-# the caller's PATH holds; ai-tools-run pins the session's own PATH after the drop. The script writes no file, so it
-# leaves the operator's umask alone.
+# The script runs in the operator's own environment, so it takes none of that environment's code. It starts as a root
+# helper does (cli.rule.md, ref-section-g7c8 states what the interpreter line keeps out), with a PATH of its own:
+# the root-owned system directories, /usr/local's among them, so sudo, id, readlink and logger resolve there.
+# ai-tools-run pins the session's own PATH after the drop. The script writes no file, so it leaves the operator's umask
+# alone.
 
 set -euo pipefail
 IFS=$'\n\t'

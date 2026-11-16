@@ -70,8 +70,9 @@ the operator's decision, which is why enabling is per host and by name. claude-c
 first: its shipped `settings.json` carries `Bash(node /usr/local/lib/ai-tools/typesafe/decide.mjs *)` under `ask`,
 which prompts in every permission mode and which no `allow` in another settings layer overrides
 ([claude-settings](claude-settings.rule.md)). Codex does not ask, since its shipped requirements mark no rule `prompt`
-([agent-codex](agent-codex.rule.md)). Enablement is where the operator consents to the disclosure, and the usage log is
-the per-call record, as counts without content.
+([agent-codex](agent-codex.rule.md)). The key in the credential file is where the operator consents to the disclosure:
+enablement hands a session the file's path, and the command sends a request only while the file holds a key, whoever
+names the file. The usage log is the per-call record, as counts without content.
 
 Two things the integration does not change. Any process of the sandbox account can read the credential file, which is
 the shared-account trust unit `CLAUDE.md` states and this integration inherits. And `--config <file>` lets a caller name

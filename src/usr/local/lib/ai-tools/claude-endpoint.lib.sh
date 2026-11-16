@@ -26,11 +26,11 @@ readonly _AI_TOOLS_CLAUDE_ENDPOINT__LOADED=1
 # so in production they are already present. Sourced here too for the unit test.
 if ! declare -F ai_tools_conf__read >/dev/null 2>&1 || ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/conf.lib.sh
-    source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || true
+    source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
 fi
 if ! declare -F ai_tools_msg__warn >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/msg.lib.sh
-    source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
+    source "${BASH_SOURCE[0]%/*}/msg.lib.sh" 2>/dev/null || true
 fi
 
 _ai_tools_claude_endpoint__warn() {

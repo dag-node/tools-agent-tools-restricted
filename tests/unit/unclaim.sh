@@ -60,7 +60,7 @@ fi
 
 setsid "${HELPER}" "${proj}" "${PROJECTS_GROUP}" < /dev/null > /dev/null 2>&1 || true
 
-agentacl() { getfacl -p "$1" 2>/dev/null | grep -qE "^group:${SANDBOX_GROUP}:"; }
+agentacl() { grep -qE "^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "$1" 2>/dev/null)"; }
 
 # (A) 660 file -> 640, regrouped to the target, agent ACL cleared.
 if [[ "$(perm "${proj}/f")" == 640 && "$(stat -c '%G' "${proj}/f")" == "${PROJECTS_GROUP}" ]] \
@@ -73,7 +73,7 @@ fi
 # (B) 770 setgid dir -> clean 750 (setgid cleared), regrouped, ACL + default ACL gone.
 d_mode="$(stat -c '%a' "${proj}/d")"
 if [[ "${d_mode}" == 750 && "$(stat -c '%G' "${proj}/d")" == "${PROJECTS_GROUP}" ]] \
-        && ! getfacl -p "${proj}/d" 2>/dev/null | grep -qE "^default:|^group:${SANDBOX_GROUP}:"; then
+        && ! grep -qE "^default:|^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "${proj}/d" 2>/dev/null)"; then
     pass "770 setgid dir -> clean 750 (setgid cleared), regrouped, ACL + default cleared"
 else
     fail "d is ${d_mode} $(stat -c '%G' "${proj}/d") (want 750 ${PROJECTS_GROUP}, no setgid/ACL/default)"
@@ -133,7 +133,7 @@ fi
 if [[ "$(stat -c '%G' "${proj}/.git/objects/o")" == "${PROJECTS_GROUP}" ]] \
         && ! agentacl "${proj}/.git/objects/o" \
         && [[ "$(perm "${proj}/.git")" == 750 && "$(stat -c '%G' "${proj}/.git")" == "${PROJECTS_GROUP}" ]] \
-        && ! getfacl -p "${proj}/.git" 2>/dev/null | grep -qE "^default:|^group:${SANDBOX_GROUP}:"; then
+        && ! grep -qE "^default:|^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "${proj}/.git" 2>/dev/null)"; then
     pass ".git is reverted (regrouped, agent ACL cleared, dir setgid cleared)"
 else
     fail ".git not fully reverted: objects/o group $(stat -c '%G' "${proj}/.git/objects/o"), .git $(stat -c '%a %G' "${proj}/.git")"
@@ -420,6 +420,42 @@ if ! agentacl "${ir}/sub"; then
     pass "control: the same tree under the valid registry is unclaimed"
 else
     fail "control: ${ir}/sub keeps the group entry -- the refusal above is not evidence"
+fi
+
+# ── The residue read over an ACL listing longer than a pipe ──────────────────────────────
+# _is_residue, read out of the installed helper as text, searches getfacl's listing for the sandbox group's entry.
+# `getfacl` is a shell function here that prints the entry and then more lines than a pipe holds, so a search that stops
+# at its match while the listing is still being written returns 141 under pipefail, which the caller reads as no residue
+# and leaves the entry on the inode (ref-section-d9x2). The same listing without the entry is the control.
+section "ai-tools-unclaim: the residue read over a long ACL listing"
+# drive_is_residue <entry> : _is_residue over a listing holding <entry>, for an inode neither owned by nor grouped
+# to the sandbox account.
+drive_is_residue() {
+    # shellcheck disable=SC2034  # the extracted function reads the globals set here
+    (
+        set -euo pipefail
+        SANDBOX_UID="$(id -u "${SANDBOX_USER}")"; SANDBOX_GID="$(id -g "${SANDBOX_USER}")"
+        listed_entry="$1"
+        getfacl() {
+            local i
+            printf '%s\n' 'user::rwx' "${listed_entry}"
+            for (( i = 0; i < 30000; i++ )); do printf 'user:%d:r--\n' "$(( 100000 + i ))"; done
+        }
+        eval "$(extract_function "${HELPER}" _is_residue)"
+        _is_residue 0 other-uid other-gid
+    )
+}
+rc=0; drive_is_residue "group:${SANDBOX_GROUP}:rwx" || rc=$?
+if (( rc == 0 )); then
+    pass "the sandbox group's entry ahead of a listing longer than a pipe reads as residue"
+else
+    fail "the sandbox group's entry ahead of a long listing: rc=${rc}, want 0 (141 is a search that stopped before the listing ended)"
+fi
+rc=0; drive_is_residue "group:${PROJECTS_GROUP}:rwx" || rc=$?
+if (( rc == 1 )); then
+    pass "control: the same listing without the entry does not"
+else
+    fail "control: a listing without the sandbox group's entry: rc=${rc}, want 1"
 fi
 
 # ── `--unlisted`: the label reset walks through the tree walker and reads each status ───────

@@ -471,7 +471,7 @@ write_run_info() {
         printf 'kernel\t%s\n' "$(uname -r)"
         printf 'checkout\t%s\n' "$(read_checkout_commit)"
         printf 'installed_cli\t%s\n' \
-            "$(sed -n 's/^AI_TOOLS_VERSION="\([^"]*\)"$/\1/p' /usr/local/bin/ai-tools 2>/dev/null | head -n1)"
+            "$(sed -n 's/^AI_TOOLS_VERSION="\([^"]*\)"$/\1/p' /usr/local/bin/ai-tools 2>/dev/null | awk 'NR == 1')"
         printf 'installed_package\t%s\n' \
             "$(rpm -q --qf '%{VERSION}-%{RELEASE}' ai-tools-base 2>/dev/null || printf 'not installed by rpm')"
         printf 'files\t%s\n' "${#_result_rows[@]}"

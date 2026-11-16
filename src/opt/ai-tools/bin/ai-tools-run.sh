@@ -1,17 +1,19 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /opt/ai-tools/bin/ai-tools-run
 # Confinement shim: runs one sandboxed agent session as @SANDBOX_USER@, inside a transient `systemd --user service`
 # whose properties are the session's security boundary.
 #
-# Invoked only by an agent's launch wrapper, which resolves and validates the versioned executable and drops privilege:
+# Invoked by an agent's launch wrapper, which resolves and validates the versioned executable and drops privilege:
 #
 #   ```bash
 #   sudo -u @SANDBOX_USER@ -g @SANDBOX_GROUP@ -- /opt/ai-tools/bin/ai-tools-run [args...]
 #   ```
 #
 # with AI_TOOLS_AGENT_EXEC (the versioned executable) and AI_TOOLS_PROJECT_DIR (the session's working directory) carried
-# through sudo's env_keep. Both are re-validated here, so neither side is a single point of trust.
+# through sudo's env_keep. Both are re-validated here, so neither side is a single point of trust. The sudoers rule
+# permits an operator the same call without the wrapper, so this file's own start does not rest on the wrapper's
+# environment (launch.rule.md).
 #
 # What is CHECKED is what is EXEC'd. AI_TOOLS_AGENT_EXEC names the versioned launcher symlink; this shim resolves it
 # once, contains the target to the same semver version directory, and uses that single path for the SELinux label
@@ -46,6 +48,11 @@
 # modify, unlink, or replace it.
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8);
+# launch.rule.md states which route to this shim they decide.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly AI_TOOLS_RUN__LIB_DIR="/usr/local/lib/ai-tools"
 readonly AI_TOOLS_RUN__NVM_DIR="/opt/ai-tools/.nvm"
@@ -121,6 +128,14 @@ if [[ " $(id -nG "@SANDBOX_USER@" 2>/dev/null) " == *" ai-ops "* ]]; then
     refuse '@SANDBOX_USER@ is a member of the ai-ops operators group -- refusing to launch' \
            'remove it:  sudo gpasswd -d @SANDBOX_USER@ ai-ops'
 fi
+
+# sudoers does not keep AI_TOOLS_ENTRYPOINT_PIN_DIR, so a launch through the wrapper does not carry it; a caller
+# that sets it moves the pins the clock gate and the pin check read. Whether one did is recorded here,
+# before entrypoint-verify.lib.sh assigns its default on its first source, so the `entrypoint:` audit line names
+# an override and not the default.
+AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=""
+[[ -z "${AI_TOOLS_ENTRYPOINT_PIN_DIR:-}" ]] || AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD=" pin_dir=override"
+readonly AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD
 
 # ── The clock ────────────────────────────────────────────────────────────────────────────────
 # Every record this launch leaves -- the audit line, the unit's journal, the handback stamps -- carries the system
@@ -304,23 +319,24 @@ export XDG_RUNTIME_DIR="/run/user/${UID}"
 # AI_TOOLS_REQUIRE_SELINUX: the operator's declaration that confinement is mandatory here, in force unless operator.conf
 # passes ai_tools_conf__is_trusted and sets it to no, and read FIRST, so a host missing a tool still reaches the verdict
 # and a missing tool is an unread input there. An untrusted or absent file, and an absent key, leave the requirement
-# in force, so every failed read of it narrows like the other predicates. What the switch turns into a refusal,
-# and the two states it lets launch with a warning: confinement.rule.md.
+# in force, so every failed read of it narrows like the other predicates. What the switch turns into a refusal:
+# confinement.rule.md.
 require_selinux=no
 operator_conf="${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
 ai_tools_confinement__is_selinux_required "${operator_conf}" && require_selinux=yes
 
 # Each probe that could not run is named here, so a require-unattested refusal says which reading is missing and prints
-# the remedy for that reading: a tool to install, a selinuxfs read, a Boolean the policy lacks, or a line to fix.
+# the remedy for its kind.
 unread_confinement_inputs=""
-unread_tool=no unread_selinuxfs=no unread_boolean=no declaration_malformed=no
-note_unread_input() {  # <kind: tool|selinuxfs|boolean|declaration> <description>
+unread_tool=no unread_filecontexts=no unread_selinuxfs=no unread_boolean=no declaration_malformed=no
+note_unread_input() {  # <kind: tool|filecontexts|selinuxfs|boolean|declaration> <description>
     unread_confinement_inputs+="${unread_confinement_inputs:+, }$2"
     case "$1" in
-        tool)        unread_tool=yes ;;
-        selinuxfs)   unread_selinuxfs=yes ;;
-        boolean)     unread_boolean=yes ;;
-        declaration) declaration_malformed=yes ;;
+        tool)         unread_tool=yes ;;
+        filecontexts) unread_filecontexts=yes ;;
+        selinuxfs)    unread_selinuxfs=yes ;;
+        boolean)      unread_boolean=yes ;;
+        declaration)  declaration_malformed=yes ;;
     esac
 }
 selinux_mode=""
@@ -339,16 +355,19 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
         actual_label="$(stat -c '%C' -- "${entrypoint_path}" 2>/dev/null | awk -F: '{print $3}' || true)"
         # Module presence for the verdict, probed from a CORE-owned path rather than read from the root-only module
         # store, which this account cannot read. The reader's contract (confinement.lib.sh) states what the probe means;
-        # why the store read would fail OPEN here is in confinement.rule.md.
-        module_present="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}")"
+        # why the store read would fail OPEN here is in confinement.rule.md. A lookup that failed leaves the input
+        # unread, so the verdict does not take it for a host without the policy.
+        module_present="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}")" \
+            || note_unread_input filecontexts "the core module's file contexts (matchpathcon failed)"
     else
         note_unread_input tool "the file contexts (matchpathcon)"
     fi
     # Whether the compiled core module is on the host at all, which under the requirement tells a host that never
-    # installed the policy (launches DAC-only, warned) from one whose module is installed and not loaded (refuses).
+    # installed the policy from one whose module is installed and not loaded, so each refusal names its own remedy.
     policy_shipped="$(ai_tools_confinement__read_policy_shipped "${AI_TOOLS_CONFINEMENT__CORE_MODULE_FILE}")"
     # The manager is the `systemd --user process` that execs the entrypoint; same uid, so its domain is readable.
-    manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null | head -n1 || true)"
+    manager_pid="$(pgrep -u "${UID}" -f 'systemd --user' 2>/dev/null || true)"
+    manager_pid="${manager_pid%%$'\n'*}"
     [[ -n "${manager_pid}" ]] && manager_domain="$(tr -d '\000' < "/proc/${manager_pid}/attr/current" 2>/dev/null | awk -F: '{print $3}' || true)"
     [[ -n "${manager_domain}" ]] || note_unread_input tool "the user manager's domain (pgrep)"
 
@@ -365,28 +384,12 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
 
     audit info "launch: agent=${agent_name} selinux=${selinux_mode:-unknown} module=${module_present:-unknown} policy=${policy_shipped:-unknown} exec_label=${actual_label:-none} expected=${expected_label:-none} manager_domain=${manager_domain:-unknown} require=${require_selinux} permissive=${domain_permissive:-unread} booleans=${current_boolean_values:-unread} required=${required_boolean_values:-none}"
 
-    case "$(ai_tools_confinement__evaluate "${selinux_mode}" "${module_present}" \
-                                         "${expected_label}" "${actual_label}" "${manager_domain}" \
-                                         "${require_selinux}" "${domain_permissive}" "${current_boolean_values}" \
-                                         "${required_boolean_values}" "${policy_shipped}")" in
+    confinement_verdict="$(ai_tools_confinement__evaluate "${selinux_mode}" "${module_present}" \
+                               "${expected_label}" "${actual_label}" "${manager_domain}" \
+                               "${require_selinux}" "${domain_permissive}" "${current_boolean_values}" \
+                               "${required_boolean_values}" "${policy_shipped}")" || true
+    case "${confinement_verdict}" in
         ok)
-            ;;
-        ok-dac-only)
-            # The requirement is shipped on, and this host has no SELinux confinement to require by its own
-            # configuration: a refusal here would stop every launch on a host that never had a transition to verify,
-            # so the launch proceeds DAC-only and the warning names the line that declares the host so.
-            if [[ "${selinux_mode}" == Disabled ]]; then
-                dac_only_reason="SELinux is disabled on this host"
-                dac_only_remedies=( "To confine sessions instead, enable SELinux enforcing (SELINUX=enforcing in /etc/selinux/config, then a reboot) and install the policy:  sudo dnf install ai-tools-selinux" )
-            else
-                dac_only_reason="the ai_tools SELinux policy is not installed on this host"
-                dac_only_remedies=( "Install the confinement policy package (its scriptlet loads the module):  sudo dnf install ai-tools-selinux"
-                                    "On a source checkout instead:  sudo selinux/install-selinux.sh install" )
-            fi
-            audit warning "DAC-ONLY: AI_TOOLS_REQUIRE_SELINUX set but ${dac_only_reason}; launching without ai_tools_t"
-            ai_tools_msg__warn MSG-K6W6 "ai-tools-run: AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so this session runs with file permissions alone (DAC-only) and the requirement is not met." \
-                "${dac_only_remedies[@]}" \
-                "Or declare this host DAC-only, which ends this warning:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf"
             ;;
         mislabel)
             audit warning "REFUSED: entrypoint mislabelled (${actual_label:-none}, want ai_tools_exec_t)"
@@ -405,25 +408,42 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
             refuse "refusing to launch -- the ai_tools SELinux module is installed but no file-context maps ${entrypoint_path} to ai_tools_exec_t, so the transition cannot be verified and the session would run UNCONFINED (fail closed on a half-installed host)." \
                    "The agent's entrypoint rule comes from its own manifest; register it:  atr admin system entrypoints relabel" \
                    "Or reload the confinement policy package:  sudo dnf reinstall ai-tools-selinux" \
-                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" \
-                   "Or make this a DAC-only host:  sudo semodule -r ai_tools   (or run SELinux permissive)" ;;
-        require-not-enforcing)
-            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but SELinux is ${selinux_mode}, not Enforcing"
-            refuse "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but SELinux is \"${selinux_mode}\", not Enforcing, so the session would run without the ai_tools_t confinement the operator requires." \
-                   "Enforce it:  sudo setenforce 1   (and check /etc/selinux/config so it survives a reboot)" \
-                   "Or drop the requirement:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
+                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" ;;
+        require-policy-absent|require-not-enforcing)
+            # A host with no SELinux confinement by its configuration takes one code, whichever state it is in.
+            if [[ "${confinement_verdict}" == require-not-enforcing && "${selinux_mode}" != Disabled ]]; then
+                audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but SELinux is ${selinux_mode}, not Enforcing"
+                refuse "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but SELinux is \"${selinux_mode}\", not Enforcing, so the session would run without the ai_tools_t confinement the operator requires." \
+                       "Enforce it:  sudo setenforce 1   (and check /etc/selinux/config so it survives a reboot)"
+            fi
+            if [[ "${selinux_mode}" == Disabled ]]; then
+                dac_only_reason="SELinux is disabled on this host"
+                dac_only_remedies=( "Enable it:  set SELINUX=enforcing in /etc/selinux/config, then reboot"
+                                    "Then install the confinement policy package:  sudo dnf install ai-tools-selinux" )
+            else
+                dac_only_reason="the ai_tools SELinux policy is not installed on this host"
+                dac_only_remedies=( "Install the confinement policy package (its scriptlet loads the module):  sudo dnf install ai-tools-selinux"
+                                    "On a source checkout instead:  sudo selinux/install-selinux.sh install" )
+                [[ "${selinux_mode}" == Enforcing ]] \
+                    || dac_only_remedies+=( "Then enforce it:  sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config" )
+            fi
+            audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but ${dac_only_reason}"
+            refuse MSG-W2G6 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so the session would run with file permissions alone." \
+                   "${dac_only_remedies[@]}" \
+                   "In a container, declare it DAC-only instead:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
         require-inactive)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but the ai_tools module is installed and not loaded"
             refuse "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, and the ai_tools SELinux policy is installed on this enforcing host but its module is not loaded, so the session would run without the ai_tools_t confinement the operator requires." \
                    "Load it:  sudo semodule -i /usr/share/selinux/packages/ai-tools/ai_tools.pp   (or reinstall the package, whose scriptlet loads it:  sudo dnf reinstall ai-tools-selinux)" \
-                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" \
-                   "Or drop the requirement:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
+                   "On a source checkout instead:  sudo selinux/install-selinux.sh install" ;;
         require-unattested)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but the confinement state could not be read: ${unread_confinement_inputs:-an input}"
             # One remedy line per kind of unread input, so a misspelled Boolean is not answered with a package install.
             unattested_remedies=()
             [[ "${unread_tool}" == yes ]] \
                 && unattested_remedies+=( "Install what reads it:  sudo dnf install libselinux-utils procps-ng" )
+            [[ "${unread_filecontexts}" == yes ]] \
+                && unattested_remedies+=( "Read the error matchpathcon prints for the probe path:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" )
             [[ "${unread_selinuxfs}" == yes ]] \
                 && unattested_remedies+=( "Check that /sys/fs/selinux is mounted and the loaded policy declares ai_tools_t:  sudo semodule -l | grep ai_tools   (reload it:  sudo dnf reinstall ai-tools-selinux)" )
             [[ "${unread_boolean}" == yes ]] \
@@ -432,14 +452,13 @@ if [[ -n "${selinux_mode}" || "${require_selinux}" == yes ]]; then
                 && unattested_remedies+=( "Fix the line in /etc/ai-tools/operator.conf: each entry is <boolean>=on or <boolean>=off, as  AI_TOOLS_SELINUX_BOOLEANS=[nis_enabled=off, deny_ptrace=on]" )
             refuse MSG-A7E7 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but this launch could not read ${unread_confinement_inputs:-an input of the confinement check}, so it cannot show the session would run confined." \
                    "${unattested_remedies[@]+"${unattested_remedies[@]}"}" \
-                   "Or drop the requirement:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
+                   "In a container, declare it DAC-only instead:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
         require-permissive)
             audit warning "REFUSED: AI_TOOLS_REQUIRE_SELINUX set but ai_tools_t is a permissive domain"
             refuse MSG-Z5M5 "refusing to launch -- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ai_tools_t is a permissive domain on this host, so SELinux would log the session's denials and enforce none of them." \
                    "Enforce the domain:  sudo semanage permissive -d ai_tools_t" \
                    "If that reports no such permissive type, the loaded module declares it; reload the shipped one:  sudo dnf reinstall ai-tools-selinux" \
-                   "On a source checkout instead, remove 'permissive ai_tools_t;' from selinux/policy/ai_tools.te, then:  sudo selinux/install-selinux.sh rebuild" \
-                   "Or drop the requirement:  set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf" ;;
+                   "On a source checkout instead, remove 'permissive ai_tools_t;' from selinux/policy/ai_tools.te, then:  sudo selinux/install-selinux.sh rebuild" ;;
         require-boolean)
             differing_boolean_names="" required_assignments="" current_assignments=""
             for required_entry in ${required_boolean_values}; do
@@ -467,11 +486,9 @@ fi
 # RestrictNamespaces=yes still blocks the user namespace they create. Surface that pairing as an
 # actionable notice rather than a cryptic EPERM inside a later build. Best-effort probe.
 if command -v semodule >/dev/null 2>&1; then
-    # The listing is captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE,
-    # which pipefail reports as a failed probe -- see the note on ai_tools_selinux_groups__is_loaded
-    # (selinux-groups.lib.sh).
+    # Captured ahead of the search (ref-section-d9x2).
     loaded_modules="$(semodule -l 2>/dev/null || true)"
-    if grep -qE '^ai_tools_podman([[:space:]]|$)' <<<"${loaded_modules}"; then
+    if grep -qx ai_tools_podman <<<"${loaded_modules}"; then
         ai_tools_msg__notice \
             "ai-tools-run: the \"podman\" SELinux group is enabled, but RestrictNamespaces=yes blocks the user namespace rootless podman/buildah require -- they will fail with EPERM on clone(CLONE_NEWUSER).  To allow containers, relax RestrictNamespaces in ${0} -- note that permitting the user namespace reopens ESC-001."
     fi
@@ -740,7 +757,7 @@ fi
 require_entrypoint_verify=no
 declare -F ai_tools_entrypoint_verify__is_required >/dev/null 2>&1 \
     && ai_tools_entrypoint_verify__is_required && require_entrypoint_verify=yes
-audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}"
+audit info "entrypoint: agent=${agent_name} pin=${entrypoint_pin_verdict} require=${require_entrypoint_verify}${AI_TOOLS_RUN__ENTRYPOINT_PIN_DIR_FIELD}"
 
 case "${entrypoint_pin_verdict}" in
     mismatch)
@@ -766,6 +783,32 @@ case "${entrypoint_pin_verdict}" in
         [[ -n "${entrypoint_package_dir}" ]] \
             && entrypoint_remedy=( 'End every running session first -- let each finish, or stop them all:' \
                    '  atr stop' "  sudo rm -rf ${entrypoint_package_dir}" "${entrypoint_remedy[@]}" )
+        # A `release-unverified` mark words this refusal and does not decide it. The wording applies while the binary
+        # hashes to the checksum the mark records, so one changed since that reconcile reads as a changed binary
+        # (updater.rule.md, ref-section-b3k5).
+        entrypoint_stale_reason="" entrypoint_stale_sha256="" entrypoint_launched_sha256=""
+        if declare -F ai_tools_entrypoint_verify__read_stale_field >/dev/null 2>&1; then
+            entrypoint_stale_reason="$(ai_tools_entrypoint_verify__read_stale_field "${agent_name}" REASON \
+                2>/dev/null || true)"
+            entrypoint_stale_sha256="$(ai_tools_entrypoint_verify__read_stale_field "${agent_name}" SHA256 \
+                2>/dev/null || true)"
+        fi
+        [[ "${entrypoint_stale_reason}" == release-unverified && "${entrypoint_stale_sha256}" =~ ^[0-9a-f]{64}$ ]] \
+            && entrypoint_launched_sha256="$(ai_tools_entrypoint_verify__calculate_sha256 "${session_exec_path}" \
+                   2>/dev/null || true)"
+        if [[ -n "${entrypoint_launched_sha256}" && "${entrypoint_launched_sha256}" == "${entrypoint_stale_sha256}" ]]; then
+            entrypoint_pinned_version="$(ai_tools_entrypoint_verify__read_pin_version "${agent_name}" 2>/dev/null || true)"
+            entrypoint_unverified_version="$(ai_tools_entrypoint_verify__read_stale_field "${agent_name}" VERSION \
+                2>/dev/null || true)"
+            refuse MSG-P9G4 'the agent entrypoint is a release no reconcile has verified -- refusing to start the session' \
+                   "entrypoint:  ${session_exec_path}" \
+                   "The pin holds release ${entrypoint_pinned_version:-?}, and the reconcile could not verify release ${entrypoint_unverified_version:-?} against the checksum its vendor signed." \
+                   'Check that this host reaches the vendor'"'"'s release manifest, then reconcile:' \
+                   '  atr admin system entrypoints relabel' \
+                   'If no update ran, or the reconcile still cannot verify the release with the host online,' \
+                   'treat this toolchain as tampered and replace the binary:' \
+                   "${entrypoint_remedy[@]}"
+        fi
         refuse MSG-H7S2 'the agent entrypoint does not match its recorded checksum -- refusing to start the session' \
                "entrypoint:  ${session_exec_path}" \
                "The pin holds ${entrypoint_pin_claim}, and the binary has changed since it was recorded." \

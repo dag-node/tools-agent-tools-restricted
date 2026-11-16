@@ -644,9 +644,7 @@ if declare -F ai_tools_providers__list_installed_agents >/dev/null 2>&1; then
     else
         fail "installed set: got '${inst_names}' expected 'acme beta '"
     fi
-    # Captured whole and cut in the shell: a `| head -n 1` would let head exit on the first line and leave the reader's
-    # second printf to die of SIGPIPE, which pipefail reports as 141 into this assignment and `set -e` turns
-    # into an aborted file -- the race tests.rule.md records for `semodule -l`.
+    # Captured whole and cut in the shell (ref-section-d9x2): the reader prints each name with a printf of its own.
     inst_line="$(AI_TOOLS_AGENTS_DIR="${inst_dir}" ai_tools_providers__list_installed_agents 2>/dev/null)"
     inst_line="${inst_line%%$'\n'*}"
     [[ "${inst_line}" == $'acme\t@acme/experimental\tacme' ]] \

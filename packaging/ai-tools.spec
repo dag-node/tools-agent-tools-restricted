@@ -1046,14 +1046,15 @@ cat >/dev/null 2>&1 || :
 # files under the prefixes, so a subpackage-only install, upgrade or erase converges too. Without
 # the content comparison, since the transaction holds the rpm database; the relabel service
 # %posttrans starts runs the full pass. Output is kept, so the transaction log names each change;
-# the status is ignored, since a layout finding does not fail an upgrade.
+# an upgrade runs both scriptlets, so each prefixes its lines with whether files were placed
+# or removed. The status is ignored, since a layout finding does not fail an upgrade.
 %transfiletriggerin -n ai-tools-base -- /usr/local/lib/ai-tools /usr/local/libexec/ai-tools /opt/ai-tools /etc/ai-tools /etc/codex /var/opt/ai-tools /var/log/ai-tools /usr/share/ai-tools
 cat >/dev/null 2>&1 || :
-%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm || :
+%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm 2>&1 | sed 's/^/ai-tools layout (files placed): /' || :
 
 %transfiletriggerpostun -n ai-tools-base -- /usr/local/lib/ai-tools /usr/local/libexec/ai-tools /opt/ai-tools /etc/ai-tools /etc/codex /var/opt/ai-tools /var/log/ai-tools /usr/share/ai-tools
 cat >/dev/null 2>&1 || :
-%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm || :
+%{ai_libexecdir}/ai-tools-admin system layout reconcile --without-rpm 2>&1 | sed 's/^/ai-tools layout (files removed): /' || :
 
 %posttrans -n ai-tools-base
 # Start the socket so the handback is live without a reboot (posttrans runs after the systemd
@@ -1441,8 +1442,16 @@ fi
 systemctl start ai-tools-relabel.path 2>/dev/null || :
 # The nvm-update units are `--user` units of the sandbox account, and the systemd file triggers reload
 # the system manager alone: a running user manager keeps the unit text it loaded until it is told.
-# Reached over the machine transport where it runs; where it does not, no loaded unit is stale.
-systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
+# Reached over the machine transport while that manager runs; where it does not run, no loaded unit
+# is stale and nothing is said. A reload that fails while it runs leaves the units this transaction
+# replaced unloaded until the next reload, and is reported with the command that repeats it, under
+# the code install.sh defines for its own reload; the transaction completes either way.
+_nvm_uid="$(id -u ai-tools 2>/dev/null)" || _nvm_uid=""
+if [ -n "${_nvm_uid}" ] && systemctl is-active --quiet "user@${_nvm_uid}.service" 2>/dev/null; then
+    systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null \
+        || printf 'MSG-M2U5\nai-tools-integration-nodejs: could not reload the systemd --user manager of ai-tools, which keeps running the nvm-update units it loaded before this transaction -- run: sudo systemctl --user -M ai-tools@.host daemon-reload\n' >&2
+fi
+:
 
 %post -n ai-tools-integration-dotnet
 # Bring the sandbox-side dotnet state tree (writable NuGet cache, read-only shared tools) the
@@ -1456,13 +1465,14 @@ systemctl --user -M ai-tools@.host daemon-reload 2>/dev/null || :
 # to reach a file already known here.
 #
 # The failure is NOT swallowed: a half-provisioned integration that looks installed surfaces later
-# as an opaque denial inside a confined session. The command logs the cause (journald +
-# /var/log/ai-tools/dotnet.log) and the scriptlet reports the remedy and exits non-zero, so rpm
-# records a scriptlet failure against this package alone -- the transaction still completes, which
-# is what a weakly-pulled optional integration should do to the rest of the stack.
+# as an opaque denial inside a confined session. The command prints the cause on stderr, which
+# the scriptlet keeps, and logs it
+# (journald + /var/log/ai-tools/dotnet.log); the scriptlet reports the remedy and exits non-zero,
+# so rpm records a scriptlet failure against this package alone -- the transaction still
+# completes, which is what a weakly-pulled optional integration should do to the rest of the stack.
 if [ -x %{ai_libdir}/admin-commands.d/dotnet ]; then
     %{ai_libdir}/admin-commands.d/dotnet bootstrap >/dev/null || {
-        echo "ai-tools-integration-dotnet: provisioning failed; see 'journalctl -t ai-tools-dotnet'" >&2
+        echo "ai-tools-integration-dotnet: provisioning failed -- the line above names the cause; see also 'journalctl -t ai-tools-dotnet'" >&2
         echo "ai-tools-integration-dotnet: fix the cause and re-run: atr admin dotnet bootstrap" >&2
         exit 1
     }
@@ -1942,6 +1952,115 @@ fi
 # A released entry cites the message codes live at its release, so the reftags check reads what follows as history.
 # ref-index: history
 %changelog
+* Mon Nov 16 2026 dagnode <tools@dagnode.com> - 0.30.0-1
+- CHANGE: With AI_TOOLS_REQUIRE_SELINUX=yes, ai-tools-run refuses a launch (MSG-W2G6) on a host
+  where SELinux is disabled or the ai_tools policy is not installed. Before, such a host started
+  the session with file permissions alone and printed MSG-K6W6, which is removed. The shipped
+  operator.conf sets yes, a file without the key reads the same, and an upgrade keeps your file.
+  On such a host, enable SELinux in enforcing mode and install ai-tools-selinux. In a container,
+  where SELinux reads Disabled, set AI_TOOLS_REQUIRE_SELINUX=no in /etc/ai-tools/operator.conf
+  before the upgrade. Update a monitor that matches MSG-K6W6 to watch MSG-W2G6.
+- CHANGE: 'atr admin system entrypoints relabel' exits 1, where it exited 0, when it cannot confirm
+  the agent's next launch: the file-context database maps the launcher's path to another type, the
+  lookup fails, or the scan of the toolchain does not complete. It prints a warning naming the
+  path, then ends with MSG-N9B9. MSG-A3B5 is removed: update a monitor that matches it to watch
+  MSG-N9B9 and the per-path codes.
+- CHANGE: Root helpers search only /usr/sbin, /usr/bin, /sbin and /bin, whatever PATH the caller
+  holds, and do not find a tool installed solely under /usr/local. 'atr admin system post-upgrade'
+  uses vimdiff when meld is installed only there, and 'atr admin dotnet tools install' stops with
+  MSG-N2C6 when dotnet is.
+- CHANGE: The label record reads stale when the launcher resolves to a hard link of the entrypoint
+  that the agent's manifest does not declare. Before, it read copied.
+- CHANGE: 'atr projects remove' of a project in the sandbox area asks for the confirmation and then
+  for the project's name, typed in full. '-y' answers both. An in-place removal already asked the
+  two questions.
+- CHANGE: 'atr stop' lists each project by its full path in the session table, so two checkouts of
+  one repository are told apart.
+- CHANGE: The orientation text each session reads tells the agent not to set an execute bit, with
+  'chmod' or 'git update-index --chmod=+x', and to report the 'chmod ug+x <path>' command for the
+  operator to run.
+- SECURITY: Every root helper, ai-tools-run and the updater name their interpreter by its path and
+  set PATH themselves. Each shell program starts bash with -p, which ignores BASH_ENV and exported
+  functions. Before, the caller's PATH chose the commands that ran as root or as ai-tools, on a
+  host whose sudoers keeps it or does not set secure_path, and when root ran a helper by hand.
+- SECURITY: 'atr admin operators add' and 'install.sh install' refuse to enrol an account that is a
+  member of the ai-tools group, or whose primary group holds the ai-tools account. In either case
+  the agent can read every file the operator's group permission bits open, a private .git
+  included. Each refusal prints the usermod or gpasswd command that corrects the membership. A
+  re-run of 'install.sh install' checks operators already enrolled and refuses before its first
+  write; a package upgrade does not run the check.
+- SECURITY: With AI_TOOLS_REQUIRE_SELINUX=yes on an enforcing host, ai-tools-run refuses a launch
+  (MSG-A7E7) when matchpathcon fails or prints no context. Before, it read that failure as a host
+  without the compiled policy module and launched with the DAC-only warning. Both status reports
+  show the failed lookup as a '?' row and name the refusal.
+- SECURITY: The claude-code entrypoint keeps the type ai_tools_exec_t through a relabel of the
+  whole host (an autorelabel boot, 'fixfiles'). The package installs the binary under two names,
+  and only one had a file-context rule, so such a relabel could change its type and ai-tools-run
+  then refused to launch the agent. Each name now has a rule.
+- SECURITY: A stale-pin record, such as a signature that did not verify, stays until a run
+  verifies the release or records a pin. Before, an unattended relabel that reused the pin cleared
+  it without checking anything. A run that cannot verify the release while the binary still
+  matches its pin names the record under MSG-E9Y2.
+- NEW: 'atr admin system bootstrap' and 'install.sh install' print MSG-F2X6 with the remedies on a
+  host where AI_TOOLS_REQUIRE_SELINUX refuses every launch, before the first launch meets it.
+- NEW: An agent manifest can declare a second name of its entrypoint with the key
+  entrypoint_link_fcontext, held to the rules of entrypoint_fcontext (ai-tools-providers(5)). The
+  claude-code manifest declares the name its platform package installs.
+- NEW: 'atr status' and 'atr admin status' report an entrypoint name that the file-context
+  database maps to a type other than ai_tools_exec_t, and exit 4. 'atr admin system entrypoints
+  relabel' prints each such name.
+- NEW: ai-tools-run adds pin_dir=override to the 'entrypoint:' audit line of a launch whose caller
+  set AI_TOOLS_ENTRYPOINT_PIN_DIR, the variable that moves the directory the pin is read from.
+- FIX: After an update the entrypoint reconcile could not verify, the launch refusal (MSG-P9G4)
+  names the pinned and the installed release and says to check that the host reaches the vendor's
+  release manifest, then run 'atr admin system entrypoints relabel'. Before, it said the binary
+  was tampered and named a reinstall, which fetched the same release. Sessions still do not start.
+- FIX: A reconcile that cannot verify a release prints a line saying what the next launch does,
+  under MSG-E9R7, MSG-Y9F4 or MSG-U6H8 where it refuses. Both status reports describe a stale pin
+  by what the record holds, without claiming a refusal the launch does not make.
+- FIX: 'atr admin status' reports an entrypoint it cannot hash as UNREADABLE (exit 5), and one
+  that does not resolve as not compared. Before, both showed VERIFIED from the pin.
+- FIX: On a busy host, a search that found its match could read as a miss. Three effects are fixed:
+  'atr projects unclaim' could leave the ai-tools group's ACL entry, the launch wrapper could tell
+  an enrolled operator to enrol when only a new login was needed, and 'atr projects push' could
+  choose a remote other than origin.
+- FIX: 'atr admin system layout', 'atr admin system post-upgrade --check', 'atr audit' and 'atr
+  projects claim' retry a read, three times at most, when bash loses the tool's exit status.
+  Before, each reported a spurious failed read, and a claim could stop before its first write.
+- FIX: The first bootstrap on a fresh host no longer fails intermittently. ai-tools-bootstrap
+  refreshes the update timer's stamp, so nvm-update does not start during the run, and enables
+  linger for the ai-tools account before any step that runs as that account.
+- FIX: The toolchain update (nvm-update) runs under MemoryHigh=2G and MemoryMax=3G. Before,
+  MemoryHigh=1G throttled ordinary Node and agent updates.
+- FIX: 'install.sh install' compiles the SELinux policy modules on a host without ai-tools-base
+  installed. An install that stops partway prints MSG-H4U5: the step that failed, that the host
+  holds a partial install, and the command to re-run.
+- FIX: A package transaction and 'install.sh' report a failed reload of the ai-tools user manager
+  under MSG-M2U5, with the command to run it again. Before, the failure ended 'install.sh'.
+- FIX: 'atr projects clone' and 'ai-tools-relabel' label a path when matchpathcon fails. Before,
+  both read the failure as a host without the compiled policy module and skipped the label.
+- FIX: 'install-selinux.sh list-groups' reports the core module as loaded when it is; before, it
+  printed NOT loaded on every host. The installer's permissive-domain check offers 'semodule -r'
+  for a stale permissive_<domain> module, and 'install-selinux.sh remove' unloads only this
+  project's modules.
+- FIX: 'atr status' shows '?' for the pin and the label record when the calling account cannot
+  enter the pin directory. Before, with AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY set, it reported
+  launches as blocked when they were not.
+- FIX: For a failed unit of the ai-tools user manager, both status reports print the reset-failed
+  command before the restart command, since a unit past its start limit refuses a restart until it
+  is reset. 'atr admin status' also prints the daemon-reload command when the unit's file changed
+  after the manager loaded it.
+- FIX: In a package transaction's output, each layout-reconcile line states whether it ran after
+  files were placed or removed. The dotnet %%post failure line points at the MSG-N6G6 line that
+  names the cause.
+- DOCS: docs/sessions/decide.md now says to remove the TypeSafe key to turn the integration off. A
+  commented key stays readable to every session, and removing integration-typesafe from
+  AI_TOOLS_INTEGRATIONS only stops handing sessions the credential file's path.
+- DOCS: docs/install/from-source.md provisions the toolchain with 'atr admin system bootstrap'
+  alone. The manual npm steps, which ran install scripts ahead of the signature check, are gone.
+- DOCS: docs/projects/remove.md advises committing and pushing the work to keep, and copying work
+  out of a sandbox-area project that 'atr projects create' made, which has no remote.
+
 * Sun Nov 08 2026 dagnode <tools@dagnode.com> - 0.29.0-1
 - CHANGE: Updates and claims are not blocked by running sessions. A claim, an unclaim, a removal,
   an agent config directory's relabel after a toolchain update and the label walks of an install

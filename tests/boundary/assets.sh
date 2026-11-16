@@ -91,9 +91,11 @@ for root in /usr/local/share/ai-tools-assets /usr/share/ai-tools-assets /usr/sha
     else
         pass "no entry under ${root} is owned by ${SANDBOX_USER}, so none takes its chmod"
     fi
+    sampled=0
     while IFS= read -r -d '' file; do
+        (( ++sampled <= 20 )) || break
         not_writable "${file}" "rewrite a file of a set"
-    done < <(find -P "${root}" -mindepth 1 -maxdepth 3 -type f -print0 2>/dev/null | head -z -n 20)
+    done < <(find -P "${root}" -mindepth 1 -maxdepth 3 -type f -print0 2>/dev/null)
 done
 
 # The view: one root-owned link per linked asset. Writable, the agent places a link to a tree of its own.

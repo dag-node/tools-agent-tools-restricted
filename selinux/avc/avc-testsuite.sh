@@ -25,9 +25,11 @@ set -uo pipefail   # NOT -e: several of this script's steps are EXPECTED to fail
                    # connects, missing tools); we never want that to abort the run.
 IFS=$'\n\t'
 
-readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly DIR
 readonly MARKER="${DIR}/.avc-last-run"
-readonly SCRATCH="$(pwd)/.avc-scratch"
+SCRATCH="$(pwd)/.avc-scratch"
+readonly SCRATCH
 readonly SECRETS="${SCRATCH}/secrets"      # left for the Stop sweep to quarantine
 
 note() { printf '\033[1;36m[avc]\033[0m %s\n' "$*"; }
@@ -235,9 +237,11 @@ note "left ${SECRETS}/{.env,test.key} -- Stop sweep should quarantine them to <y
 ########################################
 step "network ALLOWED (DNS + https/443)"
 if command -v curl >/dev/null 2>&1; then
-  curl -sS --max-time 6 -o /dev/null -I https://api.anthropic.com/ 2>/dev/null \
-    && note "https reachable (expected: allowed)" \
-    || note "https probe returned non-zero (network/offline ok -- the connect() still logged)"
+  if curl -sS --max-time 6 -o /dev/null -I https://api.anthropic.com/ 2>/dev/null; then
+    note "https reachable (expected: allowed)"
+  else
+    note "https probe returned non-zero (network/offline ok -- the connect() still logged)"
+  fi
 else
   note "curl not present; skipping the allowed-network probe"
 fi
@@ -249,9 +253,11 @@ fi
 #    should stay denied (avc-analyze.sh classifies it as expected, not foldable).
 ########################################
 step "network DISALLOWED (127.0.0.1:22, ssh_port_t -- expect a denial)"
-timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22' 2>/dev/null \
-  && note "connect to :22 succeeded at DAC level (SELinux still logged the port check)" \
-  || note "connect to :22 refused/denied (expected) -- the ai_tools_t->ssh_port_t AVC is logged"
+if timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/22' 2>/dev/null; then
+  note "connect to :22 succeeded at DAC level (SELinux still logged the port check)"
+else
+  note "connect to :22 refused/denied (expected) -- the ai_tools_t->ssh_port_t AVC is logged"
+fi
 
 ########################################
 # 8. SUDO -> CHOWN HELPER (explicit -- exercises PAM+setuid path now, not only

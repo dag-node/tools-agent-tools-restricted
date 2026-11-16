@@ -17,6 +17,38 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 readonly LIB="/usr/local/lib/ai-tools/safe-paths.lib.sh"
 section "protected-paths backstop: shared list + guard (unit)"
 
+mktestdir
+
+# (0) The library loads the msg.lib.sh beside it, so a checkout's installer does not need an installed copy. It
+#     runs ahead of the installed-library guard, which skips the file on a host without the base install. A copy
+#     beside a stand-in msg.lib.sh loads the stand-in, and fails its load once the stand-in is removed, which
+#     an installed msg.lib.sh would otherwise satisfy.
+checkout_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/usr/local/lib/ai-tools/safe-paths.lib.sh"
+if [[ ! -r "${checkout_lib}" ]]; then
+    skip "safe-paths.lib.sh loads msg.lib.sh from its own directory" "no checkout library at ${checkout_lib}"
+else
+    sibling_dir="${TESTDIR}/sibling-lib"; mkdir -p "${sibling_dir}"
+    cp -- "${checkout_lib}" "${sibling_dir}/safe-paths.lib.sh"
+    printf 'SIBLING_MSG_MARKER=loaded\n' > "${sibling_dir}/msg.lib.sh"
+    # shellcheck disable=SC2016  # $1 is the inner shell's positional, passed after `_`
+    sibling_probe='source "$1" || exit 1
+printf "%s" "${SIBLING_MSG_MARKER:-absent}"
+declare -F ai_tools_safe_paths__assert_safe_target >/dev/null && printf " guard"'
+    sibling_load_output="$(env -i PATH=/usr/bin:/bin bash -c "${sibling_probe}" _ "${sibling_dir}/safe-paths.lib.sh" 2>&1)" \
+        || true
+    if [[ "${sibling_load_output}" == "loaded guard" ]]; then
+        pass "safe-paths.lib.sh loads the msg.lib.sh beside it"
+    else
+        fail "safe-paths.lib.sh did not load the msg.lib.sh beside it (got: ${sibling_load_output})"
+    fi
+    rm -f -- "${sibling_dir}/msg.lib.sh"
+    if ! env -i PATH=/usr/bin:/bin bash -c "${sibling_probe}" _ "${sibling_dir}/safe-paths.lib.sh" >/dev/null 2>&1; then
+        pass "safe-paths.lib.sh fails its load with no msg.lib.sh beside it"
+    else
+        fail "safe-paths.lib.sh loaded with no msg.lib.sh beside it"
+    fi
+fi
+
 if [[ ! -r "${LIB}" ]]; then
     skip "protected-paths backstop" "library not readable at ${LIB}"; finish; exit
 fi
@@ -96,7 +128,6 @@ section "traverse-grant predicate (unit)"
 # This file stays runnable unprivileged (it drives a pure library), so the fixture ownership is only asserted where it
 # can be arranged: run as root the testdir is root-owned and has to be handed over, run as the operator it is already
 # theirs.
-mktestdir
 owned="${TESTDIR}/owned"; mkdir -p "${owned}"
 if [[ "$(id -u)" -eq 0 ]]; then chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${owned}"; fi
 

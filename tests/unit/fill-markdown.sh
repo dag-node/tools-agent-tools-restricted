@@ -166,7 +166,7 @@ left="$(python3 "${PC}" --wrap --width "${WIDTH}" "${f}" 2>&1 | grep -c 'documen
 if [[ "${left}" -eq 0 ]]; then
     pass "every measured line is within ${WIDTH} columns after the reflow (checker --wrap)"
 else
-    fail "${left} line(s) still over ${WIDTH}: $(python3 "${PC}" --wrap --width "${WIDTH}" "${f}" 2>&1 | grep -A1 document-width | head -4)"
+    fail "${left} line(s) still over ${WIDTH}: $(python3 "${PC}" --wrap --width "${WIDTH}" "${f}" 2>&1 | grep -A1 document-width | awk 'NR <= 4')"
 fi
 
 # (3) Idempotent.
@@ -175,7 +175,7 @@ python3 "${FILLER}" --checker "${PC}" --width "${WIDTH}" "${f}" >/dev/null
 if cmp -s "${f}" "${TESTDIR}/once.md"; then
     pass "a second run is a no-op"
 else
-    fail "a second run changed the file: $(diff "${TESTDIR}/once.md" "${f}" | head -4)"
+    fail "a second run changed the file: $(diff "${TESTDIR}/once.md" "${f}" | awk 'NR <= 4')"
 fi
 
 # (4) Each defect class, injected into the reflowed fixture, is reported by the gate. The `present` text is a line
@@ -245,7 +245,7 @@ if grep -q '^A plain paragraph long enough that a filler will certainly want$' "
         && grep -qF 'Prose naming `<!--` and `-->` mid-line, which is a sentence about a comment rather than a comment,' "${f}"; then
     pass "--lines fills the named block and leaves the next one as written"
 else
-    fail "--lines did not scope the reflow: $(diff "${TESTDIR}/base/f.md" "${f}" | head -6)"
+    fail "--lines did not scope the reflow: $(diff "${TESTDIR}/base/f.md" "${f}" | awk 'NR <= 6')"
 fi
 
 # (6) A break never falls inside a code span: the literal a span holds is what `git grep` finds,
@@ -306,21 +306,21 @@ else
         if ( cd "${work}" && python3 "${GATE}" --against "${base}" "${pages[@]}" >/dev/null 2>&1 ); then
             pass "${label}: ${#pages[@]} pages reflow at ${width} to a state the gate passes"
         else
-            fail "${label}: the gate reports a page: $(cd "${work}" && python3 "${GATE}" --against "${base}" "${pages[@]}" 2>&1 | grep FAIL | head -2)"
+            fail "${label}: the gate reports a page: $(cd "${work}" && python3 "${GATE}" --against "${base}" "${pages[@]}" 2>&1 | grep FAIL | awk 'NR <= 2')"
         fi
         local over
         over="$(cd "${work}" && { python3 "${PC}" --wrap "${pages[@]}" 2>&1 | grep -c 'document-width' || true; })"
         if [[ "${over}" -eq 0 ]]; then
             pass "${label}: no measured line is left over its column"
         else
-            fail "${label}: ${over} line(s) left over the column: $(cd "${work}" && python3 "${PC}" --wrap "${pages[@]}" 2>&1 | grep -A1 document-width | head -4)"
+            fail "${label}: ${over} line(s) left over the column: $(cd "${work}" && python3 "${PC}" --wrap "${pages[@]}" 2>&1 | grep -A1 document-width | awk 'NR <= 4')"
         fi
         cp -r "${work}" "${work}.once"
         ( cd "${work}" && python3 "${FILLER}" --checker "${PC}" --width "${width}" "${pages[@]}" >/dev/null )
         if diff -r "${work}" "${work}.once" >/dev/null; then
             pass "${label}: a second run is a no-op"
         else
-            fail "${label}: a second run changed a page: $(diff -r "${work}" "${work}.once" | head -4)"
+            fail "${label}: a second run changed a page: $(diff -r "${work}" "${work}.once" | awk 'NR <= 4')"
         fi
     }
     real_pages agent 120 'CLAUDE.md' '*.rule.md' '*/skills/*.md' '*/orientation/*.md'

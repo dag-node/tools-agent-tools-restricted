@@ -119,6 +119,7 @@ ai_tools_safe_paths__is_pinned_fd_at_path() {
 
 # msg.lib is REQUIRED (the refusal renders through it, and the sourcing helpers rely on its ai_tools_msg__confirm):
 # a bare source, so a missing lib fails this library's own load and the consumer's fail-closed handling takes over.
-# msg.lib carries an include guard, so a consumer that already sourced it re-sources a no-op.
+# msg.lib carries an include guard, so a consumer that already sourced it re-sources a no-op. The sibling path loads
+# the msg.lib.sh beside this file, so a checkout's installer reads the checkout's copy on a host with no installed one.
 # shellcheck source=SCRIPTDIR/msg.lib.sh
-source /usr/local/lib/ai-tools/msg.lib.sh
+source "${BASH_SOURCE[0]%/*}/msg.lib.sh"

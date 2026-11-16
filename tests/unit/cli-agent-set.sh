@@ -232,6 +232,57 @@ fi
     || fail "status_entrypoint_pins exited 0 over a stale pin"
 says "the stale line names the installed version the refusal was about" '1\.2\.4' "${out}"
 says "the stale line names the reconcile command" 'entrypoints relabel' "${out}"
+says "a changed binary's line says the reconcile prints how to replace it" 'how to replace it' "${out}"
+
+# A change under the pinned version states the refusal while that binary is installed; a signature failure names
+# the report that hashes the binary and does not say the sessions refuse (cli.rule.md).
+stale_record alpha 1.2.4 changed-under-same-version
+rc=0; out="$(call status_entrypoint_pins)" || rc=$?
+says "a changed-under-same-version line states the refusal while that binary is installed" \
+    'refuse to start while that binary is installed' "${out}"
+stale_record alpha 1.2.4 signature-mismatch
+rc=0; out="$(call status_entrypoint_pins)" || rc=$?
+[[ "${rc}" -ne 0 ]] \
+    && pass "a signature-mismatch mark counts toward the report's exit status" \
+    || fail "status_entrypoint_pins exited 0 over a signature-mismatch mark"
+says "a signature-mismatch line names the report that hashes the binary" 'atr admin status' "${out}"
+if grep -q 'refuse to start' <<<"${out}"; then
+    fail "a signature-mismatch line infers that the sessions refuse: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+else
+    pass "a signature-mismatch line does not infer the launch's verdict"
+fi
+
+# An unverified release names the release and the reach to the vendor, and not the replace-the-binary remedy.
+stale_record alpha 1.2.4 release-unverified
+rc=0; out="$(call status_entrypoint_pins)" || rc=$?
+[[ "${rc}" -ne 0 ]] \
+    && pass "an unverified-release mark counts toward the report's exit status" \
+    || fail "status_entrypoint_pins exited 0 over an unverified-release mark"
+says "the unverified-release line names the release" 'could not verify release 1\.2\.4' "${out}"
+says "the unverified-release line names the vendor's release manifest" "vendor's release manifest" "${out}"
+if grep -q 'how to replace it' <<<"${out}"; then
+    fail "the unverified-release line sends the operator to replace the binary: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+else
+    pass "the unverified-release line does not name the replace-the-binary remedy"
+fi
+
+# A mark with no pin beside it: the line keeps the finding and says the sessions start. The agent declares a release
+# manifest, so it is reported with no pin at all.
+printf 'release_manifest_url=https://example.invalid/manifest.json\n' >> "${AGENTS_DIR}/alpha.conf"
+rm -f "${PINS}/alpha"
+stale_record alpha 1.2.4 signature-mismatch
+rc=0; out="$(call status_entrypoint_pins)" || rc=$?
+[[ "${rc}" -ne 0 ]] \
+    && pass "a mark with no pin beside it still counts toward the report's exit status, the finding unresolved" \
+    || fail "status_entrypoint_pins exited 0 over a mark with no pin"
+says "the line says no pin is recorded now" 'no pin is recorded now' "${out}"
+says "the line says the sessions start and the finding stands" 'sessions start unpinned, and the finding stands' "${out}"
+if grep -q 'refuse to start' <<<"${out}"; then
+    fail "a mark with no pin beside it still says the sessions refuse to start: $(head -c 300 <<<"${out}" | tr '\n' '|')"
+else
+    pass "a mark with no pin beside it does not claim the sessions refuse"
+fi
+manifest alpha la yes; pin_record alpha 1.2.3 observed
 
 # A mark whose STATE is anything else is not a refusal, and must not turn the tier line red: the reader is a record
 # grammar, so an unrecognised value reads as "no mark" rather than as one.
@@ -300,13 +351,14 @@ rm -f "${LABELS}"/*
 # read through providers.lib.sh and entrypoint-verify.lib.sh, both shipped with base, so a reader missing after the CLI
 # loaded them -- the shape a half-upgraded install takes -- exits 5 under the section's code with the later sections
 # still printed. Each library's include guard keeps the section's own re-source from restoring the reader. cmd_status
-# runs with every other section stubbed clean; the same run with the readers in place is the control. shellcheck
-# disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
+# runs with every other section stubbed clean; the same run with the readers in place is the control. The second
+# and third arguments move the pin and label directories, for the case where this account cannot search them.
+# shellcheck disable=SC2016  # the $1/$2 are for the inner `bash -c`, not this shell -- do not expand here
 call_status_entrypoints() {
     runuser -u "${PROJECTS_USER}" -- env \
         AI_TOOLS_AGENTS_DIR="${AGENTS_DIR}" AI_TOOLS_OPERATOR_CONF="${CONF}" AI_TOOLS_LAUNCHER_DIR="${LINKS}" \
-        AI_TOOLS_ENTRYPOINT_PIN_DIR="${PINS}" AI_TOOLS_ENTRYPOINT_STALE_DIR="${STALES}" \
-        AI_TOOLS_ENTRYPOINT_LABEL_DIR="${LABELS}" AI_TOOLS_MSG_PLAIN=1 \
+        AI_TOOLS_ENTRYPOINT_PIN_DIR="${2:-${PINS}}" AI_TOOLS_ENTRYPOINT_STALE_DIR="${STALES}" \
+        AI_TOOLS_ENTRYPOINT_LABEL_DIR="${3:-${LABELS}}" AI_TOOLS_MSG_PLAIN=1 \
         bash -c 'cli="$1"; verify_lib="$2"; pre="$3"; set --; source "${cli}" >/dev/null 2>&1 || exit 99
                  source "${verify_lib}" >/dev/null 2>&1 || exit 98
                  ai_tools_services__list_records() { :; }; status_path_order() { return 0; }
@@ -376,6 +428,32 @@ for label_case in none ok; do
         fail "an unpinned agent without a manifest URL on a host requiring verification, label record ${label_case} (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
     fi
 done
+# A pin directory this account cannot search is a reading the report cannot make, not an absent pin: `-e` is false
+# in both states, and the strict run above is the control for what an absent pin reads as. The records live
+# under a root-owned 0700 directory here, as the state root keeps a non-operator out on a host, and the setup is
+# asserted first, since root searches any directory. Both pins are decided alike: the agent with no manifest URL
+# (the run before the URL is appended) and the one with it (the run after).
+LOCKED="${TESTDIR}/locked"
+mkdir -m 0700 "${LOCKED}"; mkdir -m 0755 "${LOCKED}/entrypoint-pin.d" "${LOCKED}/entrypoint-label.d"
+if runuser -u "${PROJECTS_USER}" -- test -x "${LOCKED}" 2>/dev/null; then
+    fail "setup: ${PROJECTS_USER} can search ${LOCKED}, so the unreadable-directory cases do not drive their state"
+else
+    pass "setup: ${PROJECTS_USER} cannot search the fixture state root"
+fi
+# unreadable_pin_reads_unknown <what> : the strict run over the locked directories reads `?` for the pin and the label
+#   record, exits 0 and names no blocked launch.
+unreadable_pin_reads_unknown() {
+    local rc=0 out
+    out="$(call_status_entrypoints ':' "${LOCKED}/entrypoint-pin.d" "${LOCKED}/entrypoint-label.d")" || rc=$?
+    if [[ "${rc}" -eq 0 ]] && grep -qF 'pin not readable from this account' <<<"${out}" \
+            && grep -qF 'label record not readable from this account' <<<"${out}" \
+            && ! grep -qE 'UNVERIFIED|no pin recorded|will not launch|no labelling recorded' <<<"${out}"; then
+        pass "$1: the pin and the label record read ? and status exits 0"
+    else
+        fail "$1 (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
+    fi
+}
+unreadable_pin_reads_unknown "an unsearchable pin directory, agent without a manifest URL, verification required"
 rm -f "${LABELS}"/*; operator_conf
 rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__get_label_path')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && grep -qF 'atr providers' <<<"${out}"; then
@@ -394,6 +472,7 @@ if [[ "${rc}" -eq 4 ]] && grep -qF 'sessions will not launch' <<<"${out}"; then
 else
     fail "control: an unpinned agent on a host requiring verification (rc ${rc}): $(tail -c 400 <<<"${out}" | tr '\n' '|')"
 fi
+unreadable_pin_reads_unknown "an unsearchable pin directory, agent with a manifest URL, verification required"
 rc=0; out="$(call_status_entrypoints 'unset -f ai_tools_entrypoint_verify__is_required')" || rc=$?
 if [[ "${rc}" -eq 5 ]] && grep -qx MSG-E5C3 <<<"${out}" && ! grep -qF 'launches are not blocked' <<<"${out}" \
         && grep -qF 'atr providers' <<<"${out}"; then
@@ -625,7 +704,8 @@ printf 'AI_TOOLS_REQUIRE_SELINUX=yes\n' > "${REQUIRED_CONF}"; printf 'AI_TOOLS_R
 chmod 0644 "${REQUIRED_CONF}" "${NOT_REQUIRED_CONF}"
 # call_attestation_section <records> <operator-conf> [selinux-mode] [module-present] [policy-shipped] : print
 # the section, then `section-status=<n>`. The mode and the two module readers default to a confined host (Enforcing,
-# live, shipped); a case about a host without confinement by its own configuration sets them.
+# live, shipped); a case about a host without confinement by its own configuration sets them, and a module-present
+# of `unread` makes that reader return 1 with no output, as a failed file-context lookup does.
 # shellcheck disable=SC2016  # the $1..$7 are for the inner `bash -c`, not this shell -- do not expand here
 call_attestation_section() {
     runuser -u "${PROJECTS_USER}" -- env AI_TOOLS_MSG_PLAIN=1 \
@@ -637,7 +717,7 @@ call_attestation_section() {
                  declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null || exit 97
                  getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
                  ai_tools_confinement__read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
-                 ai_tools_confinement__read_module_present() { printf "%s" "${stub_module_present}"; }
+                 ai_tools_confinement__read_module_present() { [[ "${stub_module_present}" != unread ]] || return 1; printf "%s" "${stub_module_present}"; }
                  ai_tools_confinement__read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
                  section_status=0; status_selinux_attestation "${operator_conf}" || section_status=$?
                  printf "section-status=%s\n" "${section_status}"' \
@@ -666,6 +746,36 @@ else
     else
         fail "attested host under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
+    # An unread module reading counts under the requirement, driven with the compiled module absent, where
+    # a "no" would read as a host without the policy.
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
+               "${REQUIRED_CONF}" Enforcing unread no)" || true
+    if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'file contexts' <<<"${out}" \
+            && grep -qF 'MSG-A7E7' <<<"${out}" && grep -qF 'matchpathcon -n /opt/ai-tools/.config' <<<"${out}" \
+            && ! grep -qF 'policy is not installed' <<<"${out}"; then
+        pass "an unread file-context lookup under the requirement is a fault, not a host without the policy"
+    else
+        fail "unread file-context lookup under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
+               "${NOT_REQUIRED_CONF}" Enforcing unread no)" || true
+    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'file contexts' <<<"${out}" \
+            && grep -qF 'launches are not refused' <<<"${out}"; then
+        pass "the same unread lookup without the requirement is reported and not a fault"
+    else
+        fail "unread file-context lookup without the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # On a host that is not Enforcing the requirement refuses every launch for the mode first, so the row does not name
+    # the unattested refusal there.
+    out="$(call_attestation_section $'permissive\tno\nboolean\tnis_enabled\toff\nboolean\tdomain_can_mmap_files\toff\nboolean\tdomain_can_write_kmsg\toff' \
+               "${REQUIRED_CONF}" Permissive unread no)" || true
+    if grep -qx 'section-status=1' <<<"${out}" \
+            && grep -qF 'SELinux is Permissive, not Enforcing, so every launch refuses' <<<"${out}" \
+            && ! grep -qF 'MSG-A7E7' <<<"${out}"; then
+        pass "an unread lookup on a permissive host names the mode's refusal, not the unattested one"
+    else
+        fail "unread file-context lookup on a permissive host: $(tr '\n' '|' <<<"${out}")"
+    fi
     # A Boolean whose rules are shut names what it would allow once opened, so its row does not read as a failed one.
     out="$(call_attestation_section $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff\nboolean\tdeny_ptrace\ton' \
                "${NOT_REQUIRED_CONF}")" || true
@@ -688,11 +798,12 @@ else
         fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
     fi
     # A host without SELinux confinement by its own configuration has no domain to attest; under the requirement every
-    # launch runs DAC-only with a warning, which is a fault naming the line that declares the host so.
+    # launch refuses, which is a fault naming the refusal's code and the line that declares the host so.
     out="$(call_attestation_section '' "${REQUIRED_CONF}" Disabled)" || true
     if grep -qx 'section-status=1' <<<"${out}" && grep -qF 'SELinux is disabled' <<<"${out}" \
+            && grep -qF 'every launch on this host refuses (MSG-W2G6)' <<<"${out}" \
             && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}"; then
-        pass "SELinux disabled under the requirement is a fault naming AI_TOOLS_REQUIRE_SELINUX=no"
+        pass "SELinux disabled under the requirement is a fault naming its refusal and AI_TOOLS_REQUIRE_SELINUX=no"
     else
         fail "SELinux disabled under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
@@ -704,7 +815,7 @@ else
         fail "policy never installed under the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
     out="$(call_attestation_section '' "${NOT_REQUIRED_CONF}" Enforcing no no)" || true
-    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'without a warning' <<<"${out}"; then
+    if grep -qx 'section-status=0' <<<"${out}" && grep -qF 'declares this host DAC-only' <<<"${out}"; then
         pass "the same host without the requirement is reported and not a fault"
     else
         fail "policy never installed without the requirement: $(tr '\n' '|' <<<"${out}")"

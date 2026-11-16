@@ -50,10 +50,10 @@ returns 2 without output, except the stream writer, which writes the one `error`
 and the dynamic rows sorted together by path under `LC_ALL=C` so a parent precedes every path under it, then an `error`
 line for each input it needed and could not read. It returns 0 for a complete discovery, 1 after an `error` line, and 2
 without output while the table did not validate, so a consumer tells a complete empty set from a failed discovery. Every
-consumer reads the set through `ai_tools_layout__read_entry_lines`, a collector under the rule
-[records](records.rule.md) states, which waits for the enumerator and appends one `error` line for a status the lines do
-not account for — 1 with no `error` line among them, or any other non-zero status — so an enumerator that ends
-on a shell error or a signal reads as an incomplete discovery and never as a complete smaller set.
+consumer reads the set through `ai_tools_layout__read_entry_lines`, which reads the enumerator as a collector
+through the reader [records](records.rule.md) states and appends one `error` line for a status the lines do not account
+for — 1 with no `error` line among them, or any other non-zero status — so an enumerator that ends on a shell error
+or a signal reads as an incomplete discovery and never as a complete smaller set.
 
 **A package applies while either of two files it ships exists.** `_AI_TOOLS_LAYOUT__PACKAGE_SENTINELS` names two `files`
 rows per package, read with `lstat`, so one of them deleted is a `missing` row with its remedy and not a package gone
@@ -65,13 +65,13 @@ and `ai-tools-admin(8)` states it.
 **The dynamic rows come from inputs the reconcile has brought to their rows first.** One `directory` row per installed
 agent manifest with a valid `config_dir`, at `CP_AGENT_CONFIG_MODE`, and per enrolled operator a row
 for `~/.config/ai-tools` and for each file `operators add` seeds in it (`~/.config/ai-tools/project-registry`,
-`~/.config/ai-tools/secret-patterns`), with an optional row for the `~/.config/ai-tools/allowed-projects` an earlier
-release wrote, which stays the registry until `system post-upgrade` migrates it. While that file exists, the operator's
-`~/.config/ai-tools/project-registry` row is optional too: the migration creates it, and `--check` reports the operator
-as unmigrated. Each input is read through `ai_tools_records_base__read_subject_type` and `ai_tools_conf__is_trusted`
-before anything in it: an absent input does not contribute a row, since its static row reports the absence, and an input
-that is present but unreadable, untrusted, of another type or not parsed whole is an `error` line and never an empty
-set. A dynamic path the table declares is an `error` line too.
+`~/.config/ai-tools/secret-patterns`). The `~/.config/ai-tools/allowed-projects` an earlier release wrote does not take
+a row: it stays the registry until `system post-upgrade` migrates it, and its readers hold it to their own checks. While
+that file exists, the operator's `~/.config/ai-tools/project-registry` row is optional: the migration creates it,
+and `--check` reports the operator as unmigrated. Each input is read through `ai_tools_records_base__read_subject_type`
+and `ai_tools_conf__is_trusted` before anything in it: an absent input does not contribute a row, since its static row
+reports the absence, and an input that is present but unreadable, untrusted, of another type or not parsed whole is
+an `error` line and never an empty set. A dynamic path the table declares is an `error` line too.
 
 **Not rows:** the sandbox account's own trees and the toolchain under them, every project tree and clone, the asset
 contents under the shared roots ([shipped-assets](shipped-assets.rule.md)), the entrypoint and its label
@@ -82,8 +82,9 @@ shipped data under `%files` without `%attr`, and every link target, which `integ
 
 `ai_tools_layout__read_entry_state` reads one entry into the caller's associative array and appends its findings
 to the caller's indexed array, validating both names as `records-base.lib.sh` validates its own
-([records](records.rule.md)). The fields are read in order: the type from one `lstat`, the owner and the mode without
-`-L`, the ACL text whole from one `getfacl -P` observation, the label
+([records](records.rule.md)). The fields are read in order: the type, the owner and the mode from one `lstat`,
+through `ai_tools_records_base__read_subject_attributes`, so the three describe one inode and a read of them that did
+not complete is the type's `unreadable`, the ACL text whole from one `getfacl -P` observation, the label
 through `ai_tools_project_permissions__get_context_type` over `matchpathcon` and `stat -c '%C'`, and the content
 of a package file from the collector. A row that is missing or of another type does not read further; a field
 whose reading did not complete is `unreadable` for that row, with the field named and every finding read before it kept.
@@ -200,10 +201,11 @@ through `ExecStart=-`.
 
 ## Where it runs
 
-The transaction file trigger of `ai-tools-base` runs the reconcile with `--without-rpm` once per transaction, whichever
-packages placed files under the install prefixes, and a `%transfiletriggerpostun` twin runs it after an erase,
-so a removed package's rows leave with its sentinel; the rpm database is held while a transaction runs, so the content
-comparison waits for the relabel service the base `%posttrans` starts, whose first `ExecStart=-` line is the full pass.
+The `%transfiletriggerin` scriptlet of `ai-tools-base` runs the reconcile with `--without-rpm` once per transaction,
+whichever packages placed files under the install prefixes, and its `%transfiletriggerpostun` twin runs it
+after an erase, so a removed package's rows leave with its sentinel; the rpm database is held while a transaction runs,
+so the content comparison waits for the relabel service the base `%posttrans` starts, whose first `ExecStart=-` line is
+the full pass. An upgrade runs both scriptlets, and each prefixes its lines with whether files were placed or removed.
 `install.sh` and `ai-tools-bootstrap` run the installed command before each seeds the timer stamp, so the reconcile
 creates the unit search path chain and the stamp directory as rows ([ownership-and-hooks](ownership-and-hooks.rule.md)).
 Every caller runs the command, so every caller takes its deadline. The base `%post` keeps its `setfacl` lines and its

@@ -76,7 +76,8 @@
 set -uo pipefail
 IFS=$'\n\t'
 
-readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly DIR
 readonly SUBJ="ai_tools_t"
 
 note() { printf '\033[1;36m[avc-denials]\033[0m %s\n' "$*"; }
@@ -195,11 +196,9 @@ avc_permissive_state() {
 }
 
 # avc_loaded_groups <semodule-list-output>: print the loaded `ai_tools_<name>` modules' <name> parts, comma-joined,
-# from `semodule -l` output (bare names on EL9, a version column on later releases). Prints nothing when only the core
-# is
-# loaded.
+# from `semodule -l` output, which holds one module name per line. Prints nothing when only the core is loaded.
 avc_loaded_groups() {
-  awk '{print $1}' <<<"$1" | sed -n 's/^ai_tools_\([a-z0-9_][a-z0-9_]*\)$/\1/p' | paste -sd, -
+  sed -n 's/^ai_tools_\([a-z0-9_][a-z0-9_]*\)$/\1/p' <<<"$1" | paste -sd, -
 }
 
 # avc_probe_status <log> <run-id> <window-start-epoch>: print the exit status the probe recorded in <log> for <run-id>,
@@ -445,6 +444,11 @@ do_probe() {
   #                               the FIFO unlinked at once where the kernel made it, after a plain file's create
   #                               and removal there as the control; a control or a context that failed is reported
   #                               without an errno name, as not exercised, and a FIFO made and not removed exits 4
+  #   link <file> <dir>           link(2) of <file> at a new name in <dir>, the name unlinked at once where the kernel
+  #                               made it, after a plain file's create and removal there as the control; a control
+  #                               that failed, and a <dir> on another filesystem than <file>, where link(2) returns
+  #                               EXDEV ahead of the policy's check, are reported without an errno name, as not
+  #                               exercised, and a name made and not removed exits 4
   # Exits 0 when the call succeeded, and on failure prints "<errno name>: <message>" to stderr and exits 1, so _attempt
   # reads EACCES/EPERM as a denial and every other errno as not exercised.
   _py() {
@@ -497,6 +501,28 @@ try:
             os.unlink(path)
         except OSError as e:
             print("created %s, and its removal failed (errno %d) -- remove it by hand" % (path, e.errno),
+                  file=sys.stderr)
+            sys.exit(4)
+    elif op == "link":
+        path = os.path.join(args[1], ".avc-denials-link-%d" % os.getpid())
+        control = path + ".control"
+        try:
+            os.close(os.open(control, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+            os.unlink(control)
+        except OSError as e:
+            print("the directory refused a plain file's create or removal (errno %d), so the link was not reached"
+                  % e.errno, file=sys.stderr)
+            sys.exit(1)
+        if os.stat(args[0]).st_dev != os.stat(args[1]).st_dev:
+            print("the directory is on another filesystem than the file, so the policy's link check was not reached",
+                  file=sys.stderr)
+            sys.exit(1)
+        os.link(args[0], path)
+        # Linked: the removal's own failure exits 4 naming the path, apart from a denied link.
+        try:
+            os.unlink(path)
+        except OSError as e:
+            print("linked %s, and its removal failed (errno %d) -- remove it by hand" % (path, e.errno),
                   file=sys.stderr)
             sys.exit(4)
     elif op == "dirwrite":
@@ -734,6 +760,7 @@ config_home_t are dontaudit'd; AVCs visible under -DB."
     check HOM-002 SELinux "$(_R "list ${uhome} (user_home_dir_t)")" ls -a "${uhome}"
 
     _type="config_home_t (read dontaudit'd; AVC under -DB)"
+    # shellcheck disable=SC2088  # prose naming the directory, not a path to expand
     _why="~/.config holds credentials for hundreds of tools: kubectl configs with cluster tokens, AWS/GCP/Azure CLI creds, npm tokens, IDE settings with API keys. Even listing directory names reveals which services the user authenticates to."
     check HOM-003 SELinux "$(_R "list ${uhome}/.config (config_home_t)")" ls -a "${uhome}/.config"
   else
@@ -927,8 +954,8 @@ SELinux labels, namespaces, and encryption headers are all filesystem-layer
 concepts. An agent reading /dev/sda sees raw sectors and can reconstruct any
 file regardless of permissions. fixed_disk_device_t is the SELinux gate."
 
-  _blk="$(ls /dev/sda /dev/sdb /dev/nvme0n1 /dev/nvme1n1 /dev/vda /dev/xvda 2>/dev/null \
-         | head -1 || true)"
+  _blk="$(ls /dev/sda /dev/sdb /dev/nvme0n1 /dev/nvme1n1 /dev/vda /dev/xvda 2>/dev/null || true)"
+  _blk="${_blk%%$'\n'*}"
   if [[ -n "${_blk}" ]]; then
     _type="fixed_disk_device_t:blk_file (read)"
     _why="Direct block device access bypasses all filesystem permissions, SELinux labels, POSIX ACLs, and encryption metadata. An attacker can reconstruct every file on disk regardless of permissions, recover deleted files, extract LUKS headers, and modify filesystem structure directly."
@@ -1201,6 +1228,36 @@ the project's filesystem needs that filesystem's associate permission as well."
     skip_check WLK-001 SELinux "create a named FIFO labelled ai_tools_t" "python3 not available to attempt it"
   fi
 
+  _type="ai_tools_exec_t:file link (not granted)"
+  _why="A hard link gives an agent entrypoint's inode a name no file-context rule covers, and a relabel of the host that walks by path can then leave the inode on that name's type; the module grants link on its four own types, and the entry type is not among them (tests/integration/selinux.sh W3 holds the grants to that table)."
+  # The entrypoint is read through the stable launcher links, and the new name goes into the sandbox home's cache
+  # directory, which the session writes and which shares the toolchain's filesystem on a stock layout.
+  _entrypoint=""
+  for _launcher in /opt/ai-tools/bin/*; do
+    [[ -L "${_launcher}" ]] || continue
+    _resolved="$(realpath -e "${_launcher}" 2>/dev/null || true)"
+    if [[ -n "${_resolved}" && "$(stat -c '%C' -- "${_resolved}" 2>/dev/null || true)" == *:ai_tools_exec_t:* ]]; then
+      _entrypoint="${_resolved}"
+      break
+    fi
+  done
+  if [[ -z "${_entrypoint}" ]]; then
+    skip_check WLK-002 SELinux "link an agent entrypoint at a second name" \
+      "no launcher under /opt/ai-tools/bin resolves to a file of ai_tools_exec_t"
+  elif command -v python3 >/dev/null 2>&1; then
+    _header WLK-002 SELinux "link the entrypoint ${_entrypoint} at a second name in ${HOME}/.cache (unlinked if made)"
+    _attempt _py link "${_entrypoint}" "${HOME}/.cache"
+    case "${_rc}:${_reason}" in
+      0:*)      _result FAIL "the entrypoint was linked at a second name, which was removed -- investigate" ;;
+      4:*)      _result FAIL "the entrypoint was linked at a second name that was not removed -- ${_reason#exit 4: }" ;;
+      *:denied) _result PASS "denied as expected, after the directory's own create passed" ;;
+      *)        _result INCONCLUSIVE "not exercised: ${_reason}" ;;
+    esac
+    _why="" _type=""
+  else
+    skip_check WLK-002 SELinux "link an agent entrypoint at a second name" "python3 not available to attempt it"
+  fi
+
   section "SECTION TTY: A LOGIN TERMINAL OPENED BY PATH  [goals 1, 4]" \
 "The domain holds a login terminal (user_devpts_t, user_tty_device_t) on the
 descriptors it inherits and does not hold open on either type, so a session
@@ -1262,7 +1319,8 @@ do_check_results() {
     exit 1
   fi
   local _latest
-  _latest="$(ls -t "${_dir}"/avc-denials-*.log 2>/dev/null | head -1 || true)"
+  _latest="$(ls -t "${_dir}"/avc-denials-*.log 2>/dev/null || true)"
+  _latest="${_latest%%$'\n'*}"
   if [[ -z "${_latest}" ]]; then
     err "No audit logs in ${_dir}/ -- run 'bash ${BASH_SOURCE[0]##*/} probe' first."
     exit 1
@@ -1289,9 +1347,7 @@ do_run() {
   # would tell the probe that no group is loaded, and every group check would then be judged against that.
   local modules
   modules="$(semodule -l 2>&1)" || { err "semodule -l failed; the loaded modules are unknown:"; err "${modules}"; exit 1; }
-  # RHEL9 `semodule -l` prints the bare module name (no version column), so match the name at EOL or before whitespace
-  # to cover both old and new output.
-  grep -qE '^ai_tools($|[[:space:]])' <<<"${modules}" \
+  grep -qx ai_tools <<<"${modules}" \
     || { err "core ai_tools module not loaded (install-selinux.sh install)"; exit 1; }
   # The loaded optional groups, which the session cannot read (the module store is root-only). Passed to the probe
   # so its group checks assert the outcome this configuration should give.
@@ -1342,7 +1398,12 @@ do_run() {
   PTY_FIXTURE_PID=""
   restore_dontaudit() {
     [[ -n "${PTY_FIXTURE_PID:-}" ]] && kill "${PTY_FIXTURE_PID}" 2>/dev/null
-    note "restoring dontaudit (semodule -B) ..."; semodule -B >/dev/null 2>&1 && note "dontaudit restored." || err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."
+    note "restoring dontaudit (semodule -B) ..."
+    if semodule -B >/dev/null 2>&1; then
+      note "dontaudit restored."
+    else
+      err "semodule -B FAILED -- run 'sudo semodule -B' by hand to re-silence."
+    fi
   }
   trap restore_dontaudit EXIT INT TERM
   # Capture START before `semodule -DB`: the policy reload can trigger a log rotation at the exact same second, causing
@@ -1435,12 +1496,12 @@ signal.pause()' >"${pty_fixture_file}" 2>/dev/null &
   fi
   # The fixture's denial is the one record this run knows must be in the window, so it is the control that audit
   # collection and the window worked: without it, an empty bucket in the analysis says nothing about the policy.
-  local collection_confirmed=0
+  local collection_confirmed=0 pty_denials
   if [[ -n "${login_pty}" ]]; then
-    if ausearch -m AVC -ts "${START_DATE}" "${START_TIME}" 2>/dev/null \
+    pty_denials="$(ausearch -m AVC -ts "${START_DATE}" "${START_TIME}" 2>/dev/null \
         | grep -E 'avc:[[:space:]]*denied  \{ open \} ' \
-        | grep -E "path=\"${login_pty}\"|name=\"${login_pty##*/}\" dev=\"devpts\"" \
-        | grep -qE 'scontext=[^ ]*:ai_tools_t:[^ ]* tcontext=[^ ]*:user_devpts_t:'; then
+        | grep -E "path=\"${login_pty}\"|name=\"${login_pty##*/}\" dev=\"devpts\"")" || pty_denials=""
+    if grep -qE 'scontext=[^ ]*:ai_tools_t:[^ ]* tcontext=[^ ]*:user_devpts_t:' <<<"${pty_denials}"; then
       collection_confirmed=1
       note "collection: the login-pty fixture's open denial is in the window"
     else

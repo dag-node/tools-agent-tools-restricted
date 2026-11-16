@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-bootstrap
 # Provision the sandbox account's Node toolchain: create the @SANDBOX_USER@ system account and its /opt/ai-tools home
@@ -47,6 +47,10 @@
 #   ```
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
@@ -105,10 +109,11 @@ resolve_nvm_version() {
         printf '%s' "${AI_TOOLS_NVM_VERSION}"
         return
     fi
-    local tag
-    tag="$(curl -fsSL --max-time 10 \
-            https://api.github.com/repos/nvm-sh/nvm/releases/latest 2>/dev/null \
-          | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)" || true
+    local tag release
+    release="$(curl -fsSL --max-time 10 \
+            https://api.github.com/repos/nvm-sh/nvm/releases/latest 2>/dev/null)" || release=""
+    tag="$(sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"${release}")"
+    tag="${tag%%$'\n'*}"
     if [[ "${tag}" == v[0-9]* ]]; then
         printf '%s' "${tag}"
     else
@@ -539,7 +544,7 @@ offer_launch_requirements() {
     local -a unpinned=()
     (( _providers_loaded )) && [[ -f "${conf}" ]] || return 0
     command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == Enforcing ]] || return 0
-    # Captured before matching: `grep -q` exits on the match and leaves semodule to die of SIGPIPE mid-listing.
+    # Captured ahead of the search (ref-section-d9x2).
     modules="$(semodule -l 2>/dev/null)" || return 0
     grep -qx ai_tools <<< "${modules}" || return 0
     if ! ai_tools_conf__is_trusted "${conf}" 2>/dev/null; then
@@ -566,6 +571,33 @@ offer_launch_requirements() {
     ai_tools_conf__set_key "${conf}" "${key}" "${answer}" \
         || { warn MSG-N8U6 "could not write ${key}=${answer} into ${conf} -- set the line by hand"; return 0; }
     log "set ${key}=${answer} in ${conf}"
+}
+
+# report_required_dac_only_state -- name a host where AI_TOOLS_REQUIRE_SELINUX makes every launch refuse,
+# with the remedies, so the operator meets it here rather than at the first launch. The host is provisioned either way
+# and the remedy is the operator's choice, so it leaves the exit status alone.
+report_required_dac_only_state() {
+    local lib=/usr/local/lib/ai-tools/confinement.lib.sh conf="${AI_TOOLS_OPERATOR_CONF}" state reason
+    local -a remedies=()
+    # shellcheck source=SCRIPTDIR/../../lib/ai-tools/confinement.lib.sh
+    source "${lib}" 2>/dev/null || return 0
+    declare -F ai_tools_confinement__read_required_dac_only_state >/dev/null 2>&1 || return 0
+    state="$(ai_tools_confinement__read_required_dac_only_state "${conf}")" || return 0
+    if [[ "${state}" == disabled ]]; then
+        reason="SELinux is disabled on this host"
+        remedies=( "enable SELinux:          set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux" )
+    else
+        reason="the ai_tools SELinux policy is not installed on this host"
+        remedies=( "install the policy:      sudo dnf install ai-tools-selinux"
+                   "from a checkout:         sudo selinux/install-selinux.sh install" )
+        [[ "$(getenforce 2>/dev/null || true)" == Enforcing ]] \
+            || remedies+=( "then enforce it:         sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config" )
+    fi
+    warn MSG-F2X6 "AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and ${reason}, so every agent launch here refuses (MSG-W2G6)"
+    local remedy
+    for remedy in "${remedies[@]}" "in a container, instead: set AI_TOOLS_REQUIRE_SELINUX=no in ${conf}"; do
+        warn "    ${remedy}"
+    done
 }
 
 # report_shadowed_operators -- name each enrolled operator whose shell reaches an agent other than the wrapper,
@@ -611,7 +643,8 @@ preflight_toolchain_ownership() {
         [[ -d "${home}/${sub}" ]] || continue
         count="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '.' 2>/dev/null | wc -c)"
         (( count > 0 )) || continue
-        sample="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '%u:%g %p\n' 2>/dev/null | head -n 3 | tr '\n' ';')"
+        sample="$(find "${home}/${sub}" \( ! -user "${user}" -o ! -group "${group}" \) -printf '%u:%g %p\n' 2>/dev/null \
+            | awk 'NR <= 3' | tr '\n' ';')" || true
         foreign+=("${home}/${sub}")
         err "toolchain ownership: ${count} path(s) under ${home}/${sub} are not owned by ${user}:${group}: ${sample%;}"
     done
@@ -744,19 +777,6 @@ _online=1
 preflight_network "${_network_urls[@]}" || _online=0
 (( _ownership_ok )) || die "the toolchain's ownership must be restored before this run can read it (see above) -- no package was installed or removed"
 
-# Links a transfer of the tree replaced with copies are restored first, since the residue step runs npm.
-# What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
-# ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
-restore_toolchain_links
-remove_residue
-
-# Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped
-# to bash, so a resolved value can never inject shell or URL.
-NVM_VERSION="$(resolve_nvm_version)"
-[[ "${NVM_VERSION}" =~ ^v[0-9][0-9.]*$ ]] \
-    || die MSG-W8X8 "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
-readonly NVM_VERSION
-
 # 1. Sandbox account + home. `--system`: no aging, low uid; /sbin/nologin + locked password:
 #    the agent account has no interactive login. /opt (not /home) because /home is nosuid,
 #    which would defeat the sudo UID-switch the launch path relies on.
@@ -779,8 +799,40 @@ for _sub in .nvm .cache .npm; do
 done
 
 # `.local` heads the unit search path chain, which root owns; the layout reconcile creates it with the rest
-# of the installed layout.
+# of the installed layout, the timer-stamp directory at its end among them.
 reconcile_layout
+
+# The timer stamp is refreshed ahead of linger, which can start a timer an earlier run enabled (updater.rule.md states
+# the race); a write that fails ends the run here, as step 5's own write would.
+sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}" \
+    || die "could not write the nvm-update timer stamp in ${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR} as ${SANDBOX_USER} -- see: atr admin system layout, then re-run atr admin system bootstrap"
+
+# Linger, before the first step that runs as the account: each such step is a scope in user-<uid>.slice, which without
+# linger is stopped when a scope ends, and a scope started during that stop is refused (MSG-Q2K6). Linger also keeps
+# the account's `--user manager`, where step 5 starts the timer, running without a login.
+_uid="$(id -u "${SANDBOX_USER}")"
+if command -v loginctl >/dev/null 2>&1; then
+    _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
+        || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
+fi
+# Wait for the manager to come up before the first account step and before step 5 drives it.
+for _i in $(seq 1 30); do
+    systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break
+    sleep 0.5
+done
+
+# Links a transfer of the tree replaced with copies are restored first, since the residue step runs npm.
+# What the toolchain holds for an agent that is installed and not in the set just decided is residue, removed here --
+# ahead of the network step, so an offline host still cleans up -- and every launch refuses until it is gone.
+restore_toolchain_links
+remove_residue
+
+# Concrete tag (latest, pinned, or fallback). Constrained to v + digits/dots before it reaches the download URL piped
+# to bash, so a resolved value can never inject shell or URL.
+NVM_VERSION="$(resolve_nvm_version)"
+[[ "${NVM_VERSION}" =~ ^v[0-9][0-9.]*$ ]] \
+    || die MSG-W8X8 "invalid nvm version '${NVM_VERSION}' (expected vMAJOR.MINOR.PATCH)"
+readonly NVM_VERSION
 
 # Resolve the enabled agents -- read AFTER choose_agents, so the set is the one this run just wrote. Each enabled line
 # is "name<TAB>npm_package<TAB>launcher"; collect the packages (installed in step 2) and launchers (symlinked in step
@@ -1039,11 +1091,10 @@ fi
 #    keeps Node and the agent package current. The home is root-owned (2751), so the account
 #    cannot write ~/.config; root provisions the XDG config tree (root:group 2750 -- the account
 #    reads its units via the group) and the timers.target.wants symlink that enables the timer.
-#    Order matters: the symlink is laid down before linger brings the manager up, so the manager
-#    reaches timers.target with the enablement already in place and starts the timer itself. The
-#    explicit start that follows covers a manager that was already running. Best-effort: a tree
-#    that ships the unit later (the dev install.sh flow) warns rather than failing bring-up.
-_uid="$(id -u "${SANDBOX_USER}")"
+#    The manager is already running (linger is enabled after step 1), so it does not read the
+#    symlink until its next start; the daemon-reload and explicit start that close this step
+#    start the timer, after the run-stamp is seeded. Best-effort: a tree that ships the unit later (the dev
+#    install.sh flow) warns rather than failing bring-up.
 install -d -o root -g "${SANDBOX_GROUP}" -m 2750 \
     "${SANDBOX_HOME}/.config" \
     "${SANDBOX_HOME}/.config/systemd" \
@@ -1063,19 +1114,8 @@ ln -sfn /usr/lib/systemd/user/nvm-update.timer \
 # .claude/rules/updater.rule.md.
 sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"
 
-# Linger keeps the `--user manager` running without an interactive login, so the timer it holds stays active. Surface
-# a failure so an instance that does not engage linger is visible.
-if command -v loginctl >/dev/null 2>&1; then
-    _linger_out="$(loginctl enable-linger "${SANDBOX_USER}" 2>&1)" \
-        || warn MSG-V4D9 "could not enable linger for ${SANDBOX_USER} (${_linger_out:-no output})"
-fi
-# Wait for the manager to come up before driving it.
-for _i in $(seq 1 30); do
-    systemctl is-active "user@${_uid}.service" >/dev/null 2>&1 && break
-    sleep 0.5
-done
-# Start the timer now to cover a manager that was already running: the wants symlink alone starts it when the manager
-# next reaches timers.target. Root drives that manager over the machine transport (`-M <account>@.host`), the route
+# Start the timer now: the manager is running, and the wants symlink alone starts it only when the manager next reaches
+# timers.target. Root drives that manager over the machine transport (`-M <account>@.host`), the route
 # the system bus authorizes for root; `sudo -u` to the account and its own bus is refused there even while the manager
 # is healthy. Capture the output so the warn on a failed start carries systemctl's own error text.
 if _start_out="$(systemctl --user -M "${SANDBOX_USER}@.host" daemon-reload 2>&1 \
@@ -1094,6 +1134,7 @@ seed_managed_assets_step
 # Launch requirements (operator.conf). Offered after the relabel in step 3b, which writes the pins the entrypoint
 # requirement reads.
 offer_launch_requirements
+report_required_dac_only_state
 
 # Sandbox git commit identity (control-plane gitconfig). Offered here as the shared interactive step; skipped cleanly
 # when the control plane is not yet in place.

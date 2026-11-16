@@ -74,7 +74,7 @@ for pair in "${twin_pairs[@]}"; do
     if [[ "$(declare -f "${original}" | twin_substitute)" == "$(declare -f "${twin}")" ]]; then
         pass "${twin} is ai-tools-stop's ${original} under the stated substitution"
     else
-        fail "${twin} has drifted from ai-tools-stop's ${original}: $(diff <(declare -f "${original}" | twin_substitute) <(declare -f "${twin}") | head -n 6 | tr '\n' ' ')"
+        fail "${twin} has drifted from ai-tools-stop's ${original}: $(diff <(declare -f "${original}" | twin_substitute) <(declare -f "${twin}") | awk 'NR <= 6' | tr '\n' ' ')"
     fi
 done
 # The control: a one-character change to the helper's copy must break the equality, or each twin pass in this section

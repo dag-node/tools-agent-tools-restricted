@@ -31,7 +31,7 @@ SEVERITY_MAP='
 die=ERROR reject=ERROR refuse=ERROR refuse_early=ERROR err=ERROR say_error=ERROR ai_tools_launch_wrapper__die=ERROR
 _ai_tools_launch_wrapper__error=ERROR
 ai_tools_msg__error=ERROR die_stop_usage=ERROR reject_unknown_command=ERROR die_unknown_command=ERROR coded_refusal=ERROR _pu_unreadable=ERROR die_usage=ERROR
-_claim_unreadable=ERROR
+_claim_unreadable=ERROR _ai_tools_operator__print_refusal=ERROR
 warn=WARNING _ai_tools_providers__warn=WARNING ai_tools_conf__warn=WARNING _ai_tools_settings_merge__warn=WARNING say_warn=WARNING _ai_tools_assets_verify__warn=WARNING
 ai_tools_msg__warn=WARNING _ai_tools_toolchain__warn=WARNING _ai_tools_sandbox_exec__warn=WARNING _ai_tools_launch_wrapper__warn=WARNING _pu_attention=WARNING
 _claim_attention=WARNING

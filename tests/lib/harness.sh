@@ -76,6 +76,10 @@ assert_msg() {
 # assertions compare the low 3 octal digits via this helper, not the raw `stat %a`. `8#` keeps it base-8 in any shell.
 perm() { local m; m="$(stat -c '%a' "$1" 2>/dev/null)"; printf '%o' "$(( 8#${m:-0} & 8#777 ))"; }
 
+# is_listed <word> <item>... : succeed when <word> is one of the items. The items are compared in the shell, since
+# a list piped into `grep -q` is the shape ref-section-d9x2 rules out (.claude/rules/shellcheck.rule.md).
+is_listed() { local word="$1" item; shift; for item in "$@"; do [[ "${item}" == "${word}" ]] && return 0; done; return 1; }
+
 # check_file <path> <owner> <group> <mode>: PASS when the file's actual owner, group, and octal mode all match; FAIL
 # (naming the mismatch) otherwise, or when the path is absent. Used by the integration suite to assert deployed-artifact
 # ownership/permissions.
@@ -211,6 +215,17 @@ skip_entrypoint_unready() {
     skip "$1" "no enabled agent's launcher resolves to the labelled entrypoint its manifest declares -- sudo ai-tools-admin system entrypoints relabel names the cause"
 }
 
+# is_required_dac_only_host: succeed where AI_TOOLS_REQUIRE_SELINUX makes every launch on this host refuse (MSG-W2G6),
+# read through the installed ai_tools_confinement__read_required_dac_only_state. A row whose subject sits past
+# the launch verdict asserts that refusal there, since the host is in a state the shim refuses on.
+is_required_dac_only_host() {
+    bash -c 'source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || exit 1
+        source /usr/local/lib/ai-tools/confinement.lib.sh 2>/dev/null || exit 1
+        declare -F ai_tools_confinement__read_required_dac_only_state >/dev/null 2>&1 || exit 1
+        ai_tools_confinement__read_required_dac_only_state "$1" >/dev/null' _ \
+        "${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}"
+}
+
 # The unprivileged project user (and the sandbox account) the helpers collaborate with, derived from the invocation --
 # never hard-coded. Three cases, because not every suite needs root: under sudo it is the operator who invoked it; run
 # DIRECTLY as an unprivileged user (which the pure library suites support -- they stub what they drive and build
@@ -251,8 +266,9 @@ readonly TEST_GROUP TEST_STEM
 
 # ai_test_name <thing>: PRINT a fresh fixture name under the rule (not created, not registered).
 ai_test_name() {
-    printf '%s-%s-%s-%s' "${AI_TOOLS_TEST_PREFIX}" "${TEST_GROUP}" "$1" \
-        "$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 6)"
+    local random
+    random="$(head -c 256 /dev/urandom | tr -dc 'A-Za-z0-9')"
+    printf '%s-%s-%s-%s' "${AI_TOOLS_TEST_PREFIX}" "${TEST_GROUP}" "$1" "${random:0:6}"
 }
 # mk_fixture_dir <var> <parent> <thing> / mk_fixture_file <var> <parent> <thing>: create a fixture under <parent>
 # (mktemp: unique, born 0700/0600) named by the rule, register it for teardown, and assign its path to the caller's
@@ -267,6 +283,44 @@ mk_fixture_file() {
     local -n _out="$1"
     _out="$(mktemp "$2/${AI_TOOLS_TEST_PREFIX}-${TEST_GROUP}-$3-XXXXXX")" || return 1
     _cleanup+=("${_out}")
+}
+
+# find_unprotected_path_component <dir> <uid>...: print the first of <dir> and its ancestors where an account outside
+# <uid> could replace an entry, as `<path> (<uid> <mode>)`, and no line where the whole chain is protected. An owner
+# the caller passes is not held out: it can rename an entry in a directory it owns. A component is protected while it is
+# a directory and not a link, owned by one of <uid>, and either without group and other write or sticky, since a sticky
+# directory lets an account rename only the entries it owns; a component stat cannot read prints `unreadable` and is not
+# protected. The first step of the fixture rule (tests.rule.md, ref-section-j9n3).
+find_unprotected_path_component() {
+    local dir="$1" meta owner mode allowed protected
+    shift
+    while :; do
+        meta="$(stat -c '%u %a' -- "${dir}" 2>/dev/null)" || meta=""
+        owner="${meta%% *}"; mode="${meta##* }"
+        protected=0
+        if [[ -n "${meta}" && ! -L "${dir}" && -d "${dir}" && "${mode}" =~ ^[0-7]+$ ]]; then
+            for allowed in "$@"; do
+                [[ "${owner}" == "${allowed}" ]] && protected=1
+            done
+            (( protected && (0${mode} & 022) != 0 && (0${mode} & 01000) == 0 )) && protected=0
+        fi
+        if (( ! protected )); then
+            printf '%s (%s)\n' "${dir}" "${meta:-unreadable}"
+            return 0
+        fi
+        [[ "${dir}" != / ]] || return 0
+        dir="$(dirname -- "${dir}")"
+    done
+}
+
+# clear_default_acl <dir>: remove <dir>'s default ACL, and succeed only when getfacl then reads none, so an entry
+# created inside takes its mode from the creating process alone. A read that cannot be made fails, as an ACL left
+# in place does. The second step of the fixture rule (tests.rule.md, ref-section-j9n3).
+clear_default_acl() {
+    local acl
+    setfacl -k -- "$1" 2>/dev/null || return 1
+    acl="$(getfacl -d --omit-header -- "$1" 2>/dev/null)" || return 1
+    [[ -z "${acl//[[:space:]]/}" ]]
 }
 
 # Teardown removes every artifact a test registered, on any exit. Nothing outside these paths is ever touched. It
@@ -322,6 +376,15 @@ extract_function() { sed -n "/^$2() {/,/^}/p" -- "$1"; }
 # thing) and register it for teardown. Mode 0755 so an `sudo -u ai-tools` boundary check can traverse in to a fixture
 # (the fixture's own mode is what the check exercises). Sets the global TESTDIR.
 mktestdir() {
+    local unprotected
+    # Root creates the testdir under /tmp and changes it by path, so /tmp and each ancestor are checked first
+    # (tests.rule.md, ref-section-j9n3). A /tmp that fails the check ends the file before the testdir exists.
+    unprotected="$(find_unprotected_path_component /tmp 0)"
+    if [[ -n "${unprotected}" ]]; then
+        fail "the testdir: another account could replace an entry in ${unprotected}, so no testdir is made there"
+        finish || true
+        exit 1
+    fi
     mk_fixture_dir TESTDIR /tmp "${TEST_STEM}"
     chmod 0755 "${TESTDIR}"
 }

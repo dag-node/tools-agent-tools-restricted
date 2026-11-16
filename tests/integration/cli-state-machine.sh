@@ -304,7 +304,7 @@ else fail "the refusal's code: $(grep -m1 -o 'MSG-[A-Z0-9]*' <<<"${out}" || echo
 if grep -qxF "% ${R}/B/pb" "${AL}" && ! grep -qF "Re-enable this project" <<<"${out}"; then
     pass "the own '%' stands and the re-enable is not offered"
 else
-    fail "the claim under a '%' line: $(grep -F "${R}/B/pb" "${AL}" || echo gone): $(awk 'NF' <<<"${out}" | head -n 4 | tr '\n' '~')"
+    fail "the claim under a '%' line: $(grep -F "${R}/B/pb" "${AL}" || echo gone): $(awk 'NF' <<<"${out}" | awk 'NR <= 4' | tr '\n' '~')"
 fi
 reset; before="$(digest)"; cli_cmd ai-tools.projects.unclaim
 rc=0; out="$(RUN_TTY_ANSWERS='y\ny\n\n' run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/B/pb")" || rc=$?
@@ -363,7 +363,7 @@ check "remove --for --force" MSG-S6Q5 1 same -
 if ! grep -qE -- '--for.*--force|--force.*--for' <<<"$(grep -F 'atr ' <<<"${out}")"; then
     pass "the refusal prints no command holding --for beside --force"
 else
-    fail "the --for --force refusal: $(grep -F 'atr ' <<<"${out}" | head -n 2 | tr '\n' '~')"
+    fail "the --for --force refusal: $(grep -F 'atr ' <<<"${out}" | awk 'NR <= 2' | tr '\n' '~')"
 fi
 DIGEST_FILE=""
 
@@ -376,7 +376,7 @@ check "handback inside a listed project" - 0 same
 if grep -qF "projects handback: ${R}/L (the project the current directory is in)" <<<"${out}"; then
     pass "the discovered project is named first"
 else
-    fail "the discovered project was not named: $(awk 'NF' <<<"${out}" | head -n 3 | tr '\n' '~')"
+    fail "the discovered project was not named: $(awk 'NF' <<<"${out}" | awk 'NR <= 3' | tr '\n' '~')"
 fi
 discover "${R}/P/sub" ai-tools.projects.handback;      check "handback inside a disabled project" MSG-R8C7 1 same
 discover "${R}/W/k/deep" ai-tools.projects.lockdown;   check "lockdown inside an excluded path" MSG-R8C7 1 same
@@ -411,7 +411,7 @@ if [[ -d "${SBROOT}/clonefx/.git" ]]; then
     if grep -qF "projects push: ${SBROOT}/clonefx (the project the current directory is in)" <<<"${out}"; then
         pass "the discovered clone is named first"
     else
-        fail "the discovered clone was not named: $(awk 'NF' <<<"${out}" | head -n 3 | tr '\n' '~')"
+        fail "the discovered clone was not named: $(awk 'NF' <<<"${out}" | awk 'NR <= 3' | tr '\n' '~')"
     fi
 else
     fail "the clone fixture was not made at ${SBROOT}/clonefx"
@@ -487,7 +487,7 @@ rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" -y "${R}/A")" || rc=$?
 if grep -qF "${R}/A/one" <<<"${out}" && grep -qF "${R}/A/two" <<<"${out}"; then
     pass "the claim of an ancestor names A/one and A/two"
 else
-    fail "the ancestor claim's Review block: $(awk 'NF' <<<"${out}" | head -n 8 | tr '\n' '~')"
+    fail "the ancestor claim's Review block: $(awk 'NF' <<<"${out}" | awk 'NR <= 8' | tr '\n' '~')"
 fi
 
 # ── The required path ─────────────────────────────────────────────────────────────────────
@@ -519,7 +519,7 @@ check "list on a legacy registry" - 0 same
 if grep -qF "post-upgrade" <<<"${out}" && grep -qE "exclude[[:space:]]+${R}/P" <<<"${out}"; then
     pass "the listing names the migration and reads every '!' line as an exclusion"
 else
-    fail "the legacy listing: $(awk 'NF' <<<"${out}" | head -n 6 | tr '\n' '~')"
+    fail "the legacy listing: $(awk 'NF' <<<"${out}" | awk 'NR <= 6' | tr '\n' '~')"
 fi
 REG_FILE=""
 
@@ -568,7 +568,7 @@ if grep -qE "disabled[[:space:]]+${R}/P([[:space:]]|$)" <<<"${out}" \
         && ! grep -qE "${R}/P([[:space:]]|$)" <<<"$(sed -n '/Suggested cleanup/,$p' <<<"${out}")"; then
     pass "a '%' line lists as disabled and never as stale"
 else
-    fail "the listing over a '%' line: $(awk 'NF' <<<"${out}" | head -n 8 | tr '\n' '~')"
+    fail "the listing over a '%' line: $(awk 'NF' <<<"${out}" | awk 'NR <= 8' | tr '\n' '~')"
 fi
 
 # `--for`: the same edits on the target's registry, through the helper (its stub edits the target's file).
@@ -602,7 +602,7 @@ for_refusal() {   # for_refusal <label> <code> <key> <path> [<arg>...]
     before="$(digest)"; for_run "${key}" "$@" "${path}"
     check "${label}" "${code}" 1 same
     if grep -qE "${TMPDIR:-/tmp}/tmp\." <<<"${out}"; then
-        fail "${label}: a line names the snapshot: $(grep -E "${TMPDIR:-/tmp}/tmp\." <<<"${out}" | head -n 1)"
+        fail "${label}: a line names the snapshot: $(grep -E "${TMPDIR:-/tmp}/tmp\." <<<"${out}" | awk 'NR == 1')"
     else
         pass "${label}: no line names the snapshot"
     fi
@@ -649,18 +649,18 @@ check "handback under a '%' line whose comment follows a tab" MSG-R8C7 1 same -
 if grep -qE "atr projects enable ${R}/N\$" <<<"${out}"; then
     pass "the remedy reads 'atr projects enable ${R}/N'"
 else
-    fail "the tab-comment remedy: $(grep -F 'atr projects enable' <<<"${out}" | head -n 1)"
+    fail "the tab-comment remedy: $(grep -F 'atr projects enable' <<<"${out}" | awk 'NR == 1')"
 fi
 before="$(digest)"; rc=0; out="$(run_in "${R}" "${CLI_ARGV[@]}" "${R}/P dir#1/q")" || rc=$?
 check "handback under a '%' line with a space and a '#'" MSG-R8C7 1 same -
 want_remedy="atr projects enable $(printf '%q' "${R}/P dir#1")"
-pasted="$(grep -oF "${want_remedy}" <<<"${out}" | head -n 1)"
+pasted="$(grep -oF "${want_remedy}" <<<"${out}" | awk 'NR == 1')"
 # The words after `enable` as a shell reads a paste of them, the %q encoding undone.
 pasted_words=(); eval "pasted_words=( ${pasted#atr projects enable } )"
 if [[ -n "${pasted}" && "${#pasted_words[@]}" -eq 1 && "${pasted_words[0]}" == "${R}/P dir#1" ]]; then
     pass "the remedy reads '${want_remedy}', one word naming the disabled project"
 else
-    fail "the space-and-hash remedy: $(grep -F 'atr projects enable' <<<"${out}" | head -n 1)"
+    fail "the space-and-hash remedy: $(grep -F 'atr projects enable' <<<"${out}" | awk 'NR == 1')"
 fi
 REG_FILE=""; rm -rf "${R}/N" "${R}/P dir#1" "${FC_REG}"
 
@@ -680,10 +680,11 @@ framed_command_check() {
     lines="$(tr -d '\r' <<<"${out}")"
     if ! grep -q '^#' <<<"${lines}"; then
         fail "${label}: the run drew no frame, so the case did not run on a terminal: $(head -n 3 <<<"${lines}" | tr '\n' '~')"
-    elif grep -qxF -- "       ${want}" <<<"${lines}" && ! grep -E '^#' <<<"${lines}" | grep -qF 'atr projects'; then
+    elif grep -qxF -- "       ${want}" <<<"${lines}" \
+            && ! grep -qF 'atr projects' <<<"$(grep -E '^#' <<<"${lines}")"; then
         pass "${label}: '${want}' stands whole on one line under the frame"
     else
-        fail "${label}: $(grep -n -e 'atr projects' -e 'enable' <<<"${lines}" | head -n 4 | tr '\n' '~')"
+        fail "${label}: $(grep -n -e 'atr projects' -e 'enable' <<<"${lines}" | awk 'NR <= 4' | tr '\n' '~')"
     fi
 }
 REG_FILE="${FC_REG}"; cli_cmd ai-tools.projects.handback

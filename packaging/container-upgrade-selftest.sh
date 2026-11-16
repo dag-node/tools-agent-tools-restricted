@@ -69,9 +69,19 @@ view_id() {
     printf '%s/%s/%s' "${HOME_DIR}" "${kind}" "${name}"
 }
 
-# assets_section : the Assets section of `atr admin status`, its heading excluded.
+# assets_section : print the Assets section of `atr admin status`, its heading excluded; return 1 unless the report
+# shows the section completed and ran the successor check, since notice_absent reads an absent notice as a pass.
+# The report is read whole before awk searches it (ref-section-d9x2).
 assets_section() {
-    "${ADMIN}" status 2>/dev/null | awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside'
+    local status_report report_status=0 section
+    status_report="$("${ADMIN}" status 2>/dev/null)" || report_status=$?
+    case "${report_status}" in 0|4|5) ;; *) echo "the status report exited ${report_status}" >&2; return 1 ;; esac
+    grep -qx '  Assets' <<< "${status_report}" || { echo "the status report carries no Assets section" >&2; return 1; }
+    grep -qx '  Services' <<< "${status_report}" || { echo "the status report ended inside the Assets section" >&2; return 1; }
+    section="$(awk '/^  Assets$/ { inside = 1; next } inside && /^  [^ ]/ { exit } inside' <<< "${status_report}")"
+    printf '%s\n' "${section}"
+    ! grep -qE '\[UNREADABLE\]|enable-list-untrusted|id-malformed' <<< "${section}" \
+        || { echo "the Assets section did not run the successor check" >&2; return 1; }
 }
 
 # is_shared <kind>/<name> : succeed for an entry whose successor takes the same view name.
@@ -152,13 +162,13 @@ core_unlinked() {
 }
 notice_absent() {
     local section
-    section="$(assets_section)"
+    section="$(assets_section)" || { printf '%s\n' "${section}"; return 1; }
     printf '%s\n' "${section}"
     ! grep -qE 'successor-unenabled|view-occupied' <<< "${section}"
 }
 notice_names_all() {
     local section row entry
-    section="$(assets_section)"
+    section="$(assets_section)" || { printf '%s\n' "${section}"; return 1; }
     printf '%s\n' "${section}"
     row="$(grep -E '\[ATTENTION\] +successor-unenabled +core -- ' <<< "${section}")" || return 1
     [[ "$(grep -c successor-unenabled <<< "${section}")" == 1 ]] || return 1
@@ -176,8 +186,8 @@ relabel_ran_once_after() {
     local lines runs
     [[ -n "${RELABEL_CURSOR}" ]] || { echo "no journal cursor was taken before the upgrade"; return 1; }
     # shellcheck disable=SC2016  # the inner shell's own expansions
-    timeout 600 bash -c 'while systemctl list-jobs --no-legend 2>/dev/null | grep -q ai-tools-relabel.service \
-            || [[ "$(systemctl show -p ActiveState --value ai-tools-relabel.service)" == activating ]]; do sleep 1; done' \
+    timeout 600 bash -c 'while [[ "$(systemctl list-jobs --no-legend 2>/dev/null)" == *ai-tools-relabel.service* \
+            || "$(systemctl show -p ActiveState --value ai-tools-relabel.service)" == activating ]]; do sleep 1; done' \
         || { echo "the relabel run did not finish within the wait"; return 1; }
     lines="$(journalctl -q -u ai-tools-relabel.service --after-cursor="${RELABEL_CURSOR}" -o cat 2>/dev/null)"
     printf '%s\n' "${lines}"
@@ -211,6 +221,26 @@ RELABEL_CURSOR="$(journalctl -q -n0 --show-cursor 2>/dev/null | sed -n 's/^-- cu
 phase "dnf upgrade to this tree's build" \
     bash -c 'dnf -y --repo=ai-tools-local upgrade "ai-tools*" 2>&1 | tee /tmp/upgrade.log; exit "${PIPESTATUS[0]}"'
 phase "the base package is this tree's build" bash -c "! rpm -q 'ai-tools-base-${FROM_VERSION}' >/dev/null"
+# The old release's operator.conf goes through the upgrade as it was. A container runs SELinux Disabled, so under
+# the requirement that file holds every launch now refuses, which the status report names; the hand fix the docs give
+# then declares the container DAC-only, and the report reads the declaration.
+status_report_names() {  # <text>
+    local status_report
+    status_report="$("${ADMIN}" status 2>/dev/null)" || true
+    grep -qF "$1" <<< "${status_report}" || { echo "the status report does not say: $1" >&2; return 1; }
+}
+if [[ "$(getenforce 2>/dev/null || true)" == Disabled ]]; then
+    phase "the kept operator.conf does not declare the host DAC-only" \
+        bash -c "! grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' '${CONF}'"
+    phase "atr admin status names the refusal on this Disabled host" \
+        status_report_names 'every launch on this host refuses (MSG-W2G6)'
+    phase "the documented hand fix declares the container DAC-only" \
+        bash -c "sed -i '/^[[:space:]]*#\\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX[[:space:]]*=/d' '${CONF}' && printf '\\nAI_TOOLS_REQUIRE_SELINUX=no\\n' >> '${CONF}' \
+                 && grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' '${CONF}'"
+    phase "atr admin status reads the declaration" status_report_names 'declares this host DAC-only'
+else
+    echo "getenforce does not read Disabled here: the DAC-only phases do not apply"
+fi
 phase "ai-tools-relabel.service ran exactly once, after every package was placed, and succeeded" relabel_ran_once_after
 phase "each withdrawn copy is moved under retired/" withdrawn_retired
 phase "no agent keeps a link to a withdrawn name" no_agent_link_to_withdrawn

@@ -48,23 +48,28 @@ if (( ${#missing[@]} )); then
 fi
 pass "the helper defines each function the cases drive (control)"
 
-# The probe sources the extracted functions with the logger and the record writer stubbed, then closes a run
-# over the status lines it is given, and fails over a mislabelled path as the helper's top level does. Both streams
-# on stdout, the exit status last.
+# The probe sources the extracted functions with the logger and record writer stubbed, then closes a run over the status
+# lines and library status it is given. Both streams are captured by the caller.
 probe="${TESTDIR}/probe.sh"
 cat > "${probe}" <<'PROBE'
 set -euo pipefail
 source "$1"
-ai_tools_log__info() { :; }; ai_tools_log__warn() { :; }; ai_tools_log__error() { :; }
+ai_tools_log__info() { :; }; ai_tools_log__warn() { printf 'log %s\n' "$*"; }; ai_tools_log__error() { :; }
 record_label_outcome() { printf 'record %s %s %s\n' "$1" "$2" "${3:-}"; }
 render_label_report "$2"
 record_label_outcomes
-(( mislabelled == 0 )) || die MSG-A3B5 "the relabel did not take"  # ref-index: ignore (the helper defines the code)
 PROBE
+# Exercise the helper's actual final status check after its report, with the library's status supplied by each case.
+status_close="$(sed -n '/^(( status == 0 ))/,+1p' "${HELPER}")"
+if [[ -z "${status_close}" ]]; then
+    fail "${HELPER} has no labelling status check"
+    finish; exit
+fi
+printf 'status="${3:-0}"\n%s\n' "${status_close}" >> "${probe}"
 
-# close_run <status-lines> : sets OUT (both streams) and RC.
+# close_run <status-lines> [library-status] : sets OUT (both streams) and RC.
 close_run() {
-    RC=0; OUT="$(bash "${probe}" "${extracted}" "$1" 2>&1)" || RC=$?
+    RC=0; OUT="$(bash "${probe}" "${extracted}" "$1" "${2:-0}" 2>&1)" || RC=$?
 }
 has_line() {
     if command grep -qxF -- "$2" <<< "${OUT}"; then pass "$1"; else fail "$1: '$2' absent: ${OUT//$'\n'/ | }"; fi
@@ -75,7 +80,7 @@ section "a path that did not take its type fails the run, and every path labelle
 close_run $'ok /opt/ai-tools/.acme\nagent acme ok'
 has_line "control: the agent is filed ok" "record acme ok "
 if [[ "${RC}" -eq 0 ]]; then pass "control: the run exits 0"; else fail "control: the run exits ${RC}"; fi
-close_run $'bad /opt/ai-tools/.acme usr_t ai_tools_home_t\nagent acme failed'
+close_run $'bad /opt/ai-tools/.acme usr_t ai_tools_home_t\nagent acme failed' 1
 has_line "the agent is filed failed with the reason a mislabel takes" "record acme failed did-not-take-its-type"
 assert_msg MSG-G7C7 "${OUT}" "the run names the path and the type it carries"
 if command grep -qF "wrong type on /opt/ai-tools/.acme: it is 'usr_t', NOT ai_tools_home_t" <<< "${OUT}"; then
@@ -83,7 +88,7 @@ if command grep -qF "wrong type on /opt/ai-tools/.acme: it is 'usr_t', NOT ai_to
 else
     fail "the warning does not name the path and both types: ${OUT//$'\n'/ | }"
 fi
-assert_msg MSG-A3B5 "${OUT}" "the run fails over the mislabelled path"
+assert_msg MSG-N9B9 "${OUT}" "the run fails over the mislabelled path"
 if [[ "${RC}" -eq 1 ]]; then pass "the run exits 1"; else fail "the run exits ${RC} over a mislabelled path"; fi
 
 # ── A config directory whose walk left hardlinked files ──────────────────────────────────────
@@ -103,6 +108,68 @@ close_run $'skip acme could not walk its config directory -- libselinux.so.1 did
 has_line "the agent is filed failed as walker-unavailable" "record acme failed walker-unavailable"
 close_run $'skip acme no entrypoint_fcontext declared\nagent acme failed'
 has_line "control: a refused declaration is filed as rule-not-registered" "record acme failed rule-not-registered"
+close_run $'ok /fixture/bin/acme\nskip acme could not read what the file-context database maps its entrypoint /fixture/bin/acme to -- the launch preflight reads that mapping and refuses without it\nagent acme failed'
+has_line "a launcher mapping that could not be read is filed under a reason of its own" "record acme failed entrypoint-mapping-unread"
+close_run $'ok /fixture/bin/acme\nskip acme could not finish reading the files its entrypoint rules match under /fixture -- the walk did not complete, and a file may be left unlabelled\nagent acme failed'
+has_line "a discovery walk that did not complete is filed under a reason of its own" "record acme failed entrypoint-walk-incomplete"
+
+# ── A name of an entrypoint no declared rule covers ──────────────────────────────────────────
+# The entrypoint carries its type, so the run exits 0; the finding is warned about under its code and the agent is filed
+# ok with the reason `atr status` counts. The first finding an agent has is the reason its record carries.
+section "a name of an entrypoint no declared rule covers is warned about and filed ok with its reason"
+close_run $'ok /fixture/bin/acme\nunmapped acme /fixture/bin/acme-third\nagent acme ok'
+assert_msg MSG-N4T2 "${OUT}" "an unmapped name is warned about under its code"
+has_line "the agent is filed ok with the unmapped reason" "record acme ok unmapped-entrypoint-name"
+if command grep -qF 'unmapped name for acme: /fixture/bin/acme-third' <<< "${OUT}"; then
+    pass "the warning names the agent and the name"
+else
+    fail "the warning does not name the agent and the name: ${OUT//$'\n'/ | }"
+fi
+if [[ "${RC}" -eq 0 ]]; then pass "the run exits 0 over an unmapped name"; else fail "the run exits ${RC} over an unmapped name"; fi
+close_run $'ok /fixture/bin/acme\noutside acme /fixture/bin/acme 2\nagent acme ok'
+assert_msg MSG-P5G9 "${OUT}" "a name outside the toolchain is warned about under its code"
+has_line "the agent is filed ok with the outside reason" "record acme ok entrypoint-name-outside-toolchain"
+if command grep -qF 'its entrypoint /fixture/bin/acme has 2 name(s) outside the sandbox toolchain' <<< "${OUT}"; then
+    pass "the warning carries the entrypoint and the count"
+else
+    fail "the warning does not carry the entrypoint and the count: ${OUT//$'\n'/ | }"
+fi
+close_run $'ok /fixture/bin/acme\nunchecked acme /fixture/bin/acme 2\nagent acme ok'
+assert_msg MSG-D9H5 "${OUT}" "names a status line does not print are warned about under their code"
+has_line "the agent is filed ok with the unchecked reason" "record acme ok entrypoint-name-unchecked"
+if command grep -qF '2 name(s) of its entrypoint /fixture/bin/acme carry a character' <<< "${OUT}" \
+        && command grep -qF 'was not read' <<< "${OUT}" && ! command grep -qF 'maps to another type' <<< "${OUT}"; then
+    pass "the warning says the mapping was not read, and does not say it maps to another type"
+else
+    fail "the unchecked warning misstates what was read: ${OUT//$'\n'/ | }"
+fi
+close_run $'ok /fixture/bin/acme\nunread acme /fixture/bin/acme\nagent acme ok'
+assert_msg MSG-T7K7 "${OUT}" "names that could not be read are warned about under their code"
+has_line "the agent is filed ok with the unread reason" "record acme ok entrypoint-names-unread"
+close_run $'ok /fixture/bin/acme\nunmapped acme /fixture/bin/acme-third\noutside acme /fixture/bin/acme 1\nagent acme ok'
+has_line "the first finding is the reason the record carries" "record acme ok unmapped-entrypoint-name"
+# The launcher's own path mapped to another type is not a names finding: the launch preflight refuses on it,
+# so the library fails the agent and the record carries the reason.
+close_run $'ok /fixture/bin/acme\nmismapped acme /fixture/bin/acme\nagent acme failed' 1
+assert_msg MSG-R2W5 "${OUT}" "a launcher path mapped to another type is warned about under its code"
+has_line "the agent is filed failed with the mapping reason" "record acme failed entrypoint-mapping-overridden"
+has_line "the log names the agent, path and mapping failure" "log acme: the file-context database maps its entrypoint /fixture/bin/acme to another type"
+assert_msg MSG-N9B9 "${OUT}" "a failed labelling closes with the general error"
+if [[ "${RC}" -eq 1 ]]; then pass "the mapping failure exits 1"; else fail "the mapping failure exits ${RC}"; fi
+if command grep -qF 'its next session refuses to start' <<< "${OUT}"; then
+    pass "the warning says the next session is refused"
+else
+    fail "the warning does not say the next session is refused: ${OUT//$'\n'/ | }"
+fi
+# A names finding beside a failure: the failure's reason is the record's, and the names reason is not written over it.
+close_run $'bad /fixture/bin/acme lib_t ai_tools_exec_t\nunmapped acme /fixture/bin/acme-third\nagent acme failed' 1
+has_line "a failed agent keeps the failure's reason" "record acme failed did-not-take-its-type"
+# A wrong live type beside a wrong mapping keeps both details and closes with the same general failure.
+close_run $'bad /fixture/bin/acme lib_t ai_tools_exec_t\nmismapped acme /fixture/bin/acme\nagent acme failed' 1
+assert_msg MSG-G7C7 "${OUT}" "a wrong live type is reported beside a wrong mapping"
+assert_msg MSG-R2W5 "${OUT}" "a wrong mapping is reported beside a wrong live type"
+assert_msg MSG-N9B9 "${OUT}" "both failures close with the general error"
+if [[ "${RC}" -eq 1 ]]; then pass "both failures exit 1"; else fail "both failures exit ${RC}"; fi
 
 # ── `--remove`: each status ai_tools_relabel__unlabel_agent_paths returns ────────────────────
 section "--remove renders each status of the agent unlabel, and an erase completes over a walk left"

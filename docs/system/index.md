@@ -72,13 +72,14 @@ the trail the sandbox account cannot write to, and the kernel's audit log
 records an agent started from inside a session. [Logs](logs.md) covers each
 of them, and the per-tool-call record of what a session ran.
 
-Confinement is optional to install and fail-closed once a host expects it.
-The SELinux policy ships as its own subpackage, the launch probes the domain
-transition before starting a session, and an operator can require it outright,
-which turns a host without a working transition into a refused launch rather
-than an unconfined one. The one case an operator meets in practice — a stale
-label after a toolchain update — and its one-command fix are
-on [SELinux](selinux.md).
+Confinement is required by default. The SELinux policy ships as its own
+subpackage, the launch probes the domain transition before starting a session,
+and the shipped `/etc/ai-tools/operator.conf` sets
+`AI_TOOLS_REQUIRE_SELINUX=yes`, which turns a host without a working transition
+into a refused launch rather than an unconfined one. A container, where SELinux
+reads `Disabled`, declares itself DAC-only with `AI_TOOLS_REQUIRE_SELINUX=no`.
+The one case an operator meets in practice — a stale label after a toolchain
+update — and its one-command fix are on [SELinux](selinux.md).
 
 [Entrypoint verification](entrypoint-verification.md) covers the last of these
 readings: how the agent binary is checked against the checksum its vendor

@@ -248,6 +248,43 @@ for reader in ai_tools_entrypoint_verify__get_stale_path ai_tools_entrypoint_ver
         fail "Entrypoints without ${reader} (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
     fi
 done
+# The live reading decides what a pin's fields may claim: an entrypoint not hashed or not resolved never renders
+# VERIFIED, and a mark beside a matching binary is a standing finding. The control is the same pin read as matching
+# with no mark, which renders VERIFIED. The live verdict is stubbed: the fixture's entrypoint is a dangling link.
+printf 'AGENT=alpha\nVERSION=1.2.3\nSHA256=%064d\nVERIFIED=1970-01-01T00:00:00Z\n' 0 > "${TESTDIR}/pins/alpha"
+chmod 0644 "${TESTDIR}/pins/alpha"
+mkdir -m 0755 "${TESTDIR}/stale"
+stale_dir_pre="AI_TOOLS_ENTRYPOINT_STALE_DIR='${TESTDIR}/stale'"
+rc=0; out="$(call_section "${stale_dir_pre}; entrypoint_live_verdict() { printf ok; }" status_entrypoints)" || rc=$?
+if grep -qF '[VERIFIED]' <<<"${out}" && grep -qx 'unreadable=0' <<<"${out}"; then
+    pass "control: a pin the live reading matches, with no mark, renders VERIFIED"
+else
+    fail "control: a matching pin with no mark (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_section "${stale_dir_pre}; entrypoint_live_verdict() { :; }" status_entrypoints)" || rc=$?
+if grep -qF 'did not resolve, so it was not compared with the pin' <<<"${out}" && ! grep -qF '[VERIFIED]' <<<"${out}"; then
+    pass "an entrypoint that did not resolve is not compared, and the pin does not render as VERIFIED"
+else
+    fail "an unresolved entrypoint (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+rc=0; out="$(call_section "${stale_dir_pre}; entrypoint_live_verdict() { printf unreadable; }" status_entrypoints)" || rc=$?
+if grep -qF '[UNREADABLE]' <<<"${out}" && grep -qx 'unreadable=1' <<<"${out}" && ! grep -qF '[VERIFIED]' <<<"${out}"; then
+    pass "an entrypoint the live reading could not hash is UNREADABLE and counted, never VERIFIED"
+else
+    fail "an unhashable entrypoint (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+printf 'AGENT=alpha\nSTATE=stale\nVERSION=1.2.4\nREASON=signature-mismatch\nDETECTED=1970-01-01T00:00:00Z\n' \
+    > "${TESTDIR}/stale/alpha"
+chmod 0644 "${TESTDIR}/stale/alpha"
+rc=0; out="$(call_section "${stale_dir_pre}; entrypoint_live_verdict() { printf ok; }" status_entrypoints)" || rc=$?
+if grep -qF '[PIN STALE]' <<<"${out}" && grep -qF 'matches its pin now, so its sessions start' <<<"${out}" \
+        && ! grep -qF 'refuse to start' <<<"${out}" && ! grep -qF '[VERIFIED]' <<<"${out}"; then
+    pass "a mark beside a binary that matches its pin now is a standing finding, and does not claim a refusal"
+else
+    fail "a mark beside a matching binary (rc ${rc}): $(tail -c 300 <<<"${out}" | tr '\n' '|')"
+fi
+rm -f -- "${TESTDIR}/pins/alpha" "${TESTDIR}/stale/alpha"
+
 # The live labels have a reader of their own, so a pin reader missing does not take them with it: a mislabelled
 # entrypoint is still named beside the UNREADABLE line. The same label report with every reader loaded is the control.
 bad_label='ai_tools_relabel__list_agent_labels() { printf "bad alpha entrypoint /fixture/la bin_t ai_tools_exec_t\n"; }'
@@ -340,7 +377,7 @@ call_attestation_section() {
              declare -F ai_tools_confinement__evaluate_dac_only_state >/dev/null || exit 97
              getenforce() { printf "%s\n" "${stub_selinux_mode}"; }
              ai_tools_confinement__read_attestation_records() { printf "%s\n" "${stub_attestation_records}"; }
-             ai_tools_confinement__read_module_present() { printf "%s" "${stub_module_present}"; }
+             ai_tools_confinement__read_module_present() { [[ "${stub_module_present}" != unread ]] || return 1; printf "%s" "${stub_module_present}"; }
              ai_tools_confinement__read_policy_shipped() { printf "%s" "${stub_policy_shipped}"; }
              STATUS_PROBLEMS=0; STATUS_UNREADABLE=0
              status_selinux_attestation "${operator_conf}"
@@ -355,6 +392,30 @@ else
         pass "an enforced domain with the gating Booleans off is not counted, under the requirement"
     else
         fail "clean attestation under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # A module-present of `unread` makes the stubbed reader return 1 with no output, as a failed file-context lookup
+    # does; with the compiled module absent too, a "no" there would have read as a host without the policy.
+    out="$(call_attestation_section Enforcing "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}" unread no)" || true
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'file contexts could not be read' <<<"${out}" \
+            && grep -qF 'MSG-A7E7' <<<"${out}" && ! grep -qF 'policy is not installed' <<<"${out}"; then
+        pass "an unread file-context lookup is counted under the requirement, not read as a host without the policy"
+    else
+        fail "unread file-context lookup under the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    out="$(call_attestation_section Enforcing "${CLEAN_ATTESTATION}" "${NOT_REQUIRED_CONF}" unread no)" || true
+    if grep -qx 'problems=0' <<<"${out}" && grep -qF 'file contexts could not be read' <<<"${out}"; then
+        pass "the same unread lookup without the requirement is reported and not counted"
+    else
+        fail "unread file-context lookup without the requirement: $(tr '\n' '|' <<<"${out}")"
+    fi
+    # On a host that is not Enforcing the requirement refuses every launch for the mode first, so the row does not name
+    # the unattested refusal there.
+    out="$(call_attestation_section Permissive "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}" unread no)" || true
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'SELinux is Permissive, not Enforcing, so every launch refuses' <<<"${out}" \
+            && ! grep -qF 'MSG-A7E7' <<<"${out}"; then
+        pass "an unread lookup on a permissive host names the mode's refusal, not the unattested one"
+    else
+        fail "unread file-context lookup on a permissive host: $(tr '\n' '|' <<<"${out}")"
     fi
     out="$(call_attestation_section Enforcing $'permissive\tno\nboolean\tauthlogin_nsswitch_use_ldap\toff' \
                "${NOT_REQUIRED_CONF}")" || true
@@ -399,10 +460,10 @@ else
         fail "declaration rendering: $(tr '\n' '|' <<<"${out}")"
     fi
     # A host without SELinux confinement by its own configuration -- SELinux disabled, or the policy neither live nor
-    # on disk -- has no domain to attest, and under the requirement every launch runs DAC-only with a warning, which
-    # counts and names the line that declares the host so; without it the posture is reported and not counted.
+    # on disk -- has no domain to attest, and under the requirement every launch refuses, which counts, names the code
+    # the refusal carries and the line that declares the host so; without it the posture is reported and not counted.
     out="$(call_attestation_section Disabled "${CLEAN_ATTESTATION}" "${REQUIRED_CONF}")" || true
-    if grep -qx 'problems=1' <<<"${out}" && grep -qF '[n/a]' <<<"${out}" && grep -qF 'runs DAC-only and warns' <<<"${out}" \
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF '[n/a]' <<<"${out}" && grep -qF 'every launch on this host refuses (MSG-W2G6)' <<<"${out}" \
             && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}"; then
         pass "SELinux disabled under the requirement reads n/a, counts, and names AI_TOOLS_REQUIRE_SELINUX=no"
     else
@@ -415,7 +476,7 @@ else
         fail "SELinux disabled without the requirement: $(tr '\n' '|' <<<"${out}")"
     fi
     out="$(call_attestation_section Enforcing '' "${REQUIRED_CONF}" no no)" || true
-    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'not installed' <<<"${out}" && grep -qF 'runs DAC-only and warns' <<<"${out}"; then
+    if grep -qx 'problems=1' <<<"${out}" && grep -qF 'not installed' <<<"${out}" && grep -qF 'every launch on this host refuses (MSG-W2G6)' <<<"${out}"; then
         pass "a policy never installed under the requirement reads as such and counts, with no unread rows"
     else
         fail "policy never installed under the requirement: $(tr '\n' '|' <<<"${out}")"

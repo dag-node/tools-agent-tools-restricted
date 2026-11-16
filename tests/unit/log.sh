@@ -268,7 +268,7 @@ fi
 HOOK="/opt/ai-tools/agents/claude-code/post-tool-hook.sh"
 [[ -r "${HOOK}" ]] || HOOK="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/src/opt/ai-tools/agents/claude-code/post-tool-hook.sh"
 clamp_definition=""
-[[ -r "${HOOK}" ]] && clamp_definition="$(sed -n 's/^[[:space:]]*\(def clamp:.*\)$/\1/p' "${HOOK}" | head -1)"
+[[ -r "${HOOK}" ]] && clamp_definition="$(sed -n 's/^[[:space:]]*\(def clamp:.*\)$/\1/p' "${HOOK}" | awk 'NR == 1')"
 if ! command -v jq >/dev/null 2>&1 || [[ -z "${clamp_definition}" ]]; then
     skip "message code under the MESSAGE clamp" "jq unavailable, or the hook defines no clamp to read"
 elif [[ "$(jq -rn --arg code "${REFTAG}" "${clamp_definition} \$code | clamp")" == "${REFTAG}" ]]; then

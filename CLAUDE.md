@@ -14,8 +14,9 @@ This repo installs and maintains a way to run an autonomous coding agent as a de
 (`SANDBOX_USER`, the account created as `ai-tools`) instead of as your own login account, so the agent works on your
 projects without inheriting your user's privileges. **Claude Code is the first supported agent**; the confinement,
 ownership-handback, and toolchain machinery are agent-agnostic. It runs under a separate UID with no login shell,
-launches only inside explicitly approved project directories, escalates only through two narrow `sudo` rules, and does
-not reach your secrets, SSH keys, or unrelated projects.
+launches only inside explicitly approved project directories, and escalates only through two narrow `sudo` rules. It
+does not hold your account's access: file permissions and the `ai_tools_t` SELinux type decide what it can read of your
+secrets, SSH keys and unclaimed projects, as they decide for any other account on the host.
 
 ## Terminology
 
@@ -81,7 +82,7 @@ the management CLI (`ai-tools`), and root-helper binary names (`ai-tools-chown`,
 | User-facing message formatting (box, wrap, ties) | `msg.lib.sh` + its consumers | [messaging](.claude/rules/messaging.rule.md) |
 | Test organization, hermeticity, categories | `tests/**` | [tests](.claude/rules/tests.rule.md) |
 | Operator documentation: the category tree, the reader each page is written for, the contract that keeps a page stable while its rule is rewritten, the navigation form, and the diagrams a page carries | `README.md`, `docs/**`, `tools/generators/diagrams.py` | [docs-pages](.claude/rules/docs-pages.rule.md) |
-| ShellCheck baseline, `.shellcheckrc`, accepted findings | `src/**/*.sh`, `packaging/**/*.sh`, `.shellcheckrc` | [shellcheck](.claude/rules/shellcheck.rule.md) |
+| ShellCheck baseline, `.shellcheckrc`, accepted findings | `src/**/*.sh`, `packaging/**/*.sh`, `selinux/**/*.sh`, `tools/**/*.sh`, `install.sh`, `.shellcheckrc` | [shellcheck](.claude/rules/shellcheck.rule.md) |
 | Shell names: which file a function or a global belongs to, and how a member is named | `src/**/*.sh`, `install.sh`, `selinux/**/*.sh`, `packaging/**/*.sh`, `tests/**/*.sh`, `tools/**/*.sh` | [shell-names](.claude/rules/shell-names.rule.md) |
 
 ## Trust chain (summary)
@@ -158,8 +159,8 @@ of these inputs therefore narrows what the session gets, so the sandbox cannot i
 
 `AI_TOOLS_REQUIRE_SELINUX` is an operator's *declaration*, not one of the predicates. It is in force unless
 `operator.conf` turns it off, so a failed read of it — the file untrusted or absent, the key absent — leaves
-the requirement standing, the same direction the predicates take. Which exits it governs, and the two host states it
-lets launch with a warning rather than refuse, are in [confinement](.claude/rules/confinement.rule.md).
+the requirement standing, the same direction the predicates take. Which exits it governs is
+in [confinement](.claude/rules/confinement.rule.md).
 
 `atr projects remove` sits **outside** this table: it decides what is *destroyed*, not what a session may reach, so its
 safe direction is inaction. Its authorization is correspondingly different — an exact entry in the operator's project
@@ -226,7 +227,9 @@ in place, unregistered. See [cli](.claude/rules/cli.rule.md).
   and gives the child no controlling terminal, no inherited descriptor, a clean environment and a bound on its run,
   and what it prints reaches a terminal or the journal through the shared allowlist sanitizer. A function that executes
   such a file requires that identity of its own process. The test suite, which runs as root, holds to the same rule. See
-  [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9).
+  [ref-section-s9t9](.claude/rules/updater.rule.md#ref-section-s9t9). A root helper finds its interpreter
+  and the commands it runs in the system directories, whatever `PATH` its caller holds
+  ([ref-section-g7c8](.claude/rules/cli.rule.md#ref-section-g7c8)).
 - **Root does not write through a path component the sandbox can replace.** No root or operator process places a name,
   or sets an owner, a mode or an ACL, by a path with a component `SANDBOX_USER` can rename, remove or create —
   a directory that account owns, or one it holds group write on — because `chown`, `chmod`, `setfacl` and `install -d`
@@ -312,8 +315,9 @@ not gaps, so a reader tells bounded design from an oversight:
   grants on it (the permission companions to setgid's shared-group inheritance): the sandbox group's entry is
   the agent's access to operator-written files, and the operator's named entry is the operator's access to agent-written
   files. Both directions are ACL-based, so the operator stays **out** of `SANDBOX_GROUP` and its access does not hinge
-  on the ownership handback's timing. The entries, and the mask that decides what each gives in effect, are
-  [ref-section-y9z4](.claude/rules/ownership-and-hooks.rule.md#ref-section-y9z4).
+  on the ownership handback's timing; `atr admin operators add` and a source install each refuse to enrol an account
+  in `SANDBOX_GROUP` or whose primary group holds `SANDBOX_USER`. The entries, and the mask that decides what each gives
+  in effect, are [ref-section-y9z4](.claude/rules/ownership-and-hooks.rule.md#ref-section-y9z4).
 - **A command is a bare word; `--` introduces an option** — the surface is resource-oriented and maps 1:1 onto a REST
   API: a plural noun for a collection, the verb after it, `list` as the zero-argument default, and a singular
   `selinux`/`system` domain in front where one is needed. The binary is the privilege boundary, so a root-only command

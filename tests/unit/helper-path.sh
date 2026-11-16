@@ -27,7 +27,7 @@ fi
 OLD_PATH="/usr/local/sbin/ai-tools"
 
 # Canonical helper dir from the spec %global (the build-time single source).
-helperdir="$(sed -n 's/^%global ai_libexecdir[[:space:]]\+//p' "${ROOT}/packaging/ai-tools.spec" | head -1)"
+helperdir="$(sed -n 's/^%global ai_libexecdir[[:space:]]\+//p' "${ROOT}/packaging/ai-tools.spec" | awk 'NR == 1')"
 if [[ -z "${helperdir}" ]]; then
     fail "could not read %global ai_libexecdir from packaging/ai-tools.spec"
     finish; exit 1

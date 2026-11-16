@@ -105,7 +105,7 @@ install -d -o "${SANDBOX_USER}" -g "${SANDBOX_GROUP}" -m 0750 "${HOME_A}/.local/
 if grep -q 'odd?name' <<<"$(ai_tools_control_plane__find_unexpected_unit_search_path_entries "${HOME_A}")"; then
     pass "a name carrying an escape byte is printed with the byte replaced"
 else
-    fail "the entries reader printed: $(ai_tools_control_plane__find_unexpected_unit_search_path_entries "${HOME_A}" | od -c | head -3)"
+    fail "the entries reader printed: $(ai_tools_control_plane__find_unexpected_unit_search_path_entries "${HOME_A}" | od -c | awk 'NR <= 3')"
 fi
 
 # ── The applier a root writer calls after a rename-over write: owner, mode and label, each reported ───────────────

@@ -215,7 +215,7 @@ cli_called() {
     if [[ -z "${ere}" ]]; then
         [[ "$(cli_call_count "${helper}")" -gt 0 ]]
     else
-        cli_calls "${helper}" | grep -qE -- "${ere}"
+        grep -qE -- "${ere}" <<<"$(cli_calls "${helper}")"
     fi
 }
 

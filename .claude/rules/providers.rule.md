@@ -36,19 +36,20 @@ in the privileged scripts that read it:
   and the unit description call it), optionally `login_command` (the re-login command `ai-tools-run` names
   in the warning it prints after a session ends within seconds of starting, for an agent whose login is a subcommand
   rather than a prompt inside the session), `handback` (which side converges ownership), `entrypoint_fcontext`
-  and `config_dir` (the two paths it declares to SELinux), `skills_dir` / `subagents_dir` (where inside its config
-  directory it reads each shared asset kind, so the shared copies can be symlinked in — see
-  [shipped-assets](shipped-assets.rule.md)), `asset_profiles` (the asset formats it implements, which decide whether
-  an asset requiring a profile links for every agent; `ai-tools-providers(5)` states how an absent key and an unknown
-  token read, and [shipped-assets](shipped-assets.rule.md) what the resolver does with them), optionally `skills_root`
-  (the absolute path an agent that reads the whole skills view from outside its config directory reads it
-  at, which the assets reconcile reports and does not write — see [shipped-assets](shipped-assets.rule.md)),
-  `memory_file` (the filename that agent's product reads as user-scope instructions, where the shared orientation text
-  is linked), `managed_files` (the kept-across-upgrade files its product reads from a fixed path outside the control
-  plane — each one a plain name directly under `/etc/<name>/`, shipped with a pristine copy of the same name
-  under `/usr/share/ai-tools/<name>/` that the two status reports compare the live file against — reported, never
-  enforced, since no such file holds a guarantee; codex's `/etc/codex` pair is the instance,
-  [agent-codex](agent-codex.rule.md)), `default_enable`, and — optionally — the three release-verification fields.
+  and `config_dir` (the two paths it declares to SELinux), optionally `entrypoint_link_fcontext` (a second name its
+  package gives the entrypoint's file), `skills_dir` / `subagents_dir` (where inside its config directory it reads each
+  shared asset kind, so the shared copies can be symlinked in — see [shipped-assets](shipped-assets.rule.md)),
+  `asset_profiles` (the asset formats it implements, which decide whether an asset requiring a profile links for every
+  agent; `ai-tools-providers(5)` states how an absent key and an unknown token read,
+  and [shipped-assets](shipped-assets.rule.md) what the resolver does with them), optionally `skills_root` (the absolute
+  path an agent that reads the whole skills view from outside its config directory reads it at, which the assets
+  reconcile reports and does not write — see [shipped-assets](shipped-assets.rule.md)), `memory_file` (the filename
+  that agent's product reads as user-scope instructions, where the shared orientation text is linked), `managed_files`
+  (the kept-across-upgrade files its product reads from a fixed path outside the control plane — each one a plain name
+  directly under `/etc/<name>/`, shipped with a pristine copy of the same name under `/usr/share/ai-tools/<name>/`
+  that the two status reports compare the live file against — reported, never enforced, since no such file holds
+  a guarantee; codex's `/etc/codex` pair is the instance, [agent-codex](agent-codex.rule.md)), `default_enable`, and —
+  optionally — the three release-verification fields.
 - integrations: `default_enable`, and optionally the three keys the SELinux layer reads — `build_output_dirs` (the
   directory names that hold the toolchain's build output, which `relabel.lib.sh` reads from every installed manifest
   through `ai_tools_providers__list_integrations_declaring` and maps to the build-output type), `selinux_layout_module`
@@ -128,11 +129,15 @@ so the base SELinux module declares **neither** and the manifest carries both:
 | manifest field | path | type | without it |
 |---|---|---|---|
 | `entrypoint_fcontext` | the launcher binary (a file-context regex; `[^/]+` spans the Node version directory) | `ai_tools_exec_t` | no domain transition — the session would run unconfined, so `ai-tools-run` refuses to launch |
+| `entrypoint_link_fcontext` (optional) | a second name the package gives that binary's inode, a hard link | `ai_tools_exec_t` | a relabel of the whole host that walks by path can leave the inode on the second name's default type, and `ai-tools-run` then refuses to launch |
 | `config_dir` | the agent's control-plane directory, one component under `/opt/ai-tools` | `ai_tools_home_t` | the confined session cannot write its own state (the home root is `usr_t`) |
 
 `ai-tools-relabel-agent` registers each as a local `semanage fcontext` rule and relabels what it matches (see
-[updater](updater.rule.md)). A second agent package therefore brings both its binary and its state directory into this
-policy without touching the base.
+[updater](updater.rule.md)). `entrypoint_link_fcontext` is read by that helper and by the audit reader alone:
+the launcher target is matched against `entrypoint_fcontext`, so no writer of the launcher chain links a launcher
+at a name the second pattern alone covers. Why a second name takes a rule of its own, and the read that reports a name
+the file-context database maps to another type, are [updater](updater.rule.md)'s. A second agent package therefore
+brings both its binary and its state directory into this policy without touching the base.
 
 `config_dir` is more than a label: the agent's package **owns that directory** and the files in it (`settings.json`,
 the hooks), while the base pins its mode (`CP_AGENT_CONFIG_MODE`, setgid+sticky) and resolves the set of them
@@ -144,15 +149,15 @@ Two constraints keep that from being a label-anything primitive, and neither liv
 
 - **The types are pinned in `relabel.lib.sh`** as `readonly` constants, and no manifest key names one: an agent declares
   *which path* is which, and the label a path gets is not an input it holds.
-- **Each declaration must be containable**: the entrypoint pattern to an anchored literal head under the Node versions
-  root `relabel.lib.sh` pins (`AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT`, `/opt/ai-tools/.nvm/versions/node`), with no `..`
-  and none of the regex constructs (`|`, groups) that could make it match elsewhere; the config directory to one plain
-  component under the sandbox home. The entrypoint predicate is `ai_tools_providers__is_entrypoint_fcontext_valid`
-  in `providers.lib.sh`, taking the root it checks against as an argument, so the two writers of the launcher chain hold
-  a pattern to the same containment before they write a link to what it covers (see
-  [`launcher_target`](#launcher_target--where-the-versioned-launcher-points)); `tests/unit/launcher-target.sh` drives
-  its truth table, and `tests/unit/relabel.sh` pins the root the relabel passes it. The config-directory predicate is
-  `ai_tools_control_plane__is_agent_config_dir_valid` in `control-plane.lib.sh`.
+- **Each declaration must be containable**: an entrypoint pattern, either key's, to an anchored literal head
+  under the Node versions root `relabel.lib.sh` pins (`AI_TOOLS_RELABEL__NODE_VERSIONS_ROOT`,
+  `/opt/ai-tools/.nvm/versions/node`), with no `..` and none of the regex constructs (`|`, groups) that could make it
+  match elsewhere; the config directory to one plain component under the sandbox home. The entrypoint predicate is
+  `ai_tools_providers__is_entrypoint_fcontext_valid` in `providers.lib.sh`, taking the root it checks
+  against as an argument, so the two writers of the launcher chain hold a pattern to the same containment before they
+  write a link to what it covers (see [`launcher_target`](#launcher_target--where-the-versioned-launcher-points));
+  `tests/unit/launcher-target.sh` drives its truth table, and `tests/unit/relabel.sh` pins the root the relabel passes
+  it. The config-directory predicate is `ai_tools_control_plane__is_agent_config_dir_valid` in `control-plane.lib.sh`.
 
 The rule's lifecycle follows the package: applied by the agent package's `%post` (and by `install.sh`,
 `ai-tools-bootstrap`, the relabel watcher, and `atr admin system entrypoints relabel`), dropped by its `%preun` on final
@@ -196,12 +201,13 @@ at `<version-dir>/bin/<launcher>` and requires the resolved target to stay insid
 ## `entrypoint_fcontext` is what the audit reader resolves a record to
 
 The kernel records an exec of an agent entrypoint made from inside a session — the SELinux core module audits that one
-access — and `ai-tools audit` resolves each record's exec'd file to an agent by matching it against every installed
-manifest's `entrypoint_fcontext`, anchored, as the relabel matches it ([launch](launch.rule.md), [cli](cli.rule.md)).
-The manifest decides how a record is **labelled**, never whether one is reported: an `exe` no installed manifest claims
-is a finding naming the file, so a manifest the reader cannot read yields more findings rather than fewer. Which records
-that reader folds into a count is its own business, read from the record rather than declared per agent — a multi-call
-binary's dispatch of a tool it bundles is one of them, and no manifest key enumerates those names.
+access — and `ai-tools audit` resolves each record's exec'd file to an agent by matching it against each entrypoint
+pattern every installed manifest declares (`entrypoint_fcontext`, `entrypoint_link_fcontext`), anchored, as the relabel
+matches it ([launch](launch.rule.md), [cli](cli.rule.md)). The manifest decides how a record is **labelled**, never
+whether one is reported: an `exe` no installed manifest claims is a finding naming the file, so a manifest the reader
+cannot read yields more findings rather than fewer. Which records that reader folds into a count is its own business,
+read from the record rather than declared per agent — a multi-call binary's dispatch of a tool it bundles is one
+of them, and no manifest key enumerates those names.
 
 ## `release_manifest_url` / `release_key` / `release_fingerprint` — the agent declares its own provenance
 

@@ -83,8 +83,9 @@ phase "Metapackage pulled every built subpackage" \
 phase "Renamed subpackages Provide every name they Obsolete" \
     bash -c 'set -e
              for r in /tmp/ai-repo/*.rpm; do
+                 provides=$(rpm -qp --qf "[%{PROVIDENAME}\n]" "${r}" 2>/dev/null)
                  for o in $(rpm -qp --qf "[%{OBSOLETENAME}\n]" "${r}" 2>/dev/null); do
-                     rpm -qp --qf "[%{PROVIDENAME}\n]" "${r}" 2>/dev/null | grep -qx "${o}" || {
+                     grep -qx "${o}" <<<"${provides}" || {
                          echo "$(rpm -qp --qf %{NAME} "${r}") obsoletes ${o} without providing it" >&2; exit 1; }
                  done
              done'
@@ -122,7 +123,7 @@ phase "contributed command domain dispatches (dotnet status)" \
 # shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "ai-tools-selinux ships exactly the derived policy module set" \
     bash -c 'set -e
-             rpm=$(ls /tmp/ai-repo/ai-tools-selinux-*.rpm | head -1)
+             rpms=(/tmp/ai-repo/ai-tools-selinux-*.rpm); rpm=${rpms[0]}
              have=$(rpm -qlp "${rpm}" | sed -n "s#^/usr/share/selinux/packages/ai-tools/\(.*\)\.pp\$#\1#p" | sort)
              want=$(bash "$1/selinux/policy/shipped-modules.sh" | sort)
              [ -n "${want}" ] || { echo "shipped-modules.sh derived an empty set" >&2; exit 1; }
@@ -133,12 +134,27 @@ phase "ai-tools-selinux ships exactly the derived policy module set" \
 # Run at runtime, not build: under a live systemd, bootstrap enables the sandbox account's linger
 # and the nvm-update.timer in its own `--user instance`. Idempotent (reuses an existing nvm/Node), so a re-run is cheap.
 # No agent ships enabled and this run has no terminal to choose one on, so the agent the later phases launch is named
-# here through the unattended form, which writes AI_TOOLS_AGENTS before the toolchain is installed.
-phase "system bootstrap (nvm + Node + claude; linger + timer)" \
-    ai-tools-admin system bootstrap --agents agent-claude-code
+# here through the unattended form, which writes AI_TOOLS_AGENTS before the toolchain is installed. The container runs
+# SELinux Disabled under the shipped AI_TOOLS_REQUIRE_SELINUX=yes, so the bootstrap names the launch refusal ahead
+# of the first launch: its notice code is asserted here, on a real host in that state.
+bootstrap_names_required_dac_only_state() {
+    local log=/tmp/ai-tools-selftest-bootstrap.log mode bootstrap_status
+    ai-tools-admin system bootstrap --agents agent-claude-code 2>&1 | tee "${log}"
+    bootstrap_status="${PIPESTATUS[0]}"
+    (( bootstrap_status == 0 )) || return "${bootstrap_status}"
+    mode="$(getenforce 2>/dev/null || true)"
+    if [[ "${mode}" != Disabled ]]; then
+        note "getenforce read '${mode:-nothing}', not Disabled: the DAC-only notice is not expected here"
+        return 0
+    fi
+    grep -qx MSG-F2X6 "${log}" || { note "SELinux is Disabled and the bootstrap did not print MSG-F2X6"; return 1; }
+}
+phase "system bootstrap (nvm + Node + claude; linger + timer; names the DAC-only refusal)" \
+    bootstrap_names_required_dac_only_state
 
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "claude launcher symlink resolves to the nvm-installed binary" \
-    bash -c 'test -L /opt/ai-tools/bin/claude && readlink -f /opt/ai-tools/bin/claude | grep -q "/versions/node/"'
+    bash -c 'test -L /opt/ai-tools/bin/claude && [[ "$(readlink -f /opt/ai-tools/bin/claude)" == */versions/node/* ]]'
 
 # The timer enablement is the root-provisioned wants symlink under the sandbox home (the only place a confined session
 # may not write); checking it on disk is robust without entering the user manager. tests/run.sh's systemd.sh is
@@ -151,7 +167,7 @@ phase "ai-tools-admin operators add ${OPERATOR}" \
     ai-tools-admin operators add "${OPERATOR}"
 
 phase "${OPERATOR} is in ai-ops + listed in operator.conf" \
-    bash -c "id -nG '${OPERATOR}' | tr ' ' '\n' | grep -qx ai-ops && grep -q '${OPERATOR}' /etc/ai-tools/operator.conf"
+    bash -c "[[ \" \$(id -nG '${OPERATOR}') \" == *' ai-ops '* ]] && grep -q '${OPERATOR}' /etc/ai-tools/operator.conf"
 
 # ── project claim ────────────────────────────────────────────────────────────
 mkdir -p "${PROJECT}"; chown "${OPERATOR}:${OPERATOR}" "${PROJECT}"
@@ -171,6 +187,26 @@ phase "operator claims the project (allowlist + ACL + safedir + label)" \
 
 phase "project is in the operator's allowlist" \
     bash -c "grep -q '${PROJECT}' /home/${OPERATOR}/.config/ai-tools/project-registry"
+
+# ── the shipped requirement on a host without SELinux confinement ────────────
+# Under the shipped AI_TOOLS_REQUIRE_SELINUX=yes a launch on this Disabled host refuses with MSG-W2G6; the container
+# then declares itself DAC-only, the documented hand fix, and every later phase launches under it.
+launch_refuses_dac_only() {
+    local out launch_status=0
+    out="$(as_operator "cd '${PROJECT}' && script -qec 'timeout 90 claude --version' /dev/null" 2>&1)" || launch_status=$?
+    printf '%s\n' "${out}"
+    (( launch_status != 0 )) || { note "the launch exited 0 under the requirement on a Disabled host"; return 1; }
+    grep -q 'MSG-W2G6' <<<"${out}" || { note "the launch exited ${launch_status} without MSG-W2G6"; return 1; }
+}
+if [[ "$(getenforce 2>/dev/null || true)" == Disabled ]]; then
+    phase "a launch under the shipped requirement refuses on this Disabled host (MSG-W2G6)" launch_refuses_dac_only
+else
+    note "getenforce does not read Disabled here: the DAC-only refusal phase does not apply"
+fi
+phase "declare the container DAC-only (AI_TOOLS_REQUIRE_SELINUX=no)" \
+    bash -c "sed -i '/^[[:space:]]*#\\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX[[:space:]]*=/d' /etc/ai-tools/operator.conf \
+             && printf '\\nAI_TOOLS_REQUIRE_SELINUX=no\\n' >> /etc/ai-tools/operator.conf \
+             && grep -qx 'AI_TOOLS_REQUIRE_SELINUX=no' /etc/ai-tools/operator.conf"
 
 # OCI image layers do not carry POSIX ACLs, and they preserve directory setgid inconsistently across the build-time
 # scriptlet writes (per distro): so both the base %post ai-ops ACL and the sandbox-tree setgid bit can be lost
@@ -280,13 +316,15 @@ asset_selftest_setup() {
     set -e
     rm -rf "${ASSET_STAGE}"; mkdir -p "${ASSET_STAGE}/gnupg"; chmod 0700 "${ASSET_STAGE}/gnupg"
     GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --quiet --passphrase '' --quick-gen-key 'ai-tools selftest <acme@acme.example>' default default never
-    local fpr
-    fpr="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys | awk -F: '$1 == "fpr" { print $10; exit }')"
-    GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --armor --export "${fpr}" > "${ASSET_STAGE}/acme.asc"
+    # The listing is read whole before awk searches it (ref-section-d9x2).
+    local fingerprint key_listing
+    key_listing="$(GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --with-colons --list-keys)"
+    fingerprint="$(awk -F: '$1 == "fpr" { print $10; exit }' <<< "${key_listing}")"
+    GNUPGHOME="${ASSET_STAGE}/gnupg" gpg --batch --armor --export "${fingerprint}" > "${ASSET_STAGE}/acme.asc"
     bash -c '. /usr/local/lib/ai-tools/openpgp.lib.sh && ai_tools_openpgp__write_binary_keyring "$1" "$2"' _ \
         "${ASSET_STAGE}/acme.asc" "${ASSET_KEYRING}"
     chmod 0644 "${ASSET_KEYRING}"
-    printf 'set=acme\nsigners=[openpgp:%s]\nkeyring=%s\n' "${fpr}" "${ASSET_KEYRING}" > "${ASSET_BINDING}"
+    printf 'set=acme\nsigners=[openpgp:%s]\nkeyring=%s\n' "${fingerprint}" "${ASSET_KEYRING}" > "${ASSET_BINDING}"
     chmod 0644 "${ASSET_BINDING}"
     asset_set_rpm 0.1.0 acme-pdf >/dev/null
     asset_set_rpm 0.1.1 acme-pdf acme-extra >/dev/null
@@ -335,8 +373,9 @@ phase "confined session launches (claude --version through the wrapper)" \
 
 # ── agent-side boundary spot check (the confinement that holds under DAC) ─────
 # Prove the sandbox account cannot sudo and is not in ai-ops -- the DAC half of the model.
+# shellcheck disable=SC2016  # the $(...) expands in the inner `bash -c`, not here
 phase "sandbox account has no sudo and is not an operator" \
-    bash -c '! id -nG ai-tools | tr " " "\n" | grep -qx ai-ops && ! runuser -l ai-tools -s /bin/bash -c "sudo -n true" 2>/dev/null'
+    bash -c '[[ " $(id -nG ai-tools) " != *" ai-ops "* ]] && ! runuser -l ai-tools -s /bin/bash -c "sudo -n true" 2>/dev/null'
 
 # ── summary + exit ───────────────────────────────────────────────────────────
 banner "SELFTEST SUMMARY"

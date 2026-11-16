@@ -127,7 +127,7 @@ framed_within() {
 }
 # silent <what> <code-regex> : none of the codes fired -- the negative half of an ordering assertion.
 silent() {
-    if grep -qxE "$2" <<<"${OUT}"; then fail "$1: $(grep -xE "$2" <<<"${OUT}" | head -1) fired"; else pass "$1"; fi
+    if grep -qxE "$2" <<<"${OUT}"; then fail "$1: $(grep -xE "$2" <<<"${OUT}" | awk 'NR == 1') fired"; else pass "$1"; fi
 }
 
 link "/opt/ai-tools/.nvm/versions/node/v1.2.3/bin/claude"
@@ -190,7 +190,7 @@ FIXTURE_LAUNCHER='cl;id' run "${LIB}" "${PROJECTS_USER}" "${approved}" true
 refused "a launcher name carrying shell syntax is refused at init" MSG-Z6F8
 FIXTURE_LAUNCHER='../claude' run "${LIB}" "${PROJECTS_USER}" "${approved}" true
 refused "a launcher name carrying a path is refused at init" MSG-Z6F8
-utf8_locale="$(locale -a 2>/dev/null | grep -ixE 'en_US\.utf-?8|C\.utf-?8' | head -n 1 || true)"
+utf8_locale="$(locale -a 2>/dev/null | grep -ixE 'en_US\.utf-?8|C\.utf-?8' | awk 'NR == 1' || true)"
 if [[ -n "${utf8_locale}" ]] && LC_ALL="${utf8_locale}" bash -c '[[ "é" =~ ^[A-Za-z]+$ ]]'; then
     FIXTURE_LAUNCHER='clé' FIXTURE_LC_ALL="${utf8_locale}" run "${LIB}" "${PROJECTS_USER}" "${approved}" true
     refused "a non-ASCII letter is refused under ${utf8_locale}, where a bracket range matches it" MSG-Z6F8
@@ -201,7 +201,7 @@ fi
 # ── (1) Operator gate ───────────────────────────────────────────────────────────
 run "${LIB}" "${SANDBOX_USER}" "${approved}" ai_tools_launch_wrapper__gate_operator
 refused "the sandbox account is refused with its own code" MSG-N8Q4
-if id -u nobody >/dev/null 2>&1 && ! id -nG nobody | tr ' ' '\n' | grep -qx ai-ops; then
+if id -u nobody >/dev/null 2>&1 && [[ " $(id -nG nobody) " != *" ai-ops "* ]]; then
     run "${LIB}" nobody "${approved}" ai_tools_launch_wrapper__gate_operator
     refused "a non-operator is refused, naming the enrolment" MSG-C7C9
     says "and the refusal names the enrolment command" "atr admin operators add nobody"
@@ -212,12 +212,26 @@ if id -u nobody >/dev/null 2>&1 && ! id -nG nobody | tr ' ' '\n' | grep -qx ai-o
 else
     skip "non-operator refusal" "no 'nobody' account outside ai-ops on this host"
 fi
-if id -nG "${PROJECTS_USER}" | tr ' ' '\n' | grep -qx ai-ops; then
+if [[ " $(id -nG "${PROJECTS_USER}") " == *" ai-ops "* ]]; then
     run "${LIB}" "${PROJECTS_USER}" "${approved}" ai_tools_launch_wrapper__gate_operator
     passed "an ai-ops member passes the operator gate"
 else
     skip "operator passes the gate" "${PROJECTS_USER} is not in ai-ops here"
 fi
+# A shell that predates the grant: `id` is a shell function whose live credential set lacks ai-ops and whose group
+# database read prints ai-ops ahead of more names than a pipe holds. A search that stops at its match while the list is
+# still being written returns 141 under pipefail, and the gate then names the enrolment in place of the login
+# (ref-section-d9x2).
+# shellcheck disable=SC2016  # expanded by the inner shell, which holds the function
+stale_shell='id() {
+    local i
+    if [[ "${1:-}" == -nG && $# -eq 1 ]]; then printf "users\n"
+    elif [[ "${1:-}" == -nG ]]; then
+        printf "ai-ops"; for (( i = 0; i < 30000; i++ )); do printf " group-%05d" "${i}"; done; printf "\n"
+    else command id "$@"; fi
+}; ai_tools_launch_wrapper__gate_operator'
+run "${LIB}" "${PROJECTS_USER}" "${approved}" eval "${stale_shell}"
+refused "a shell that predates the grant is told to log in again, the group database read over a list longer than a pipe" MSG-R7Z3
 
 # ── (1b) The residue gate: a disabled agent's launcher link refuses every launch ── Fixture manifests (a synthetic
 # pair, no shipped agent named) and an operator.conf enabling one of them, root-owned so the resolver accepts them.
@@ -607,7 +621,7 @@ for esc_dir in "${esc_listed}" "${esc_unlisted}"; do
     run "${LIB}" "${PROJECTS_USER}" "${esc_dir}" ai_tools_launch_wrapper__gate_project
     refused "a CWD whose name holds an escape byte is refused before any message names it" MSG-P5X5
     if grep -q $'\033' <<<"${OUT}"; then
-        fail "and the refusal printed the raw escape byte: $(head -c 300 <<<"${OUT}" | od -c | head -3 | tr '\n' '|')"
+        fail "and the refusal printed the raw escape byte: $(head -c 300 <<<"${OUT}" | od -c | awk 'NR <= 3' | tr '\n' '|')"
     else
         pass "and the refusal prints the path without the raw escape byte"
     fi

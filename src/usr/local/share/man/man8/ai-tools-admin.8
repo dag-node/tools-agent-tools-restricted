@@ -261,6 +261,8 @@ Enrol
 .IR USER ,
 defaulting to
 .BR $SUDO_USER .
+Refuses an account in the sandbox account's group, or whose primary group the
+sandbox account is in, since the agent would read what that group opens.
 Seeds that account's own config first \(em a project registry at
 .I ~/.config/ai\-tools/project\-registry
 and secret\-name patterns at

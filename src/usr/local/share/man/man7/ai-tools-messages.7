@@ -1309,6 +1309,10 @@ control plane present but the managed\-asset libs are missing \-\- reinstall ai\
 ERROR.
 cannot run the sandbox toolchain: ${_sandbox_exec_lib}, ${_toolchain_lib} or the log library did not load, and they are what run that account's files without root's terminal and keep their bytes off it \-\- reinstall ai\-tools\-base, then re\-run: atr admin system bootstrap
 .TP
+.B MSG-F2X6
+WARNING.
+AI_TOOLS_REQUIRE_SELINUX is set in ${conf} and ${reason}, so every agent launch here refuses (MSG\-W2G6)
+.TP
 .B MSG-F3H4
 WARNING.
 managed assets: not seeded, and the asset view not reconciled \-\- the assets lock could not be taken; run atr admin system bootstrap again once the other assets command has ended
@@ -1652,10 +1656,6 @@ ERROR.
 unknown option: ${a} (allowed: \-\-remove)
 .SS ai-tools-relabel-agent
 .TP
-.B MSG-A3B5
-ERROR.
-the relabel did not take: ${mislabelled} path(s) did not take their type \-\- is the ai_tools module loaded? run: sudo selinux/install\-selinux.sh install
-.TP
 .B MSG-B6H9
 WARNING.
 could not verify the entrypoint for ${agent} against release ${version} (see above) \-\- pin unchanged
@@ -1664,9 +1664,21 @@ could not verify the entrypoint for ${agent} against release ${version} (see abo
 ERROR.
 an incomplete agent package stops this relabel: ${incomplete} agent(s) do not have the entrypoint their manifest declares installed at all, so it cannot be labelled; that executable comes from the sandbox toolchain rather than from the RPM, so reinstall it: atr admin system bootstrap, then rerun; where that run reports the package incomplete again, its npm output names what was left out
 .TP
+.B MSG-D9H5
+WARNING.
+name not checked for ${subject}: ${wanted} name(s) of its entrypoint ${detail} carry a character outside the set a status line prints, and the type the file\-context database maps each to was not read \-\- the entrypoint is labelled, and a relabel of the whole host can leave it on such a name's type; list every name: sudo find ${inode_location:\-<mount> \-xdev \-inum <inode>}
+.TP
 .B MSG-E4U5
 WARNING.
 relabels are not serialized on this host \-\- ${AI_TOOLS_RELABEL__LOCK_NOTE}
+.TP
+.B MSG-E9R7
+WARNING.
+the pin for ${agent} holds release ${pinned_version}, so its sessions refuse to start until a run verifies ${version} \-\- check that this host reaches the vendor's release manifest, then run: atr admin system entrypoints relabel
+.TP
+.B MSG-E9Y2
+WARNING.
+the mark of an earlier run for ${agent} (${stale_reason}) stands until a run verifies release ${version} \-\- check that this host reaches the vendor's release manifest, then run: atr admin system entrypoints relabel
 .TP
 .B MSG-G5H9
 WARNING.
@@ -1674,7 +1686,7 @@ could not record ${1}'s labelling outcome for atr status
 .TP
 .B MSG-G7C7
 WARNING.
-wrong type on ${subject}: it is '${detail}', NOT ${wanted}
+wrong type on ${subject}: it is '${detail}', NOT ${wanted} \-\- 'sudo restorecon \-nv ${subject}' shows the type a relabel sets, and 'sudo semanage fcontext \-C \-l' lists the local rules; then rerun: atr admin system entrypoints relabel
 .TP
 .B MSG-H9M5
 WARNING.
@@ -1708,9 +1720,21 @@ could not write the observed pin for ${agent} at ${version}
 WARNING.
 incomplete package for ${subject}: its launcher resolves to
 .TP
+.B MSG-N4T2
+WARNING.
+unmapped name for ${subject}: ${detail} is a name of its entrypoint that the file\-context database maps to another type \-\- the entrypoint is labelled, and a relabel of the whole host can leave it on that type; after one, run: atr admin system entrypoints relabel; a newer agent package covers a name the agent's own package placed (dnf update 'ai\-tools\-agents\-*'), and a local rule that maps the name is listed by: sudo semanage fcontext \-C \-l
+.TP
 .B MSG-N9B9
 ERROR.
-an agent's file\-context rule could not be applied (see above)
+agent labelling did not complete \-\- see the warnings above
+.TP
+.B MSG-P5G9
+WARNING.
+name outside the toolchain for ${subject}: its entrypoint ${detail} has ${wanted} name(s) outside the sandbox toolchain, which no rule a manifest declares can cover \-\- the entrypoint is labelled, and a relabel of the whole host can leave it on such a name's type; list every name: sudo find ${inode_location:\-<mount> \-xdev \-inum <inode>}
+.TP
+.B MSG-R2W5
+WARNING.
+wrong mapping for ${subject}: the file\-context database maps its entrypoint ${detail} to another type than the entry type \-\- its next session refuses to start, whatever type the file carries now; list local rules with 'sudo semanage fcontext \-C \-l', correct the rule mapping the path, then rerun: atr admin system entrypoints relabel
 .TP
 .B MSG-R5M2
 WARNING.
@@ -1732,6 +1756,10 @@ relabel.lib.sh is incomplete \-\- reinstall ai\-tools\-base
 ERROR.
 usage: ai\-tools\-relabel\-agent [\-\-remove <agent\-name>]
 .TP
+.B MSG-T7K7
+WARNING.
+names not read for ${subject}: the names of its entrypoint ${detail}, or the type the file\-context database maps one to, could not be read \-\- a name mapped to another type may exist; rerun: atr admin system entrypoints relabel
+.TP
 .B MSG-U6H8
 WARNING.
 the ${agent} entrypoint changed under an unchanged version ${version} \-\- leaving the pin as it is, so the next session refuses to start
@@ -1751,6 +1779,10 @@ could not write the pin for ${agent} after verifying ${version}
 .B MSG-X7F9
 WARNING.
 labelling skipped for ${subject} \-\- ${detail} ${wanted}
+.TP
+.B MSG-Y9F4
+WARNING.
+the ${agent} entrypoint still differs from its pin, and the mark of an earlier run (${stale_reason}) stands \-\- its sessions refuse to start until the binary is replaced
 .TP
 .B MSG-Z5B4
 WARNING.
@@ -1789,10 +1821,6 @@ AI_TOOLS_PROJECT_DIR is not an existing directory: ${AI_TOOLS_PROJECT_DIR}
 ERROR.
 the agent entrypoint does not match its recorded checksum \-\- refusing to start the session
 .TP
-.B MSG-K6W6
-WARNING.
-ai\-tools\-run: AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so this session runs with file permissions alone (DAC\-only) and the requirement is not met.
-.TP
 .B MSG-N4P3
 ERROR.
 AI_TOOLS_AGENT_EXEC contains parent\-directory references
@@ -1800,6 +1828,14 @@ AI_TOOLS_AGENT_EXEC contains parent\-directory references
 .B MSG-P3P8
 ERROR.
 refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but the SELinux Boolean ${differing_boolean_names} is not at the value a launch requires (now ${current_assignments}), so ai_tools_t would run under rules this host has not declared.
+.TP
+.B MSG-P9G4
+ERROR.
+the agent entrypoint is a release no reconcile has verified \-\- refusing to start the session
+.TP
+.B MSG-W2G6
+ERROR.
+refusing to launch \-\- AI_TOOLS_REQUIRE_SELINUX is set in operator.conf, but ${dac_only_reason}, so the session would run with file permissions alone.
 .TP
 .B MSG-Z2J9
 ERROR.
@@ -2188,6 +2224,10 @@ left the labels on $1 as they were: the tree walker /usr/local/libexec/ai\-tools
 WARNING.
 incomplete package for ${subject}: its launcher resolves to
 .TP
+.B MSG-H4U3
+WARNING.
+wrong mapping for ${subject}: the file\-context database maps its entrypoint ${detail} to another type \-\- every launch will fail closed; a local rule that maps the path is listed by: sudo semanage fcontext \-C \-l
+.TP
 .B MSG-H5V4
 ERROR.
 selinux: cannot source required library ${1}
@@ -2195,6 +2235,10 @@ selinux: cannot source required library ${1}
 .B MSG-H7Q2
 ERROR.
 left the policy loaded: an agent session, the toolchain update, or a step run as the sandbox account is live, or this host's sessions could not be read; let each session end (/exit inside it) and the toolchain update finish, or end them all with 'atr stop', then re\-run: sudo $0 remove
+.TP
+.B MSG-J5F3
+WARNING.
+entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} \-\- the file\-context database maps a name of its entrypoint to another type, or a name could not be read or checked; atr admin system entrypoints relabel names each
 .TP
 .B MSG-J7J5
 ERROR.
@@ -2369,6 +2413,10 @@ could not restore every label under ${dir} \-\- ai\-tools\-relabel\-tree exited 
 WARNING.
 systemctl \-\-user $* failed by both the machine transport and the account's own
 .TP
+.B MSG-H4U5
+ERROR.
+install stopped in the step '${INSTALL_SECTION:\-before the first section}' (exit ${status}) \-\- this host holds a partial install: the steps before it are applied and the later ones are not; fix the cause above, then re\-run:
+.TP
 .B MSG-H5B4
 ERROR.
 could not move ${settings} aside, which is not kept (${settings_refusal}) \-\- move it out of ${claude_config_dir} by hand, then re\-run the install
@@ -2397,6 +2445,10 @@ launcher ${launcher} not found at ${versioned_launcher} \-\- its symlink is skip
 ERROR.
 the SELinux policy modules did not compile (see above); fix the cause and re\-run
 .TP
+.B MSG-M2U5
+WARNING.
+could not reload the systemd \-\-user manager of ${SANDBOX_USER}, which keeps running the nvm\-update units it loaded before this install \-\- run: sudo systemctl \-\-user \-M ${SANDBOX_USER}@.host daemon\-reload
+.TP
 .B MSG-M7K6
 WARNING.
 the systemd \-\-user manager of ${SANDBOX_USER} did not come up \-\- the auto\-update timer
@@ -2423,7 +2475,7 @@ nvm not found at ${ai_nvm_dir}/nvm.sh \-\- launcher symlinks skipped
 .TP
 .B MSG-Q5R3
 WARNING.
-SELinux is inactive \-\- the agent runs DAC\-only (no ai_tools_t domain). DAC\-only
+SELinux is inactive, ${declaration}
 .TP
 .B MSG-Q7E7
 ERROR.
@@ -2732,6 +2784,31 @@ refusing to run as $(id \-un 2>/dev/null || printf 'uid %s' "${EUID}"): this scr
 .B MSG-U5N2
 ERROR.
 the install left ${incomplete_after} enabled agent(s) without the entrypoint their manifest declares (above, with npm's reason) \-\- every launch of them is refused until that executable is installed; fix what npm names, then run: atr admin system bootstrap
+.SS operator.lib.sh
+.TP
+.B MSG-D4N4
+ERROR.
+account ${user} has ${sandbox_group} as its primary group, so the agent reads what ${user}'s group bits open \-\- give ${user} its own primary group, then re\-run: usermod \-g <group> ${user}
+.TP
+.B MSG-H3P3
+ERROR.
+account ${user} is in group ${sandbox_group}, so the agent reads what ${user}'s group bits open \-\- remove ${user} from ${sandbox_group}, then re\-run: gpasswd \-d ${user} ${sandbox_group}
+.TP
+.B MSG-H9Q6
+ERROR.
+cannot read ${user}'s groups, so whether the agent reads through them is unknown \-\- not enrolled
+.TP
+.B MSG-M9D2
+ERROR.
+cannot read ${sandbox_user}'s groups, so whether it is in ${user}'s primary group is unknown \-\- not enrolled
+.TP
+.B MSG-R2C2
+ERROR.
+the sandbox account ${sandbox_user} is in ${user}'s primary group ${primary}, so the agent reads what ${user}'s group bits open \-\- remove ${sandbox_user} from ${primary}, then re\-run: gpasswd \-d ${sandbox_user} ${primary}
+.TP
+.B MSG-T8R6
+ERROR.
+the sandbox account ${sandbox_user} has ${user}'s primary group ${primary} as its own, so the agent reads what ${user}'s group bits open \-\- give ${sandbox_user} the primary group ${sandbox_group}, then re\-run: usermod \-g ${sandbox_group} ${sandbox_user}
 .SS providers.lib.sh
 .TP
 .B MSG-A3S3

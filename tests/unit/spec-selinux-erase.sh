@@ -299,7 +299,7 @@ else
     fail "none: the pasted command '${pasted}' reached restorecon as: $(run_pasted "${pasted}" | tr '\n' ';')"
 fi
 unquoted="${pasted//\'/}"
-if [[ "$(run_pasted "${unquoted}" | head -n 1)" -gt 2 ]]; then
+if [[ "$(run_pasted "${unquoted}" | awk 'NR == 1')" -gt 2 ]]; then
     pass "control: the same command without its quotes reaches restorecon as several arguments"
 else
     fail "control: the unquoted command '${unquoted}' did not split; the argument count does not tell the two apart"
@@ -325,7 +325,7 @@ for case_line in "2|the SELinux layer is inactive here" "4|left these entries at
         "1|no file-context rules to drop"; do
     rc="${case_line%%|*}"; expected="${case_line#*|}"
     run_erase none "unlabel_status=${rc}"
-    if grep -qF "ai-tools-selinux: acme: " <<< "${err}" && grep -F "ai-tools-selinux: beta: " <<< "${err}" | grep -qF "${expected}" \
+    if grep -qF "ai-tools-selinux: acme: " <<< "${err}" && grep -qF "${expected}" <<<"$(grep -F "ai-tools-selinux: beta: " <<< "${err}")" \
             && grep -q '^semanage fcontext -d ' <<< "${recorder}" && [[ "${status}" -eq 0 ]]; then
         pass "none, unlabel status ${rc}: each agent's line names it ('${expected}'), the sweep follows, exit 0"
     else

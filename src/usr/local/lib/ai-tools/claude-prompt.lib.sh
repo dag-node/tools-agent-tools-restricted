@@ -13,7 +13,7 @@
 # that cannot be honoured makes the resolver return non-zero and the launch hook refuse the launch -- launching
 # with the default instead would be a wrong result, not a safe degradation. A per-invocation
 # --{,append-}system-prompt{,-file} flag steps the standing default aside with no refusal. What a configured prompt must
-# satisfy, and why the base is /etc/ai-tools/prompts/ (the one etc_t place the confined domain reads), are
+# satisfy, and why the base is /etc/ai-tools/prompts/ (an etc_t directory, which the confined domain reads), are
 # in agent-claude-code.rule.md. The file is resolved here as the operator and read by the confined binary as the sandbox
 # account, so each path component and operator.conf itself pass ai_tools_conf__is_trusted: the sandbox account cannot
 # swap the prompt between resolution and read.
@@ -30,13 +30,13 @@ readonly _AI_TOOLS_CLAUDE_PROMPT__LOADED=1
 # directly.
 if ! declare -F ai_tools_conf__read >/dev/null 2>&1 || ! declare -F ai_tools_conf__is_trusted >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/conf.lib.sh
-    source /usr/local/lib/ai-tools/conf.lib.sh 2>/dev/null || true
+    source "${BASH_SOURCE[0]%/*}/conf.lib.sh" 2>/dev/null || true
 fi
 # Warnings render through msg.lib (ai_tools_msg__warn), best-effort: a missing formatter drops the warning text, never
 # the refusal it accompanies (the caller acts on the return code, not the text).
 if ! declare -F ai_tools_msg__warn >/dev/null 2>&1; then
     # shellcheck source=SCRIPTDIR/msg.lib.sh
-    source /usr/local/lib/ai-tools/msg.lib.sh 2>/dev/null || true
+    source "${BASH_SOURCE[0]%/*}/msg.lib.sh" 2>/dev/null || true
 fi
 
 # _ai_tools_claude_prompt__warn <line...>: warn through msg.lib when present, else a plain stderr line, so a resolution

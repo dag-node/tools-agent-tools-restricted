@@ -41,7 +41,8 @@ set -euo pipefail
 IFS=$'\n\t'
 
 readonly ACTION="${1:-install}"
-readonly DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly DIR
 # Policy source, the script naming the shipped set, and the modules compiled from the source live under policy/;
 # the build (`make -C`) and every .te/.fc/.pp reference resolve there. install-selinux.sh, README.md, and ../src stay
 # at DIR.
@@ -283,12 +284,12 @@ stage_shipped_modules() {
 # path that loads policy from this checkout migrates the
 # host.
 _replace_former_group_modules() {
-    local entry former name
+    local entry former name queued=" "
     local -a formers=() loads
     for entry in "${AI_TOOLS_SELINUX_GROUPS__FORMER_MODULES[@]}"; do
         former="${entry#*|}"
-        printf '%s\n' "${formers[@]}" | grep -qx "${former}" 2>/dev/null && continue
-        formers+=( "${former}" )
+        [[ "${queued}" == *" ${former} "* ]] && continue
+        formers+=( "${former}" ); queued+="${former} "
     done
     for former in "${formers[@]}"; do
         ai_tools_selinux_groups__is_module_loaded "${former}" || continue
@@ -393,10 +394,9 @@ build_pp() {
     # The refpolicy Makefile creates *.fc stubs as root. Fix ownership so the source file remains readable/commitable
     # by the repo owner.
     local base="${POLICY_DIR}/${pp%.pp}"
-    [[ -f "${base}.fc" ]] \
-        && chown "${PROJECTS_USER}:ai-tools" "${base}.fc" 2>/dev/null \
-        && chmod 664 "${base}.fc" 2>/dev/null \
-        || true
+    if [[ -f "${base}.fc" ]] && chown "${PROJECTS_USER}:ai-tools" "${base}.fc" 2>/dev/null; then
+        chmod 664 "${base}.fc" 2>/dev/null || true
+    fi
 }
 
 # Group validity/loaded predicates (ai_tools_selinux_groups__is_valid / _loaded) come from selinux-groups.lib.sh, shared
@@ -437,7 +437,7 @@ _check_permissive_alignment() {
     local dom stale_mod misaligned=()
     while IFS= read -r dom; do
         [[ -z "${dom}" ]] && continue
-        echo "${expected_permissive}" | grep -qx "${dom}" && continue   # expected
+        grep -qx "${dom}" <<<"${expected_permissive}" && continue   # expected
         misaligned+=("${dom}")
     done <<< "${active_permissive}"
 
@@ -446,7 +446,7 @@ _check_permissive_alignment() {
     warn MSG-N5V4 "ENFORCING MISMATCH -- domain(s) are permissive but .te expects enforcing:"
     for dom in "${misaligned[@]}"; do
         stale_mod="permissive_${dom}"
-        if semodule -l 2>/dev/null | grep -q "^${stale_mod}[[:space:]]"; then
+        if ai_tools_selinux_groups__is_module_loaded "${stale_mod}"; then
             warn "  ${dom}: stale semodule '${stale_mod}' overrides compiled policy"
             if [[ -t 0 ]]; then
                 if ai_tools_msg__confirm "Remove stale semodule '${stale_mod}'?" y; then
@@ -725,15 +725,15 @@ _drop_remaining_policy_type_rules() {
     done < <(ai_tools_relabel__list_local_rules_naming_policy_types)
 }
 
-# _read_loaded_policy_modules <consequence>: print the loaded ai_tools* module names, one per line. A listing semodule
+# _list_loaded_ai_tools_modules <consequence>: print the loaded ai_tools* module names, one per line. A listing semodule
 # refuses is a die carrying its reason and <consequence>, what the caller's step did not do: an empty store and a store
 # that cannot be read are told apart by semodule's status, since reading the second as the first would report `removed`
 # over whatever is loaded.
-_read_loaded_policy_modules() {
+_list_loaded_ai_tools_modules() {
     local listing
     listing="$(semodule -l 2>&1)" \
         || die MSG-A3V5 "could not read the module store -- ${listing//$'\n'/; }; $1; re-run once semodule answers: sudo $0 remove"
-    awk '/^ai_tools/{print $1}' <<<"${listing}"
+    awk '/^ai_tools(_|$)/' <<<"${listing}"
 }
 
 # _unload_modules: unload every loaded ai_tools* module in one transaction, then read the store back: libsemanage prints
@@ -742,7 +742,7 @@ _read_loaded_policy_modules() {
 _unload_modules() {
     local -a loaded_modules=() remaining_modules=()
     local names reason
-    names="$(_read_loaded_policy_modules "nothing was unloaded")" || exit 1
+    names="$(_list_loaded_ai_tools_modules "nothing was unloaded")" || exit 1
     [[ -z "${names}" ]] || mapfile -t loaded_modules <<<"${names}"
     if [[ ${#loaded_modules[@]} -eq 0 ]]; then
         log "no ai_tools module is loaded"
@@ -750,7 +750,7 @@ _unload_modules() {
     fi
     log "unloading all ai_tools* modules: $(_list "${loaded_modules[@]}")"
     reason="$(_locked semodule -r "${loaded_modules[@]}" 2>&1 >/dev/null)" || true
-    names="$(_read_loaded_policy_modules "the unload ran, and what is loaded is not known")" || exit 1
+    names="$(_list_loaded_ai_tools_modules "the unload ran, and what is loaded is not known")" || exit 1
     [[ -z "${names}" ]] || mapfile -t remaining_modules <<<"${names}"
     [[ ${#remaining_modules[@]} -eq 0 ]] \
         || die MSG-R6M2 "left loaded: $(_list "${remaining_modules[@]}") -- ${reason//$'\n'/; }; review the local rules with 'sudo semanage fcontext -l -C | grep ai_tools', then re-run: sudo $0 remove"
@@ -826,6 +826,14 @@ verify_agent_labels() {
                 # entry took the type, and the paths are listed for review.
                 partial) agent_config_dir="${CP_HOME}/$(ai_tools_providers__read_agent_manifest_field "${subject}" config_dir 2>/dev/null || true)"
                       warn MSG-A5V5 "the walk over the config directory of ${subject} left ${detail} hardlinked path(s) at their current type; list them with: sudo find ${agent_config_dir} -not -type d -links +1" ;;
+                # A name of a labelled entrypoint inode that the file-context database maps to another type, or names
+                # that could not be read. Not `bad`: the entrypoint carries its type. ai-tools-relabel-agent names
+                # the remedy per finding. The database maps the path the launcher resolves to to another type,
+                # so the launch preflight refuses.
+                mismapped) bad=1
+                      warn MSG-H4U3 "wrong mapping for ${subject}: the file-context database maps its entrypoint ${detail} to another type -- every launch will fail closed; a local rule that maps the path is listed by: sudo semanage fcontext -C -l" ;;
+                unmapped|unchecked|outside|unread)
+                      warn MSG-J5F3 "entrypoint names of ${subject}: ${verdict} ${detail} ${wanted} -- the file-context database maps a name of its entrypoint to another type, or a name could not be read or checked; atr admin system entrypoints relabel names each" ;;
                 skip) warn MSG-S9J3 "labelling skipped for ${subject} -- ${detail} ${wanted}" ;;
                 # The per-agent verdict closing that agent's lines: `ok` and `none` restate the per-path arms,
                 # so `failed` prints, naming the agent those lines omit.
@@ -1074,7 +1082,7 @@ _relabel_runtime() {
             systemctl restart ai-tools-handback.socket 2>/dev/null || true
         fi
     fi
-    [[ -d "${RUN_DIR}" ]] && restorecon -FRv "${RUN_DIR}" 2>/dev/null | indented || true
+    if [[ -d "${RUN_DIR}" ]]; then restorecon -FRv "${RUN_DIR}" 2>/dev/null | indented || true; fi
 }
 
 # _relabel_helpers: apply ai_tools_handback_exec_t to the handback daemon entrypoint
@@ -1115,7 +1123,7 @@ case "${ACTION}" in
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
-    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
+    if [[ -d "${LOG_DIR}" ]]; then restorecon -FR "${LOG_DIR}" 2>/dev/null || true; fi
     # Label the handback daemon first: the socket restart in _relabel_runtime derives the listener's context
     # from the daemon binary's on-disk label at bind time.
     _relabel_helpers
@@ -1197,7 +1205,7 @@ case "${ACTION}" in
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
     # Apply ai_tools_log_t to the root-helper operation logs (ai_tools.fc).
-    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
+    if [[ -d "${LOG_DIR}" ]]; then restorecon -FR "${LOG_DIR}" 2>/dev/null || true; fi
     # Label the handback daemon first: the socket restart in _relabel_runtime derives the listener's context
     # from the daemon binary's on-disk label at bind time.
     _relabel_helpers
@@ -1239,7 +1247,7 @@ case "${ACTION}" in
     _restore_account_tree_labels "${NVM_DIR}" agent-relabel
     # Apply and verify the static sandbox-clone label (ai_tools.fc) on any existing clones.
     _label_sandbox_clones
-    [[ -d "${LOG_DIR}" ]] && restorecon -FR "${LOG_DIR}" 2>/dev/null || true
+    if [[ -d "${LOG_DIR}" ]]; then restorecon -FR "${LOG_DIR}" 2>/dev/null || true; fi
     # Label the handback daemon first: the socket restart in _relabel_runtime derives the listener's context
     # from the daemon binary's on-disk label at bind time.
     _relabel_helpers
@@ -1321,7 +1329,7 @@ case "${ACTION}" in
     ;;
 
   list-groups)
-    if semodule -l 2>/dev/null | grep -q "^${MODULE}[[:space:]]"; then
+    if ai_tools_selinux_groups__is_module_loaded "${MODULE}"; then
         if grep -qE '^[[:space:]]*permissive[[:space:]]+ai_tools_t[[:space:]]*;' "${POLICY_DIR}/${MODULE}.te"; then
             core_state="loaded (PERMISSIVE)"
         else

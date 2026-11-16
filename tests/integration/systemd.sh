@@ -115,7 +115,7 @@ section "The updater unit carries its resource profile"
 if [[ ! -f "${USERUNITDIR}/nvm-update.service" ]]; then
     skip "nvm-update.service carries its resource profile" "not installed in ${USERUNITDIR}"
 else
-    for directive in MemoryHigh=1G MemoryMax=2G MemorySwapMax=0 TasksMax=256; do
+    for directive in MemoryHigh=2G MemoryMax=3G MemorySwapMax=0 TasksMax=256; do
         if grep -qE "^[[:space:]]*${directive}[[:space:]]*\$" "${USERUNITDIR}/nvm-update.service"; then
             pass "nvm-update.service sets ${directive}"
         else
@@ -203,7 +203,7 @@ else
         sandbox_systemctl show nvm-update.timer \
             -p LoadState -p ActiveState -p SubState -p Result \
             -p UnitFileState -p TriggeredBy -p NextElapseUSecRealtime 2>&1 || true
-        sandbox_systemctl status --no-pager nvm-update.timer 2>&1 | head -n 12 || true
+        sandbox_systemctl status --no-pager nvm-update.timer 2>&1 | awk 'NR <= 12' || true
         printf -- '--- end diagnostics ---\n\n'
         fail "nvm-update.timer is not active in ${SANDBOX_USER}'s instance -- run: sudo -u ${SANDBOX_USER} systemctl --user enable --now nvm-update.timer"
     fi

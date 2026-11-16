@@ -104,7 +104,7 @@ fi
 if ${seal_fx}; then
     if grep -q 'privatedir' "${out}" \
             && [[ "$(stat -c '%a %G' "${proj}/privatedir")" == "2700 ${SANDBOX_GROUP}" ]] \
-            && getfacl -c -- "${proj}/privatedir" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; then
+            && grep -q "^group:${SANDBOX_GROUP}:" <<<"$(getfacl -c -- "${proj}/privatedir" 2>/dev/null)"; then
         pass "dry-run reports the seal pass and strips nothing (privatedir keeps setgid, group and ACL)"
     else
         fail "dry-run seal preview missing or it mutated privatedir: $(stat -c '%a %G' "${proj}/privatedir")"
@@ -138,7 +138,7 @@ fi
 # (2c) A locked secret does not keep a sandbox ACL entry: chmod 600 masks the inherited entry but does
 #      not remove it, so widening the mode later would re-expose the secret.
 if ${residue_acl}; then
-    if getfacl -c -- "${proj}/residue.key" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; then
+    if grep -q "^group:${SANDBOX_GROUP}:" <<<"$(getfacl -c -- "${proj}/residue.key" 2>/dev/null)"; then
         fail "a locked secret still carries a group:${SANDBOX_GROUP} ACL entry"
     else
         pass "a locked secret's inherited group:${SANDBOX_GROUP} ACL entry is removed"
@@ -221,15 +221,13 @@ if ${seal_fx}; then
     else
         fail "a sealed dir is still group ${SANDBOX_GROUP}"
     fi
-    if getfacl -c -- "${proj}/privatedir" 2>/dev/null \
-            | grep -q "^\(default:\)\?group:${SANDBOX_GROUP}:"; then
+    if grep -q "^\(default:\)\?group:${SANDBOX_GROUP}:" <<<"$(getfacl -c -- "${proj}/privatedir" 2>/dev/null)"; then
         fail "a sealed dir kept its sandbox ACL entries"
     else
         pass "a sealed dir's access and default sandbox ACL entries are removed"
     fi
     if [[ "$(perm "${proj}/notes.txt")" == 600 ]] \
-            && ! getfacl -c -- "${proj}/notes.txt" 2>/dev/null \
-                 | grep -q "^group:${SANDBOX_GROUP}:"; then
+            && ! grep -q "^group:${SANDBOX_GROUP}:" <<<"$(getfacl -c -- "${proj}/notes.txt" 2>/dev/null)"; then
         pass "a sealed non-secret file is stripped and stays 600"
     else
         fail "sealed file ended $(perm "${proj}/notes.txt") $(stat -c '%U:%G' "${proj}/notes.txt")"
@@ -280,7 +278,7 @@ run_gate "${gate}"
 if (( LD_RC == 0 )) && cmp -s "${TESTDIR}/gate.out" <(printf '%s\0' "${gate}/.env"); then
     pass "--gate writes the secret-matching path to stdout NUL-terminated, and no other byte"
 else
-    fail "--gate stdout: rc=${LD_RC}: $(od -c "${TESTDIR}/gate.out" | head -3)"
+    fail "--gate stdout: rc=${LD_RC}: $(od -c "${TESTDIR}/gate.out" | awk 'NR <= 3')"
 fi
 if grep -qE '^ +\[file\] \.env$' "${TESTDIR}/gate.err" && grep -q 'locked 1 path(s)' "${TESTDIR}/gate.err" \
         && [[ "$(perm "${gate}/.env")" == 600 ]]; then
@@ -293,7 +291,7 @@ run_gate "${gate}"
 if (( LD_RC == 0 )) && [[ ! -s "${TESTDIR}/gate.out" ]]; then
     pass "--gate over a tree with no secret writes nothing to stdout"
 else
-    fail "--gate with no secret: rc=${LD_RC}: $(od -c "${TESTDIR}/gate.out" | head -3)"
+    fail "--gate with no secret: rc=${LD_RC}: $(od -c "${TESTDIR}/gate.out" | awk 'NR <= 3')"
 fi
 : > "${gate}/.env"; chown "${PROJECTS_USER}:${PROJECTS_GROUP}" "${gate}/.env"; chmod 0644 "${gate}/.env"
 ( cd "${gate}" && setsid -w "${HELPER}" --gate --dry-run ) < /dev/null > "${TESTDIR}/gate.out" 2> "${TESTDIR}/gate.err" \
@@ -302,7 +300,7 @@ assert_msg MSG-G8S6 "$(cat "${TESTDIR}/gate.err")" "--gate with --dry-run is ref
 if (( LD_RC == 2 )) && [[ ! -s "${TESTDIR}/gate.out" && "$(perm "${gate}/.env")" == 644 ]]; then
     pass "--gate with --dry-run exits 2 with no path written and no file changed"
 else
-    fail "--gate --dry-run: rc=${LD_RC}, .env $(perm "${gate}/.env"): $(od -c "${TESTDIR}/gate.out" | head -2)"
+    fail "--gate --dry-run: rc=${LD_RC}, .env $(perm "${gate}/.env"): $(od -c "${TESTDIR}/gate.out" | awk 'NR <= 2')"
 fi
 # A dry run neither changes a path nor asks, so `--yes` beside it is refused with the usage status, not ignored.
 ( cd "${gate}" && "${HELPER}" --dry-run --yes ) < /dev/null > "${TESTDIR}/gate.err" 2>&1 && LD_RC=0 || LD_RC=$?
@@ -439,7 +437,7 @@ if (( LD_RC == 0 )) && cmp -s <(sort -z "${TESTDIR}/arg-gate.out") \
         <(printf '%s\0' "${arg_gate}/.env" "${arg_gate}/secrets" | sort -z); then
     pass "--gate with the argument writes the secret-matching paths NUL-terminated"
 else
-    fail "--gate with the argument: rc=${LD_RC}: $(od -c "${TESTDIR}/arg-gate.out" | head -3)"
+    fail "--gate with the argument: rc=${LD_RC}: $(od -c "${TESTDIR}/arg-gate.out" | awk 'NR <= 3')"
 fi
 ( cd / && setsid -w "${HELPER}" --gate -- "${arg_closed}" ) < /dev/null > "${TESTDIR}/arg-closed.out" 2>/dev/null \
     && LD_RC=0 || LD_RC=$?

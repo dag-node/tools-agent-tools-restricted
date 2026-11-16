@@ -417,17 +417,26 @@ being the authoritative one.
   rule the unqueryable units follow.
 
   **A pin a reconciliation refused to re-record is reported in place of that line**, from the mark the refusal writes
-  beside the pin ([ref-section-b3k5](updater.rule.md#ref-section-b3k5)). It replaces that agent's tier line instead
-  of joining it: the pin a refusal left standing is a valid record of a verification that once succeeded, so printing it
+  beside the pin ([ref-section-b3k5](updater.rule.md#ref-section-b3k5)). It replaces that agent's tier line instead of
+  joining it: the pin a refusal left standing is a valid record of a verification that once succeeded, so printing it
   too would pair a green verification with the red line saying it no longer describes the installed binary. It counts
-  toward the exit status, being the state in which every launch of that agent is already refused, and it names
-  the reconcile command, which re-reads the entrypoint and prints how to replace it.
+  toward the exit status, being a finding that holds until a run resolves it, and it names the reconcile command, which
+  re-reads the entrypoint and prints how to replace it. A mark of a release the reconcile could not verify is reported
+  and counted the same way; its line names the release and the reconcile with the vendor's release manifest reachable,
+  since the mark records a release the reconcile could not check rather than a binary it found changed. This account
+  cannot hash the entrypoint, so a line states a refusal only for a mark about the bytes against the pin, and then as
+  holding while the binary the run read is installed. A signature failure, which can leave bytes the pin still matches,
+  is stated as a finding with `atr admin status` as the report that hashes the binary, and a mark with no pin beside it
+  as a finding that stands, the sessions starting unless the host requires verification.
 
   The **labelling** is reported beneath it, from a second record the same helper writes
   ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)): `labelled` with its age, `NOT LABELLED` with the class
   of failure, `not labelled` for a host with no entrypoint to label (the SELinux layer inactive, or an agent
-  the toolchain has not provisioned), or `?` where no reconciliation has been recorded. Only a recorded failure counts
-  toward the exit status, since it is the one state that stops the next launch.
+  the toolchain has not provisioned), or `?` where no reconciliation has been recorded or this account cannot read
+  the record, as for the pin. A recorded failure counts toward the exit status, since it is the one state that stops
+  the next launch. So does a `labelled` record that carries a reason: the file-context database maps a name
+  of the entrypoint to another type, or its names could not be read, and a relabel of the whole host can leave
+  the entrypoint on that type. The line under it names the reconcile command, which prints each name.
 
   **One reason token is read rather than printed**, and it is the one whose remedy differs in kind: `incomplete-package`
   says the agent's package does not hold the executable its manifest declares, which no relabel can supply, so the line
@@ -458,13 +467,14 @@ being the authoritative one.
   and verdict: whether `ai_tools_t` is a permissive domain and each Boolean that widens it
   ([confinement](confinement.rule.md) states the set and the refusals). An unconfined caller can make the read without
   privilege, so the two vantages read it alike. A finding counts toward the exit status only
-  where `AI_TOOLS_REQUIRE_SELINUX` is set, since only then does it refuse a launch. Each Boolean row names the value
-  a launch requires and whether that requirement is in force there (`launch blocked`) or not (`not enforced`), a row
-  whose rules are shut names what it would allow once opened, and every value keeps normal contrast whichever it reads:
-  `off` is a reading, not a disabled control. A host without SELinux confinement by its own configuration — SELinux
-  disabled, or the policy neither live nor on disk, read through the shim's own predicate — has no domain to attest,
-  and is a finding under that key alone, since there every launch runs DAC-only and warns; the line names the setting
-  that declares the host so and the package that installs confinement.
+  where `AI_TOOLS_REQUIRE_SELINUX` is set, since only then does it refuse a launch. A module reading that could not be
+  made is reported and counted under the same rule, so a host whose launches refuse on it does not read clean. Each
+  Boolean row names the value a launch requires and whether that requirement is in force there (`launch blocked`) or not
+  (`not enforced`), a row whose rules are shut names what it would allow once opened, and every value keeps normal
+  contrast whichever it reads: `off` is a reading, not a disabled control. A host without SELinux confinement by its own
+  configuration — SELinux disabled, or the policy neither live nor on disk, read through the shim's own predicate — has
+  no domain to attest, and is a finding under that key alone, since there every launch refuses; the line names
+  the refusal's code, the setting that declares the host DAC-only and the package that installs confinement.
 
   **The unit that does the labelling is reported too, and answers a different question.** `ai-tools-relabel.service` is
   in the registry beside the `.path` that triggers it, because a healthy watcher says only that a run *started* —
@@ -476,9 +486,13 @@ being the authoritative one.
   covers a watcher run that failed before it reached any labelling at all.
 
   Every command for such a unit goes through root, and the CLI composes them rather than the registry storing them: each
-  names the sandbox **account**, and `services.lib.sh` is deployed with no `@SANDBOX_USER@` substitution. Status
-  and restart use the **machine transport**, which reaches that manager over the system bus where root is authorized,
-  where a plain `sudo -u` gets its own bus refused (`services.lib.sh`'s header). The journal query cannot use either:
+  names the sandbox **account**, and `services.lib.sh` is deployed with no `@SANDBOX_USER@` substitution. Status,
+  reset-failed and restart use the **machine transport**, which reaches that manager over the system bus where root is
+  authorized, where a plain `sudo -u` gets its own bus refused (`services.lib.sh`'s header). The reset precedes
+  the restart, since a unit that spent its start limit refuses every start until it is reset. Where the live reading
+  of that manager can be made — a root caller — and it reports the unit file changed since it was loaded, the remedy
+  line names that manager's `daemon-reload` ahead of both (`ai_tools_services__read_remedy`). The journal query cannot
+  use either:
   `journalctl --user-unit` as root reads **root's** user units, so the unit is selected by the journal fields instead
   (`sudo journalctl _SYSTEMD_USER_UNIT=<unit> _UID=<sandbox uid>`), which ANDs across the two field names and catches
   both the unit's own output and the `systemd-cat` lines its script emits.
@@ -584,13 +598,18 @@ The pin comparison is the reading that answers *now* rather than *then*: `status
 recorded, so a binary changed since — by an out-of-band `npm install`, or by anything else writing that tree — is named
 here without running the reconcile, and it is named even where no reconciliation has run over that agent at all.
 The verdict is `ai_tools_entrypoint_verify__check`'s, so this report and the launch cannot disagree
-about what a mismatch is.
+about what a mismatch is. An entrypoint it could not hash is `UNREADABLE`, a reading the report promises and did not
+make, and the pin's own fields do not render as verified over it; a stale mark beside a binary that matches its pin,
+or beside no pin, is reported as a finding that stands, with what the launch reads now.
 
 The label reading is the one no other command gives. `status` reports what the last reconciliation *achieved*, an event
 that may be hours old; `ai_tools_relabel__list_agent_labels` reports the type each path carries **now**, so a label
 that drifted since — an out-of-band `restorecon`, a package that reinstalled the binary — is visible without running
 the reconcile. It is **read-only**, which is what makes it safe to call from a report, and its whole difference
-from `ai_tools_relabel__label_agent_paths`; that function's header states which calls each one makes.
+from `ai_tools_relabel__label_agent_paths`; that function's header states which calls each one makes. It also reads
+the names of the inode a session execs and reports one the file-context database maps to another type (`UNMAPPED`,
+counted, and `NOT LABELLED` where it is the entrypoint's own path, the mapping the launch preflight reads), the live
+form of the reason the label record carries ([ref-section-j9w8](updater.rule.md#ref-section-j9w8)).
 
 **The sandbox unit search path is a section of its own, because only root can read it.** A chain directory that exists
 at another owner or mode is `DRIFTED` and counts, with `atr admin system layout reconcile` as the remedy line, since
@@ -1360,8 +1379,8 @@ A clone that fails step 5, 6 or 7 stays registered and opened, is reported not r
 and exits 1. A registry line the writer cannot write back refuses the clone ahead of the branch push (`MSG-A5Y2`), since
 the registry write follows the push and the clone. A declined or failed gate, and a label the clone root does not take,
 **fail closed**: the clone stays on disk, private and unregistered, and the resume command is printed. A host
-where SELinux runs with no `ai_tools` policy, the DAC-only state the launch proceeds
-through (`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
+where SELinux runs with no `ai_tools` policy, a DAC-only state
+(`ai_tools_confinement__evaluate_dac_only_state`), creates the clone unlabelled and says so, since the type does
 not exist there; a module shipped and not loaded, and a reading that cannot be made, keep the stop. A declined or failed
 gate also leaves a guard `CLAUDE.md` (sentinel `ai-tools-lockdown-guard`) telling the agent to wait until the lockdown
 runs, with a real `CLAUDE.md` preserved by `git mv` to `CLAUDE.md.bak`. Re-running `projects clone` on the clone path
@@ -1524,6 +1543,39 @@ of the run's first prompt ([The caller with no sudo grant](#the-caller-with-no-s
 that writes the filesystem rides the same axis through the runas seam ([The runas
 seam](#the-runas-seam-and-why-it-needs-a-grant---for-alone-does-not)). `projects create` and `projects remove` add no
 helper and no sudoers rule.
+
+### How a root helper starts <a id="ref-section-g7c8"></a>
+
+Every file under `/usr/local/libexec/ai-tools` and every contributed command under `admin-commands.d` fixes where its
+interpreter and its commands are found, so neither follows the `PATH` its caller holds. A shell helper opens
+with `#!/usr/bin/bash -p`, and its first statements after the `set` line are `PATH=/usr/sbin:/usr/bin:/sbin:/bin`
+and `export PATH`. The interpreter path is what makes the `PATH` lines hold: `#!/usr/bin/env bash` finds `bash`
+through the caller's `PATH` before the first line of the script runs. `-p` starts bash in privileged mode, which does
+not read `BASH_ENV` or `ENV`, does not import a function from the environment, and ignores `SHELLOPTS`, `BASHOPTS`,
+`CDPATH` and `GLOBIGNORE` there. The value is the set sudoers' `secure_path` names on stock EL, so a helper reached
+through `sudo` runs as it did under that setting, and one a unit or the handback daemon starts loses `/usr/local/sbin`
+and `/usr/local/bin`. This project installs no command there that a helper runs by name, and a host tool installed there
+alone, `meld` for the post-upgrade merge or a `dotnet` outside the distribution's package, is not found on either route.
+
+The lines are written out in each helper and not loaded: a library is a file to find before the `PATH` is set,
+and `ai-tools-stop` requires none ([ref-section-e8k5](stop.rule.md#ref-section-e8k5)). The confinement shim
+and the updater under `/opt/ai-tools/bin` run as the sandbox account and start the same way, the updater with its unit's
+`PATH` ([launch](launch.rule.md), [updater](updater.rule.md)). `tests/unit/startup-path.sh` reads each of those
+directories by its listing and fails a file without the lines ([tests](tests.rule.md)).
+
+`ai-tools-relabel-tree` opens with `#!/usr/bin/python3 -I`: isolated mode ignores the `PYTHON*` variables and leaves
+the script's directory and the user site directory off the import path. `ai-tools-handback` opens
+with `#!/usr/bin/python3` alone, since its unit sets the `PYTHON*` variables it runs under and isolated mode ignores
+them ([handback-bridge](handback-bridge.rule.md)).
+
+Who reaches the state the lines cover: `sudo` hands a helper `secure_path` and a reset environment by default,
+and systemd hands a unit its own, so the lines decide on a host whose sudoers leaves the caller's `PATH` in place,
+and for root running a helper from its own shell. The sandbox account reaches a root helper through the handback socket
+alone: it does not hold a sudo rule ([ref-list-b6z9](../../CLAUDE.md#ref-list-b6z9)), and the daemon starts the helper
+a verb names with the one argument it validated, under the environment of its own unit
+([handback-bridge](handback-bridge.rule.md)). The start has limits: a privileged-mode shell still hands an exported
+function and `BASH_ENV` to a `bash` child it starts, and no root helper starts one as root; and the variables
+the dynamic loader reads act before the interpreter runs, which `sudo` removes and a root caller sets for itself.
 
 ## Secret pre-check on claim/clone <a id="ref-section-u5h3"></a>
 

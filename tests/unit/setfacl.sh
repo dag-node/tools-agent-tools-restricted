@@ -67,10 +67,10 @@ fi
 
 setsid "${HELPER}" "${proj}" < /dev/null > /dev/null 2>&1 || true
 
-g()  { getfacl -p "$1" 2>/dev/null | grep -qE "^group:${SANDBOX_GROUP}:"; }
-dg() { getfacl -p "$1" 2>/dev/null | grep -qE "^default:group:${SANDBOX_GROUP}:"; }
-u()  { getfacl -p "$1" 2>/dev/null | grep -qE "^user:${PROJECTS_USER}:"; }
-du() { getfacl -p "$1" 2>/dev/null | grep -qE "^default:user:${PROJECTS_USER}:"; }
+g()  { grep -qE "^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "$1" 2>/dev/null)"; }
+dg() { grep -qE "^default:group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "$1" 2>/dev/null)"; }
+u()  { grep -qE "^user:${PROJECTS_USER}:" <<<"$(getfacl -p "$1" 2>/dev/null)"; }
+du() { grep -qE "^default:user:${PROJECTS_USER}:" <<<"$(getfacl -p "$1" 2>/dev/null)"; }
 
 # (A) project root carries the default ACL (group rwX + other denied).
 droot="$(getfacl -p "${proj}" 2>/dev/null)"
@@ -121,7 +121,7 @@ else
 fi
 
 # (A4) stray other-access stripped.
-if getfacl -p "${proj}/world" 2>/dev/null | grep -qE '^other::---'; then
+if grep -qE '^other::---' <<<"$(getfacl -p "${proj}/world" 2>/dev/null)"; then
     pass "stray other-access is stripped from existing files"
 else
     fail "other access not stripped: $(stat -c '%A' "${proj}/world")"
@@ -204,14 +204,14 @@ if id nobody >/dev/null 2>&1; then
     chmod 0640 "${share}/.git/HEAD" "${share}/.git/objects/o"
     setfacl -m "g:${third_group}:rwx,d:g:${third_group}:rwx" "${share}"
     mk_allowlist "@ ${share}"
-    third() { getfacl -R -p "$1" 2>/dev/null | grep -qE "^(default:)?group:${third_group}:"; }
+    third() { grep -qE "^(default:)?group:${third_group}:" <<<"$(getfacl -R -p "$1" 2>/dev/null)"; }
     if third "${share}" && ! third "${share}/.git"; then
         pass "control: the root carries the named group and the stripped .git does not"
     else
         fail "fixture: the root's named group or the .git strip is not as set"
     fi
     setsid "${HELPER}" --with-git "${share}" < /dev/null > /dev/null 2>&1 || true
-    if getfacl -p "${share}/.git/HEAD" 2>/dev/null | grep -qE "^group:${SANDBOX_GROUP}:rw"; then
+    if grep -qE "^group:${SANDBOX_GROUP}:rw" <<<"$(getfacl -p "${share}/.git/HEAD" 2>/dev/null)"; then
         pass "the accepted share gives .git the sandbox group's entry"
     else
         fail "the accepted share did not give .git/HEAD the sandbox group's entry: $(getfacl -p "${share}/.git/HEAD" 2>/dev/null | tr '\n' ' ')"
@@ -262,7 +262,7 @@ chmod 0750 "${proj2}"; chmod 0640 "${proj2}/plain.txt"
 mkdir -p "${TESTDIR}/patterns-dir"
 rc=0
 err="$(AI_TOOLS_SECRET_PATTERNS_FILE="${TESTDIR}/patterns-dir" setsid "${HELPER}" "${proj2}" < /dev/null 2>&1 >/dev/null)" || rc=$?
-if (( rc == 3 )) && ! getfacl -p "${proj2}/plain.txt" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; then
+if (( rc == 3 )) && ! grep -q "^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "${proj2}/plain.txt" 2>/dev/null)"; then
     pass "an unreadable secret-patterns file refuses the grant (exit 3) and leaves the tree without an ACL"
 else
     fail "an unreadable secret-patterns file: rc=${rc} (want 3), ACL: $(getfacl -p "${proj2}/plain.txt" 2>/dev/null | tr '\n' ' ')"
@@ -297,7 +297,7 @@ drive_safe_setfacl() {
         _safe_setfacl "$1"
     )
 }
-has_group_acl() { getfacl -p "$1" 2>/dev/null | grep -q "^group:${SANDBOX_GROUP}:"; }
+has_group_acl() { grep -q "^group:${SANDBOX_GROUP}:" <<<"$(getfacl -p "$1" 2>/dev/null)"; }
 rc=0; drive_safe_setfacl "${pin_proj}/real" || rc=$?
 if (( rc == 0 )) && has_group_acl "${pin_proj}/real"; then
     pass "control: the extracted function grants the ACL on a directory at its real path"
@@ -352,7 +352,7 @@ setfacl -m "d:group::rwx,d:user:${PROJECTS_USER}:rwx,d:group:${SANDBOX_GROUP}:rw
 chmod 0640 "${ps}/inherited/data" "${ps}/plain/data"; chmod 0750 "${ps}/plain/tool"
 chmod 0444 "${ps}/plain/readonly" "${ps}/inherited/readonly"; chmod 0550 "${ps}/plain/rodir"
 chown -R "${PROJECTS_USER}:${PROJECTS_GROUP}" "${ps}"
-if getfacl -p "${ps}/inherited/data" 2>/dev/null | grep -qx "group::rwx[[:space:]]*#effective:r--"; then
+if grep -qx "group::rwx[[:space:]]*#effective:r--" <<<"$(getfacl -p "${ps}/inherited/data" 2>/dev/null)"; then
     pass "fixture: the file under the default ACL inherits group::rwx under a r-- mask"
 else
     fail "fixture: ${ps}/inherited/data did not inherit group::rwx under a r-- mask -- the cases below are not evidence: $(getfacl -p "${ps}/inherited/data" 2>/dev/null | tr '\n' ' ')"

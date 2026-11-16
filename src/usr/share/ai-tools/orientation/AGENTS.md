@@ -1,6 +1,6 @@
 <!--
 x-ai-tools-managed: true
-x-ai-tools-version: 5
+x-ai-tools-version: 6
 -->
 
 # Sandbox boundaries
@@ -18,8 +18,8 @@ not a broken environment. These are boundaries sessions have repeatedly misdiagn
 - Scripts in a project or in `/tmp` may not execute directly. Invoke the interpreter: `bash <script>`,
   `python3 <script>`.
 - Project files you create become operator-owned during the session. ACLs preserve your read/write access;
-  `chmod`/`chown` on them then fail. Executable-mode changes are the operator's: surface the `chmod +x <path>` that is
-  needed, and do not record it with `git update-index --chmod=+x`.
+  `chmod`/`chown` on them then fail. Executable-mode changes are the operator's: do not set an execute bit, by `chmod`
+  while the file is still yours or by `git update-index --chmod=+x`, and surface the `chmod ug+x <path>` that is needed.
 - Do not use `sed -i` in a project: it fails there with "couldn't open temporary file", though the file itself is
   writable. Edit with your own file-editing tool, `perl -pi -e`, or a `python3` rewrite.
 - Create a file inside the project rather than moving it in from `/tmp` or your home: a moved-in file keeps the SELinux

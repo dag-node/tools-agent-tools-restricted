@@ -1451,10 +1451,10 @@ reg_filemode() {
 # perpetually re-prompt for a step that cannot run. Mirrors the dir_owngap / read_project_state "na when unavailable"
 # convention.
 acl_gap() {
-    local dir="$1"
+    local dir="$1" acl
     command -v getfacl >/dev/null 2>&1 || return 1
-    getfacl -p "${dir}" 2>/dev/null \
-        | grep -qE "^default:group:${SANDBOX_GROUP}:" && return 1
+    acl="$(getfacl -p "${dir}" 2>/dev/null)" || acl=""
+    grep -qE "^default:group:${SANDBOX_GROUP}:" <<<"${acl}" && return 1
     return 0
 }
 
@@ -1466,15 +1466,15 @@ acl_gap() {
 # normalizing .git is opt-in (the operator is asked, default yes), so this only DETECTS the gap; cmd_project_claim
 # decides.
 git_gap() {
-    local dir="$1" grp mode
+    local dir="$1" grp mode acl
     [[ -d "${dir}/.git" ]] || return 1
     command -v getfacl >/dev/null 2>&1 || return 1
     # IFS pinned (see join_words).
     IFS=' ' read -r grp mode < <(stat -c '%G %a' "${dir}/.git" 2>/dev/null) || return 1
-    [[ "${grp}" == "${SANDBOX_GROUP}" ]] \
-        && (( (0${mode} & 02000) != 0 )) \
-        && getfacl -p "${dir}/.git" 2>/dev/null | grep -qE "^default:group:${SANDBOX_GROUP}:" \
-        && return 1
+    if [[ "${grp}" == "${SANDBOX_GROUP}" ]] && (( (0${mode} & 02000) != 0 )); then
+        acl="$(getfacl -p "${dir}/.git" 2>/dev/null)" || acl=""
+        grep -qE "^default:group:${SANDBOX_GROUP}:" <<<"${acl}" && return 1
+    fi
     return 0
 }
 
@@ -2105,7 +2105,8 @@ clone_access_ready() {
 #
 # Where SELinux runs and no ai_tools policy is on the host, ai_tools_project_t does not exist to read the clone
 # with, so it returns 0 and says the clone is unlabelled: that reading is
-# ai_tools_confinement__evaluate_dac_only_state's `module-absent`, the state ai-tools-run launches through. Every other
+# ai_tools_confinement__evaluate_dac_only_state's `module-absent`, where a launch runs DAC-only under
+# AI_TOOLS_REQUIRE_SELINUX=no and refuses under the requirement. Every other
 # reading keeps the restorecon and the stop -- a module shipped and not loaded, a matchpathcon that could not be read,
 # a confinement library that did not load. The line names the policy install, which labels the clone area, since
 # a resume does not label a clone already opened.
@@ -2356,7 +2357,7 @@ check_safedir_entry() {
 # fact mirrored from the root labelling lib; the authoritative semanage/restorecon logic is NOT duplicated here.
 read_project_tree_state() {
     local dir="$1" filemode=na owngap=true acl=false labelled=na git=false
-    local toplevel
+    local toplevel context
     if [[ ! -x "${dir}" ]]; then
         filemode=unknown
     elif [[ -e "${dir}/.git" || -L "${dir}/.git" ]]; then
@@ -2380,7 +2381,8 @@ read_project_tree_state() {
     dir_owngap "${dir}" || owngap=false
     acl_gap "${dir}" && acl=true
     if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]]; then
-        if ls -Zd "${dir}" 2>/dev/null | grep -q ':ai_tools_project_t:'; then
+        context="$(ls -Zd "${dir}" 2>/dev/null)" || context=""
+        if [[ "${context}" == *:ai_tools_project_t:* ]]; then
             labelled=true
         else
             labelled=false
@@ -2562,7 +2564,8 @@ claim_load_libraries() {
     # shellcheck source=SCRIPTDIR/../lib/ai-tools/project-permissions.lib.sh
     ${loaded} && { source "${PROJECT_PERMISSIONS_LIB}" 2>/dev/null || loaded=false; }
     for function in ai_tools_records_base__begin_report ai_tools_records_base__accumulate_severity \
-            ai_tools_records_base__get_exit_status ai_tools_records_tsv__write_record \
+            ai_tools_records_base__get_exit_status ai_tools_records_base__read_collector \
+            ai_tools_records_tsv__write_record \
             ai_tools_records_tsv__frame_item_components ai_tools_project_permissions__check_label_batch \
             ai_tools_project_permissions__check_label ai_tools_project_permissions__read_lstat_outcomes \
             ai_tools_project_permissions__check_group ai_tools_project_permissions__find_paths_with_narrow_acl_entries; do
@@ -3132,7 +3135,8 @@ inspect_write_tree_records() {
 
 # claim_run_inspect <stdin-file> [<option>...]  -- run the owner-side read of the claim's <d> (dynamic scope) as its
 # owner, with <stdin-file> as its input, printing its stream. The path follows `--`, so a path spelled `-h` reaches
-# the child as a path and the help resolution does not read it as a flag.
+# the child as a path and the help resolution does not read it as a flag. The claim reads it as a collector
+# (records.rule.md), so it may run again with the same input file, and a `sudo` that asks on every call asks again.
 claim_run_inspect() {
     local input="$1"; shift
     run_as_owner "${SELF_PATH}" projects inspect "$@" -- "${d}" < "${input}"
@@ -3148,8 +3152,8 @@ claim_run_inspect() {
 # set, or a scan the child's contract runs is missing or repeated; the claim then stops before any write.
 INSPECT_FAILURE=""
 claim_read_owner_inspection() {
-    local listed="$1" fd pid status=0 line exclusion encoded failure=""
-    local -a options=() fields=()
+    local listed="$1" status=0 line exclusion encoded failure=""
+    local -a options=() fields=() inspect_lines=()
     local -A state_seen=() scan_seen=()
     INSPECT_FAILURE=""
     if [[ -z "${SELF_PATH}" ]]; then
@@ -3165,8 +3169,9 @@ claim_read_owner_inspection() {
         INSPECT_FAILURE="the registry's exclusions could not be written for projects inspect"
         return 1
     fi
-    exec {fd}< <(claim_run_inspect "${CLAIM_WORK}/inspect.in" "${options[@]+"${options[@]}"}"); pid=$!
-    while IFS= read -r line <&"${fd}" || [[ -n "${line}" ]]; do
+    ai_tools_records_base__read_collector inspect_lines status claim_run_inspect "${CLAIM_WORK}/inspect.in" \
+        "${options[@]+"${options[@]}"}"
+    for line in "${inspect_lines[@]}"; do
         [[ -z "${failure}" ]] || continue
         if ! inspect_parse_record "${line}" fields; then
             failure="a record of projects inspect did not decode"
@@ -3174,8 +3179,6 @@ claim_read_owner_inspection() {
         fi
         claim_apply_inspect_record || failure="projects inspect printed a record the claim does not read"
     done
-    exec {fd}<&-
-    wait "${pid}" || status=$?
     if (( status )); then
         INSPECT_FAILURE="projects inspect exited ${status}"
         return 1
@@ -3291,8 +3294,8 @@ claim_apply_inspect_record() {
 claim_read_owner_verification() {
     local -n _owner_label_outcomes="$1" _owner_group_outcomes="$2" _owner_group_details="$3" _owner_group_present="$4"
     local -n _owner_narrow_acl_outcomes="$5" _owner_narrow_acl_details="$6"
-    local fd pid status=0 line path encoded failure="" index
-    local -a fields=()
+    local status=0 line path encoded failure="" index
+    local -a fields=() verify_lines=()
     local -A label_outcome_by_path=() group_outcome_by_path=() group_detail_by_path=() group_present_by_path=()
     local -A narrow_acl_outcome_by_path=() narrow_acl_detail_by_path=()
     _owner_label_outcomes=() _owner_group_outcomes=() _owner_group_details=() _owner_group_present=()
@@ -3313,8 +3316,8 @@ claim_read_owner_verification() {
              done ) > "${CLAIM_WORK}/verify.in" 2>/dev/null; then
         failure="the drifted paths could not be written for projects inspect --verify"
     else
-        exec {fd}< <(claim_run_inspect "${CLAIM_WORK}/verify.in" --verify); pid=$!
-        while IFS= read -r line <&"${fd}" || [[ -n "${line}" ]]; do
+        ai_tools_records_base__read_collector verify_lines status claim_run_inspect "${CLAIM_WORK}/verify.in" --verify
+        for line in "${verify_lines[@]}"; do
             [[ -z "${failure}" ]] || continue
             if ! inspect_parse_record "${line}" fields || (( ${#fields[@]} != 6 )) || [[ "${fields[0]}" != verify ]]; then
                 failure="a record of projects inspect --verify did not decode"
@@ -3334,8 +3337,6 @@ claim_read_owner_verification() {
                 *) failure="projects inspect --verify printed a kind the claim does not read" ;;
             esac
         done
-        exec {fd}<&-
-        wait "${pid}" || status=$?
         (( status == 0 )) || failure="projects inspect --verify exited ${status}"
     fi
     # A failed pass trusts none of its outcomes, since a stream cut short or corrupted cannot say which of them are
@@ -4302,7 +4303,8 @@ discover_project() {
             return 0
         fi
         if [[ "${CLASS_STATE}" == excluded && "${CLASS_BLOCKED}" == - ]]; then
-            CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
+            CLASS_BLOCKED="$(list_lines_naming "${d}")"
+            CLASS_BLOCKED="${CLASS_BLOCKED%%$'\n'*}" CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
         fi
         if [[ "${CLASS_BLOCKED}" != - ]]; then
             root=""
@@ -4334,7 +4336,8 @@ require_reachable_target() {
                 "Re-enable it first:" \
                 "       $(format_projects_command enable "${d}")" ;;
         excluded)
-            CLASS_BLOCKED="$(list_lines_naming "${d}" | head -n 1)"; CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
+            CLASS_BLOCKED="$(list_lines_naming "${d}")"
+            CLASS_BLOCKED="${CLASS_BLOCKED%%$'\n'*}" CLASS_BLOCKED_KIND=excluded CLASS_BLOCKED_PATH="${d}"
             die_blocked "${d}" "${verb}" ;;
         enabled|inside)
             is_class_reachable && return 0
@@ -4507,7 +4510,7 @@ unclaim_one() {
 undeletable_scan() {
     local d="$1"
     run_as_owner find "${d}" -xdev -type d '(' -not -writable -o -not -executable ')' \
-        -print 2>/dev/null | head -n 50
+        -print 2>/dev/null | awk 'NR <= 50' || true
 }
 
 # residue_scan <dir>  -- fill RESIDUE and RESIDUE_SKIPPED with every path under <dir> that still carries ai-tools
@@ -5000,8 +5003,8 @@ die_remove_incomplete() {
 # A project's authorization is an EXACT registry entry, enabled or disabled; a clone's is its place, its owner and its
 # shape (remove_clone). The verb does not take `--force`. Teardown in either kind is registries first, deletion last,
 # so a failed deletion leaves an unregistered tree, and the filesystem hand-back is not run over files about to be
-# deleted (cli.rule.md, ref-section-k3v7). `-y` pre-answers the default-NO confirm of either kind and the in-place
-# kind's typed-name challenge; the clone kind does not ask for a typed name.
+# deleted (cli.rule.md, ref-section-k3v7). `-y` pre-answers both questions of either kind: the default-NO confirm
+# and the typed-name challenge.
 cmd_project_remove() {
     local a path="" assume_yes=false
     local -a remedy=()
@@ -5408,11 +5411,12 @@ cmd_project_clone() {
     cur="$(git -C "${top}" symbolic-ref --short HEAD 2>/dev/null)" \
         || die "repository is in detached HEAD; check out a branch first: ${top}"
 
-    local remote
-    if git -C "${top}" remote | grep -qx "origin"; then
+    local remote remotes
+    remotes="$(git -C "${top}" remote)" || remotes=""
+    if grep -qx "origin" <<<"${remotes}"; then
         remote="origin"
     else
-        remote="$(git -C "${top}" remote | head -1)"
+        remote="${remotes%%$'\n'*}"
     fi
     [[ -n "${remote}" ]] || die "repository has no remote; the sandbox workflow needs one: ${top}"
     local remote_url; remote_url="$(git -C "${top}" remote get-url "${remote}")"
@@ -5580,21 +5584,26 @@ report_cwd_in_removed_tree() {
 # lines go with it. Teardown takes the in-place kind's order: the registry entry, the safe.directory entry, then
 # the tree. The registry step is first and fatal, so a de-list that does not apply (MSG-K8S2) leaves the clone as it
 # was: on disk, registered and trusted, and a deletion that does not complete leaves an unregistered tree. <assume-yes>
-# true pre-answers the one default-NO confirm, and <cwd> is the canonical current directory read before the deletion.
-# The remote branch is left intact. No git read is made over the clone (cmd_project_remove states why), so a line ahead
-# of the confirm states what an unpushed commit meets instead of counting them. The registry record is read
-# for what a failed deletion's warning names alone: whether the clone had an entry of its own and which entry still
-# covers it; the authorization stays require_sandbox_clone_shape.
+# true pre-answers the confirm and the typed-name challenge, and <cwd> is the canonical current directory read
+# before the deletion. No git read is made over the clone (cmd_project_remove states why), so the warning ahead
+# of the confirm states what an unpushed commit and an uncommitted change meet instead of counting them. The registry
+# record is read for what a failed deletion's warning names alone: whether the clone had an entry of its own
+# and which entry still covers it; the authorization stays require_sandbox_clone_shape.
 remove_clone() {
     local d="$1" assume_yes="$2" cwd_real="$3" own_entry=none covering_entry
     require_sandbox_clone_shape "${d}"
     read_path_class "${d}"
     [[ "${CLASS_STATE}" != enabled && "${CLASS_STATE}" != disabled ]] || own_entry=removed
     covering_entry="$(get_covering_entry)"
-    section "Remove sandbox project"
-    say "  ${d}"
-    say "  a commit not yet pushed is deleted with the clone; already-pushed work stays on the remote"
-    ${assume_yes} || confirm "Unregister ${d} and remove it?" n || die "aborted"
+    # The tree may be a clone or a project `projects create` made in the clone area, and the verb does not read
+    # the repository, so the warning names what either loses.
+    headline_warn "WARNING: this deletes the sandbox project directory" \
+        "${d} and everything in it is deleted. This is NOT reversible: there is no undo, and the tree is not moved to a trash location. Commits not yet pushed and uncommitted changes go with it, and this command does not read the repository to count them; work already pushed to a remote stays there."
+    if ! ${assume_yes}; then
+        confirm "Delete this sandbox project directory and everything in it?" n || die "aborted"
+        ai_tools_msg__challenge "  Confirm the project to delete" "${d##*/}" \
+            || die "aborted -- the name did not match"
+    fi
 
     unreg_allow "${d}"
     # `|| true`: a safe.directory entry that could not be removed is a stale line the listing reports, and not
@@ -5609,7 +5618,6 @@ remove_clone() {
     ok "removed ${d} and unregistered it"
     ai_tools_log__structured info "removed sandbox ${d} and unregistered it" \
         "AI_TOOLS_PROJECT=${d}" "AI_TOOLS_RESULT=ok"
-    say "  ${C_DIM}remote branch left intact -- others may still merge it${C_RST}"
     report_cwd_in_removed_tree "${d}" "${cwd_real}"
 }
 
@@ -6068,7 +6076,7 @@ status_fmt_age() {
     ai_tools_services__format_age "${1:-}"
 }
 
-# status_sandbox_unit_commands <unit>  -- print the three commands that inspect and re-run a unit
+# status_sandbox_unit_commands <unit> [remedy]  -- print the commands that inspect and re-run a unit
 # living in the SANDBOX account's own `systemd --user` manager. That manager is unreachable from
 # the operator's session, so every one of them goes through root:
 #   * status/restart use the MACHINE transport (systemctl --user -M <account>@.host), which reaches
@@ -6080,15 +6088,21 @@ status_fmt_age() {
 #     _SYSTEMD_USER_UNIT and narrowed to the sandbox account by _UID (different field names AND
 #     together). This catches the unit's own output and the `systemd-cat` lines its script emits,
 #     since both are logged from the same cgroup.
+#   * reset-failed precedes the restart: a unit whose retries spent its start limit refuses every
+#     start until it is reset, and the reset is a no-op on a unit that has not failed.
+# [remedy] is ai_tools_services__read_remedy's line for the record, printed ahead of the restart:
+# where it names a daemon-reload, a restart before it runs the unit text the manager holds.
 # Composed here rather than stored in services.lib.sh because each names the sandbox account, and
 # that library is deployed with no @SANDBOX_USER@ substitution.
 status_sandbox_unit_commands() {
-    local unit="$1" uid
+    local unit="$1" remedy_line="${2:-}" uid
     uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
     say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host status ${unit}${C_RST}"
     if [[ -n "${uid}" ]]; then
         say "      ${C_BOLD}sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager${C_RST}"
     fi
+    [[ -z "${remedy_line}" ]] || say "      ${C_BOLD}${remedy_line}${C_RST}"
+    say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host reset-failed ${unit}${C_RST}"
     say "      ${C_BOLD}sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}${C_RST}"
 }
 
@@ -6181,6 +6195,19 @@ status_path_order() {
     return 0
 }
 
+# status_is_record_readable <record> -- whether this account can read <record>, or confirm it absent. `-e` is false
+# for an absent record and for one under a directory the caller cannot search, and ai-tools-records(5) keeps the two
+# apart: the first is a host with no record, the second a reading this vantage cannot make, `?`. The entrypoint records
+# sit under the state root, which a non-operator cannot traverse, so without this split a non-operator's `status` reads
+# every pin as absent. Walks from the record's directory to its nearest existing ancestor: when this account can search
+# that ancestor, every entry under it can be listed, so the record is present and readable or confirmed absent.
+status_is_record_readable() {
+    local dir="${1%/*}"
+    while [[ -n "${dir}" && ! -e "${dir}" ]]; do dir="${dir%/*}"; done
+    [[ -x "${dir:-/}" ]] || return 1
+    [[ ! -e "$1" || -r "$1" ]]
+}
+
 status_entrypoint_pins() {
     local providers_lib=/usr/local/lib/ai-tools/providers.lib.sh
     local verify_lib=/usr/local/lib/ai-tools/entrypoint-verify.lib.sh
@@ -6211,7 +6238,7 @@ status_entrypoint_pins() {
     ai_tools_entrypoint_verify__is_required && strict=yes
 
     local agent pin version verified age kind seen=0 blocking=0 mislabelled=0 stale=0 unreadable=0 label_status
-    local label_record unpinned
+    local label_record unpinned pin_readable
     while IFS=$'\t' read -r agent _ _; do
         [[ -n "${agent}" ]] || continue
         # An agent whose package declares no release manifest has no published checksum to verify against. Root records
@@ -6219,29 +6246,36 @@ status_entrypoint_pins() {
         # where the operator required verification, since its launch is refused until a reconcile records the pin,
         # and where a label record exists: ai-tools-relabel-agent files a label outcome for every enabled agent, one it
         # could not pin included, and a failed one stops that agent's launch. With neither, there is nothing
-        # yet to report.
+        # yet to report. A pin this account cannot read is decided as neither: `-e` is false for an absent pin
+        # and for one under a directory this account cannot search, and only the first is a host with no pin.
         pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
         unpinned=""
+        pin_readable=yes
+        status_is_record_readable "${pin}" || pin_readable=""
         if [[ -z "$(ai_tools_providers__read_agent_manifest_field "${agent}" release_manifest_url 2>/dev/null || true)" \
-              && ! -e "${pin}" ]]; then
+              && -n "${pin_readable}" && ! -e "${pin}" ]]; then
             label_record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
             [[ "${strict}" == yes || ( -n "${label_record}" && -e "${label_record}" ) ]] || continue
             unpinned=yes
         fi
         (( seen++ == 0 )) && section "Entrypoint verification"
         version="$(ai_tools_services__read_stamp_field "${pin}" VERSION)"
-        # Read BEFORE the pin's own fields, and reported in place of them. A reconciliation that refused to re-record
-        # leaves the pin exactly as it was -- that staleness is what makes the next launch refuse -- so the pin still
-        # carries a version and a date and would otherwise render as a fresh, successful verification beside the line
-        # saying it no longer describes the installed binary.
-        if [[ -n "${unpinned}" && "${strict}" == yes ]]; then
+        if [[ -z "${pin_readable}" ]]; then
+            # Not a fault: `status` stays open to a non-operator, whom the state directory's mode keeps out. It says
+            # only that this vantage has no reading to give, and does not count toward the exit status.
+            printf '  %-28s %s? (pin not readable from this account)%s\n' "${agent}" "${C_DIM}" "${C_RST}"
+        # The stale mark is read BEFORE the pin's own fields, and reported in place of them. A reconciliation
+        # that refused to re-record leaves the pin exactly as it was -- that staleness is what makes the next launch
+        # refuse -- so the pin still carries a version and a date and would otherwise render as a fresh, successful
+        # verification beside the line saying it no longer describes the installed binary.
+        elif [[ -n "${unpinned}" && "${strict}" == yes ]]; then
             blocking=$(( blocking + 1 ))
             printf '  %-28s %sUNVERIFIED%s %s(no pin recorded)%s\n' "${agent}" "${C_YEL}" "${C_RST}" "${C_DIM}" "${C_RST}"
             say "      this host requires verification, so its sessions will not launch"
             say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(records the entrypoint as installed)${C_RST}"
         elif [[ -n "${unpinned}" ]]; then
             printf '  %-28s %sno pin recorded%s\n' "${agent}" "${C_DIM}" "${C_RST}"
-        elif status_entrypoint_stale "${agent}"; then
+        elif status_entrypoint_stale "${agent}" "${strict}"; then
             stale=$(( stale + 1 ))
         elif [[ -n "${version}" ]]; then
             verified="$(ai_tools_services__read_stamp_age "${pin}" VERIFIED)"
@@ -6258,10 +6292,6 @@ status_entrypoint_pins() {
                 printf '  %-28s %sVERIFIED%s %s(%s%s)%s\n' "${agent}" "${C_GRN}" "${C_RST}" \
                     "${C_DIM}" "${version}" "${age:+, ${age}}" "${C_RST}"
             fi
-        elif [[ -e "${pin}" && ! -r "${pin}" ]]; then
-            # Not a fault: `status` stays open to a non-operator, whom the state directory's mode keeps out. It says
-            # only that this vantage has no reading to give.
-            printf '  %-28s %s? (pin not readable from this account)%s\n' "${agent}" "${C_DIM}" "${C_RST}"
         elif [[ -e "${pin}" ]]; then
             # Readable but carrying no VERSION the clamped reader will accept. Distinct from both other states
             # and from a missing pin, because the remedy is to rewrite it -- and it is never read as verified, since
@@ -6296,10 +6326,10 @@ status_entrypoint_pins() {
 # status_selinux_attestation [operator-conf] -- render the rows ai_tools_confinement__list_attestation_report prints
 # (confinement.lib.sh): the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified
 # by the launch shim's own functions, so this report, atr admin status and the launch cannot disagree. Returns 1
-# for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch (the report's verdict row) or makes
-# every launch warn -- a host without SELinux confinement by its own configuration
-# (ai_tools_confinement__evaluate_dac_only_state), where the shim launches DAC-only and names the key to set --
-# STATUS_UNREADABLE when the library did not load, and 0 otherwise. The section is omitted where getenforce cannot say.
+# for a finding only where AI_TOOLS_REQUIRE_SELINUX makes it refuse every launch -- the report's verdict row, or a host
+# without SELinux confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) --
+# STATUS_UNREADABLE when the library did not load, and 0 otherwise. A module reading that could not be made is a `?`
+# row, a finding where AI_TOOLS_REQUIRE_SELINUX is set. The section is omitted where getenforce cannot say.
 status_selinux_attestation() {
     local operator_conf="${1:-${AI_TOOLS_OPERATOR_CONF:-/etc/ai-tools/operator.conf}}"
     local selinux_mode module_present policy_shipped dac_only_state=""
@@ -6323,16 +6353,44 @@ status_selinux_attestation() {
             *)        say "  the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
         esac
         if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
-            say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
-            say "      declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
-            say "      or install the policy:       sudo dnf install ai-tools-selinux"
+            say "  AI_TOOLS_REQUIRE_SELINUX is set, so every launch on this host refuses (MSG-W2G6)"
+            if [[ "${dac_only_state}" == disabled ]]; then
+                say "      enable SELinux:            set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux"
+            else
+                say "      install the policy:        sudo dnf install ai-tools-selinux"
+                [[ "${selinux_mode}" == Enforcing ]] \
+                    || say "      then enforce it:           sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config"
+            fi
+            say "      in a container, instead:   set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
             return 1
         fi
-        say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning${C_RST}"
+        say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX=no declares this host DAC-only, so a launch runs with file permissions alone${C_RST}"
         return 0
     fi
     local -a row
-    local origin_note effect_note enforcement_note section_status=0
+    local origin_note effect_note enforcement_note section_status=0 lookup_failure_reason lookup_remedy lookup_refusal
+    # A module reading that could not be made is reported, and counted under the requirement, which refuses a launch
+    # on it, so a host whose launches refuse does not read clean.
+    if [[ -z "${module_present}" ]]; then
+        lookup_failure_reason="the lookup for ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH} failed"
+        lookup_remedy="read the lookup's error:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+        lookup_refusal="so a launch refuses (MSG-A7E7) where its entrypoint's lookup fails too"
+        if ! command -v matchpathcon >/dev/null 2>&1; then
+            lookup_failure_reason="matchpathcon is not installed"
+            lookup_remedy="install it:  sudo dnf install libselinux-utils"
+            lookup_refusal="so every launch refuses (MSG-A7E7)"
+        fi
+        [[ "${selinux_mode}" == Enforcing ]] \
+            || lookup_refusal="and SELinux is ${selinux_mode}, not Enforcing, so every launch refuses"
+        printf '  %-28s %s? (%s)%s\n' "file contexts" "${C_DIM}" "${lookup_failure_reason}" "${C_RST}"
+        if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
+            say "  AI_TOOLS_REQUIRE_SELINUX is set, ${lookup_refusal}"
+            say "      ${lookup_remedy}"
+            section_status=1
+        else
+            say "  ${C_DIM}AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this${C_RST}"
+        fi
+    fi
     # A value keeps normal contrast whatever it reads, since off is a reading and not a disabled control; only the note
     # beside it is dim. Whether a requirement is enforced is known ahead of the verdict row, so each row can say it.
     enforcement_note="not enforced"
@@ -6387,17 +6445,13 @@ status_selinux_attestation() {
     return "${section_status}"
 }
 
-# status_entrypoint_stale <agent>  -- report, and return 0, when the last reconciliation REFUSED to re-record this
-# agent's pin: the entrypoint changed in a way no update explains, so the pin was deliberately left standing
-# and the next launch refuses. Returns non-zero when there is no such mark, which is the ordinary state.
-#
-# This is the one line in the section that reports a REFUSAL: the pin a refusal leaves behind is a valid record
-# of a verification that once succeeded, so without the mark each status report renders it green while every status
-# reports render it green while every launch of that agent is already refused. The remedy is the reconcile command,
-# which re-reads the installed binary -- and the commands that replace it are the relabel helper's to print, since only
-# root can name the package directory. status_entrypoint_pins checks the stale-path reader before the first agent.
+# status_entrypoint_stale <agent> [strict]  -- report, and return 0, when a reconciliation left a stale mark for this
+# agent; returns non-zero when there is none, the ordinary state. What each line states, and why it does not infer
+# the launch's verdict, is cli.rule.md's. The commands that replace a binary are the relabel helper's to print, since
+# only root can name the package directory. status_entrypoint_pins checks the stale-path and pin-path readers before
+# the first agent.
 status_entrypoint_stale() {
-    local agent="$1" record state version reason detected age
+    local agent="$1" strict="${2:-no}" record state version reason detected age pin
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -r "${record}" ]] || return 1
     state="$(ai_tools_services__read_stamp_field "${record}" STATE)"
@@ -6406,9 +6460,28 @@ status_entrypoint_stale() {
     reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
     detected="$(ai_tools_services__read_stamp_age "${record}" DETECTED)"
     age="$(status_fmt_age "${detected}")"
+    pin="$(ai_tools_entrypoint_verify__get_pin_path "${agent}" 2>/dev/null || true)"
     printf '  %-28s %sPIN STALE%s %s(%s%s)%s\n' "${agent}" "${C_RED}" "${C_RST}" \
         "${C_DIM}" "${reason:-refused}" "${age:+, ${age}}" "${C_RST}"
-    say "      the pinned binary${version:+ (${version})} is not the one installed, so this agent's sessions refuse to start"
+    if [[ -z "${pin}" || ! -e "${pin}" ]]; then
+        if [[ "${strict}" == yes ]]; then
+            say "      a reconciliation recorded ${reason:-a refusal}${version:+ for release ${version}}, and no pin is recorded now -- this host requires verification, so its sessions will not launch"
+        else
+            say "      a reconciliation recorded ${reason:-a refusal}${version:+ for release ${version}}, and no pin is recorded now -- its sessions start unpinned, and the finding stands"
+        fi
+        say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(with the host reaching the vendor's release manifest)${C_RST}"
+        return 0
+    fi
+    if [[ "${reason}" == release-unverified ]]; then
+        say "      the last reconcile could not verify release${version:+ ${version}} and left the pin of another release, so this agent's sessions refuse to start while that binary is installed"
+        say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(with the host reaching the vendor's release manifest)${C_RST}"
+        return 0
+    fi
+    if [[ "${reason}" == changed-under-same-version ]]; then
+        say "      a reconciliation found the installed binary${version:+ (${version})} changed under the pinned version, so this agent's sessions refuse to start while that binary is installed"
+    else
+        say "      a reconciliation refused to re-record this pin${version:+ for release ${version}} (${reason:-refused}); the finding stands until a run verifies the release -- ${C_BOLD}atr admin status${C_RST} says whether the installed binary still matches the pin"
+    fi
     say "      ${C_BOLD}atr admin system entrypoints relabel${C_RST} ${C_DIM}(re-reads the entrypoint and prints how to replace it)${C_RST}"
     return 0
 }
@@ -6426,8 +6499,10 @@ status_entrypoint_stale() {
 # which reads the labels as root, and the service start that re-runs the work and clears the unit's own recorded failure
 # with it.
 #
-# Returns 1 for a recorded failure, which is the one state that stops a launch, and STATUS_UNREADABLE when
-# entrypoint-verify.lib.sh's record-path reader is not defined, a library base ships that did not load.
+# Returns 1 for a recorded failure, which is the one state that stops a launch, and for a labelled entrypoint
+# whose record carries a reason: a name of that file the file-context database maps to another type, which a relabel
+# of the whole host can turn into the first state. Returns STATUS_UNREADABLE when entrypoint-verify.lib.sh's record-path
+# reader is not defined, a library base ships that did not load.
 status_entrypoint_label() {
     local agent="$1" record result reason age
     if ! declare -F ai_tools_entrypoint_verify__get_label_path >/dev/null 2>&1; then
@@ -6435,12 +6510,29 @@ status_entrypoint_label() {
         return "${STATUS_UNREADABLE}"
     fi
     record="$(ai_tools_entrypoint_verify__get_label_path "${agent}" 2>/dev/null || true)"
+    if ! status_is_record_readable "${record}"; then
+        # Not a fault, as the pin's `?` is not: this vantage has no reading to give, and a record it cannot see
+        # is not a reconciliation that did not run.
+        printf '  %-28s %s? (label record not readable from this account)%s\n' "" "${C_DIM}" "${C_RST}"
+        return 0
+    fi
     result="$(ai_tools_services__read_stamp_field "${record}" RESULT)"
     age="$(status_fmt_age "$(ai_tools_services__read_stamp_age "${record}" LABELLED)")"
     reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
     case "${result}" in
         ok)      printf '  %-28s %slabelled%s %s(%s)%s\n' "" "${C_DIM}" "${C_RST}" \
-                     "${C_DIM}" "${age:-at an unknown time}" "${C_RST}" ;;
+                     "${C_DIM}" "${age:-at an unknown time}" "${C_RST}"
+                 # The one reason an `ok` record carries: the entrypoint took its type, and the names of that file were
+                 # read as not all mapped to it (ai-tools-relabel-agent writes the token; updater.rule.md).
+                 if [[ -n "${reason}" ]]; then
+                     printf '  %-28s %sUNMAPPED NAME%s %s(%s)%s\n' "" "${C_YEL}" "${C_RST}" \
+                         "${C_DIM}" "${reason}" "${C_RST}"
+                     say "      the file-context database maps a name of this agent's entrypoint to another type,"
+                     say "      or a name could not be read or checked; a relabel of the whole host can leave the entrypoint"
+                     say "      on that type, and its sessions then refuse to start"
+                     say "      the names, and the remedy for each: ${C_BOLD}atr admin system entrypoints relabel${C_RST}"
+                     return 1
+                 fi ;;
         # One reason is read rather than only printed: `incomplete-package` (written by ai-tools-relabel-agent) says
         # the executable the manifest declares is not installed, which no relabel can supply -- so naming the relabel
         # as the retry would send the operator around the loop this report exists to end. The package is what has to be
@@ -6462,9 +6554,8 @@ status_entrypoint_label() {
         # so neither is coloured or counted.
         skipped) printf '  %-28s %snot labelled (%s)%s\n' "" "${C_DIM}" \
                      "${reason:-nothing to label}" "${C_RST}" ;;
-        # No record at all: this host has not run a reconciliation since the record was introduced, or the state
-        # directory is unreadable from this account. It says only that, and never counts against the exit status --
-        # the same rule the unqueryable units follow.
+        # No record at all: this host has not run a reconciliation since the record was introduced. It says only
+        # that, and never counts against the exit status -- the same rule the unqueryable units follow.
         *)       printf '  %-28s %s? (no labelling recorded -- run: atr admin system entrypoints relabel)%s\n' \
                      "" "${C_DIM}" "${C_RST}" ;;
     esac
@@ -6871,11 +6962,10 @@ status_services() {
         if ai_tools_services__is_attention_needed "${state}"; then
             ai_tools_records_base__accumulate_severity attention
             say "      $(ai_tools_services__get_field "${rec}" 5)"
-            if [[ "${scope}" == sandbox-user ]]; then
-                status_sandbox_unit_commands "${unit}"
-            fi
             remedy="$(ai_tools_services__read_remedy "${rec}")"
-            if [[ -n "${remedy}" ]]; then
+            if [[ "${scope}" == sandbox-user ]]; then
+                status_sandbox_unit_commands "${unit}" "${remedy}"
+            elif [[ -n "${remedy}" ]]; then
                 say "      ${C_BOLD}${remedy}${C_RST}"
             fi
         fi
@@ -6930,7 +7020,9 @@ cmd_project_list() {
     _is_labelled() {
         command -v getenforce >/dev/null 2>&1 \
             && [[ "$(getenforce 2>/dev/null)" != "Disabled" ]] || return 1
-        ls -Zd "$1" 2>/dev/null | grep -q ':ai_tools_project_t:'
+        local context
+        context="$(ls -Zd "$1" 2>/dev/null)" || context=""
+        [[ "${context}" == *:ai_tools_project_t:* ]]
     }
     # _has_glob <str>  -- 0 when <str> carries a shell glob metacharacter (* ? [). A glob is a `!` line alone, matched
     # as a pattern and never resolved to one path; the grammar refuses one on an `@` or `%` line.

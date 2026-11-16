@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-unclaim
 # Reverses the filesystem side of a project claim: hands an approved project tree back to a target group and revokes
@@ -57,6 +57,10 @@
 # Installed 750 root:root. Its domain rule is cli.rule.md.
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 # Every refusal and every disclosure this helper prints goes through this pair, so the component prefix is stated once
 # here instead of at each site. A leading message code (msg.lib.sh states the form) is printed on its own line ahead
@@ -273,11 +277,11 @@ fi
 # from the pinned fd, so it describes the same inode the mutation acts on. The uid and gid checks read values the caller
 # already holds; the ACL read (`getfacl`) runs only when both miss.
 _is_residue() {
-    local fd="$1" uid="$2" gid="$3"
+    local fd="$1" uid="$2" gid="$3" acl
     [[ "${uid}" == "${SANDBOX_UID}" ]] && return 0
     [[ "${gid}" == "${SANDBOX_GID}" ]] && return 0
-    getfacl -c -- "/proc/self/fd/${fd}" 2>/dev/null \
-        | grep -q "^\(default:\)\?group:@SANDBOX_GROUP@:"
+    acl="$(getfacl -c -- "/proc/self/fd/${fd}" 2>/dev/null)" || acl=""
+    grep -q "^\(default:\)\?group:@SANDBOX_GROUP@:" <<<"${acl}"
 }
 
 # _safe_unclaim <path>: clear ACL, regroup, drop group write -- TOCTOU-safe via a pinned fd held at <path>

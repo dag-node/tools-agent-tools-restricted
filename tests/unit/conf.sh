@@ -1340,7 +1340,8 @@ write_padded_registry() {
     # shellcheck disable=SC2059  # the format is the fixture: it carries the \0 escape
     { printf "$2" "${REG_MARKER}"; head -c 1048576 /dev/zero | tr '\0' 'p' | fold -w 76 | sed 's|^|@ /|'; } > "$1"
 }
-# The file runs under `set -o pipefail`, as the callers do, which is where a scan closed early read a NUL as absent.
+# The file runs under `set -o pipefail`, as the callers do, where a scan that stops at the NUL with the registry still
+# being written reads it as absent (ref-section-d9x2).
 write_padded_registry "${reg_dir}/project-registry" '%s\n@ /home/op/pri\0vate\n'
 rc=0; ai_tools_conf__validate_registry "${reg_dir}/project-registry" current 2>"${TESTDIR}/reg.err" || rc=$?
 if [[ "${rc}" -eq 3 ]] && grep -qF "project-registry line 2: control-character" "${TESTDIR}/reg.err"; then
@@ -1721,7 +1722,7 @@ add_saved_ifs="${IFS}"; IFS=$'\n\t'
 declare -a add_allowed=() add_excluded=()
 ai_tools_conf__load_allowlist "${AL}" add_allowed add_excluded 2>/dev/null || true
 IFS="${add_saved_ifs}"
-if printf '%s\n' "${add_allowed[@]}" | grep -qxF "${TESTDIR}/names/a b"; then
+if is_listed "${TESTDIR}/names/a b" "${add_allowed[@]}"; then
     pass "the loader resolves the quoted line to the directory"
 else
     fail "the loader did not resolve the quoted line: (${add_allowed[*]:-})"

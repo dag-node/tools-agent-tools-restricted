@@ -56,13 +56,15 @@ remove_workdir() {
 
 # Import GPG_SIGNING_KEY into <gnupghome> and echo the signer fingerprint (%_gpg_name).
 import_signing_key() {
-    local gnupghome="$1" fpr
+    local gnupghome="$1" fpr listing
     install -d -m 0700 "${gnupghome}"
     printf '%s\n' "${GPG_SIGNING_KEY}" \
         | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
         || die "could not import GPG_SIGNING_KEY"
-    fpr="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys \
-            | awk -F: '$1 == "fpr" { print $10; exit }')"
+    # Listed whole, then searched (ref-section-d9x2).
+    listing="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys)" \
+        || die "gpg could not list the imported secret keys"
+    fpr="$(awk -F: '$1 == "fpr" { print $10; exit }' <<<"${listing}")"
     [[ -n "${fpr}" ]] || die "no secret key present after import"
     printf '%s\n' "${fpr}"
 }
@@ -87,9 +89,8 @@ write_rpm_macros() {
     local sign_cmd
     # The stock declaration states the contract: a body naming %__plaintext_filename hands the files over by name; one
     # that does not passes them as arguments. HOME is the scratch dir, which holds no macros file yet, so only
-    # the installed rpm's own declaration is read. The dump is captured whole before it is searched: under pipefail,
-    # `rpm --showrc | grep -q` ends with grep's early exit sending rpm a SIGPIPE, which turns a match into a failed
-    # pipeline and selects the wrong shape; a dump that cannot be read is an error, never a choice.
+    # the installed rpm's own declaration is read. The dump is captured whole before it is searched
+    # (ref-section-d9x2); a dump that cannot be read is an error, never a choice.
     local showrc
     showrc="$(HOME="${home}" rpm --showrc)" || die "rpm --showrc failed -- cannot tell which signing contract this rpm follows"
     if grep -q '__plaintext_filename' <<<"${showrc}"; then

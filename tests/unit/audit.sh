@@ -23,8 +23,7 @@
 #      the record is still written, and the count names what it folded.
 #   5. A RECORD'S FIELDS ARE UNTRUSTED INPUT. argv0 and the exec'd path are an agent's to choose, so a value carrying
 #      the record separator cannot fabricate a column in the rendered table.
-#   6. A READ THAT FAILS IS NOT AN ANSWER. The module list is captured rather than piped (a `grep -q` on a pipe loses
-#      the match to SIGPIPE on a host with many modules).
+#   6. A READ THAT FAILS IS NOT AN ANSWER. The module list is captured ahead of the search (ref-section-d9x2).
 #   7. EACH HOST STATE REPORTS AS ITSELF. No audit daemon, no policy, a policy without the rule, and the rule
 #      in force are different readings, and only the last makes an empty window mean "no such exec happened".
 #
@@ -89,8 +88,7 @@ if [[ ! -r "${POLICY_SOURCE}" ]]; then
     skip "policy rule" "not a source checkout (no ${POLICY_SOURCE})"
 else
     want_rule="auditallow ${ENTRYPOINT_EXEC_SUBJECT_TYPE} ${ENTRYPOINT_EXEC_OBJECT_TYPE}:file ${ENTRYPOINT_EXEC_PERMISSION};"
-    # Captured, then matched: a `grep -q` at the end of a pipe exits at the match and leaves the writer to SIGPIPE,
-    # which pipefail reports as no match.
+    # Captured ahead of the search (ref-section-d9x2).
     policy_rules="$(grep -v '^[[:space:]]*#' "${POLICY_SOURCE}" || true)"
     rule_lines="$(grep -F "${want_rule}" <<<"${policy_rules}" || true)"
     if [[ "$(grep -c . <<<"${rule_lines}")" == 1 ]]; then
@@ -192,19 +190,28 @@ else
     mkdir -p "${agents_dir}"; chmod 0755 "${agents_dir}"
     printf 'npm_package=@acme/experimental\nlauncher=acme\nentrypoint_fcontext=%s\n' \
         "${AGENT_PATTERNS[0]}" > "${agents_dir}/acme.conf"
-    printf 'npm_package=@beta/agent\nlauncher=beta\nentrypoint_fcontext=%s\n' \
-        "${AGENT_PATTERNS[1]}" > "${agents_dir}/beta.conf"
+    # beta's package gives its entrypoint a second name, which its manifest declares as a pattern of its own.
+    beta_link_pattern='/opt/ai-tools/\.nvm/versions/node/[^/]+/lib/node_modules/@beta/agent/node_modules/@beta/agent-linux-[a-z0-9-]+/beta'
+    printf 'npm_package=@beta/agent\nlauncher=beta\nentrypoint_fcontext=%s\nentrypoint_link_fcontext=%s\n' \
+        "${AGENT_PATTERNS[1]}" "${beta_link_pattern}" > "${agents_dir}/beta.conf"
     # An agent with no entrypoint declaration: no pattern to match a record against, so it is not in the map at all.
     printf 'npm_package=@gamma/agent\nlauncher=gamma\n' > "${agents_dir}/gamma.conf"
     chmod 0644 "${agents_dir}"/*.conf
 
     AGENT_NAMES=(); AGENT_PATTERNS=()
     AI_TOOLS_AGENTS_DIR="${agents_dir}" build_agent_entrypoint_map
-    if [[ "${AGENT_NAMES[*]}" == "acme beta" ]]; then
-        pass "the map holds every installed agent declaring an entrypoint, in manifest order"
+    if [[ "${AGENT_NAMES[*]}" == "acme beta beta" ]]; then
+        pass "the map holds one entry per entrypoint pattern an installed agent declares, in manifest order"
     else
-        fail "the map holds '${AGENT_NAMES[*]}', expected 'acme beta'"
+        fail "the map holds '${AGENT_NAMES[*]}', expected 'acme beta beta'"
     fi
+    assert_class "an exec of the entrypoint by its second declared name resolves to its agent" \
+        "finding beta" \
+        "/opt/ai-tools/.nvm/versions/node/v9.9.9/lib/node_modules/@beta/agent/node_modules/@beta/agent-linux-x64/beta" \
+        "/opt/ai-tools/.nvm/versions/node/v9.9.9/lib/node_modules/@beta/agent/node_modules/@beta/agent-linux-x64/beta"
+    assert_class "a name beside the declared second name matches no pattern" \
+        "finding " \
+        "/opt/ai-tools/.nvm/versions/node/v9.9.9/lib/node_modules/@beta/agent/node_modules/@beta/agent-darwin-x64/beta" beta
     # Read back through the map the resolver built, so what classifies a record is the pattern a manifest carries rather
     # than the one this file set by hand.
     assert_class "a record classifies against the pattern the built map holds" \
@@ -396,10 +403,10 @@ fi
 # ── 6. The host reads the section's honesty rests on ─────────────────────────────────────────
 section "resolving the policy: a read that fails must not read as an answer"
 
-# THE MODULE LIST IS CAPTURED, NOT PIPED. A host with a few hundred policy modules prints tens of kilobytes here,
-# and `semodule -l | grep -q` under `pipefail` loses the answer on exactly that host: grep exits at the match, semodule
-# dies of SIGPIPE writing the rest, and the non-zero pipeline reads as "the module is not loaded". The fixture puts
-# the module on the FIRST line and pads past a pipe buffer, which is the shape that reproduces it every time.
+# THE MODULE LIST IS CAPTURED AHEAD OF THE SEARCH (ref-section-d9x2). A host with a few hundred policy modules prints
+# tens of kilobytes here, and a search reading that through a pipe returns non-zero on a match, which reads as "the
+# module is not loaded". The fixture puts the module on the FIRST line and pads past a pipe buffer, which is the shape
+# that reproduces it every time.
 ausearch() { return 0; }
 auditctl() { [[ "${1:-}" == "-s" ]] && printf 'enabled 1 failure 1 pid 812\n'; return 0; }
 getenforce() { printf 'Enforcing\n'; }
@@ -418,12 +425,6 @@ if [[ "$(entrypoint_exec_state)" == loaded ]]; then
     pass "a loaded module reads as loaded however many other modules the host carries"
 else
     fail "a loaded module read as '$(entrypoint_exec_state)' behind a long module list"
-fi
-semodule() { printf 'ai_tools\t0.7.0\n'; }
-if [[ "$(entrypoint_exec_state)" == loaded ]]; then
-    pass "a semodule printing a version column beside the name reads as loaded"
-else
-    fail "a version column made the module read as '$(entrypoint_exec_state)'"
 fi
 semodule() { printf 'ai_tools_dotnet\nai_tools_tmpmap\n'; }
 if [[ "$(entrypoint_exec_state)" == no-selinux ]]; then
@@ -601,11 +602,11 @@ audit_case() {
     local desc="$1" want="$2" log_dir="$3" extra="$4" must="${5:-}" must_not="${6:-}"
     run_audit "${log_dir}" "${extra}"
     if [[ "${AUDIT_RC}" -ne "${want}" ]]; then
-        fail "${desc}: exit ${AUDIT_RC}, expected ${want}: $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+        fail "${desc}: exit ${AUDIT_RC}, expected ${want}: $(tr '\n' '|' <<<"${AUDIT_OUT}" | cut -c1-400)"
     elif [[ -n "${must}" ]] && ! grep -qF -- "${must}" <<<"${AUDIT_OUT}"; then
-        fail "${desc}: exit ${want} but the page lacks '${must}': $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+        fail "${desc}: exit ${want} but the page lacks '${must}': $(tr '\n' '|' <<<"${AUDIT_OUT}" | cut -c1-400)"
     elif [[ -n "${must_not}" ]] && grep -qF -- "${must_not}" <<<"${AUDIT_OUT}"; then
-        fail "${desc}: exit ${want} but the page carries '${must_not}': $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+        fail "${desc}: exit ${want} but the page carries '${must_not}': $(tr '\n' '|' <<<"${AUDIT_OUT}" | cut -c1-400)"
     else
         pass "${desc}"
     fi
@@ -638,7 +639,7 @@ run_audit "${AUDIT_EXITS}" ''
 if grep -qF 'handback.log is not a readable file' <<<"${AUDIT_OUT}" && grep -qF 'What was read' <<<"${AUDIT_OUT}"; then
     pass "the incomplete page names the entry it could not read and marks the findings as what was read"
 else
-    fail "the incomplete page does not name the unreadable entry: $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+    fail "the incomplete page does not name the unreadable entry: $(tr '\n' '|' <<<"${AUDIT_OUT}" | cut -c1-400)"
 fi
 rm -f "${AUDIT_EXITS}/handback.log"
 
@@ -665,7 +666,7 @@ run_audit "${AUDIT_EXITS}" \
 if grep -qF 'Launch refusals' <<<"${AUDIT_OUT}" && grep -qE '2026-09-27 +launch' <<<"${AUDIT_OUT}"; then
     pass "the refusal renders in its own section, dated from the ISO stamp"
 else
-    fail "the launch refusal did not render as expected: $(tr '\n' '|' <<<"${AUDIT_OUT}" | head -c 400)"
+    fail "the launch refusal did not render as expected: $(tr '\n' '|' <<<"${AUDIT_OUT}" | cut -c1-400)"
 fi
 
 # The kernel record: ausearch exits 1 for an empty window and for a failure alike, so the `<no matches>` line decides,

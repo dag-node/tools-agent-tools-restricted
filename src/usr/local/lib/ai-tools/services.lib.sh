@@ -102,10 +102,11 @@ ai_tools_services__get_field() {
 # of [A-Za-z0-9:+._-] -- so no control byte, terminal escape, or line break can reach the consumer's output through this
 # path.
 ai_tools_services__read_stamp_field() {
-    local stamp="$1" key="$2" line
+    local stamp="$1" key="$2" line stamp_prefix
     [[ -n "${stamp}" && ! -L "${stamp}" && -f "${stamp}" && -r "${stamp}" ]] || return 0
-    line="$(head -c 4096 -- "${stamp}" 2>/dev/null \
-                | grep -m1 -E "^${key}=[A-Za-z0-9:+._-]{1,64}$" 2>/dev/null)" || return 0
+    # A NUL byte becomes a control byte no value holds: the capture would drop it and join the bytes around it.
+    stamp_prefix="$(head -c 4096 -- "${stamp}" 2>/dev/null | tr '\000' '\001')" || return 0
+    line="$(grep -m1 -E "^${key}=[A-Za-z0-9:+._-]{1,64}$" <<<"${stamp_prefix}" 2>/dev/null)" || return 0
     printf '%s' "${line#*=}"
     return 0
 }
@@ -483,20 +484,29 @@ ai_tools_services__read_record_state() {
         "$(ai_tools_services__get_field "$1" 9)"
 }
 
-# ai_tools_services__read_remedy <record>  -- PRINT the record's remedy, led by `sudo systemctl daemon-reload && `
-# where the system manager reports the unit's file changed since it loaded it (NeedDaemonReload=yes): a start
-# before the reload runs the definition the manager holds, not the file the last install wrote. An empty remedy prints
-# nothing. ALWAYS returns 0.
+# ai_tools_services__read_remedy <record>  -- PRINT the record's remedy, led by the daemon-reload of the unit's
+# manager where that manager reports the unit's file changed since it loaded it (NeedDaemonReload=yes): a start
+# before the reload runs the definition the manager holds, not the file the last install wrote. The reload is
+# `sudo systemctl daemon-reload` for a system unit, and for a sandbox-user unit
+# `sudo systemctl --user -M <account>@.host daemon-reload`, read only where the live reading of that manager can be
+# made (a root caller that named the account); a sandbox-user record carries no remedy of its own, so the reload
+# prints alone there. A record with neither prints nothing. ALWAYS returns 0.
 ai_tools_services__read_remedy() {
-    local remedy
+    local remedy unit scope reload=""
     remedy="$(ai_tools_services__get_field "$1" 6)"
-    [[ -n "${remedy}" ]] || return 0
-    if [[ "$(ai_tools_services__get_field "$1" 2)" == system \
-            && "$(ai_tools_services__read_unit_property "$(ai_tools_services__get_field "$1" 1)" NeedDaemonReload)" \
-                == yes ]]; then
-        remedy="sudo systemctl daemon-reload && ${remedy}"
-    fi
-    printf '%s' "${remedy}"
+    unit="$(ai_tools_services__get_field "$1" 1)"
+    scope="$(ai_tools_services__get_field "$1" 2)"
+    case "${scope}" in
+        system)
+            [[ -n "${remedy}" ]] || return 0
+            [[ "$(ai_tools_services__read_unit_property "${unit}" NeedDaemonReload)" == yes ]] \
+                && reload="sudo systemctl daemon-reload" ;;
+        sandbox-user)
+            [[ -n "${_AI_TOOLS_SERVICES__SANDBOX_ACCOUNT}" \
+                && "$(ai_tools_services__read_unit_property "${unit}" NeedDaemonReload sandbox-user)" == yes ]] \
+                && reload="sudo systemctl --user -M ${_AI_TOOLS_SERVICES__SANDBOX_ACCOUNT}@.host daemon-reload" ;;
+    esac
+    printf '%s' "${reload}${reload:+${remedy:+ && }}${remedy}"
     return 0
 }
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash -p
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-admin
 # Host administration for the ai-tools sandbox. A root helper (run via sudo), not an ai-tools CLI verb: it edits host
@@ -101,6 +101,10 @@
 # Its domain rules are cli.rule.md (what each command does) and cli-grammar.rule.md (how it is spelled).
 
 set -euo pipefail
+
+# The interpreter line and this PATH are the start every root helper shares (cli.rule.md, ref-section-g7c8).
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 
 readonly SANDBOX_USER="@SANDBOX_USER@"
 readonly SANDBOX_GROUP="@SANDBOX_GROUP@"
@@ -297,9 +301,7 @@ admin_command_check() {
         _admin_command_reason="$(coded_refusal MSG-D9F7 "not a script: ${fragment} -- a contributed command is an interpreted file")"
         return 1
     fi
-    # Captured before matching, never piped into `grep`/`head`: an early-exiting reader leaves the writer to die
-    # of SIGPIPE, which pipefail reports as a failed probe (see ai_tools_selinux_groups__is_loaded). Every read works
-    # on this one string.
+    # Captured ahead of the searches (ref-section-d9x2); every read works on this one string.
     header="$(head -n 20 "${fragment}" 2>/dev/null || true)"
     if ! grep -qxF -- "# ai-tools-admin-command: ${domain}" <<<"${header}"; then
         _admin_command_reason="$(coded_refusal MSG-H5F8 "no domain declaration: ${fragment} does not declare '# ai-tools-admin-command: ${domain}' in its first 20 lines -- reinstall the package that ships it")"
@@ -816,6 +818,14 @@ report_operator_role() {
     log "${user}: claim on its behalf from an operator that holds one -- atr projects claim --for ${user} <path>"
 }
 
+# require_enrolable_groups <user> -- refuse to enrol <user> under the code and text
+# ai_tools_operator__read_enrolment_group_refusal (operator.lib.sh) gives; that function states the cases.
+require_enrolable_groups() {
+    local refusal
+    refusal="$(ai_tools_operator__read_enrolment_group_refusal "$1" "${SANDBOX_USER}" "${SANDBOX_GROUP}")" \
+        || die "${refusal%%$'\n'*}" "${refusal#*$'\n'}"
+}
+
 op_add() {
     local user="${1:-${SUDO_USER:-}}"
     [[ -n "${user}" ]] || reject MSG-H2P9 "operators add: name a user, or run it through sudo so SUDO_USER is set"
@@ -825,6 +835,7 @@ op_add() {
     # refused here and not run.
     ai_tools_conf__is_portable_name_valid "${user}" || reject MSG-J2S8 "operators add: not an account name: ${user}"
     id "${user}" &>/dev/null || die MSG-U8T8 "no such user: ${user}"
+    require_enrolable_groups "${user}"
 
     ai_tools_operator__load_operators || true   # tolerate an unenrolled host (empty list)
     local enrolled=0
@@ -859,7 +870,7 @@ op_add() {
     # ai-ops membership: the sudoers grant and the launch wrapper gate on it. The sandbox account is never a member (it
     # must not be able to drive itself as an operator). Add -- and log -- only when the user is not already a member,
     # so a reconciling re-run does not report a change it did not make.
-    if id -nG "${user}" 2>/dev/null | tr ' ' '\n' | grep -qx "${OPERATORS_GROUP}"; then
+    if [[ " $(id -nG "${user}" 2>/dev/null) " == *" ${OPERATORS_GROUP} "* ]]; then
         log "${user} is already in group ${OPERATORS_GROUP}"
     else
         usermod -aG "${OPERATORS_GROUP}" "${user}" || die MSG-C4A8 "failed to add ${user} to ${OPERATORS_GROUP}"
@@ -1060,11 +1071,8 @@ _restore_group_static_labels() {
 # bracketed [LOADED]/[disabled] state column as the group rows for one legend.
 sel_list() {
     require_selinux || return 0
-    local core_state='[disabled]' modules
-    # Captured, not piped into `grep -q`: an early-exiting reader makes semodule die of SIGPIPE and pipefail then
-    # reports the probe failed -- see ai_tools_selinux_groups__is_loaded.
-    modules="$(semodule -l 2>/dev/null || true)"
-    grep -qx 'ai_tools' <<<"${modules}" && core_state='[LOADED]  '
+    local core_state='[disabled]'
+    ai_tools_selinux_groups__is_module_loaded ai_tools && core_state='[LOADED]  '
     printf '\nSELinux policy groups\n\n'
     printf '  %s core module (ai_tools) -- the confinement domain; DAC-only when disabled\n\n' "${core_state}"
     printf '  optional groups (all default: disabled)\n'
@@ -1612,13 +1620,24 @@ _pu_clock_lines() {
     (( ${#_pu_clock_out[@]} == 0 ))
 }
 
+# _pu_list_baseline_copies <dir>: each package or installer copy under <dir>, one path per line in sort order; exits
+# with the walk's status.
+_pu_list_baseline_copies() {
+    find "$1" -maxdepth 3 -type f \( -name '*.rpmnew' -o -name '*.shipped' \) 2>/dev/null | sort
+}
+
+# _pu_list_rpmnew_copies <dir>: each package copy under <dir>, one path per line; exits with the walk's status.
+_pu_list_rpmnew_copies() {
+    find "$1" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null
+}
+
 # _pu_entries <root>: one "<file>|<kind>|<label>|<copy>" line per file with a baseline copy waiting -- the registry
 # first, then each one found under POSTUPGRADE_DIRS that the registry does not name. The copy is the newest beside
 # the file of the package's .rpmnew and the installer's .shipped (ai_tools_conf__find_latest_copy), so a host
 # whose install routes alternated is compared with the baseline that reached it last, whichever route brought it.
 _pu_entries() {
-    local root="$1" entry file kind label dir copy fd pid
-    local -a named=()
+    local root="$1" entry file kind label dir copy status
+    local -a named=() copies=()
     for entry in "${POSTUPGRADE_FILES[@]}"; do
         IFS='|' read -r file kind label <<< "${entry}"
         named+=("${root}${file}")
@@ -1627,8 +1646,8 @@ _pu_entries() {
     done
     for dir in "${POSTUPGRADE_DIRS[@]}"; do
         [[ -d "${root}${dir}" ]] || continue
-        exec {fd}< <(find "${root}${dir}" -maxdepth 3 -type f \( -name '*.rpmnew' -o -name '*.shipped' \) 2>/dev/null | sort); pid=$!
-        while IFS= read -r -u "${fd}" copy; do
+        ai_tools_records_base__read_collector copies status _pu_list_baseline_copies "${root}${dir}"
+        for copy in "${copies[@]}"; do
             case "${copy}" in
                 *.rpmnew)  file="${copy%.rpmnew}" ;;
                 *.shipped) file="$(sed -E 's/\.[0-9]{8}(-[0-9]+)?\.shipped$//' <<< "${copy}")"
@@ -1640,10 +1659,9 @@ _pu_entries() {
             if [[ "${file}" == *.conf ]]; then kind=keyval; else kind=show; fi
             printf '%s|%s|%s|%s\n' "${file}" "${kind}" "${file##*/}" "${copy}"
         done
-        exec {fd}<&-
         # A directory the walk could not read is a copy this collector may have missed, so the collector fails rather
         # than reporting the files it did find as the whole set.
-        wait "${pid}" || return 1
+        (( status == 0 )) || return 1
     done
     return 0
 }
@@ -1759,7 +1777,7 @@ _pu_asset_report() {
             *)                                  _pu_say info "${path} -- ${detail}" ;;
         esac
     done
-    if printf '%s\n' "${lines[@]}" | grep -qE '^(asset-missing|asset-unlinked)'; then
+    if grep -qE '^(asset-missing|asset-unlinked)' <<<"$(printf '%s\n' "${lines[@]}")"; then
         _pu_say info "atr admin system bootstrap seeds and links them again"
     fi
 }
@@ -1854,12 +1872,12 @@ postupgrade() {
 # of a permission rule, a key, and for an `error` one token naming the check -- so two findings on one file keep two
 # ids. No row carries an operator: every subject is under /etc or /opt/ai-tools, host-wide.
 #
-# The collectors feed the check through `< <(...)`, and _pu_run_check saves each one's PID on the statement that opens
-# it and waits for it once its output is read (records.rule.md), so a collector that exits non-zero is an `error` row
-# on the root it walked rather than a shorter set read as complete. They keep the line and `|` framing the interactive
-# report reads them with, which holds for a path the packages install and does not for a name the sandbox account plants
-# under an agent's config directory with a line feed in it: such a name splits into two rows and removes none, so it
-# adds findings to a run and does not make one read as clean.
+# The collectors feed the check through _pu_read_collector, which reads each through the records reader
+# (records.rule.md) and writes an `error` row on the root it walked where the collector exited non-zero, ahead
+# of the rows for the lines it printed, so a failed collector is not a shorter set read as complete. They keep the line
+# and `|` framing the interactive report reads them with, which holds for a path the packages install and does not
+# for a name the sandbox account plants under an agent's config directory with a line feed in it: such a name splits
+# into two rows and removes none, so it adds findings to a run and does not make one read as clean.
 _PU_ALL=0
 _PU_CODE=""
 _PU_SEVERITY=""
@@ -1921,27 +1939,29 @@ _pu_hook_finding() {
     _pu_write_finding "$1" file "$2" "$3" "${3%%: *}" "${3#*: }"
 }
 
-# _pu_wait_collector <pid> <subject-type> <subject> <source>: wait for a collector opened with `< <(...)`, and write
-# an `error` row naming it when it exited non-zero. Called in the report's own shell, after the collector's output is
-# read, with the PID saved on the statement that opened it.
-_pu_wait_collector() {
-    local status=0
-    wait "$1" || status=$?
-    (( status == 0 )) || _pu_write_finding error "$2" "$3" "the ${4} collector exited ${status}" "$4"
+# _pu_read_collector <lines-var> <subject-type> <subject> <source> <collector> [<arg>...]: read a collector's lines
+# into the caller's array through ai_tools_records_base__read_collector (records.rule.md), and write an `error` row
+# naming <source> when the collector exited non-zero. Called in the report's own shell; the caller loops over the array
+# after it, so the `error` row precedes the rows of the lines that collector did print.
+_pu_read_collector() {
+    local _pu_collector_lines_name="$1" _pu_collector_subject_type="$2" _pu_collector_subject="$3"
+    local _pu_collector_source="$4" _pu_collector_status=0
+    shift 4
+    ai_tools_records_base__read_collector "${_pu_collector_lines_name}" _pu_collector_status "$@"
+    (( _pu_collector_status == 0 )) || _pu_write_finding error "${_pu_collector_subject_type}" \
+        "${_pu_collector_subject}" "the ${_pu_collector_source} collector exited ${_pu_collector_status}" \
+        "${_pu_collector_source}"
 }
 
 # _pu_run_check <root>: every finding, through _pu_write_finding, without asking or writing. Each reads the same
 # predicate the report does. The caller reads the outcome off the report state, ai_tools_records_base__get_exit_status.
 _pu_run_check() {
-    local root="$1" file kind label scratch status key line state stype path detail live reference fd pid
-    local -a new_keys=() entries=() files_with_baseline=()
+    local root="$1" file kind label scratch status key line state stype path detail live reference collector_line
+    local -a new_keys=() entries=() files_with_baseline=() collector_lines=()
     ai_tools_records_base__begin_report
     _pu_kind_findings "${root}"
     _pu_registry_findings "${root}"
-    exec {fd}< <(_pu_entries "${root}"); pid=$!
-    mapfile -t -u "${fd}" files_with_baseline
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root:-/}" entries
+    _pu_read_collector files_with_baseline directory "${root:-/}" entries _pu_entries "${root}"
     # A file or copy dated after the clock: the comparison would pick the wrong copy, so each is an `error` row --
     # a check that could not run -- and the run does not compare a file.
     local -a clock_lines=()
@@ -1988,12 +2008,10 @@ _pu_run_check() {
         esac
     done
 
-    exec {fd}< <(_pu_orphans "${root}"); pid=$!
-    while IFS= read -r -u "${fd}" path; do
+    _pu_read_collector collector_lines directory "${root:-/}" orphans _pu_orphans "${root}"
+    for path in "${collector_lines[@]}"; do
         _pu_write_finding rpmnew-orphan file "${path}" "the file it belongs to is gone"
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root:-/}" orphans
 
     file="${root}/opt/ai-tools/.claude/settings.json"
     if [[ -f "${file}" ]]; then
@@ -2007,8 +2025,9 @@ _pu_run_check() {
     fi
 
     if declare -F ai_tools_providers__find_managed_file_missing_keys >/dev/null 2>&1; then
-        exec {fd}< <(_pu_managed_pairs "${root}"); pid=$!
-        while IFS=$'\t' read -r -u "${fd}" live reference; do
+        _pu_read_collector collector_lines directory "${root}/etc" managed-pairs _pu_managed_pairs "${root}"
+        for collector_line in "${collector_lines[@]}"; do
+            IFS=$'\t' read -r live reference <<< "${collector_line}"
             [[ -f "${live}" && -f "${reference}" ]] || continue
             cmp -s "${live}" "${reference}" && continue
             if line="$(ai_tools_providers__find_managed_file_missing_keys "${live}" "${reference}")"; then
@@ -2020,28 +2039,23 @@ _pu_run_check() {
                     managed-keys
             fi
         done
-        exec {fd}<&-
-        _pu_wait_collector "${pid}" directory "${root}/etc" managed-pairs
     else
         _pu_write_finding error directory "${root}/etc" "managed-file keys not checked: ${PROVIDERS_LIB} did not load" \
             managed-keys
     fi
 
-    exec {fd}< <(_pu_assets "${root}"); pid=$!
-    while IFS=$'\t' read -r -u "${fd}" state stype path detail; do
+    _pu_read_collector collector_lines directory "${root}/opt/ai-tools" assets _pu_assets "${root}"
+    for collector_line in "${collector_lines[@]}"; do
+        IFS=$'\t' read -r state stype path detail <<< "${collector_line}"
         if [[ "${state}" == error ]]; then
             _pu_write_finding error "${stype}" "${path}" "${detail}" shared-assets
         else
             _pu_write_finding "${state}" "${stype}" "${path}" "${detail}"
         fi
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root}/opt/ai-tools" assets
 
-    exec {fd}< <(_pu_copies "${root}"); pid=$!
-    while IFS= read -r -u "${fd}" path; do _pu_write_finding copy-kept file "${path}" ""; done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" directory "${root:-/}" copies
+    _pu_read_collector collector_lines directory "${root:-/}" copies _pu_copies "${root}"
+    for path in "${collector_lines[@]}"; do _pu_write_finding copy-kept file "${path}" ""; done
 }
 
 # _pu_settings_findings <file> <copy>: the findings _pu_settings_rest reports for a settings file and its baseline copy
@@ -2070,7 +2084,8 @@ _pu_settings_findings() {
 # for a key the run would rewrite, list-unmigratable for an item no run can map, one row per item. A detection with no
 # plan to read -- providers.lib.sh did not load -- is a check that could not run.
 _pu_kind_findings() {
-    local file="$1/etc/ai-tools/operator.conf" verdict key old new fd pid
+    local file="$1/etc/ai-tools/operator.conf" verdict key old new plan_line
+    local -a plan_lines=()
     [[ -f "${file}" ]] || return 0
     if ! declare -F ai_tools_providers__plan_kind_migration >/dev/null 2>&1; then
         declare -F ai_tools_conf__find_unmigrated_items >/dev/null 2>&1 && [[ -n "$(ai_tools_conf__find_unmigrated_items "${file}")" ]] \
@@ -2078,15 +2093,14 @@ _pu_kind_findings() {
                 provider-names
         return 0
     fi
-    exec {fd}< <(ai_tools_providers__plan_kind_migration "${file}"); pid=$!
-    while IFS=$'\t' read -r -u "${fd}" verdict key old new; do
+    _pu_read_collector plan_lines file "${file}" kind-plan ai_tools_providers__plan_kind_migration "${file}"
+    for plan_line in "${plan_lines[@]}"; do
+        IFS=$'\t' read -r verdict key old new <<< "${plan_line}"
         case "${verdict}" in
             migrate) _pu_write_finding list-unmigrated file "${file}" "${key}: [${old// /, }] -> [${new// /, }]" "${key}" ;;
             blocked) _pu_write_finding list-unmigratable file "${file}" "${key}: ${old}" "${key}" "${old}" ;;
         esac
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" file "${file}" kind-plan
 }
 
 # _pu_registry_list <root>: `<operator>\t<uid>\t<state>\t<path>` per enrolled operator with a home on this host,
@@ -2129,9 +2143,11 @@ _pu_read_registry_refusal() {
 # account can change, are registry-invalid with the library's line. A legacy file whose exclusion crosses such a link is
 # registry-unmigrated as well, since the migration copies the line and the remedy is the same edit in either file.
 _pu_registry_findings() {
-    local root="$1" user uid state path kind owner mode reason refusal rc fd pid
-    exec {fd}< <(_pu_registry_list "${root}"); pid=$!
-    while IFS=$'\t' read -r -u "${fd}" user uid state path; do
+    local root="$1" user uid state path kind owner mode reason refusal rc registry_line
+    local -a registry_lines=()
+    _pu_read_collector registry_lines file "${root}/etc/ai-tools/operator.conf" registries _pu_registry_list "${root}"
+    for registry_line in "${registry_lines[@]}"; do
+        IFS=$'\t' read -r user uid state path <<< "${registry_line}"
         case "${state}" in
             legacy)
                 reason=""
@@ -2160,15 +2176,14 @@ _pu_registry_findings() {
                 esac ;;
         esac
     done
-    exec {fd}<&-
-    _pu_wait_collector "${pid}" file "${root}/etc/ai-tools/operator.conf" registries
 }
 
 # _pu_orphans <root>: each package copy whose file is gone, one path per line. rpm parks a copy only beside a file it
 # kept, so one of these is a file removed afterwards, and neither the report nor a merge otherwise reaches it. Exits
 # non-zero when a directory walk failed, since a copy it did not see is then not known to be absent.
 _pu_orphans() {
-    local root="$1" entry file kind label dir fd pid
+    local root="$1" entry file kind label dir status
+    local -a copies=()
     {
         for entry in "${POSTUPGRADE_FILES[@]}"; do
             IFS='|' read -r file kind label <<< "${entry}"
@@ -2176,12 +2191,11 @@ _pu_orphans() {
         done
         for dir in "${POSTUPGRADE_DIRS[@]}"; do
             [[ -d "${root}${dir}" ]] || continue
-            exec {fd}< <(find "${root}${dir}" -maxdepth 3 -type f -name '*.rpmnew' 2>/dev/null); pid=$!
-            while IFS= read -r -u "${fd}" file; do
+            ai_tools_records_base__read_collector copies status _pu_list_rpmnew_copies "${root}${dir}"
+            for file in "${copies[@]}"; do
                 [[ -e "${file%.rpmnew}" ]] || printf '%s\n' "${file}"
             done
-            exec {fd}<&-
-            wait "${pid}" || exit 1
+            (( status == 0 )) || exit 1
         done
         exit 0
     } | sort -u
@@ -2586,16 +2600,21 @@ status_services() {
         detail "$(ai_tools_services__get_field "${rec}" 5)"
         # A sandbox-user unit's commands name the sandbox ACCOUNT, and services.lib.sh is deployed with no
         # @SANDBOX_USER@ substitution, so they are composed here -- the same split the CLI makes, and the reason
-        # the registry's remedy field is empty for those units.
+        # the registry's remedy field is empty for those units. The remedy, which names the manager's daemon-reload
+        # where the unit's file changed since it was loaded, precedes the restart, and reset-failed precedes that:
+        # a unit whose retries spent its start limit refuses every start until it is reset.
+        remedy="$(ai_tools_services__read_remedy "${rec}")"
         if [[ "${scope}" != system ]]; then
             detail "sudo systemctl --user -M ${SANDBOX_USER}@.host status ${unit}"
             uid="$(id -u "${SANDBOX_USER}" 2>/dev/null || true)"
             [[ -n "${uid}" ]] \
                 && detail "sudo journalctl _SYSTEMD_USER_UNIT=${unit} _UID=${uid} -n 50 --no-pager"
+            [[ -n "${remedy}" ]] && detail "${remedy}"
+            detail "sudo systemctl --user -M ${SANDBOX_USER}@.host reset-failed ${unit}"
             detail "sudo systemctl --user -M ${SANDBOX_USER}@.host restart ${unit}"
+        elif [[ -n "${remedy}" ]]; then
+            detail "${remedy}"
         fi
-        remedy="$(ai_tools_services__read_remedy "${rec}")"
-        [[ -n "${remedy}" ]] && detail "${remedy}"
     done < <(ai_tools_services__list_records)
     return 0
 }
@@ -2787,8 +2806,21 @@ status_entrypoints() {
             st MISMATCH "${agent}  the installed entrypoint does not match its pin${version:+ (${version})} -- its sessions refuse to start"
             detail "atr admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
-        elif entrypoint_stale_mark "${agent}"; then
+        elif [[ "${live}" == unreadable ]]; then
+            # A reading this report promises and could not make: the pin's own fields must not render as VERIFIED over
+            # a binary no hash was taken of.
+            st UNREADABLE "${agent}  the installed entrypoint could not be hashed, so this report cannot say whether it matches its pin"
+            detail "atr admin system entrypoints relabel   (re-reads the entrypoint)"
+            STATUS_UNREADABLE=$(( STATUS_UNREADABLE + 1 ))
+            if entrypoint_stale_mark "${agent}" "${live}" "${strict}"; then
+                STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+            fi
+        elif entrypoint_stale_mark "${agent}" "${live}" "${strict}"; then
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        elif [[ -z "${live}" && -n "${version}" ]]; then
+            # No entrypoint resolved to hash, so the pin's fields do not render as a verification of what is installed;
+            # the missing entrypoint is the labels' and the provisioning lines' to report.
+            st "?" "${agent}  ${version} pinned -- the installed entrypoint did not resolve, so it was not compared with the pin"
         elif [[ -n "${version}" && "$(ai_tools_entrypoint_verify__read_pin_kind "${agent}" 2>/dev/null || true)" == observed ]]; then
             # Recorded as installed: a change to the binary refuses at every setting, and no vendor signature stands
             # behind the value. UNCHANGED is what the comparison proves; it does not say the binary was sound when root
@@ -2856,24 +2888,42 @@ entrypoint_live_verdict() {
     ai_tools_entrypoint_verify__check "${agent}" "${entrypoint}" 2>/dev/null || true
 }
 
-# entrypoint_stale_mark <agent>: report, and return 0, when the last reconciliation REFUSED to re-record this agent's
-# pin. The refusal leaves the pin standing -- that staleness is what makes the next launch refuse -- so without this
-# the pin's own fields render as a verification that succeeded. Returns non-zero when there is no mark, which is
-# the ordinary state. status_entrypoints checks the stale-path reader before the first agent.
+# entrypoint_stale_mark <agent> <live-verdict> <strict>: report, and return 0, when a reconciliation left a stale mark
+# for this agent; returns non-zero when there is none, the ordinary state. The line states the mark beside
+# <live-verdict>, this report's own reading of the installed entrypoint (entrypoint_live_verdict), so a finding that
+# stands is not reported as a refusal the launch does not make (cli.rule.md). status_entrypoints reports a mismatch
+# ahead of this, and checks the stale-path reader before the first agent.
 entrypoint_stale_mark() {
-    local agent="$1" record reason version age
+    local agent="$1" live="${2:-}" strict="${3:-no}" record reason version age found now
     record="$(ai_tools_entrypoint_verify__get_stale_path "${agent}" 2>/dev/null || true)"
     [[ -n "${record}" && -e "${record}" ]] || return 1
     [[ "$(ai_tools_services__read_stamp_field "${record}" STATE)" == stale ]] || return 1
     reason="$(ai_tools_services__read_stamp_field "${record}" REASON)"
     version="$(ai_tools_services__read_stamp_field "${record}" VERSION)"
     age="$(ai_tools_services__format_age "$(ai_tools_services__read_stamp_age "${record}" DETECTED)")"
-    st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${reason:-refused}${version:+, ${version}})${age:+, ${age}} -- its sessions refuse to start"
+    found="${reason:-refused}${version:+, ${version}}"
+    case "${live}" in
+        ok)       now="the installed entrypoint matches its pin now, so its sessions start; the finding stands until a run verifies the release" ;;
+        unpinned) if [[ "${strict}" == yes ]]; then
+                      now="no pin is recorded now, and this host requires verification, so its sessions will not launch"
+                  else
+                      now="no pin is recorded now, so its sessions start unpinned; the finding stands until a run verifies the release"
+                  fi ;;
+        unreadable) now="the installed entrypoint could not be read here, so whether its sessions start is not known" ;;
+        *)        now="the installed entrypoint did not resolve, so it was not compared with the pin" ;;
+    esac
+    if [[ "${reason}" == release-unverified ]]; then
+        st "PIN STALE" "${agent}  a reconciliation could not verify release ${version:-?} and left the pin of another release${age:+, ${age}} -- ${now}"
+        detail "atr admin system entrypoints relabel   (with the host reaching the vendor's release manifest)"
+        return 0
+    fi
+    st "PIN STALE" "${agent}  a reconciliation refused to re-record this pin (${found})${age:+, ${age}} -- ${now}"
     detail "atr admin system entrypoints relabel   (re-reads the entrypoint and prints how to replace it)"
     return 0
 }
 
-# status_labels: render ai_tools_relabel__list_agent_labels -- the live SELinux type of each enabled agent's own paths,
+# status_labels: render ai_tools_relabel__list_agent_labels -- the live SELinux type of each enabled agent's own paths
+# and the names of its installed entrypoint's inode that the file-context database maps to another type,
 # which that function's header specifies. It closes status_entrypoints rather than opening a section of its own, so each
 # agent's pin and its labels read together.
 status_labels() {
@@ -2905,6 +2955,26 @@ status_labels() {
                   detail "atr admin system entrypoints relabel"
                   STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
             none) st "n/a" "${agent}  its ${what} is not installed -- nothing to label" ;;
+            # The names of the inode a session execs, read live. The entrypoint carries its type; a relabel of the whole
+            # host that walks by path can leave it on the type the database maps another of its names to.
+            unmapped) st UNMAPPED "${agent}  ${path} is a name of its ${what} that the file-context database maps to another type"
+                  detail "after a relabel of the whole host: atr admin system entrypoints relabel"
+                  detail "a newer agent package covers a name the agent's own package placed; a local rule: semanage fcontext -C -l"
+                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            # The entrypoint's own path, mapped to another type: the mapping the launch preflight reads.
+            mismapped) st "NOT LABELLED" "${agent}  the file-context database maps its ${what} ${path} to another type"
+                  detail "its next session refuses to launch, whatever type the file carries now"
+                  detail "a local rule that maps the path: semanage fcontext -C -l"
+                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            unchecked) st UNMAPPED "${agent}  ${actual} name(s) of its ${what} ${path} carry a character a status line does not print; their mapping was not read"
+                  detail "find $(stat -c '%m -xdev -inum %i' -- "${path}" 2>/dev/null || printf '<mount> -xdev -inum <inode>')"
+                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            outside) st UNMAPPED "${agent}  its ${what} ${path} has ${actual} name(s) outside the sandbox toolchain, which no rule can cover"
+                  detail "find $(stat -c '%m -xdev -inum %i' -- "${path}" 2>/dev/null || printf '<mount> -xdev -inum <inode>')"
+                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
+            unread) st UNMAPPED "${agent}  the names of its ${what} ${path}, or a name's mapping, could not be read"
+                  detail "atr admin system entrypoints relabel"
+                  STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 )) ;;
         esac
     done <<< "${report}"
     return 0
@@ -3065,9 +3135,9 @@ status_update_timer_stamp() {
 # the per-domain mode of ai_tools_t and the Booleans that widen it, read and classified by the launch shim's own
 # functions, so this report, atr status and the launch cannot disagree. A finding counts only where the report's verdict
 # row says AI_TOOLS_REQUIRE_SELINUX is set, since that is when it refuses a launch, and on a host without SELinux
-# confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) only where that key makes every
-# launch warn; elsewhere it is reported as the posture it is. <operator-conf> is a parameter so a unit test drives
-# the counting rule over a fixture.
+# confinement by its own configuration (ai_tools_confinement__evaluate_dac_only_state) under the same key;
+# a file-context lookup that could not be read is a `?` row, counted where that key is set; elsewhere it is reported
+# as the posture it is. <operator-conf> is a parameter so a unit test drives the counting rule over a fixture.
 status_selinux_attestation() {
     local operator_conf="${1:-${OPERATOR_CONF}}"
     heading "SELinux status"
@@ -3095,17 +3165,45 @@ status_selinux_attestation() {
             *)        st "n/a" "the ai_tools policy is not installed (SELinux ${selinux_mode}) -- there is no domain to attest" ;;
         esac
         if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
-            detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch runs DAC-only and warns that the requirement is not met"
-            detail "declare this host DAC-only:  set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
-            detail "or install the policy:       sudo dnf install ai-tools-selinux"
+            detail "AI_TOOLS_REQUIRE_SELINUX is set, so every launch on this host refuses (MSG-W2G6)"
+            if [[ "${dac_only_state}" == disabled ]]; then
+                detail "enable SELinux:            set SELINUX=enforcing in /etc/selinux/config, reboot, then install ai-tools-selinux"
+            else
+                detail "install the policy:        sudo dnf install ai-tools-selinux"
+                [[ "${selinux_mode}" == Enforcing ]] \
+                    || detail "then enforce it:           sudo setenforce 1, and SELINUX=enforcing in /etc/selinux/config"
+            fi
+            detail "in a container, instead:   set AI_TOOLS_REQUIRE_SELINUX=no in ${operator_conf}"
             STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
         else
-            detail "AI_TOOLS_REQUIRE_SELINUX is not set, so a launch runs DAC-only without a warning"
+            detail "AI_TOOLS_REQUIRE_SELINUX=no declares this host DAC-only, so a launch runs with file permissions alone"
         fi
         return 0
     fi
     local -a row
-    local origin_note effect_note enforcement_note="not enforced"
+    local origin_note effect_note enforcement_note="not enforced" lookup_failure_reason lookup_remedy lookup_refusal
+    # A module reading that could not be made is reported, and counted under the requirement, which refuses a launch
+    # on it, so a host whose launches refuse does not read clean.
+    if [[ -z "${module_present}" ]]; then
+        lookup_failure_reason="the lookup for ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH} failed"
+        lookup_remedy="read the lookup's error:  matchpathcon -n ${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+        lookup_refusal="so a launch refuses (MSG-A7E7) where its entrypoint's lookup fails too"
+        if ! command -v matchpathcon >/dev/null 2>&1; then
+            lookup_failure_reason="matchpathcon is not installed"
+            lookup_remedy="install it:  sudo dnf install libselinux-utils"
+            lookup_refusal="so every launch refuses (MSG-A7E7)"
+        fi
+        [[ "${selinux_mode}" == Enforcing ]] \
+            || lookup_refusal="and SELinux is ${selinux_mode}, not Enforcing, so every launch refuses"
+        st "?" "file contexts could not be read: ${lookup_failure_reason}"
+        if ai_tools_confinement__is_selinux_required "${operator_conf}"; then
+            detail "AI_TOOLS_REQUIRE_SELINUX is set, ${lookup_refusal}"
+            detail "${lookup_remedy}"
+            STATUS_PROBLEMS=$(( STATUS_PROBLEMS + 1 ))
+        else
+            detail "AI_TOOLS_REQUIRE_SELINUX is no, so launches are not refused for this"
+        fi
+    fi
     ai_tools_confinement__is_selinux_required "${operator_conf}" && enforcement_note="launch blocked"
     while IFS=$'\t' read -r -a row; do
         case "${row[0]}" in
@@ -3411,6 +3509,7 @@ status() {
         "sudo systemctl start ai-tools-relabel.service" "run the relabel now; a FAILED above clears with a run that succeeds" \
         "sudo systemctl --user -M ${SANDBOX_USER}@.host status nvm-update.timer nvm-update.service" "the updater's schedule and its last run" \
         "sudo journalctl _SYSTEMD_USER_UNIT=nvm-update.service _UID=${sandbox_uid} -n 50" "what the updater printed" \
+        "sudo systemctl --user -M ${SANDBOX_USER}@.host reset-failed nvm-update.service" "clear a failed run and a spent start limit, which refuses every start" \
         "sudo systemctl --user -M ${SANDBOX_USER}@.host start nvm-update.service" "run the update now" \
         "sudo systemctl --user -M ${SANDBOX_USER}@.host daemon-reload" "reload that manager after a unit file changed on disk"
     printf '\n'
@@ -3937,8 +4036,11 @@ layout_list() {
 }
 
 # layout_reconcile [--without-rpm]: bring every entry to its row through the library, each of its lines printed in this
-# command's voice as it arrives, then the counts. The library runs as a collector (records.rule.md): its PID is saved
-# on the statement that opens it, and its status, the outcome ai-tools-admin(8) states, is the command's.
+# command's voice as it arrives, then the counts. The library's PID is saved on the statement that opens it, and its
+# status, the outcome ai-tools-admin(8) states, is the command's. The run is not read
+# through ai_tools_records_base__read_collector (records.rule.md), which holds a collector's lines until it ends
+# and runs it again on a status bash did not return: the reconcile changes the host, so it runs once, and its lines are
+# read under the deadline as they arrive. A status bash did not return reads here as a failed run.
 #
 # The run is bounded by AI_TOOLS_LAYOUT_RUN_BOUND seconds (600 by default; a root-only test hook, tests.rule.md,
 # whose malformed value takes the default). The lock bounds how long a run waits for another; the deadline bounds

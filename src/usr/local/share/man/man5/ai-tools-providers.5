@@ -307,6 +307,23 @@ receives is fixed and is not declared here.
 Without it a session refuses to launch on an enforcing host rather than run
 unconfined.
 .TP
+.B entrypoint_link_fcontext
+A file-context pattern for a second name of that binary, for a package
+that installs it under two names that are hard links to one file.
+A file holds one label, and a relabel of the whole host applies the rule
+of whichever name it reads first, so this pattern maps the second name to
+the same label.
+The pattern is held to the conditions
+.B entrypoint_fcontext
+is held to.
+The launcher is linked at a file
+.B entrypoint_fcontext
+matches, and not at one this pattern alone matches.
+.B atr admin system entrypoints relabel
+reports a name of the binary that the file-context database maps to
+another label.
+Unset for an agent whose binary has one name.
+.TP
 .B release_manifest_url
 The vendor's per-release checksum manifest, with one
 .B {version}

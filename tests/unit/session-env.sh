@@ -62,7 +62,7 @@ check_pins() {
     fi
     effect="$(pins_effect "${file}")" && rc=0 || rc=$?
     if (( rc != 0 )); then
-        fail "${label}: sourcing it fails (rc ${rc}): $(tr '\n' '|' <<<"${effect}" | head -c 200)"
+        fail "${label}: sourcing it fails (rc ${rc}): $(tr '\n' '|' <<<"${effect}" | cut -c1-200)"
         return 0
     fi
     offending="$(grep -vE "${PIN_RE}" <<<"${effect}" | grep -vx 'PATH:' || true)"
@@ -76,7 +76,7 @@ check_pins() {
     if ! grep -qE '^[^#]*\b(exit|exec|export|read)\b' "${file}"; then
         pass "${label}: does not exit, exec, export, or read stdin"
     else
-        fail "${label}: carries an exit/exec/export/read outside a comment: $(grep -nE '^[^#]*\b(exit|exec|export|read)\b' "${file}" | head -3 | tr '\n' '|')"
+        fail "${label}: carries an exit/exec/export/read outside a comment: $(grep -nE '^[^#]*\b(exit|exec|export|read)\b' "${file}" | awk 'NR <= 3' | tr '\n' '|')"
     fi
 }
 
@@ -98,7 +98,7 @@ section "session pins: the allowlist refuses a name-only import and a token valu
 fixture="${TESTDIR}/fixture.pins.env.sh"
 printf '%s\n' 'session_environment_options+=( "--setenv=ANTHROPIC_AUTH_TOKEN" )' > "${fixture}"
 effect="$(pins_effect "${fixture}")"
-if grep -vE "${PIN_RE}" <<<"${effect}" | grep -qv '^PATH:$'; then
+if grep -qvE "${PIN_RE}|^PATH:\$" <<<"${effect}"; then
     pass "a name-only import (--setenv=NAME) is outside the allowlist"
 else
     fail "a name-only import passed the allowlist: $(tr '\n' '|' <<<"${effect}")"
@@ -112,7 +112,7 @@ else
 fi
 printf '%s\n' 'session_path_entries+=( "/opt/ai-tools/somewhere/bin" )' > "${fixture}"
 effect="$(pins_effect "${fixture}")"
-if grep -q '^PATH:/' <<<"${effect}" && grep -vE "${PIN_RE}" <<<"${effect}" | grep -qv '^PATH:$'; then
+if grep -q '^PATH:/' <<<"${effect}" && grep -qvE "${PIN_RE}|^PATH:\$" <<<"${effect}"; then
     pass "a PATH tail is outside the allowlist"
 else
     fail "a PATH tail passed the allowlist: $(tr '\n' '|' <<<"${effect}")"

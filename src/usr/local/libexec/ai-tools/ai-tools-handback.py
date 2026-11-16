@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3
 # SPDX-License-Identifier: AGPL-3.0-only
 # /usr/local/libexec/ai-tools/ai-tools-handback
 # Socket-activated per-connection privilege bridge for the ai-tools sandbox.
@@ -43,7 +43,7 @@
 # afterwards.  See handback-bridge.rule.md.
 #
 # Installed 750 root:root as ai-tools-handback, with @SANDBOX_USER@ substituted at install. Its domain rule is
-# handback-bridge.rule.md.
+# handback-bridge.rule.md; its interpreter line, and why it does not pass `-I`, are cli.rule.md's (ref-section-g7c8).
 
 import datetime
 import os

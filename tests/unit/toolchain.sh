@@ -47,9 +47,9 @@ if [[ ! -r "${LIB}" ]]; then
     skip "toolchain residue" "library not found at ${LIB}"; finish; exit
 fi
 
-# x_bit_visible <dir>: succeed when a 0755 file created there reads as executable (a noexec mount hides the bit,
-# and bash's PATH search then passes the stub over for the real npm).
-x_bit_visible() {
+# can_mark_file_executable <dir>: succeed when a 0755 file created there reads as executable (a noexec mount hides
+# the bit, and bash's PATH search then passes the stub over for the real npm).
+can_mark_file_executable() {
     local probe="$1/.x-probe.$$" ok=1
     printf '' > "${probe}" 2>/dev/null || return 1
     chmod 0755 "${probe}" 2>/dev/null || { rm -f "${probe}"; return 1; }
@@ -62,11 +62,11 @@ mktestdir
 FIXTURE_ROOT="${TESTDIR}"
 # The fallback is under the sandbox home rather than the operator's: the writer runs as the sandbox account,
 # which traverses its own home and not an operator's, and the toolchain executes from there, so the bit is visible.
-if ! x_bit_visible "${FIXTURE_ROOT}"; then
+if ! can_mark_file_executable "${FIXTURE_ROOT}"; then
     mk_fixture_dir FIXTURE_ROOT /opt/ai-tools toolchain 2>/dev/null || FIXTURE_ROOT=""
     [[ -n "${FIXTURE_ROOT}" ]] && chmod 0755 "${FIXTURE_ROOT}"
 fi
-if [[ -z "${FIXTURE_ROOT}" ]] || ! x_bit_visible "${FIXTURE_ROOT}"; then
+if [[ -z "${FIXTURE_ROOT}" ]] || ! can_mark_file_executable "${FIXTURE_ROOT}"; then
     skip "toolchain residue" "no directory here reports a 0755 file as executable (a noexec mount)"
     finish; exit
 fi

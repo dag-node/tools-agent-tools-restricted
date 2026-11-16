@@ -23,6 +23,13 @@ concurrency:
   # mismatch) must not cancel a release publish already in flight for that ref.
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
+# Naming the shell is what gives a step `pipefail`: a `run:` step with no `shell:` is `bash -e {0}`, where a producer
+# that fails ahead of a pipe goes unseen, and with `shell: bash` it is `bash --noprofile --norc -eo pipefail {0}`.
+# A step that also wants `-u` sets it itself.
+defaults:
+  run:
+    shell: bash
+
 # Every job names its Ubuntu release rather than ubuntu-latest, so a move of the runner image is a reviewed commit with
 # its own run.
 jobs:
@@ -68,14 +75,16 @@ jobs:
           sudo install "shellcheck-${ver}/shellcheck" /usr/local/bin/shellcheck
           shellcheck --version
 
-      # Scope matches the documented baseline: src/**/*.sh, packaging/**/*.sh, and
-      # install.sh. tests/ and selinux/ scripts are not part of that baseline; extend
-      # the scope here and in the rule file together, after verifying each directory
-      # lints clean.
+      # Scope matches the baseline .claude/rules/shellcheck.rule.md states: the scripts
+      # under src/, packaging/, selinux/ and tools/, and install.sh. tests/ is outside it,
+      # for the reason the rule gives; a tree joins here and in the rule together, once
+      # it lints clean.
       - name: Lint the baseline against the repo's .shellcheckrc
         run: |
           find src -name '*.sh' -print0 | xargs -0 shellcheck
           find packaging -name '*.sh' -print0 | xargs -0 shellcheck
+          find selinux -name '*.sh' -print0 | xargs -0 shellcheck
+          find tools -name '*.sh' -print0 | xargs -0 shellcheck
           shellcheck install.sh
 
   # The typesafe integration's decide command is vendored from a signed release of
@@ -356,7 +365,8 @@ jobs:
             printf 'recorded=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           } > test-results/origin.txt
           stamp="$(find test-results -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
-              | sed -n 's/^.*-\([0-9]\{8\}T[0-9]\{6\}Z\)$/\1/p' | sort | head -n1)"
+              | sed -n 's/^.*-\([0-9]\{8\}T[0-9]\{6\}Z\)$/\1/p' | sort)"
+          stamp="${stamp%%$'\n'*}"
           [[ -n "${stamp}" ]] || stamp="$(date -u +%Y%m%dT%H%M%SZ)"
           runner="$(printf '%s-%s' "${ImageOS:-${RUNNER_OS:-runner}}" "${RUNNER_ARCH:-}" | tr '[:upper:]' '[:lower:]' \
               | tr -cd 'a-z0-9.-')"
@@ -504,7 +514,10 @@ jobs:
           trap 'GNUPGHOME="${gnupghome}" gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${gnupghome}"' EXIT
           printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import \
             || { echo "::error::GPG_SIGNING_KEY did not import: the value is not an ASCII-armored key block. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
-          GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | grep -q '^sec:' \
+          # The listing is read whole before it is searched (ref-section-d9x2).
+          secret_listing="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys)" \
+            || { echo "::error::gpg could not list the imported secret keys"; exit 1; }
+          grep -q '^sec:' <<<"${secret_listing}" \
             || { echo "::error::GPG_SIGNING_KEY carries no secret key: the value is a public key, or an export without the secret part. Export the signing subkey with gpg --armor --export-secret-subkeys '<subkey-fpr>!' and set it again: gh secret set GPG_SIGNING_KEY --env release -R ${GITHUB_REPOSITORY} < signing-subkey.asc"; exit 1; }
 
           # State the imported key's identity -- fingerprints are public, the served key file
@@ -512,7 +525,7 @@ jobs:
           # with it. Signed by another key, the RPMs would pass the runner's self-consistent
           # re-verify and publish, and dag-node/rpm would then drop them as not the org key's,
           # behind a tag that cannot move.
-          have="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys | awk -F: '$1=="fpr"{print $10; exit}')"
+          have="$(awk -F: '$1=="fpr"{print $10; exit}' <<<"${secret_listing}")"
           echo "imported signing key: primary ${have}"
           GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-keys "${have}" | awk -F: '$1=="sub"{s=1; next} $1=="fpr" && s {print "  subkey " $10; s=0}'
           [[ "${have}" == "${ORG_SIGNING_PRIMARY_FPR}" ]] \
@@ -634,14 +647,18 @@ jobs:
           gnupghome="$(mktemp -d -p /dev/shm)" || { echo "::error::no directory could be created under /dev/shm"; exit 1; }
           trap 'GNUPGHOME="${gnupghome}" gpgconf --kill gpg-agent 2>/dev/null; rm -rf "${gnupghome}"' EXIT
           printf '%s\n' "${GPG_SIGNING_KEY}" | GNUPGHOME="${gnupghome}" gpg --batch --quiet --import
-          fpr="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys \
-                  | awk -F: '$1 == "fpr" { print $10; exit }')"
+          # Listed whole, then searched, as in preflight.
+          secret_listing="$(GNUPGHOME="${gnupghome}" gpg --batch --with-colons --list-secret-keys)" \
+            || { echo "::error::gpg could not list the imported secret keys"; exit 1; }
+          fpr="$(awk -F: '$1 == "fpr" { print $10; exit }' <<<"${secret_listing}")"
           [[ -n "${fpr}" ]] || { echo "::error::no secret key after import"; exit 1; }
           GNUPGHOME="${gnupghome}" gpg --batch --armor --export "${fpr}" > dist-rpms/RPM-GPG-KEY-dag-node
           [[ -s dist-rpms/RPM-GPG-KEY-dag-node ]] || { echo "::error::exported public key is empty"; exit 1; }
 
           # Verify against a throwaway rpmdb seeded only with the exported key. Require a validating
           # signature LINE (`rpmkeys -Kv`), not just a zero exit -- an unsigned package exits 0.
+          # The output is captured whole before it is searched, as sign-rpms.sh's verify_signatures
+          # does (ref-section-d9x2).
           verifydb="$(mktemp -d)"
           rpmkeys --dbpath "${verifydb}" --import dist-rpms/RPM-GPG-KEY-dag-node
           for tag in ${RPM_DIST_TAGS}; do
@@ -650,9 +667,10 @@ jobs:
             compgen -G "dist-rpms/${tag}/*.rpm" >/dev/null \
               || { echo "::error::no RPMs under dist-rpms/${tag} -- the ${tag} sign step produced none"; exit 1; }
             for rpm in dist-rpms/"${tag}"/*.rpm; do
-              rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1 \
-                | grep -Eqi 'signature.*:[[:space:]]*OK[[:space:]]*$' \
-                || { echo "::error::${rpm} is not signed on the runner -- the in-container signing did not persist to the host"; exit 1; }
+              out="$(rpmkeys --dbpath "${verifydb}" -Kv "${rpm}" 2>&1)" \
+                || { echo "::error::${rpm}: rpmkeys -Kv failed on the runner"; printf '%s\n' "${out}"; exit 1; }
+              grep -Eqi 'signature.*:[[:space:]]*OK[[:space:]]*$' <<<"${out}" \
+                || { echo "::error::${rpm} is not signed on the runner -- the in-container signing did not persist to the host"; printf '%s\n' "${out}"; exit 1; }
             done
           done
           echo "verified $(find dist-rpms -name '*.rpm' | wc -l) signed RPM(s) on the runner"

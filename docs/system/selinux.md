@@ -22,20 +22,36 @@ a host without it is still confined by file permissions.
 ## What a launch requires
 
 ```bash
-sudo sed -i 's/^#\?AI_TOOLS_REQUIRE_SELINUX=.*/AI_TOOLS_REQUIRE_SELINUX=no/' /etc/ai-tools/operator.conf   # declare a DAC-only host
+getenforce                                  # Enforcing
+rpm -q ai-tools-selinux                     # the policy package, installed
 ```
 
 A launch requires the confinement by default: SELinux enforcing, the policy
 loaded, the session's domain enforced, and the Booleans listed
-in `AI_TOOLS_SELINUX_BOOLEANS` at the values the list names. A host that has
-the policy and has drifted from any of that — permissive mode, a module
-installed and not loaded, a Boolean switched on — refuses the launch and names
-the fix. A host that has no confinement by its own configuration, SELinux
-disabled or the policy never installed, launches with file permissions alone
-and warns at every launch until `AI_TOOLS_REQUIRE_SELINUX=no` declares
-that on purpose. The requirement is in force while the key is absent, so only
-an explicit `no` turns it off. Every option is
-in `man 5 ai-tools-operator.conf`.
+in `AI_TOOLS_SELINUX_BOOLEANS` at the values the list names. The shipped
+`/etc/ai-tools/operator.conf` sets `AI_TOOLS_REQUIRE_SELINUX=yes`, and a file
+without the key reads the same, so only an explicit `no` turns it off. A host
+that has the policy and has drifted from any of that — permissive mode,
+a module installed and not loaded, a Boolean switched on — refuses the launch
+and names the fix. A host with SELinux disabled or the policy never installed
+refuses every launch too, and `atr admin system bootstrap` names that state
+before the first one. The fix there is to enable SELinux, enforcing, and
+install `ai-tools-selinux`. Every option is in `man 5 ai-tools-operator.conf`.
+
+### A container runs DAC-only
+
+```bash
+sudo sed -i '/^[[:space:]]*#\?[[:space:]]*AI_TOOLS_REQUIRE_SELINUX[[:space:]]*=/d' /etc/ai-tools/operator.conf
+printf '\nAI_TOOLS_REQUIRE_SELINUX=no\n' | sudo tee -a /etc/ai-tools/operator.conf
+atr status                                  # the SELinux status section names the declaration
+```
+
+A container reads SELinux as `Disabled`, so the policy cannot confine a session
+there. The two commands remove any `AI_TOOLS_REQUIRE_SELINUX` line, set
+or commented, and append `AI_TOOLS_REQUIRE_SELINUX=no` on a line of its own,
+which declares the host DAC-only whether the key was in the file or not. Its
+sessions then run with file permissions alone. A host that can run SELinux runs
+it enforcing with the policy instead, since the policy is the second boundary.
 
 The supported host runs the **targeted** policy on Enterprise Linux 9 or 10
 with operators logging in unconfined, the EL default. The policy grants
@@ -63,8 +79,13 @@ Two things are worth knowing before reaching for `restorecon` yourself:
   agent's own manifest** declares, so `atr admin system entrypoints relabel` —
   or `sudo selinux/install-selinux.sh relabel` from a checkout — applies them
   in the right order.
-- A bare recursive `restorecon` over `/opt/ai-tools` can leave a hardlinked
-  entrypoint mislabelled, which the next launch then refuses.
+- After a relabel of the whole host — an autorelabel boot, `fixfiles` — run
+  `atr admin system entrypoints relabel`. Each name an agent's package gives
+  its entrypoint has a rule of its own, so such a relabel leaves the entrypoint
+  on its type. A name that no rule maps to that type is the exception,
+  and `atr status` reports one: a relabel can leave that entrypoint on another
+  type, no unit runs the reconcile afterwards, and on an enforcing host
+  the agent's sessions then refuse to start until the command has run.
 
 To inspect a denial:
 

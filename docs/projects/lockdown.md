@@ -24,10 +24,11 @@ on the project the current directory is in, named on its first line.
 ## A secret-named file is locked, not shared
 
 A file whose name matches a known secret pattern — `.env`, `*.key`, `*.pem`,
-SSH private keys, `kubeconfig`, and the rest of the shipped set — is treated
-apart from every other file in a claimed tree. Where the agent writes one,
-the handback locks it to you alone rather than returning it to the shared
-ownership every other file gets ([Permissions](permissions.md)),
+the most common SSH private key names (`id_rsa`, `id_ed25519` and the other
+`id_` names the shipped set lists), `kubeconfig`, and the rest of the shipped
+set — is treated apart from every other file in a claimed tree. Where the agent
+writes one, the handback locks it to you alone rather than returning it
+to the shared ownership every other file gets ([Permissions](permissions.md)),
 and the session and the operation log each record that it did.
 
 The same scan runs **before** a claim or a clone grants anything, as the first
@@ -94,9 +95,11 @@ its mode.
 
 Your own list lives at `~/.config/ai-tools/secret-patterns` and **replaces**
 the baseline rather than adding to it, so a file written once holds this host
-to the set it named then. Each launch records the difference to journald,
-naming the baseline patterns your file drops. The file's grammar and the full
-baseline are in `man 5 ai-tools-secret-patterns`.
+to the set it named then. A name the baseline lacks, such as a key saved
+under another `id_` name, takes a line there beside the baseline entries you
+keep. Each launch records the difference to journald, naming the baseline
+patterns your file drops. The file's grammar and the full baseline are
+in `man 5 ai-tools-secret-patterns`.
 
 ## A matched file the agent must read
 

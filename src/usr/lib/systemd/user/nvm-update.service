@@ -56,8 +56,8 @@ RestrictNamespaces=yes
 # them where the host delegates the memory and pids controllers to it (cgroup v2); on cgroup v1 they are accepted
 # and not applied. Tune with `sudo systemctl --user -M ai-tools@.host edit nvm-update.service`. See
 # .claude/rules/updater.rule.md.
-MemoryHigh=1G
-MemoryMax=2G
+MemoryHigh=2G
+MemoryMax=3G
 MemorySwapMax=0
 TasksMax=256
 # No mount-namespace option here, and this is a correctness requirement rather than a preference.

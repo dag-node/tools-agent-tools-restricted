@@ -41,34 +41,36 @@ since every agent named runs as the one sandbox account, and an untrusted `opera
 about nor written. The enabled set is resolved after that write, so the run provisions what it wrote. An empty set
 the configuration did not ask for — `ai_tools_providers__evaluate_empty_agents` answering anything but `none` — ends
 the run there under `MSG-M9G5`, before anything is installed or removed, the fault the updater ends on ([the empty-set
-classification](#the-run-classifies-itself-ok-skipped-or-failed)). **Residue goes next, still ahead of the network
-step** (`remove_residue`): the package of every installed agent that set does not name is removed as `SANDBOX_USER`
-through `ai_tools_toolchain__remove_agent_package`, and its stable launcher link as root once no version directory holds
-the package, so an offline host cleans up before its npm step fails and every launch stops refusing (see [A disabled
-agent's package is residue](#a-disabled-agents-package-is-residue)). **Two preflight checks sit between the empty-set
-refusal and the residue step**, since the residue step and the install both read the toolchain as `SANDBOX_USER`.
-`preflight_toolchain_ownership` reads the `.nvm`, `.npm`, `.cache` and `.local` subtrees as root and reports every path
-`SANDBOX_USER:SANDBOX_GROUP` does not own, with the `chown -Rh` that restores the account's ownership; a finding ends
-the run before anything is installed or removed, which is what turns nvm's bare "Permission denied" on a tree copied
-from another host into a line naming the cause. The remedy is printed and not applied: a chown the command made on its
-own would hand the account every file a copy left in its home. `preflight_network` then asks each download host
-for a `HEAD` within a timeout (`registry.npmjs.org`, `nodejs.org`, and `raw.githubusercontent.com` only while nvm is not
-installed yet), counting an answer of any status as a route and a resolve failure, a refused connection or a timeout
-as none. A host with no route makes the run an **offline** one under `MSG-S8B6`: every step that does not need
-a download is applied — the account and its home, the launcher links, the relabel, the units, the managed assets,
-the prompts — and the nvm, Node and npm install is skipped over a toolchain that is already installed, or ends the run
-under `MSG-R5Z3` where none is, since the download is the one step this command cannot make without the network. It then
-creates the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, installs nvm, Node (`AI_TOOLS_NODE_MAJOR`,
-default 22), then updates npm, as `nvm-update` does first on every run, so the agents install and the signature check
-audits with the npm the updater maintains rather than the one bundled with Node, then each enabled agent's npm package
-as `SANDBOX_USER` (the enabled set resolved via [providers](providers.rule.md)), re-links each versioned launcher
-at the target its manifest declares (see [The versioned launcher and its declared
+classification](#the-run-classifies-itself-ok-skipped-or-failed)). Past the preflight checks it creates
+the `SANDBOX_USER` account and its `/opt/ai-tools` home if absent, runs the layout reconcile, refreshes the timer stamp,
+and enables that account's linger before the first step that runs as it through `ai_tools_sandbox_exec__run_as_sandbox`.
+**Residue goes ahead of the network step** (`remove_residue`): the package of every installed agent that set does not
+name is removed as `SANDBOX_USER` through `ai_tools_toolchain__remove_agent_package`, and its stable launcher link
+as root once no version directory holds the package, so an offline host cleans up before its npm step fails and every
+launch stops refusing (see [A disabled agent's package is residue](#a-disabled-agents-package-is-residue)). **Two
+preflight checks sit between the empty-set refusal and the residue step**, since the residue step and the install both
+read the toolchain as `SANDBOX_USER`. `preflight_toolchain_ownership` reads the `.nvm`, `.npm` and `.cache` subtrees
+as root and reports every path `SANDBOX_USER:SANDBOX_GROUP` does not own, with the `chown -Rh` that restores
+the account's ownership; a finding ends the run before anything is installed or removed, which is what turns nvm's bare
+"Permission denied" on a tree copied from another host into a line naming the cause. The remedy is printed and not
+applied: a chown the command made on its own would hand the account every file a copy left in its home.
+`preflight_network` then asks each download host for a `HEAD` within a timeout (`registry.npmjs.org`, `nodejs.org`,
+and `raw.githubusercontent.com` only while nvm is not installed yet), counting an answer of any status as a route
+and a resolve failure, a refused connection or a timeout as none. A host with no route makes the run an **offline** one
+under `MSG-S8B6`: every step that does not need a download is applied — the account and its home, the launcher links,
+the relabel, the units, the managed assets, the prompts — and the nvm, Node and npm install is skipped over a toolchain
+that is already installed, or ends the run under `MSG-R5Z3` where none is, since the download is the one step this
+command cannot make without the network. It then installs nvm, Node (`AI_TOOLS_NODE_MAJOR`, default 22), then updates
+npm, as `nvm-update` does first on every run, so the agents install and the signature check audits with the npm
+the updater maintains rather than the one bundled with Node, then each enabled agent's npm package as `SANDBOX_USER`
+(the enabled set resolved via [providers](providers.rule.md)), re-links each versioned launcher at the target its
+manifest declares (see [The versioned launcher and its declared
 target](#the-versioned-launcher-and-its-declared-target)), points `/opt/ai-tools/bin/<launcher>` at each versioned
 binary, relabels the freshly installed entrypoint (`ai-tools-relabel-agent`, gated on that helper being deployed,
 so the first launch after a fresh provision is confined without a manual `atr admin system entrypoints relabel`),
 and captures the initial control plane in a root-private git repo. It is the one network step, so it is an operator
 command rather than an RPM scriptlet (which must succeed offline). It is idempotent: an existing account, nvm install,
-or Node version is reused. It enables `SANDBOX_USER` linger and the `nvm-update.timer` in that instance (best-effort),
+or Node version is reused. It enables the `nvm-update.timer` in that account's instance (best-effort),
 so the maintenance schedule is live once the toolchain exists. Root starts the timer over the machine transport
 (`systemctl --user -M SANDBOX_USER@.host`), the route the system bus authorizes for root; a `sudo -u` call
 on the account's own bus is refused there even while the manager is healthy ([cli](cli.rule.md)).
@@ -83,6 +85,11 @@ present, either way, is the operator's declaration and is not asked about, and a
 asked about nor written. The entrypoint switch is offered only while every enabled agent carries a pin,
 which the relabel ahead of the step writes: offered without one, it would refuse that agent's next launch.
 
+**It names a host where the SELinux requirement refuses every launch** (`report_required_dac_only_state`): under
+`AI_TOOLS_REQUIRE_SELINUX`, SELinux disabled or the policy neither live nor on disk, read as the launch reads it
+([confinement](confinement.rule.md)). The warning carries the refusal's code and its remedies, and leaves the exit
+status alone, since the host is provisioned and the remedy is the operator's choice.
+
 Starting the timer **pre-seeds its `Persistent=` run-stamp** (`$XDG_DATA_HOME/systemd/timers/ stamp-nvm-update.timer`
 under `/opt/ai-tools`, written as `SANDBOX_USER`) so it begins on its next scheduled window rather than an **immediate
 catch-up run**. The timer's daily `OnCalendar` has usually already passed when the toolchain is provisioned, and with no
@@ -91,8 +98,11 @@ prior stamp `Persistent=true` would run `nvm-update.service` at once — which r
 `ai_tools_exec_t`, see [post-upgrade relabel](#post-upgrade-entrypoint-relabel)), and its asynchronous repoint→relabel
 chain races the operator's first launch into the mislabel refusal. Provisioning has just installed the current
 toolchain, so recording "last run = now" is truthful; the next run is the next scheduled window. `ai-tools-bootstrap`
-and `install.sh` both seed the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral
-CWD so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into. Each
+also refreshes the stamp before it enables linger, after the layout reconcile has placed its directory: a manager linger
+brings up starts a timer an earlier run enabled, and a stale stamp would start the updater beside the bootstrap's own
+toolchain steps. A write that fails ends the run there, before linger. `ai-tools-bootstrap` and `install.sh` both seed
+the stamp before starting the timer (the RPM/dev flows), and each also runs from a neutral CWD
+so the `sudo -u SANDBOX_USER` steps do not inherit an operator directory the account cannot traverse back into. Each
 runs the layout reconcile first, which creates the unit search path chain and the stamp directory in it as rows
 ([layout](layout.rule.md)).
 
@@ -174,6 +184,12 @@ caller keeps a plain `runuser`.
 directly. The timer fires daily; one instance maintains the toolchain the whole team shares. `ai-tools-bootstrap`
 enables the timer once it has provisioned the toolchain and `SANDBOX_USER`'s linger; `install.sh` enables it for the dev
 flow.
+
+`nvm-update.sh` starts as a root helper does ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)), its `PATH` line
+carrying the value `nvm-update.service` sets, so a run as the account outside the unit, the manual route an explicit
+version argument serves, finds its commands in the directories the unit's run does; `nvm.sh` then prepends
+the toolchain's `bin`. `tests/unit/startup-path.sh` holds the line to the unit's, and `tests/boundary/access.sh` holds
+the directories it names out of the account's reach ([tests](tests.rule.md)).
 
 ### A `--user unit` here does not carry a mount-namespace option
 
@@ -263,7 +279,16 @@ would report as unknown and leave `ai_tools_services__is_attention_needed` unmov
 and the fault class does not: a broken toolchain or a failed signature check will fail the same way on a retry,
 and neither should churn against the registry. Retries are bounded by the unit's start limit, which `nvm-update.service`
 states with the outage it recovers, and then stop, leaving the stamp to age into `STALE` for an outage that lasts
-longer.
+longer. A unit that spent its start limit refuses every start, a manual one included, until
+`systemctl --user -M ai-tools@.host reset-failed nvm-update.service` clears it, so both status reports print that line
+ahead of the restart they name ([cli](cli.rule.md)).
+
+The units are `--user` units, and the systemd file triggers reload the system manager alone, so a running user manager
+keeps the unit text it loaded until it is told. The `ai-tools-integration-nodejs` `%posttrans` and `install.sh` reload
+it over the machine transport; the `%posttrans` does so only while that manager's `user@<uid>.service` is active, since
+a manager that is not running holds no stale unit, and each reports a reload that failed under `MSG-M2U5` with
+the command that repeats it, while the transaction or the install completes. A root caller's status report reads
+`NeedDaemonReload` of that manager and names the same reload ahead of the restart (`ai_tools_services__read_remedy`).
 
 This is the only recovery path a *failed* run has. The timer's `Persistent=true` covers a window missed while
 the manager was not running; a window taken by a run that then failed is spent, because systemd stamps a timer when it
@@ -274,7 +299,7 @@ not ordered against it and connectivity is handled where it arises, in the run's
 The daily window is the host's local time; an operator moves it
 with `sudo systemctl --user -M ai-tools@.host edit nvm-update.timer`.
 
-The unit also caps the run: `MemoryHigh=1G`, `MemoryMax=2G`, `MemorySwapMax=0` and `TasksMax=256`, which a Node install
+The unit also caps the run: `MemoryHigh=2G`, `MemoryMax=3G`, `MemorySwapMax=0` and `TasksMax=256`, which a Node install
 and an npm install stay under. A run killed at the limit exits non-zero, which `Restart=on-failure` retries within
 the start limit and the stamp reports as `failed`. The manager applies the four where the host delegates the `memory`
 and `pids` controllers to it (cgroup v2), and accepts them without applying them on cgroup v1; an operator raises one
@@ -628,10 +653,11 @@ a repoint does, so the relabel watcher's reconcile runs and reports that agent's
 A freshly installed entrypoint is born the default type (`bin_t`/`lib_t`), so the `→ ai_tools_t` domain transition fires
 only once it carries `ai_tools_exec_t`. `ai-tools-relabel-agent` applies that label, and it is **agent-agnostic**:
 the base policy does not carry an entrypoint rule, so for each *enabled* agent the helper reads the path pattern
-that agent's manifest declares (`entrypoint_fcontext`, see [providers](providers.rule.md)), registers it as a local
-`semanage fcontext` rule mapping it to `ai_tools_exec_t`, restorecons every file it matches, and verifies each took
-the type. It runs as root (a domain that holds relabel), is idempotent, and no-ops when SELinux is off or the `ai_tools`
-module is not installed — there is then no `ai_tools_exec_t` to assign, the same condition `ai-tools-run` keys on.
+that agent's manifest declares (`entrypoint_fcontext`, and `entrypoint_link_fcontext` where its package gives the file
+a second name, see [providers](providers.rule.md)), registers each as a local `semanage fcontext` rule mapping it
+to `ai_tools_exec_t`, restorecons every file it matches, and verifies each took the type. It runs as root (a domain
+that holds relabel), is idempotent, and no-ops when SELinux is off or the `ai_tools` module is not installed — there is
+then no `ai_tools_exec_t` to assign, the same condition `ai-tools-run` keys on.
 
 The type and the Node versions root are pinned in `relabel.lib.sh`, and a declared pattern is accepted only when it can
 match no path outside that root (no traversal, no alternation, an anchored literal head —
@@ -667,8 +693,24 @@ ownership and defensive reader as the pin and the label record beside it, carryi
 installed when the refusal happened, which the pin by construction does not hold), `REASON`
 (`changed-under-same-version` or `signature-mismatch`) and `DETECTED`.
 
-The mark is **cleared** by any run that records a pin for that agent — a fresh pin, a re-pin, a `keep`, or a reused
-verdict — so a host that has been repaired stops reporting. Writing and clearing are best-effort and never change
+**A release the reconcile could not verify leaves the pin as it was too.** The run then compares the installed bytes
+with the pin, as the launch does, so what it records is what the next launch reads, and it names the outcome in one line
+after `MSG-B6H9`; `ai_tools_entrypoint_verify__evaluate_unverified_release_stale_mark` holds the outcomes and what each
+one files, keeps or clears. The table follows from what each mark is about. A `release-unverified` mark carries the
+checksum of the bytes the run read, so the wording it gives the launch applies to those bytes alone. Where the bytes
+differ under another release, a mark of a changed binary is kept, since the installed version is the sandbox account's
+to write and an unverified-update wording must not replace it. A signature failure is a finding about the vendor's
+manifest rather than about the bytes, so matching bytes and a reused pin do not clear it; a run that records a pin does.
+One sequence drops it without such a run, and is accepted: a change under the pinned version replaces it with
+`changed-under-same-version`, and once the pinned bytes are restored a later run clears that mark. **Every outcome of
+this branch exits 0**: the release could not be verified, an rpm `%post` runs the helper offline, and a failed pin step
+stops the run before it labels any agent. Where the bytes differ from the pin, the launch refuses on it whatever the run
+returns, and where a mark stands, both status reports count it. How the launch words its refusal from the mark is
+[launch](launch.rule.md)'s.
+
+The mark is **cleared** by any run that records a pin for that agent — a fresh pin, a re-pin, an observed-tier
+`keep` — so a host that has been repaired stops reporting; a pin with a mark beside it is not reused, so a reused
+verdict does not clear one. Writing and clearing are best-effort and never change
 the outcome of the reconciliation they describe; a write that fails is reported under its own code, since the report
 then reads as current.
 
@@ -682,7 +724,8 @@ and comparing it against the pin, which names a changed binary even where no rec
 Each run records what it could do about every enabled agent's labels,
 in `/var/opt/ai-tools/state/entrypoint-label.d/<agent>` — the same `KEY=value` grammar, directory ownership,
 and defensive reader as the pin beside it (`AGENT`, `RESULT=ok|failed|skipped`, `LABELLED`, and a `REASON` token
-on anything but `ok`). `ai-tools status` reports it under that agent's verification line (see [cli](cli.rule.md)).
+on anything but `ok`, and on an `ok` whose entrypoint has a name the file-context database maps to another type).
+`ai-tools status` reports it under that agent's verification line (see [cli](cli.rule.md)).
 
 It exists because **the operator can observe neither the label nor the run that applies it**. The entrypoint is
 in a toolchain they cannot traverse, `matchpathcon` computes only what a label should be, and two of the three callers —
@@ -705,13 +748,57 @@ files it `failed` with the reason `walker-unavailable`; and a directory left at 
 exits non-zero, and `ai-tools-relabel.service`, a oneshot, reads failed until a run labels it.
 
 The helper then **reconciles** what it applied against what is installed: it resolves `/opt/ai-tools/bin/<launcher>`
-the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path the declared pattern
-does not cover, instead of the `none`/success a pattern matching no path would otherwise produce. So a relabel
-that exits 0 means the next launch will not fail closed on the entrypoint label, and the divergence is named
-as the cause rather than diagnosed as a missing install. It never labels the resolved path: the files that take
-`ai_tools_exec_t` stay exactly those the root-owned manifests declare (see
-[agent-claude-code](agent-claude-code.rule.md)). `ai-tools-relabel-agent --remove <agent>` is the erase-time
-counterpart: the agent package's `%preun` drops its rule while its manifest is still on disk.
+the way the launch preflight does and fails — non-zero — when an entrypoint is installed at a path no declared pattern
+covers, instead of the `none`/success a pattern matching no path would otherwise produce. So a relabel that exits 0
+means the next launch will not fail closed on the entrypoint label, and the divergence is named as the cause rather than
+diagnosed as a missing install. It never labels the resolved path: the files that take `ai_tools_exec_t` stay exactly
+those the root-owned manifests declare (see [agent-claude-code](agent-claude-code.rule.md)).
+`ai-tools-relabel-agent --remove <agent>` is the erase-time counterpart: the agent package's `%preun` drops its rules
+while its manifest is still on disk.
+
+**Every name of an entrypoint maps to the entry type.** An inode holds one label, and a package can give its entrypoint
+a second name, a hard link. A relabel that walks by path — `setfiles`, which the autorelabel boot runs — keeps
+the context of the name it meets first and reports the other as a conflicting specification, so with one name declared,
+directory order decides whether the inode keeps `ai_tools_exec_t`. A launch from an entrypoint that lost it is refused
+at the label preflight, and no unit runs the reconcile after a relabel of the whole host. A manifest therefore declares
+the second name as a pattern of its own, `entrypoint_link_fcontext`, held to the same containment and mapped to the same
+pinned type. The helper registers every declared rule ahead of its first `restorecon` and labels what each matches;
+`--remove` drops every rule ahead of its first revert, since a link name restored while its rule stands puts the type
+back on the inode the entrypoint's revert cleared. The reconcile counts a launcher that resolves to a declared link name
+as covered, by path and not by inode: the preflight requires the rule of the resolved path itself to map the entry type
+(`ai_tools_confinement__evaluate`), so a second name whose own rule maps another type is `stale`.
+
+**The names of each labelled inode are read.** The helper asks the file-context database what it maps each name
+of an entrypoint's inode to (`_ai_tools_relabel__list_entrypoint_name_findings`), once per inode: the path itself
+for a file with one link, and for one with more, every name under the Node versions root (`find -xdev -samefile`). It
+reports a name mapped to another type (`unmapped`), names a status line does not print, whose mapping is not looked
+up (`unchecked`), an inode with more links than names found, which is a name outside the toolchain that no contained
+pattern can cover (`outside`), and a walk that left names unaccounted for or a mapping that could not be read
+(`unread`). The database's answer decides, and not a match against the manifest's patterns, since a local rule
+registered later can map a name a declared pattern matches to another type; for the launched path itself that is
+the state the launch preflight refuses while the live type still reads as labelled. Each name is one record of the walk,
+a path carrying a newline printed as a fixed word, so such a name is counted and cannot read as a second sighting
+of a mapped path. Such a name comes from the vendor's package, from a process of the sandbox account outside
+`ai_tools_t`, or from root or an operator. A session does not add one: the policy does not grant `ai_tools_t` `link`
+on the entry type, which `selinux/avc/avc-denials.sh` (WLK-002) attempts from inside a session. A finding does not fail
+the run, since the inode carries its type and the next launch is confined. It is warned about under its own code
+and filed in the label record as `RESULT=ok` with a `REASON`, which `ai-tools status` reports and counts
+([cli](cli.rule.md)); `ai-tools-admin status` makes the same read live for the inode a session execs.
+
+**Two readings are not names findings.** The path a launcher resolves to, mapped to another type (`mismapped`), is
+the mapping the launch preflight reads, and the preflight refuses on it whatever type the file carries. The run fails
+on it after warning under its own code, and `ai-tools-admin status` reports it `NOT LABELLED`. The discovery
+of the files a pattern matches (`_ai_tools_relabel__find_entrypoint_paths`) prints a path only while it is drawn
+from the reportable character set: the class in a declared pattern matches a newline and a space, the sandbox account
+names the directories under the versions root, and a path carrying a newline would read as two lines, the second
+an absolute path of that account's choosing handed to root's `restorecon`. A match at such a path is neither labelled
+nor reverted: a label run counts it in a `skip` line, and a revert returns the status of a path left at its type. A walk
+for those files that did not complete has not listed every file a rule matches: a label run labels what it listed
+and fails with that reason in place of a verdict, which is not decided from part of a tree, and a revert says the same
+and returns the status of a path left at its type. A versions root confirmed not there does not hold a match; one
+whose state could not be read, and a symbolic link in its place, which is not followed, are each a walk that did not
+complete. A lookup of the launcher's resolved path that cannot be made fails the agent's entrypoint with the reason,
+since the launch preflight reads that mapping and refuses without it.
 
 **The divergence has a cause per verdict, and the reconciliation tells them apart, because their remedies do not
 overlap.** Whether the declared pattern matches *any* installed file decides it, and where it does, whether the file
@@ -722,7 +809,7 @@ the launcher resolves to is a byte-identical copy of a match (`ai_tools_relabel_
 |---|---|---|---|
 | `stale` | some other file | the manifest has stopped describing its own package | a newer agent package (`dnf update 'ai-tools-agents-*'`) |
 | `incomplete` | no installed file | the package did not install the entrypoint it declares | the toolchain reinstall (`atr admin system bootstrap`) |
-| `copied` | some other file, byte-identical to the one the launcher resolves to | a copy of the tree replaced a symlink in the launcher's chain with its target | the toolchain run, which restores the links (`atr admin system bootstrap`) |
+| `copied` | some other file, byte-identical to the one the launcher resolves to and another inode | a copy of the tree replaced a symlink in the launcher's chain with its target | the toolchain run, which restores the links (`atr admin system bootstrap`) |
 
 Each is reported per agent as a warning and fails the run under its own code, and the split is what keeps the operator
 out of a loop: the missing executable comes from the sandbox toolchain rather than from the RPM, so an agent package
@@ -958,11 +1045,12 @@ as a claim of vendor provenance for an agent whose vendor publishes none.
 
 ### Answering from the pin, and the one caller that never does
 
-An unattended run may answer from the existing pin instead of refetching. It does so only when every input
-to the verdict is unchanged: the installed version, the entrypoint's own bytes, and an `INPUTS` digest over the manifest
-URL template, the signing key's path **and content**, and the declared fingerprints. A pin recording no `INPUTS` is
-never reused, so an unrecordable digest costs a re-verification. `ai_tools_entrypoint_verify__is_pin_reusable` is
-the predicate, unit-tested over that truth table.
+An unattended run may answer from the existing pin instead of refetching. It does so only when every input to the
+verdict is unchanged: the installed version, the entrypoint's own bytes, and an `INPUTS` digest over the manifest URL
+template, the signing key's path **and content**, and the declared fingerprints. A pin recording no `INPUTS` is never
+reused, so an unrecordable digest costs a re-verification, and neither is a pin with a stale mark beside it: a signature
+that did not verify leaves the bytes matching the pin, so only a full verification settles the mark.
+`ai_tools_entrypoint_verify__is_pin_reusable` is the predicate, unit-tested over that truth table.
 
 This is worth doing because the repeat runs are frequent and the cost is not: one upgrade can fire the `.path` watcher
 several times, the agent package's `%post` runs on every package update, and on an air-gapped host each of those spends
@@ -995,9 +1083,10 @@ in the file, so a signature added to the file does not turn a mismatch into a `2
   refuses. No configuration turns it off.
 - **Unable to verify** — offline, no manifest published for that release (they are per-release and not guaranteed), no
   `gpgv`, an agent declaring no provenance, or a **vendor key rotation**, a key the shipped keyring holds as expired
-  or revoked included — warns and proceeds, leaving any previous pin standing. A rotation reporting as tamper would fail
-  every host closed on an untouched binary, so the agent package ships old and new keys in one keyring and declares both
-  fingerprints for the overlap.
+  or revoked included — warns and proceeds, leaving any previous pin standing, and reports the installed bytes against
+  it as [A refusal leaves a mark too](#a-refusal-leaves-a-mark-too) states. A rotation reporting as tamper would
+  fail every host closed on an untouched binary, so the agent package ships old and new keys in one keyring
+  and declares both fingerprints for the overlap.
 
 `openpgp.lib.sh` holds the reader both signature verifiers use, `ai_tools_openpgp__evaluate_gpgv_status`, whose doc
 comment holds the order its rows decide in, beside the armor-to-keyring conversion and the fingerprint predicate,

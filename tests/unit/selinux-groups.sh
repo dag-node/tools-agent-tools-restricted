@@ -13,7 +13,7 @@
 #     (the modules are compiled per distribution at build time; a tracked binary is one built on
 #     some other host's headers). Asserted against the checkout;
 #   * the loaded probe against a full-size module listing -- the one impure accessor, driven over
-#     a stubbed `semodule` because its failure mode is a race rather than a wrong answer.
+#     a stubbed `semodule` that prints a line per write, to exercise the early-exit race (ref-section-d9x2).
 #
 # Sources the deployed lib; the lockstep half additionally needs the repo policy sources, so it runs only in a checkout.
 # No root risk and no SELinux dependency: the real semodule is never called -- the probe section shadows it with a shell
@@ -24,10 +24,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../lib" && pwd)/harness.sh"
 # Read-only (sources a world-readable lib, reads repo files); no root needed, like man.sh.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# Installed copy first, then the source tree (the lib does not carry a token substitution, so the two are identical);
-# the lockstep half needs the checkout regardless.
-LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
-[[ -r "${LIB}" ]] || LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+# The checkout's copy first, then the installed one: the library does not carry a token substitution, so the checkout's
+# file is the artifact, and a branch's change to it is what a run in that checkout reads. The lockstep half needs
+# the checkout regardless.
+LIB="${ROOT}/src/usr/local/lib/ai-tools/selinux-groups.lib.sh"
+[[ -r "${LIB}" ]] || LIB="/usr/local/lib/ai-tools/selinux-groups.lib.sh"
 section "selinux-groups: registry accessors + filesystem lockstep (unit)"
 
 if [[ ! -r "${LIB}" ]]; then
@@ -132,16 +133,13 @@ else
     pass "ai_tools_selinux_groups__is_valid rejects an unknown group"
 fi
 
-# --- The loaded probe survives a full-size module listing (SIGPIPE regression) ---
-# ai_tools_selinux_groups__is_loaded reads `semodule -l`, which on a real host is several hundred lines -- past a stdio
-# buffer, so the command needs more than one write to deliver it. Written as `semodule -l | grep -qx`, grep exits
-# on the match, the still-writing semodule dies of SIGPIPE, and the `set -o pipefail` every consumer of this library
-# runs under turns that into 141: the probe reports NOT LOADED for a module that IS. An ai_tools* name sorts early,
-# so the match lands in the first buffer and the race is lost about half the time -- which is what makes it worth
-# pinning rather than reasoning about. `semodule` is stubbed as a shell function (like `systemctl` in services.sh
-# and `semanage` in relabel.sh), emitting one printf per line the way a C program with a 4 KiB stdio buffer does --
-# a single-write listing would deliver everything before any reader could exit and hide the regression. The probe is
-# driven repeatedly because one passing run is no evidence about a race.
+# --- The loaded probe survives a full-size module listing ---
+# ai_tools_selinux_groups__is_loaded reads `semodule -l`, which on a real host is several hundred lines, more than
+# one write delivers, and an ai_tools* name sorts early: the listing ref-section-d9x2 describes, where a search
+# reading the pipe can report NOT LOADED for a module that IS. `semodule` is stubbed as a shell function
+# (like `systemctl` in services.sh and `semanage` in relabel.sh) emitting one printf per line, since a single-write
+# listing delivers every line before a reader can exit and hides the regression. The probe is driven repeatedly
+# because one passing run is no evidence about a race.
 semodule() {
     [[ "${1:-}" == -l ]] || return 1
     printf '%s\n' abrt accountsd acct afs aiccu aide ajaxterm ai_tools ai_tools_tmpmap
@@ -162,6 +160,24 @@ if ai_tools_selinux_groups__is_loaded definitelynotloaded; then
     fail "group_loaded reported an absent module as loaded"
 else
     pass "group_loaded reports an absent module as absent"
+fi
+# The name is matched as a fixed string against the whole line, and an empty name is not loaded: a here-string
+# of an empty listing is one empty line, which an empty name would match.
+if ai_tools_selinux_groups__is_module_loaded ai_tools && ! ai_tools_selinux_groups__is_module_loaded ai_tools_tmp; then
+    pass "a loaded name is loaded, and a name that opens a loaded module's is not"
+else
+    fail "the module probe did not match the whole line: ai_tools must be loaded and ai_tools_tmp must not"
+fi
+if ai_tools_selinux_groups__is_module_loaded 'ai_tools.*'; then
+    fail "the module probe read the name ai_tools.* as a pattern"
+else
+    pass "a name holding a regex metacharacter is matched as written"
+fi
+semodule() { return 1; }
+if ai_tools_selinux_groups__is_module_loaded ''; then
+    fail "an empty name read as loaded over a listing semodule refused"
+else
+    pass "an empty name is not loaded, whatever the listing"
 fi
 
 # --- A compiled module's version is read from its header and held against the range this host reads ---
@@ -282,7 +298,7 @@ if [[ -f "${SHIPPED}" ]] && mapfile -t shipped < <(bash "${SHIPPED}") && (( ${#s
 else
     fail "shipped-modules.sh did not derive a module set"
 fi
-is_shipped() { printf '%s\n' "${shipped[@]}" | grep -qx "$1"; }
+is_shipped() { is_listed "$1" "${shipped[@]}"; }
 
 # The core is on the list unconditionally, and every name on it has the .te source the build compiles from -- a derived
 # name with no source is a build that fails at make.
@@ -334,7 +350,7 @@ for te in "${POL}"/ai_tools_*.te; do
     base="$(basename "${te}" .te)"; gname="${base#ai_tools_}"
     if ai_tools_selinux_groups__is_valid "${gname}"; then
         pass "policy module '${base}' is registered"
-    elif printf '%s\n' "${layout_modules[@]}" | grep -qx "${base}"; then
+    elif is_listed "${base}" "${layout_modules[@]}"; then
         if is_shipped "${base}"; then
             pass "layout module '${base}' is declared by an integration manifest and is on the shipped set"
         else

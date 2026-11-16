@@ -204,8 +204,7 @@ assert_emitted "a unit inside a DOT-NAMED parent cannot hide from the walk" \
 # A slice root that holds tasks directly is itself a session -- the "belongs to no unit at all" case, reported rather
 # than skipped. Asserted on the absolute path, since its slice-relative form is the empty string.
 printf '%s\n' "$(fixture_pid 999)" > "${CG}/cgroup.procs"
-# Captured, not piped into `grep -q`: under `pipefail` grep's early exit SIGPIPEs the producer and the pipeline reports
-# 141 even on a match.
+# Captured ahead of the search (ref-section-d9x2).
 slice_root_emission="$(find_session_cgroups)"
 if grep -qxF "${CG}" <<< "${slice_root_emission}"; then
     pass "a slice ROOT holding tasks directly is emitted"
@@ -504,22 +503,23 @@ else
 fi
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/proj/alpha/sub/dir"
 
-# AGENT ROWS ARE IN PROJECT ORDER, EACH PROJECT BY ITS DIRECTORY'S NAME. The order compares the paths bytewise,
+# AGENT ROWS ARE IN PROJECT ORDER, EACH PROJECT BY ITS FULL PATH. The order compares the paths bytewise,
 # so proj/alpha, proj/alpha-extra and proj/alpha/sub/dir come in that order whatever order the walk found them
-# in, and each row shows the last component alone. Two projects sharing that name in different directories each show
-# the full path, so they are not read as one; a third with a name of its own keeps its name.
+# in, and each row shows the whole path: a directory's name alone does not say which checkout the stop reaches,
+# since the other checkouts of that name are not in the table. Two projects sharing a name in different
+# directories therefore read apart without a rule of their own, and the order stays the paths' order.
 run_main true
 agent_rows="$(awk '/^  ai-tools-claude-code-2[123]\.service / { print $1 " " $NF }' <<< "${MAIN_OUTPUT}" | tr '\n' '|')"
-if [[ "${agent_rows}" == "ai-tools-claude-code-21.service alpha|ai-tools-claude-code-23.service alpha-extra|ai-tools-claude-code-22.service dir|" ]]; then
-    pass "agent rows are in project order, each project shown by its directory's name"
+if [[ "${agent_rows}" == "ai-tools-claude-code-21.service ${TESTDIR}/proj/alpha|ai-tools-claude-code-23.service ${TESTDIR}/proj/alpha-extra|ai-tools-claude-code-22.service ${TESTDIR}/proj/alpha/sub/dir|" ]]; then
+    pass "agent rows are in project order, each project shown by its full path"
 else
-    fail "agent rows in project order by name: '${agent_rows}'"
+    fail "agent rows in project order by path: '${agent_rows}'"
 fi
 FIXTURE_WORKING_DIR[ai-tools-claude-code-22.service]="${TESTDIR}/other/alpha"
 run_main true
 agent_rows="$(awk '/^  ai-tools-claude-code-2[123]\.service / { print $1 " " $NF }' <<< "${MAIN_OUTPUT}" | tr '\n' '|')"
-if [[ "${agent_rows}" == "ai-tools-claude-code-22.service ${TESTDIR}/other/alpha|ai-tools-claude-code-21.service ${TESTDIR}/proj/alpha|ai-tools-claude-code-23.service alpha-extra|" ]]; then
-    pass "two projects sharing a directory name each show the full path, and a project with a name of its own its name"
+if [[ "${agent_rows}" == "ai-tools-claude-code-22.service ${TESTDIR}/other/alpha|ai-tools-claude-code-21.service ${TESTDIR}/proj/alpha|ai-tools-claude-code-23.service ${TESTDIR}/proj/alpha-extra|" ]]; then
+    pass "two projects sharing a directory name read apart by their full paths, in path order"
 else
     fail "projects sharing a name: '${agent_rows}'"
 fi
@@ -597,8 +597,8 @@ table_classes="$(awk '/^  SESSION / { rows = 1; next } /^  the processes in each
 if (( MAIN_STATUS == 0 )) \
         && grep -q "^3 agent session(s) would be terminated. Nothing was changed.$" <<< "${MAIN_OUTPUT}" \
         && [[ "${table_classes}" == "A A L A S S P " ]] \
-        && grep -A1 "^  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}" \
-            | grep -qE "^   \\\\_ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
+        && grep -qE "^   \\\\_ session-c150\\.scope +${launch_pid} +2 +- +\\(launch\\)$" \
+            <<<"$(grep -A1 "^  ai-tools-claude-code-${launch_pid}.service " <<< "${MAIN_OUTPUT}")" \
         && grep -qF "the processes in each: systemd-cgls --no-pager -u user-4242.slice" <<< "${MAIN_OUTPUT}"; then
     pass "a scope holding the pid an agent unit is named for is that session's launch scope, placed under it with that pid, and the table names the process view"
 else

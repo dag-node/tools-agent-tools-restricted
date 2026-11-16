@@ -779,12 +779,13 @@ else
     else
         fail "the group scan's .git paths: '$(grep '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
     fi
-    if grep -F -- "group-drift|${in_gitdrift}/deps/node_modules|" <<< "${in_out}" | grep -qF -- "|skip-listed|"; then
+    if grep -qF -- "|skip-listed|" \
+            <<<"$(grep -F -- "group-drift|${in_gitdrift}/deps/node_modules|" <<< "${in_out}")"; then
         pass "control: a moved-in node_modules directory reads skip-listed"
     else
         fail "control: the node_modules directory's record is not skip-listed -- the case below is not evidence: '$(grep '^group-drift' <<<"${in_out}" | tr '\n' '~')'"
     fi
-    if grep -F -- "group-drift|${in_gitdrift}/wt/.git|" <<< "${in_out}" | grep -qF -- "|reachable|"; then
+    if grep -qF -- "|reachable|" <<<"$(grep -F -- "group-drift|${in_gitdrift}/wt/.git|" <<< "${in_out}")"; then
         pass "the .git pointer file reads reachable, so the claim asks about its repair"
     else
         fail "the .git pointer file's record: '$(grep -F -- "${in_gitdrift}/wt/.git|" <<<"${in_out}" | tr '\n' '~')'"

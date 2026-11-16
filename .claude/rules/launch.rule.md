@@ -23,8 +23,8 @@ Every agent's command runs one wrapper, `/usr/local/bin/ai-tools-launch` (`ai-to
 as the invoking operator. An `ai-tools-agents-*` package ships its launcher as a symlink to it,
 `/usr/local/bin/<launcher>`, and the name the wrapper was invoked as (`$0`) selects the agent. `path-order.sh`, wired
 into the operator's dotfiles by `atr admin operators add`, ranks `/usr/local/bin` (Tier 1) ahead of the nvm shims,
-so a launcher shadows the nvm-managed one of the same name on the operator's PATH. The wrapper's startup hardening —
-the interpreter by absolute path in privileged mode, PATH pinned — is stated in its header.
+so a launcher shadows the nvm-managed one of the same name on the operator's PATH. The wrapper starts as a root helper
+does ([ref-section-g7c8](cli.rule.md#ref-section-g7c8)), with a `PATH` of its own that its header states.
 
 The gates are one implementation, `/usr/local/lib/ai-tools/launch-wrapper.lib.sh` (`644 root:root`,
 `ai-tools-base`-owned), and the wrapper is four calls into it: `ai_tools_launch_wrapper__init <name>`, which loads
@@ -148,12 +148,17 @@ atime and mtime, never ctime).
 
 **The entrypoint pin is compared in the same breath**, because that is the one place where hashing the file and starting
 it are adjacent. The pin is what root recorded after verifying this entrypoint against the checksum its vendor signed,
-in a directory this account cannot write (see [updater](updater.rule.md)); a **mismatch** means the binary changed
-after it was verified, and refuses the launch unconditionally. An **unpinned** entrypoint is a different fact
-and launches normally — it is equally the state of an air-gapped host, one whose vendor published no manifest
-for the installed release, and one that has not reconciled yet — unless `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY` declares
-otherwise, the same operator-asserts-intent shape as `AI_TOOLS_REQUIRE_SELINUX`. The verdict rides the per-launch audit
-line.
+in a directory this account cannot write (see [updater](updater.rule.md)); a **mismatch** means the binary changed after
+it was verified, and refuses the launch unconditionally. The refusal is worded from root's stale mark beside the pin: a
+mark reading `release-unverified` whose checksum is the launched binary's names the release the reconcile could not
+verify (`MSG-P9G4`), and every other mismatch names a changed binary (`MSG-H7S2`). An **unpinned** entrypoint is a
+different fact and launches normally — it is equally the state of an air-gapped host, one whose vendor published no
+manifest for the installed release, and one that has not reconciled yet — unless `AI_TOOLS_REQUIRE_ENTRYPOINT_VERIFY`
+declares otherwise, the same operator-asserts-intent shape as `AI_TOOLS_REQUIRE_SELINUX`. The verdict rides the
+per-launch audit line. That line also carries `pin_dir=override`, and not the path, for a launch whose caller set
+`AI_TOOLS_ENTRYPOINT_PIN_DIR` to a non-empty value, the root-only test hook that moves the directory the pin is read
+from ([ref-section-b4y9](tests.rule.md#ref-section-b4y9)); sudoers does not keep the name, so a launch through `sudo`
+does not carry the field.
 
 That re-check **narrows** the window a concurrent same-uid process would have to win, from the whole preflight
 to the `systemd-run` round trip; it does not close it. Only an exec root the agent cannot write does —
@@ -202,6 +207,16 @@ It **pins** three things itself: `HOME=/opt/ai-tools`, `SHELL=/usr/bin/bash`, an
 identity and shell tooling are the sandbox's rather than whatever the operator's login carries. `HOME` stays
 `/opt/ai-tools` because the agent's control plane (`settings.json`, the hooks) is root-owned and `ai_tools_home_t`,
 and is not relocated into the agent-writable project tree.
+
+**The shim itself starts as a root helper does** ([ref-section-g7c8](cli.rule.md#ref-section-g7c8) holds the lines
+and their limits). It runs its commands by name as the sandbox account before the unit exists, outside `ai_tools_t`
+and the unit's properties, and under those lines each one resolves in a root-owned system directory. The route the lines
+decide is an operator's direct `sudo -u SANDBOX_USER /opt/ai-tools/bin/ai-tools-run`, which the `%ai-ops` rule permits,
+on a host whose sudoers does not set `secure_path`: `sudo` then hands the shim the operator's own `PATH`,
+where the wrapper's route hands it the wrapper's, root-owned directories alone. That `PATH` is the shim's alone:
+the session's is assembled apart from it and handed to the unit. `tests/integration/ai-tools-run.sh` runs the installed
+shim under a `PATH` led by recorders, and the static read and the boundary half are the helpers'
+([tests](tests.rule.md)).
 
 Everything **agent-specific** — a config directory, a compile cache, an autoupdater switch — is pinned by that agent's
 own session-env fragment rather than here, so the shim stays agent-agnostic (see [providers](providers.rule.md),

@@ -13,12 +13,13 @@ its own package build (`.el9`, `.el10`, `.fc44`), smoke-tested per commit;
 Fedora takes the release package from the `fedora/` path of the repository (the
 front page carries the line). Other distributions are untested: the design
 assumes systemd user instances with lingering, `sudo`, and EL filesystem
-conventions. SELinux in enforcing mode with the targeted policy is
-where the session's own domain applies; a host without it runs in a DAC-only
-posture instead, and says so at every launch until the operator declares it
-([SELinux](../system/selinux.md)). The install itself needs the network once,
-for `atr admin system bootstrap`, which fetches the Node toolchain
-and the agent; after that a systemd timer keeps both current
+conventions. A host runs SELinux in enforcing mode with the targeted policy
+and `ai-tools-selinux`, which puts each session in its own domain; a host
+without them refuses every launch until SELinux enforces and the policy is
+installed. A container, where SELinux reads `Disabled`, declares itself
+DAC-only instead ([SELinux](../system/selinux.md)). The install itself needs
+the network once, for `atr admin system bootstrap`, which fetches the Node
+toolchain and the agent; after that a systemd timer keeps both current
 ([Upgrade](upgrade.md)). Run without a route to the download hosts,
 that command says so, applies every step that does not need a download,
 and leaves a toolchain that is already installed as it is; it stops where none
@@ -33,9 +34,9 @@ Two properties hold across every install:
   signed repository, every package it depends on comes from the distribution's,
   and the install does not add a `pip` or a host-level `npm` step.
 - **The agent toolchain is installed into the sandbox account, not
-  onto the host.** Node and the agent live under `/opt/ai-tools`, which your
-  own account cannot traverse, so your `PATH` is unchanged and a second Node
-  does not appear for any other user.
+  onto the host.** Node and the agent live under `/opt/ai-tools/.nvm`,
+  which your own account cannot traverse, so your `PATH` is unchanged
+  and a second Node does not appear for any other user.
 
 Each optional piece is a weak dependency, so a host installs the base and drops
 what it does not want: the agent packages, the integrations, and the SELinux
@@ -57,8 +58,8 @@ the key's fingerprint out of band before you import it.
 `ai-tools` is a metapackage pulling the full stack — the agents,
 the integrations, and the toolchain. Name `ai-tools-selinux` on the same `dnf`
 line: it is a `Recommends`, so a minimal image installing without weak
-dependencies would otherwise come up unconfined. Drop it only for a deliberate
-DAC-only deployment.
+dependencies would otherwise refuse every launch. Drop it only in a container,
+which runs DAC-only.
 
 ## After the packages are on
 

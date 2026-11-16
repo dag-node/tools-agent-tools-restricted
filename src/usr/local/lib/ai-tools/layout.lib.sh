@@ -53,7 +53,9 @@ for _ai_tools_layout__required in ai_tools_conf__is_trusted ai_tools_conf__read_
         ai_tools_conf__is_portable_name_valid \
         ai_tools_conf__read_untrusted_reason ai_tools_conf__read_unreadable_reason \
         ai_tools_providers__read_agent_manifest_field ai_tools_control_plane__is_agent_config_dir_valid \
-        ai_tools_records_base__read_subject_type ai_tools_records_tsv__encode_field ai_tools_records_tsv__decode_field \
+        ai_tools_records_base__read_subject_type ai_tools_records_base__read_subject_attributes \
+        ai_tools_records_base__read_collector \
+        ai_tools_records_tsv__encode_field ai_tools_records_tsv__decode_field \
         ai_tools_records_tsv__frame_item_components ai_tools_records_tsv__write_record \
         ai_tools_project_permissions__get_context_type ai_tools_log__sanitize; do
     declare -F "${_ai_tools_layout__required}" >/dev/null 2>&1 || { unset _ai_tools_layout__required; return 1; }
@@ -627,14 +629,14 @@ _ai_tools_layout__append_dynamic_entries() {
     local _layout_dynamic_group _layout_dynamic_entry _layout_dynamic_line _layout_dynamic_index
     local _layout_dynamic_registry_state _layout_dynamic_flag _layout_dynamic_raw _layout_dynamic_reason
     local -a _layout_dynamic_operators=()
-    # The registry is `~/.config/ai-tools/project-registry`; a `~/.config/ai-tools/allowed-projects` an earlier release
-    # wrote is the registry every reader takes until `system post-upgrade` migrates it, so it holds the same row,
-    # optional, while it exists, and for that operator the `~/.config/ai-tools/project-registry` row is optional until
-    # then: the migration creates it, and `system post-upgrade --check` reports the operator as unmigrated.
-    local -a _layout_dynamic_relative=( "" /project-registry /allowed-projects /secret-patterns )
-    local -a _layout_dynamic_types=( directory file file file )
-    local -a _layout_dynamic_modes=( 0700 0600 0600 0600 )
-    local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' 'optional,boundary' )
+    # The registry is `~/.config/ai-tools/project-registry`. A `~/.config/ai-tools/allowed-projects` an earlier release
+    # wrote does not take a row: its readers hold it to their own checks until `system post-upgrade` migrates it,
+    # and while it exists the `~/.config/ai-tools/project-registry` row is optional, since the migration creates
+    # that file and `system post-upgrade --check` reports the operator as unmigrated.
+    local -a _layout_dynamic_relative=( "" /project-registry /secret-patterns )
+    local -a _layout_dynamic_types=( directory file file )
+    local -a _layout_dynamic_modes=( 0700 0600 0600 )
+    local -a _layout_dynamic_flags=( boundary boundary 'optional,boundary' )
     local -A _layout_dynamic_homes=() _layout_dynamic_declared=()
     _layout_dynamic_root="$(_ai_tools_layout__get_path_prefix)"
     for _layout_dynamic_entry in "${_AI_TOOLS_LAYOUT__STATIC_ENTRIES[@]}"; do
@@ -702,7 +704,7 @@ _ai_tools_layout__append_dynamic_entries() {
         _layout_dynamic_errors+=( "${_layout_dynamic_line}" )
     fi
 
-    # Four rows per enrolled operator. The list reader's status 1 is the complete empty set (no OPERATORS key); 2
+    # The rows of each enrolled operator. The list reader's status 1 is the complete empty set (no OPERATORS key); 2
     # and an untrusted file are an `error` line, as is a value the reader does not parse as a list, which it reports
     # as an empty array with ai_tools_conf__list_invalid set.
     _layout_dynamic_status=0
@@ -817,20 +819,17 @@ ai_tools_layout__list_entries() {
 }
 
 # ai_tools_layout__read_entry_lines <array-var> : the entry set into the caller's indexed array, read as a collector
-# (records.rule.md): ai_tools_layout__list_entries opened on a descriptor with its PID saved on the same statement, its
-# lines read, then waited for. A status the lines do not account for appends one `error` line naming it -- status 1
-# with no `error` line among them, or any status other than 0 and 1 -- so an enumerator that ended on a shell error
-# or a signal reads as an incomplete discovery and never as a complete smaller set. Returns the enumerator's status,
-# and 2 without writing while the table did not validate or when the name is refused as read_entry_state refuses one.
+# (records.rule.md): ai_tools_layout__list_entries run through ai_tools_records_base__read_collector, which returns its
+# lines and its status. A status the lines do not account for appends one `error` line naming it -- status 1 with no
+# `error` line among them, or any status other than 0 and 1 -- so an enumerator that ended on a shell error or a signal
+# reads as an incomplete discovery and never as a complete smaller set. Returns the enumerator's status, and 2 without
+# writing while the table did not validate or when the name is refused as read_entry_state or the reader refuses one.
 ai_tools_layout__read_entry_lines() {
     [[ -z "${AI_TOOLS_LAYOUT__DECLARATION_ERROR}" ]] || return 2
     _ai_tools_layout__is_output_name_valid "$1" list || return 2
     local -n _layout_lines_out="$1"
-    local _layout_lines_fd _layout_lines_pid _layout_lines_status=0 _layout_lines_line _layout_lines_reason=""
-    exec {_layout_lines_fd}< <(ai_tools_layout__list_entries); _layout_lines_pid=$!
-    mapfile -t -u "${_layout_lines_fd}" _layout_lines_out
-    exec {_layout_lines_fd}<&-
-    wait "${_layout_lines_pid}" || _layout_lines_status=$?
+    local _layout_lines_status=0 _layout_lines_line _layout_lines_reason=""
+    ai_tools_records_base__read_collector "$1" _layout_lines_status ai_tools_layout__list_entries || return 2
     case "${_layout_lines_status}" in
         0) ;;
         1) _layout_lines_reason="the entry set ended without reporting its incomplete discovery"
@@ -888,6 +887,12 @@ _ai_tools_layout__read_selinux_state() {
 # for a line another program wrote that a record carries.
 _ai_tools_layout__format_external_reason() { ai_tools_log__sanitize "${1:0:120}"; }
 
+# _ai_tools_layout__list_rpm_verify_lines <package> : the lines `rpm -Vv` prints for one package under the C locale,
+# stderr merged, with the checks the content verdict does not read left out; exits with rpm's status.
+_ai_tools_layout__list_rpm_verify_lines() {
+    LC_ALL=C rpm -Vv --nodeps --noscripts --nouser --nogroup --nomode --nomtime --nordev --nocaps --nolinkto -- "$1" 2>&1
+}
+
 # _ai_tools_layout__list_package_verify_results <package> : the rpm -V collector for one package, verbose so every
 # payload file prints a line (`.........` for one that passed), which is the positive evidence a `verified` state rests
 # on. Prints one line per path, `<flags><TAB><path><TAB><state><TAB><errno text>` with the root prefixed,
@@ -902,11 +907,11 @@ _ai_tools_layout__format_external_reason() { ai_tools_log__sanitize "${1:0:120}"
 # and does not hold a space, so the parse stays unambiguous across the marker sets rpm versions document.
 _ai_tools_layout__list_package_verify_results() {
     # The C locale for the match as for the command: the path range collates differently under UTF-8.
-    local LC_ALL=C root line body state fd pid status=0
+    local LC_ALL=C root line body state status=0
+    local -a lines=()
     root="$(_ai_tools_layout__get_path_prefix)"
-    exec {fd}< <(LC_ALL=C rpm -Vv --nodeps --noscripts --nouser --nogroup --nomode --nomtime --nordev --nocaps \
-        --nolinkto -- "$1" 2>&1); pid=$!
-    while IFS= read -r -u "${fd}" line; do
+    ai_tools_records_base__read_collector lines status _ai_tools_layout__list_rpm_verify_lines "$1"
+    for line in "${lines[@]}"; do
         body="${line}" state=""
         if [[ "${line}" =~ ^(.*)\ \((not installed|replaced|net shared|wrong color|no state|unknown state)\)$ ]]; then
             body="${BASH_REMATCH[1]}" state="${BASH_REMATCH[2]}"
@@ -920,8 +925,6 @@ _ai_tools_layout__list_package_verify_results() {
             printf 'error\t%s\n' "$(_ai_tools_layout__format_external_reason "${line}")"
         fi
     done
-    exec {fd}<&-
-    wait "${pid}" || status=$?
     return "${status}"
 }
 
@@ -935,7 +938,8 @@ _ai_tools_layout__list_package_verify_results() {
 # four fields, or where it exited 1 (differences found) without a difference line, or with any other status. Runs
 # in the caller's shell, so the arrays it fills are the pass's.
 _ai_tools_layout__read_package_verification() {
-    local package="$1" line flags rest path fd pid status=0 query reason="" differences=0
+    local package="$1" line flags rest path status=0 query reason="" differences=0
+    local -a lines=()
     [[ -z "${_AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES[${package}]+x}" ]] || return 0
     if (( _AI_TOOLS_LAYOUT__PASS_WITHOUT_RPM )); then
         _AI_TOOLS_LAYOUT__PACKAGE_VERIFICATION_STATES["${package}"]=unverified
@@ -958,9 +962,9 @@ _ai_tools_layout__read_package_verification() {
         fi
         return 0
     fi
-    exec {fd}< <(_ai_tools_layout__list_package_verify_results "${package}"); pid=$!
+    ai_tools_records_base__read_collector lines status _ai_tools_layout__list_package_verify_results "${package}"
     # Split by hand, since `IFS=$'\t' read` collapses an empty field (records.rule.md).
-    while IFS= read -r -u "${fd}" line; do
+    for line in "${lines[@]}"; do
         flags="${line%%$'\t'*}" rest="${line#*$'\t'}"
         if [[ "${flags}" == error || "${line}" != *$'\t'*$'\t'*$'\t'* ]]; then
             [[ -n "${reason}" ]] || reason="rpm -V ${package} printed a line the reader does not recognize: ${rest}"
@@ -972,8 +976,6 @@ _ai_tools_layout__read_package_verification() {
         _AI_TOOLS_LAYOUT__FILE_VERIFICATION_STATES["${path}"]="${rest%%$'\t'*}"
         _AI_TOOLS_LAYOUT__FILE_VERIFICATION_DETAILS["${path}"]="${rest#*$'\t'}"
     done
-    exec {fd}<&-
-    wait "${pid}" || status=$?
     if [[ -z "${reason}" ]]; then
         case "${status}" in
             0) ;;
@@ -1227,8 +1229,8 @@ ai_tools_layout__read_entry_state() {
     local _layout_path="${_layout_fields[0]}" _layout_subject_type="${_layout_fields[1]}"
     local _layout_owner="${_layout_fields[2]}" _layout_mode="${_layout_fields[3]}" _layout_acl="${_layout_fields[4]}"
     local _layout_package="${_layout_fields[5]}" _layout_flags="${_layout_fields[6]}"
-    local _layout_operator="${_layout_fields[7]}" _layout_observed_type _layout_status _layout_key _layout_content
-    local _layout_excluded
+    local _layout_operator="${_layout_fields[7]}" _layout_observed_type _layout_key _layout_content
+    local _layout_excluded _layout_observed_owner _layout_observed_mode _layout_attributes_status
     local -A _layout_expected_state=() _layout_observed_state=()
     _layout_state=()
     _layout_state["path"]="${_layout_path}"; _layout_state["operator"]="${_layout_operator}"
@@ -1245,13 +1247,15 @@ ai_tools_layout__read_entry_state() {
     _ai_tools_layout__is_content_verification_required "${_layout_subject_type}" "${_layout_flags}" \
         && _layout_expected_state["content_checked"]=1
 
-    _layout_status=0
-    _layout_observed_type="$(ai_tools_records_base__read_subject_type "${_layout_path}")" || _layout_status=$?
-    case "${_layout_status}" in
+    _layout_attributes_status=0
+    ai_tools_records_base__read_subject_attributes "${_layout_path}" _layout_observed_type _layout_observed_owner \
+        _layout_observed_mode || _layout_attributes_status=$?
+    case "${_layout_attributes_status}" in
         0) _layout_observed_state["type"]="${_layout_observed_type}" ;;
         2) _layout_observed_state["type"]=absent ;;
         *) _layout_observed_state["type"]=unreadable
-           _layout_observed_state["type_error"]="the entry is not a file, directory or link, or its type could not be read" ;;
+           _layout_observed_state["type_error"]="the entry is not a file, directory or link, or its type, owner"
+           _layout_observed_state["type_error"]+=" and mode could not be read or recognized" ;;
     esac
     # A package file rpm records as excluded at install -- `not installed`, as tsflags=nodocs leaves a documentation
     # file, or `net shared` -- is absent by rpm's own decision, which the row reads as it reads an optional absence.
@@ -1271,14 +1275,9 @@ ai_tools_layout__read_entry_state() {
         if [[ "${_layout_subject_type}" == link ]]; then
             [[ -e "${_layout_path}" ]] || _layout_observed_state["link_target"]=dangling
         fi
-        _layout_observed_state["owner"]="$(LC_ALL=C stat -c '%U:%G' -- "${_layout_path}" 2>/dev/null)" \
-            || _layout_observed_state["owner_error"]="stat could not read the owner"
+        _layout_observed_state["owner"]="${_layout_observed_owner}"
         if [[ "${_layout_subject_type}" != link ]]; then
-            if _layout_observed_state["mode"]="$(LC_ALL=C stat -c '%a' -- "${_layout_path}" 2>/dev/null)"; then
-                printf -v '_layout_observed_state[mode]' '%04d' "${_layout_observed_state[mode]}"
-            else
-                _layout_observed_state["mode_error"]="stat could not read the mode"
-            fi
+            printf -v '_layout_observed_state[mode]' '%04d' "${_layout_observed_mode}"
             _ai_tools_layout__read_acl "${_layout_path}" _layout_observed_state
             _ai_tools_layout__read_entry_label_types "${_layout_path}" _layout_expected_state _layout_observed_state
             if (( ${_layout_expected_state[content_checked]:-0} )); then
@@ -1298,19 +1297,24 @@ ai_tools_layout__read_entry_state() {
     return 0
 }
 
-# _ai_tools_layout__read_acl <path> <observed-var> : the full ACL text getfacl prints for the entry itself (`-P`),
-# in one observation, into <observed-var>[acl]; `acl_error` where getfacl is missing, exited non-zero, or printed a line
-# outside the ACL grammar (stderr is merged, so a warning is such a line).
+# _ai_tools_layout__list_acl_lines <path> : the lines getfacl prints for the entry itself (`-P`) under the C locale,
+# stderr merged; exits with getfacl's status.
+_ai_tools_layout__list_acl_lines() {
+    LC_ALL=C getfacl --absolute-names --omit-header --no-effective -P -- "$1" 2>&1
+}
+
+# _ai_tools_layout__read_acl <path> <observed-var> : the full ACL text getfacl prints for the entry itself, from one run
+# of it read as a collector (records.rule.md), into <observed-var>[acl]; `acl_error` where getfacl is missing, exited
+# non-zero, or printed a line outside the ACL grammar (stderr is merged, so a warning is such a line).
 _ai_tools_layout__read_acl() {
     local -n _layout_acl_observed="$2"
-    local _layout_acl_line _layout_acl_fd _layout_acl_pid _layout_acl_status=0 _layout_acl_bad=""
-    local -a _layout_acl_lines=()
+    local _layout_acl_line _layout_acl_status=0 _layout_acl_bad=""
+    local -a _layout_acl_lines=() _layout_acl_printed=()
     if ! command -v getfacl >/dev/null 2>&1; then
         _layout_acl_observed["acl_error"]="getfacl is not installed"; return 0
     fi
-    exec {_layout_acl_fd}< <(LC_ALL=C getfacl --absolute-names --omit-header --no-effective -P -- "$1" 2>&1)
-    _layout_acl_pid=$!
-    while IFS= read -r -u "${_layout_acl_fd}" _layout_acl_line; do
+    ai_tools_records_base__read_collector _layout_acl_printed _layout_acl_status _ai_tools_layout__list_acl_lines "$1"
+    for _layout_acl_line in "${_layout_acl_printed[@]}"; do
         [[ -n "${_layout_acl_line}" ]] || continue
         if [[ "${_layout_acl_line}" =~ ^(default:)?(user|group|mask|other):[^:]*:[rwx-]{3}$ ]]; then
             _layout_acl_lines+=( "${_layout_acl_line}" )
@@ -1318,8 +1322,6 @@ _ai_tools_layout__read_acl() {
             [[ -n "${_layout_acl_bad}" ]] || _layout_acl_bad="${_layout_acl_line}"
         fi
     done
-    exec {_layout_acl_fd}<&-
-    wait "${_layout_acl_pid}" || _layout_acl_status=$?
     if [[ -n "${_layout_acl_bad}" ]]; then
         _layout_acl_observed["acl_error"]="getfacl wrote: $(
             _ai_tools_layout__format_external_reason "${_layout_acl_bad}")"

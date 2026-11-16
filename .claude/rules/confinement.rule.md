@@ -144,7 +144,9 @@ only when the module is loaded) rather than read from the module store with `sem
 the account: `ai-tools-run` runs as the sandbox account, which cannot read the root-only store, so that read returns
 a systematic false "no" — which on the unresolved-label branch would fail *open*, launching DAC-only where the module is
 loaded. The `matchpathcon` probe does not need any privilege — it reads the world-readable file-contexts — and the agent
-cannot influence it, file-contexts and the shim both being root-owned.
+cannot influence it, file-contexts and the shim both being root-owned. A lookup that fails is an unread input:
+under the requirement it refuses as unattested, and is not read as the absent module, whose refusal names the policy
+install.
 
 `ai-tools-run` performs that probing and I/O; the launch-vs-refuse decision is the pure `ai_tools_confinement__evaluate`
 (`confinement.lib.sh`), which carries its inputs and the verdict token for each combination as its contract, and is
@@ -162,9 +164,11 @@ the shipped module does not carry, so the refusal asks for a report and names th
 domain does not block without `AI_TOOLS_REQUIRE_SELINUX`). Where the label does **not** resolve, the verdict splits
 on module presence: **present** means confinement is installed yet the transition is unverifiable, so it refuses
 (`unverifiable`, → `atr admin system entrypoints relabel`, or the policy package reinstalled) rather than launch
-DAC-only and silently drop confinement; **absent** means the SELinux layer was never installed here, so it launches —
-an intentional DAC-only deployment, cleared for a staged host with `semodule -r ai_tools` or permissive mode. The check
-is a no-op where SELinux is not enforcing, so DAC-only and permissive boxes are unaffected.
+DAC-only and silently drop confinement; **absent** means the SELinux layer was never installed here, which launches
+while `AI_TOOLS_REQUIRE_SELINUX` is `no`, the operator's declaration that the host is DAC-only, and refuses
+under the requirement (`require-policy-absent`). A module state that could not be read launches the same way under `no`,
+and refuses under the requirement (`require-unattested`). Under `no` the check is a no-op where SELinux is not
+enforcing, so DAC-only and permissive hosts launch.
 
 One residual the `matchpathcon` probe cannot see: a module **staged in the store but with its file-contexts never
 loaded** into the running policy reads as "absent" (the core-owned path resolves to its default type), so that narrow
@@ -188,10 +192,13 @@ and `atr audit` reads those back ([launch](launch.rule.md), [cli](cli.rule.md)).
 
 A vendored helper a package ships beside its entrypoint keeps `lib_t`, which the domain may **execute** — codex's `rg`,
 `zsh` and `bwrap` all start inside a session, as does every `bin_t` file under `corecmd_exec_bin` — so what the entry
-type decides is domain **entry**, not executability. Exactly one inode per package may carry it: the one the manifest
-declares and the pin checksums. An agent whose platform-specific dependency is hardlinked into the declared path answers
-to two names on one inode and therefore one label, so that is counted by inode (`tests/integration/selinux.sh`);
-the hardlink itself, and what else rests on it, are in [agent-claude-code](agent-claude-code.rule.md).
+type decides is domain **entry**, not executability. It sits on the names a package's manifest declares and on no other
+file of the package (`tests/integration/selinux.sh`), and the pin checksums the one the launcher resolves to. An agent
+whose platform-specific dependency is hardlinked into the declared path answers to two names on one inode, and its
+manifest declares each, so a relabel that walks by path leaves the one label. Where that package's install copied
+the file, the second name is a second inode of the entry type: no launcher is linked at it, and an exec of it
+from inside a session is recorded like one of the entrypoint. The hardlink itself, and what else rests on it, are
+in [agent-claude-code](agent-claude-code.rule.md).
 
 Executability reaches past `bin_t`. `corecmd_exec_bin` also calls `files_exec_all_base_ro_files` (selinux-policy 42.1.18
 on EL10.2), which grants `execute`, `execute_no_trans` and `map` on every `base_ro_file_type`, `usr_t` among them,
@@ -240,16 +247,19 @@ a defence-in-depth layer, not a DAC bypass.
 file carries it set. `ai-tools-run` reads it first, ahead of finding any SELinux tool, and passes it to the verdict,
 which then refuses every launch that does not show the session will run confined:
 
-- `require-not-enforcing` — SELinux is `Permissive`, or another value that is neither `Enforcing` nor `Disabled`.
+- `require-policy-absent` (`MSG-W2G6`) — SELinux is `Enforcing` or `Permissive` and the core module is neither live
+  nor on disk: the policy was never installed.
+- `require-not-enforcing` — SELinux is not `Enforcing`; `Disabled` refuses under `MSG-W2G6`, whose remedy is
+  `SELINUX=enforcing` and a reboot, and any other value names `setenforce 1`.
 - `require-inactive` — enforcing, the compiled core module is on the host, and its file-contexts are not live: installed
   and not loaded.
 - `require-permissive` (`MSG-Z5M5`) — `ai_tools_t` is a permissive domain, which a global `Enforcing` does not reveal.
 - `require-boolean` (`MSG-P3P8`) — a Boolean is not at the value a launch requires, so `ai_tools_t` would run
   under rules the host has not declared ([What the domain holds beyond the module's own
   rules](#what-the-domain-holds-beyond-the-modules-own-rules)).
-- `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing, the manager's
-  domain unreadable, the module's file-contexts not live with its file unread, or the per-domain mode or a gating
-  Boolean unread. The refusal names each input it lacked.
+- `require-unattested` (`MSG-A7E7`) — an input could not be read: `getenforce` or `matchpathcon` missing or failing,
+  the manager's domain unreadable, the module's file-contexts not live with its file unread, or the per-domain mode
+  or a gating Boolean unread. The refusal names each input it lacked.
 
 A definite fault outranks an unread input, so a refusal names what to change where one is known,
 and `require-unattested` prints one remedy per kind of input it lacked: a tool to install, the selinuxfs read, a Boolean
@@ -262,25 +272,25 @@ which does not run an interpreter or a library in the shim's unconfined window b
 status reports take every attestation input through `ai_tools_confinement__read_attestation_inputs`, so they cannot read
 a different set, and module presence through `ai_tools_confinement__read_module_present`.
 
-**Two states launch under the requirement, with a warning** (`ok-dac-only`, `MSG-K6W6`): SELinux `Disabled`, and a host
-whose core module is neither live nor on disk (`ai_tools_confinement__evaluate_dac_only_state`, the one predicate
-the verdict and both status reports read it by). Each is a host without SELinux confinement by its own configuration
-rather than by a fault, so no remedy a refusal names changes it, and with the file shipping the requirement set
-a refusal there would stop every launch on a host that never installed the policy. The warning names the line
-that declares the host DAC-only on purpose, `AI_TOOLS_REQUIRE_SELINUX=no`, which ends it, and the package that installs
-confinement. `Permissive` with the module present stays a refusal, since that host has confinement and has drifted
-from it. The status reports read the same predicate and count the warned launch as a finding under the requirement alone
+**A host without SELinux confinement by its own configuration refuses under the requirement** (`MSG-W2G6`): SELinux
+`Disabled`, and a host whose core module is neither live nor on disk (`ai_tools_confinement__evaluate_dac_only_state`,
+the one predicate the verdict, both status reports and the provisioning notice read it by). The refusal names the step
+that confines the host, and then the line that declares it DAC-only, `AI_TOOLS_REQUIRE_SELINUX=no`, which a container
+sets, since `getenforce` reads `Disabled` there; a host runs SELinux enforcing with the policy.
+`atr admin system bootstrap` and `install.sh install` name the state with the same remedies before a launch meets it
+(`MSG-F2X6`), through `ai_tools_confinement__read_required_dac_only_state`, and leave their exit status alone. No
+package scriptlet prints it, since rpm output goes unread on most hosts and both status reports count the state
 ([cli](cli.rule.md)).
 
 The requirement is in force unless `operator.conf` sets the key to a no value (`ai_tools_conf__is_no`): an absent key,
 a yes value, and a value in neither set — reported under `MSG-H7N5` and read as yes — each leave it standing, so a host
 runs DAC-only by its operator writing `no`, and the per-domain mode and the Booleans are read under every other value.
-`require` turns launches into refusals, or into the warned DAC-only launch, and does not turn any refusal into a launch:
-`mislabel` and `unverifiable` refuse at either setting, and `manager-domain` refuses a domain no `domtrans_pattern`
-covers at either setting, while an unreadable manager domain launches without `require` and refuses with it. The `no` is
-read only while `ai_tools_conf__is_trusted` holds for `operator.conf` (root-owned, non-group/other-writable, not
-a symlink), so the agent cannot clear the requirement; the Boolean files under selinuxfs and the policy store are root's
-to write (`tests/boundary/access.sh`).
+`require` turns launches into refusals and does not turn any refusal into a launch: `mislabel` and `unverifiable` refuse
+at either setting, and `manager-domain` refuses a domain no `domtrans_pattern` covers at either setting, while
+an unreadable manager domain launches without `require` and refuses with it. The `no` is read only while
+`ai_tools_conf__is_trusted` holds for `operator.conf` (root-owned, non-group/other-writable, not a symlink),
+so the agent cannot clear the requirement; the Boolean files under selinuxfs and the policy store are root's to write
+(`tests/boundary/access.sh`).
 
 **The check is a launch-time observation.** A Boolean switched on, a domain made permissive, or a module reloaded
 after a session started reaches that session without any refusal; the next launch reads the new state. Revalidating
@@ -289,7 +299,7 @@ a running session is `atr stop` and a relaunch.
 Every failed read of `require` resolves toward *less* access, as the other launch predicates do: an untrusted or absent
 `operator.conf`, a `conf.lib.sh` that did not load, and an absent key each read as the requirement
 (`ai_tools_confinement__is_selinux_required`), so a host whose file an operator's `no` cannot be read from refuses
-or warns as a host that never declared one. The package installs `operator.conf` as `0644 root:root`
+as a host that never declared one. The package installs `operator.conf` as `0644 root:root`
 and `tests/integration/perms.sh` asserts that ownership and mode, so a file failing `ai_tools_conf__is_trusted` is
 a misconfigured host rather than a state this model covers. The posture rides in the per-launch audit line
 (`require=yes|no`), with the per-domain mode and the Booleans read under it.
@@ -604,8 +614,9 @@ properties meet at that boundary:
   the corresponding source of every `.pp` the RPM built from it conveys; `make dist` refuses a tarball without
   the policy sources.
 - **Degradation.** The weak dependency is what `ai_tools_confinement__evaluate` already expects: a host without
-  the subpackage has no module in the store, which is the intentional DAC-only deployment that launches, not
-  the half-installed state that refuses. Dropping the policy costs confinement alone.
+  the subpackage has no module in the store, which is the DAC-only state and not the half-installed one: it launches
+  under `AI_TOOLS_REQUIRE_SELINUX=no`, and under the requirement it refuses naming the package install. Dropping
+  the policy costs confinement, and under the shipped requirement every launch.
 
 The load and unload scriptlets live in the subpackage, with the payload, so no cross-subpackage ordering question
 arises. `%post` runs `semodule -i` — into the running kernel policy, not only the module store, since the entrypoint

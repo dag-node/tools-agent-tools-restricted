@@ -237,8 +237,7 @@ dispatch_function() {  # dispatch_function <verb>: the function projects_dispatc
     ' "${CLI}"
 }
 calls_loader() {  # calls_loader <function>: the function's body in the CLI source calls load_target_registry_snapshot
-    # The body is captured before it is matched: `grep -q` exits on the match, and the writer it leaves would die of
-    # SIGPIPE, which pipefail reports as a failure.
+    # The body is captured ahead of the search (ref-section-d9x2).
     local body
     body="$(awk -v fn="$1" '$0 ~ "^" fn "\\(\\) \\{" { on=1; next } on && /^}/ { exit } on' "${CLI}" | sed 's/#.*//')"
     grep -qw load_target_registry_snapshot <<< "${body}"

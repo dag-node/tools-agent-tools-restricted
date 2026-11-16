@@ -69,9 +69,13 @@ expect_verdict ok 0 Permissive yes ai_tools_exec_t lib_t init_t
 expect_verdict ok 0 Disabled   yes ai_tools_exec_t lib_t init_t
 expect_verdict ok 0 unknown    yes ai_tools_exec_t lib_t init_t
 # Enforcing, label unresolved, and the module is ABSENT -> the SELinux layer was never installed on this host
-# (intentional DAC-only deployment), so launch. This is the sole remaining fail-open, gated on the module being absent
-# -- asserted, not incidental.
+# (intentional DAC-only deployment), so launch. This is the fail-open without the requirement, gated on the module being
+# absent or unread -- asserted, not incidental.
 expect_verdict ok 0 Enforcing no "" lib_t init_t
+# A module state that could not be read launches the same way: without the requirement the operator has declared
+# the host DAC-only, enforcing or not. The same inputs under the requirement refuse as unattested.
+expect_verdict ok 0 Enforcing "" "" lib_t init_t
+expect_verdict require-unattested 1 Enforcing "" "" lib_t init_t yes
 
 # ── The module-presence probe classifier (ai_tools_confinement__evaluate_module_present) ── ai-tools-run derives
 # the `module-present` verdict input from `matchpathcon` on a CORE-owned path, because it runs as the sandbox account
@@ -90,9 +94,8 @@ expect_module_present no  user_home_t         # module absent -> the path keeps 
 expect_module_present no  bin_t               # any non-ai_tools type -> not present
 expect_module_present no  ""                  # no match -> not present (stays fail-closed via the verdict)
 
-# ── AI_TOOLS_REQUIRE_SELINUX: the operator's declaration, shipped on. It turns launches into refusals, or into a warned
-# DAC-only launch where the host has no SELinux confinement by its own configuration, and does not turn any refusal
-# into a launch; every verdict without it is identical to the require=no path. ──
+# ── AI_TOOLS_REQUIRE_SELINUX: the operator's declaration, shipped on. It turns launches into refusals and does not turn
+# any refusal into a launch; every verdict without it is identical to the require=no path. ──
 section "confinement: AI_TOOLS_REQUIRE_SELINUX fail-closed (unit)"
 readonly CLEAN_BOOLEANS="nis_enabled=off domain_can_mmap_files=off domain_can_write_kmsg=off"
 # require=no reproduces the DAC-capable behaviour exactly (the explicit default is a no-op), and does not read
@@ -108,13 +111,18 @@ expect_verdict require-not-enforcing 1 Permissive no  ""              lib_t init
 expect_verdict require-inactive      1 Enforcing  no  ""              lib_t init_t yes no "" "" yes    # installed, not loaded
 expect_verdict require-unattested    1 Enforcing  no  ""              lib_t init_t yes no "" "" ""     # module file unread
 expect_verdict require-unattested    1 Enforcing  no  ""              lib_t init_t yes                 # a 6-argument caller
-# A host without SELinux confinement by its own configuration launches DAC-only under require=yes, and the shim warns:
-# SELinux disabled whatever else was read, or the policy neither live nor on disk. The label fault still outranks it.
-expect_verdict ok-dac-only 0 Disabled   yes ai_tools_exec_t lib_t init_t yes                           # SELinux off
-expect_verdict ok-dac-only 0 Disabled   ""  ""              ""    ""     yes                           # off, probes empty
-expect_verdict ok-dac-only 0 Enforcing  no  ""              lib_t init_t yes no "" "" no               # never installed
-expect_verdict ok-dac-only 0 Permissive no  ""              lib_t init_t yes no "" "" no               # never installed
-expect_verdict mislabel    1 Enforcing  no  ai_tools_exec_t lib_t init_t yes no "" "" no               # a label the module maps
+# A host without SELinux confinement by its own configuration refuses under require=yes and launches under no:
+# SELinux disabled whatever else was read, or the policy neither live nor on disk, in either mode. The label fault
+# still outranks it.
+expect_verdict require-not-enforcing 1 Disabled   yes ai_tools_exec_t lib_t init_t yes                 # SELinux off
+expect_verdict ok                    0 Disabled   yes ai_tools_exec_t lib_t init_t no
+expect_verdict require-not-enforcing 1 Disabled   ""  ""              ""    ""     yes                 # off, probes empty
+expect_verdict ok                    0 Disabled   ""  ""              ""    ""     no
+expect_verdict require-policy-absent 1 Enforcing  no  ""              lib_t init_t yes no "" "" no     # never installed
+expect_verdict ok                    0 Enforcing  no  ""              lib_t init_t no  no "" "" no
+expect_verdict require-policy-absent 1 Permissive no  ""              lib_t init_t yes no "" "" no     # never installed
+expect_verdict ok                    0 Permissive no  ""              lib_t init_t no  no "" "" no
+expect_verdict mislabel              1 Enforcing  no  ai_tools_exec_t lib_t init_t yes no "" "" no     # a label the module maps
 # require does NOT loosen or alter any already-fail-closed refusal: a mislabel/unverifiable still refuses whatever
 # the attestation says.
 expect_verdict mislabel       1 Enforcing yes ai_tools_exec_t lib_t           init_t       yes no "${CLEAN_BOOLEANS}"
@@ -229,7 +237,8 @@ expect_dac_only_state none          unknown    no  no     # not a documented mod
 
 # The policy-shipped reader answers from the module file's presence alone, and the module-present reader
 # from matchpathcon, so each is driven against a fixture: a file that exists, one that does not, a type the core module
-# maps and one it does not, and a host without matchpathcon, which reads as unread rather than as absent.
+# maps and one it does not, and a host without matchpathcon or with a lookup that fails, each of which reads as unread
+# rather than as absent.
 : > "${TESTDIR}/ai_tools.pp"
 expect_reader() {  # <description> <expected> <command...>
     local description="$1" expected="$2"; shift 2
@@ -247,6 +256,28 @@ expect_reader "module present: the core path maps to its type" yes \
 stub_probe_type=user_home_t
 expect_reader "module present: the core path keeps its default type" no \
     ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+matchpathcon() { printf '<<none>>\n'; }
+expect_reader "module present: no rule maps the core path (<<none>>)" no \
+    ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}"
+# expect_unread_module <description>: the reader returns 1 and prints nothing, which every caller records as an unread
+# input. A "no" here is the defect: with the compiled module absent too, it reads as a host without the policy,
+# which refuses with the install remedy and creates a clone unlabelled.
+expect_unread_module() {
+    local answer
+    if answer="$(ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null)"; then
+        fail "module present, $1: read as a value: ${answer:-∅}"
+    elif [[ -z "${answer}" ]]; then
+        pass "module present, $1 -> unread (rc 1, prints nothing)"
+    else
+        fail "module present, $1: printed ${answer}"
+    fi
+}
+matchpathcon() { printf 'selabel_lookup(%s) failed: Permission denied\n' "$2" >&2; return 1; }
+expect_unread_module "matchpathcon exits non-zero"
+matchpathcon() { printf 'system_u:object_r:ai_tools_home_t:s0\n'; return 1; }
+expect_unread_module "matchpathcon prints a context and exits non-zero"
+matchpathcon() { return 0; }
+expect_unread_module "matchpathcon prints no line"
 unset -f matchpathcon
 if answer="$(PATH=/nonexistent ai_tools_confinement__read_module_present "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" 2>/dev/null)"; then
     fail "module present without matchpathcon read as a value: ${answer}"
@@ -255,6 +286,67 @@ elif [[ -z "${answer}" ]]; then
 else
     fail "module present without matchpathcon printed ${answer}"
 fi
+
+section "confinement: the DAC-only requirement provisioning names (unit)"
+# ai_tools_confinement__read_required_dac_only_state names a host where every launch refuses on the requirement, so it
+# is driven in both directions: each DAC-only state under the requirement, and every reading where a launch does not
+# refuse on it or where an input was not read, which must stay silent. getenforce and matchpathcon are shell functions,
+# and the module file is a fixture path.
+expect_requirement() {  # <description> <expected|none> <operator-conf> <module-file>
+    local state status=0
+    state="$(ai_tools_confinement__read_required_dac_only_state "$3" "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" "$4" \
+                 2>/dev/null)" || status=$?
+    if [[ "$2" == none && -z "${state}" && "${status}" -eq 1 ]] \
+            || [[ "$2" != none && "${state}" == "$2" && "${status}" -eq 0 ]]; then
+        pass "requirement: $1 -> ${state:-none}"
+    else
+        fail "requirement: $1 -> ${state:-none} (rc ${status}); expected $2"
+    fi
+}
+getenforce() { [[ -z "${stub_mode}" ]] || printf '%s\n' "${stub_mode}"; }
+matchpathcon() { printf 'system_u:object_r:%s:s0\n' "${stub_probe_type}"; }
+stub_probe_type=user_home_t
+stub_mode=Disabled
+expect_requirement "an untrusted file, SELinux disabled" disabled "${TESTDIR}/untrusted.conf" "${TESTDIR}/missing.pp"
+expect_requirement "an absent file, SELinux disabled"    disabled "${TESTDIR}/missing.conf"   "${TESTDIR}/missing.pp"
+stub_mode=Enforcing
+expect_requirement "the policy neither live nor on disk, enforcing" module-absent "${TESTDIR}/missing.conf" \
+    "${TESTDIR}/missing.pp"
+stub_mode=Permissive
+expect_requirement "the policy neither live nor on disk, permissive" module-absent "${TESTDIR}/missing.conf" \
+    "${TESTDIR}/missing.pp"
+expect_requirement "permissive with the module file on disk" none "${TESTDIR}/missing.conf" "${TESTDIR}/ai_tools.pp"
+stub_mode=Enforcing stub_probe_type=ai_tools_home_t
+expect_requirement "a confined host" none "${TESTDIR}/missing.conf" "${TESTDIR}/missing.pp"
+stub_mode=""
+expect_requirement "getenforce prints nothing" none "${TESTDIR}/missing.conf" "${TESTDIR}/missing.pp"
+unset -f getenforce
+if answer="$(PATH=/nonexistent ai_tools_confinement__read_required_dac_only_state "${TESTDIR}/missing.conf" \
+                 "${AI_TOOLS_CONFINEMENT__MODULE_PROBE_PATH}" "${TESTDIR}/missing.pp" 2>/dev/null)"; then
+    fail "requirement: no getenforce read as a state: ${answer:-∅}"
+elif [[ -z "${answer}" ]]; then
+    pass "requirement: no getenforce -> none"
+else
+    fail "requirement: no getenforce printed ${answer}"
+fi
+getenforce() { [[ -z "${stub_mode}" ]] || printf '%s\n' "${stub_mode}"; }
+matchpathcon() { return 1; }
+expect_requirement "the module lookup fails, enforcing" none "${TESTDIR}/missing.conf" "${TESTDIR}/missing.pp"
+stub_mode=Disabled
+expect_requirement "the module lookup fails, SELinux disabled" disabled "${TESTDIR}/missing.conf" "${TESTDIR}/missing.pp"
+if [[ "${EUID}" -eq 0 && -e "${TESTDIR}/trusted-no.conf" ]]; then
+    expect_requirement "a trusted file without the key, SELinux disabled" disabled "${TESTDIR}/trusted-absent.conf" \
+        "${TESTDIR}/missing.pp"
+    expect_requirement "a trusted file setting no, SELinux disabled" none "${TESTDIR}/trusted-no.conf" \
+        "${TESTDIR}/missing.pp"
+    stub_mode=Enforcing
+    matchpathcon() { printf 'system_u:object_r:user_home_t:s0\n'; }
+    expect_requirement "a trusted file setting no, the policy absent" none "${TESTDIR}/trusted-no.conf" \
+        "${TESTDIR}/missing.pp"
+else
+    skip "requirement: the trusted-file cases" "a trusted operator.conf is root-owned; run as root"
+fi
+unset -f getenforce matchpathcon
 
 section "confinement: attestation record parser (unit)"
 # expect_parsed_inputs <description> <expected-line> <records>: the parser is what turns the reader's output

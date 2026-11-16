@@ -758,6 +758,32 @@ else
     else
         fail "out of place: refusal at ${refuse_line}, ownership at ${ownership_line}, network at ${network_line}, removal at ${remove_line}, install at ${install_line}"
     fi
+    # Linger is enabled once the account exists and before any step runs as it: without it the account's slice is
+    # stopped between two such steps, and a scope started during that stop is refused.
+    useradd_line="$(grep -n -m1 -E '^[[:space:]]+useradd --system ' "${SCRIPT}" | cut -d: -f1)" || true
+    linger_line="$(grep -n -m1 -F 'loginctl enable-linger "${SANDBOX_USER}"' "${SCRIPT}" | cut -d: -f1)" || true
+    links_line="$(grep -n -m1 -E '^restore_toolchain_links$' "${SCRIPT}" | cut -d: -f1)" || true
+    if [[ -z "${useradd_line}" || -z "${linger_line}" || -z "${links_line}" ]]; then
+        fail "the account creation, the linger step or the link repair is no longer where this reads it (account -> ${useradd_line:-none}, linger -> ${linger_line:-none}, links -> ${links_line:-none})"
+    elif (( useradd_line < linger_line && linger_line < links_line && links_line < remove_line && remove_line < install_line )); then
+        pass "linger is enabled after the account is created and before the link repair, the residue removal and the install run as it"
+    else
+        fail "out of place: account at ${useradd_line}, linger at ${linger_line}, links at ${links_line}, removal at ${remove_line}, install at ${install_line}"
+    fi
+    # The timer stamp is refreshed ahead of linger: a manager linger brings up starts a timer an earlier run enabled,
+    # and a stale stamp would start the updater beside this run's toolchain steps.
+    # shellcheck disable=SC2016
+    stamp_line="$(grep -n -m1 -F 'sudo -u "${SANDBOX_USER}" touch "${SANDBOX_HOME}/${CP_TIMER_STAMP_DIR}/${CP_UPDATE_TIMER_STAMP}"' \
+        "${SCRIPT}" | cut -d: -f1)" || true
+    # The reconcile places the stamp's directory first.
+    reconcile_line="$(grep -n -m1 -E '^reconcile_layout$' "${SCRIPT}" | cut -d: -f1)" || true
+    if [[ -z "${reconcile_line}" || -z "${stamp_line}" || -z "${linger_line}" ]]; then
+        fail "the reconcile, the stamp refresh or the linger step is no longer where this reads it (reconcile -> ${reconcile_line:-none}, stamp -> ${stamp_line:-none}, linger -> ${linger_line:-none})"
+    elif (( reconcile_line < stamp_line && stamp_line < linger_line )); then
+        pass "the reconcile places the stamp directory and the stamp is refreshed before linger brings the manager up"
+    else
+        fail "out of place: reconcile at ${reconcile_line}, the first stamp write at ${stamp_line}, linger at ${linger_line}"
+    fi
 fi
 
 # ── configure_git_identity: the gitconfig's attributes after the identity write ─────────────────────────────────
@@ -786,6 +812,89 @@ else
         fail "configure_git_identity still sets the gitconfig's owner or mode itself, apart from the applier"
     else
         pass "configure_git_identity leaves owner and mode to the applier"
+    fi
+fi
+
+# ── report_required_dac_only_state: the notice ahead of a launch that would refuse ────────────────────────────────────
+# The step names a host where AI_TOOLS_REQUIRE_SELINUX makes every launch refuse, so it is driven in both directions
+# over a stubbed reader (unit/confinement.sh drives the reader): each state prints the notice under its code with that
+# state's remedy and the line that declares the host DAC-only, a reader returning 1 prints nothing, and neither changes
+# the step's status, since the host is provisioned either way.
+section "ai-tools-admin system bootstrap: the DAC-only requirement notice (unit)"
+CONFINEMENT_LIB="/usr/local/lib/ai-tools/confinement.lib.sh"
+if [[ ! -r "${CONFINEMENT_LIB}" ]]; then
+    skip "DAC-only requirement notice" "the step reads ${CONFINEMENT_LIB}, which this host has not deployed"
+else
+    run_dac_only_notice() {  # run_dac_only_notice <reader-stub>
+        AI_TOOLS_OPERATOR_CONF=/etc/ai-tools/operator.conf bash -c '
+            set -euo pipefail
+            # shellcheck source=/dev/null
+            source "$1"
+            eval "$3"
+            # shellcheck source=/dev/null
+            source "$2"
+            declare -F report_required_dac_only_state >/dev/null 2>&1 || { printf "NO SUCH FUNCTION\n"; exit 0; }
+            rc=0; report_required_dac_only_state || rc=$?
+            printf "rc=%s\n" "${rc}"
+        ' _ "${CONFINEMENT_LIB}" "${HELPER}" "$1" 2>&1 || true
+    }
+    out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { printf "disabled\n"; }')"
+    if [[ "${out}" == *"NO SUCH FUNCTION"* ]]; then
+        fail "the helper does not define report_required_dac_only_state when sourced"
+    else
+        assert_msg MSG-F2X6 "${out}" "SELinux disabled under the requirement"
+        if grep -qF 'SELinux is disabled' <<<"${out}" && grep -qF 'refuses (MSG-W2G6)' <<<"${out}" \
+                && grep -qF 'SELINUX=enforcing in /etc/selinux/config' <<<"${out}" \
+                && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}" && grep -qx 'rc=0' <<<"${out}"; then
+            pass "SELinux disabled: the notice names the refusal, the enable step and the DAC-only line, at rc 0"
+        else
+            fail "SELinux disabled notice: $(tr '\n' '|' <<<"${out}")"
+        fi
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { printf "module-absent\n"; }')"
+        assert_msg MSG-F2X6 "${out}" "the policy not installed under the requirement"
+        if grep -qF 'policy is not installed' <<<"${out}" && grep -qF 'sudo dnf install ai-tools-selinux' <<<"${out}" \
+                && grep -qF 'selinux/install-selinux.sh install' <<<"${out}" \
+                && grep -qF 'AI_TOOLS_REQUIRE_SELINUX=no' <<<"${out}" && grep -qx 'rc=0' <<<"${out}"; then
+            pass "the policy not installed: the notice names both installs and the DAC-only line, at rc 0"
+        else
+            fail "policy not installed notice: $(tr '\n' '|' <<<"${out}")"
+        fi
+        # A Permissive host without the policy needs both steps, so the notice names the enforce step as well.
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { printf "module-absent\n"; }
+            getenforce() { printf "Permissive\n"; }')"
+        if grep -qF 'sudo dnf install ai-tools-selinux' <<<"${out}" && grep -qF 'sudo setenforce 1' <<<"${out}"; then
+            pass "the policy not installed on a Permissive host: the notice names the install and the enforce step"
+        else
+            fail "Permissive host without the policy: $(tr '\n' '|' <<<"${out}")"
+        fi
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { printf "module-absent\n"; }
+            getenforce() { printf "Enforcing\n"; }')"
+        if grep -qF 'sudo dnf install ai-tools-selinux' <<<"${out}" && ! grep -qF 'sudo setenforce 1' <<<"${out}"; then
+            pass "the policy not installed on an Enforcing host: the notice names the install alone"
+        else
+            fail "Enforcing host without the policy: $(tr '\n' '|' <<<"${out}")"
+        fi
+        out="$(run_dac_only_notice 'ai_tools_confinement__read_required_dac_only_state() { return 1; }')"
+        if [[ "${out}" == "rc=0" ]]; then
+            pass "a reader that names no state prints nothing, at rc 0"
+        else
+            fail "a reader naming no state still printed: $(tr '\n' '|' <<<"${out}")"
+        fi
+    fi
+fi
+# The notice follows the launch-requirements offer, which can write the other switch, and precedes the closing report.
+if [[ ! -r "${SCRIPT}" ]]; then
+    skip "the DAC-only notice's place" "not a checkout, so the helper cannot be read from the repository"
+else
+    offer_line="$(grep -n -m1 -x 'offer_launch_requirements' "${SCRIPT}" | cut -d: -f1)" || true
+    notice_line="$(grep -n -m1 -x 'report_required_dac_only_state' "${SCRIPT}" | cut -d: -f1)" || true
+    shadow_line="$(grep -n -m1 -x 'report_shadowed_operators' "${SCRIPT}" | cut -d: -f1)" || true
+    if [[ -z "${offer_line}" || -z "${notice_line}" || -z "${shadow_line}" ]]; then
+        fail "a closing step is no longer where this reads it (offer ${offer_line:-none}, notice ${notice_line:-none}, report ${shadow_line:-none})"
+    elif (( offer_line < notice_line && notice_line < shadow_line )); then
+        pass "the DAC-only notice runs after the launch-requirements offer and before the shadowed-operator report"
+    else
+        fail "the DAC-only notice (${notice_line}) is out of order (offer ${offer_line}, report ${shadow_line})"
     fi
 fi
 
